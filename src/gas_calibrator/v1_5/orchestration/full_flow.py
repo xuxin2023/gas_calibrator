@@ -650,6 +650,7 @@ def build_full_flow_live_runner_readiness(plan: FullFlowPlan) -> FullFlowLiveRun
                 "formal_initialization_readonly_com_preflight_controlled_blocked_executor_snapshot",
                 "formal_readonly_com_execution_contract_snapshot",
                 "formal_readonly_com_execution_blocked_executor_snapshot",
+                "formal_readonly_com_execution_packet_validator_snapshot",
                 "initialization_readiness_snapshot",
                 "pre_gas_readiness_snapshot",
             ),
@@ -993,6 +994,9 @@ def build_full_flow_plan(
     formal_readonly_com_execution_contract_dir = root / "formal_readonly_com_execution_contract"
     formal_readonly_com_execution_blocked_executor_dir = (
         root / "formal_readonly_com_execution_blocked_executor"
+    )
+    formal_readonly_com_execution_packet_validator_dir = (
+        root / "formal_readonly_com_execution_packet_validator"
     )
     pre_gas_readiness_dir = root / "pre_gas_readiness"
     getco_dir = root / "coefficient_epoch_0_getco_snapshot"
@@ -1439,6 +1443,41 @@ def build_full_flow_plan(
             notes=(
                 "This stub intentionally returns non-zero when --fail-on-blocked is used, proving real read-only COM remains locked.",
                 "A future real read-only COM executor must be a separate reviewed package with explicit authorization and read evidence.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
+            step_id="formal_readonly_com_execution_packet_validator_snapshot",
+            title="Validate future read-only COM execution packet inputs offline",
+            phase="FORMAL_READONLY_COM_EXECUTION_PACKET_VALIDATOR",
+            tool_module="gas_calibrator.tools.export_v1_5_formal_readonly_com_execution_packet_validator",
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_formal_readonly_com_execution_packet_validator",
+                "--formal-readonly-com-execution-blocked-executor-json",
+                formal_readonly_com_execution_blocked_executor_dir
+                / "v1_5_formal_readonly_com_execution_blocked_executor.json",
+                "--output-dir",
+                formal_readonly_com_execution_packet_validator_dir,
+            ),
+            required_inputs=("read-only COM execution blocked executor sidecar",),
+            expected_outputs=(
+                "formal_readonly_com_execution_packet_validator/v1_5_formal_readonly_com_execution_packet_validator.json",
+                "formal_readonly_com_execution_packet_validator/V1_5_FORMAL_READONLY_COM_EXECUTION_PACKET_VALIDATOR.md",
+                "formal_readonly_com_execution_packet_validator/v1_5_formal_readonly_com_execution_packet_validator_checks.csv",
+                "formal_readonly_com_execution_packet_validator/v1_5_formal_readonly_com_execution_packet_validator_summary.csv",
+            ),
+            physical_meaning=(
+                "Validate the future real read-only COM execution packet shape without opening COM: "
+                "authorization, reviewed port inventory, active analyzer list, >=1s pacing, SN/device_code, "
+                "new-algorithm CHECK requirement, old-algorithm CHECK skip, and no-write/no-route/no-database boundaries."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_before_future_readonly_real_com_executor_implementation",
+            notes=(
+                "The full-flow plan does not pass authorization, reviewed ports, active analyzers, or --execute-read-only-real-com.",
+                "A valid packet remains offline review evidence only; it is not live execution authorization.",
             ),
         )
     )
@@ -2660,6 +2699,9 @@ def build_full_flow_plan(
                 "--formal-readonly-com-execution-blocked-executor-json",
                 formal_readonly_com_execution_blocked_executor_dir
                 / "v1_5_formal_readonly_com_execution_blocked_executor.json",
+                "--formal-readonly-com-execution-packet-validator-json",
+                formal_readonly_com_execution_packet_validator_dir
+                / "v1_5_formal_readonly_com_execution_packet_validator.json",
                 "--pre-gas-readiness-json",
                 pre_gas_readiness_dir / "v1_5_pre_gas_readiness.json",
                 "--getco-readiness-json",
@@ -2695,6 +2737,7 @@ def build_full_flow_plan(
                 "controlled read-only initialization COM preflight blocked executor sidecar",
                 "read-only COM execution packet contract sidecar",
                 "read-only COM execution blocked executor sidecar",
+                "read-only COM execution packet validator sidecar",
                 "identity/GETCO readiness sidecar",
                 "pre-gas readiness sidecar",
                 "v1_5_run_evidence_status.json",
@@ -2781,6 +2824,7 @@ def build_full_flow_plan(
             "formal_initialization_readonly_com_preflight_controlled_blocked_executor_before_readonly_real_com",
             "formal_readonly_com_execution_contract_before_real_readonly_com",
             "formal_readonly_com_execution_blocked_executor_before_real_readonly_com",
+            "formal_readonly_com_execution_packet_validator_before_real_readonly_com",
             "device_identity_and_GETCO_snapshot",
             "identity_GETCO_readiness_snapshot",
             "controlled_auxiliary_SENCO5_6_7_8_9_neutralization_after_GETCO_backup",

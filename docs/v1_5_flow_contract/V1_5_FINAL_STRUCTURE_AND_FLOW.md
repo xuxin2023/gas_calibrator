@@ -43,6 +43,7 @@ V1.5 现在已经不是“找不到入口”的状态了。正式路径可以整
 | 初始化 read-only COM preflight 设计 | 固化未来只读真机 COM 预检的端口、节拍、身份、GETCO、CHECK 和 hold 合同 | `src/gas_calibrator/tools/export_v1_5_formal_initialization_readonly_com_preflight_design.py` | 只读设计评审；不实现 `--execute-read-only-real-com`，不打开 COM、不写 SN/设备 ID、不写 SENCO、不连接 PostgreSQL、不控压力/气路/水路。 |
 | 初始化 read-only COM preflight blocked executor | 运行未来只读真机 COM 预检的受阻 stub，证明 analyzer contact 仍被锁住 | `src/gas_calibrator/tools/run_v1_5_formal_initialization_readonly_com_preflight_blocked_executor.py` | 只读 stub；拒绝 `--execute-read-only-real-com`、`--allow-real-com`、授权字段和端口清单输入，不打开 COM、不写 SN/设备 ID、不写 SENCO、不连接 PostgreSQL、不控压力/气路/水路。 |
 | 初始化 read-only COM preflight controlled executor 设计 | 固化未来受控只读真机 COM 预检 executor 的授权、端口、读序、证据和 hold 合同 | `src/gas_calibrator/tools/export_v1_5_formal_initialization_readonly_com_preflight_controlled_executor_design.py` | 只读设计评审；消费 blocked executor 证据，但仍不实现 `--execute-read-only-real-com`，不打开 COM、不写 SN/设备 ID、不写 SENCO、不连接 PostgreSQL、不控压力/气路/水路。 |
+| Read-only COM execution packet validator | 离线校验未来只读 COM 执行授权包、端口清单、active analyzer list、1s 节拍和新旧算法 CHECK 规则 | `src/gas_calibrator/tools/export_v1_5_formal_readonly_com_execution_packet_validator.py` | 只读 packet validator；full-flow 默认不注入授权包，不打开 COM、不读分析仪、不写 SN/设备 ID、不写 SENCO、不连接 PostgreSQL、不控压力/气路/水路。 |
 | SN 身份 | 首次发现设备时分配/写入 8 位数字 SN | `src/gas_calibrator/tools/run_v1_5_sn_identity_initialization.py` | 只写 SN/device_code；不写 SENCO、不采样、不拟合。 |
 | 运行配置 | MODE2、1 Hz 主动上传、滤波/启动设置、CHECK 记录 | `src/gas_calibrator/tools/run_v1_5_analyzer_runtime_setup.py` | 串口命令最小间隔必须 `>=1.0s`。 |
 | 初始化数据库 | 把身份、run_device、GETCO 快照、runtime setup 入库 | `src/gas_calibrator/tools/run_v1_5_initialization_db_preflight.py` | 正式库目标为 PostgreSQL 18；支持 SN/device_code 和设备 ID 兼容查询。 |
@@ -89,6 +90,10 @@ V1.5 现在已经不是“找不到入口”的状态了。正式路径可以整
 ### Read-only COM execution packet contract addendum
 
 `src/gas_calibrator/tools/export_v1_5_formal_readonly_com_execution_contract.py` is the offline contract layer after the controlled blocked executor. It defines the future real read-only COM execution packet fields: explicit `--execute-read-only-real-com`, authorization id, operator confirmation, reviewer, approver, reviewed port inventory, active analyzer list, 1s serial pacing, read order, old-algorithm CHECK skip behavior, and denied write/database/route actions. It does not accept those future authorization fields as unlocks, does not open COM, and does not produce real acceptance evidence.
+
+### Read-only COM execution packet validator addendum
+
+`src/gas_calibrator/tools/export_v1_5_formal_readonly_com_execution_packet_validator.py` is the offline validator between the blocked read-only COM executor and initialization readiness. It accepts only JSON packet inputs when run manually for review, validates operator authorization, reviewed COM/GA inventory, 1 to 6 active analyzers, 8-digit SN/device_code, unique protocol/transport mapping, `>=1.0s` command and retry pacing, new-algorithm CHECK-capable requirements, and old-algorithm CHECK skip behavior. The full-flow planner deliberately calls it without authorization packet inputs, so it proves the validator is wired while keeping real COM execution blocked. It does not implement `--execute-read-only-real-com`, open COM, read analyzers, write SN/device_code, write SENCO, connect PostgreSQL, control pressure, or control gas/water routes.
 
 ## 4. 初始化层的正式过程
 

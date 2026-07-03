@@ -36,6 +36,7 @@ def _pre_identity_offline_steps():
         "formal_initialization_readonly_com_preflight_controlled_blocked_executor_snapshot",
         "formal_readonly_com_execution_contract_snapshot",
         "formal_readonly_com_execution_blocked_executor_snapshot",
+        "formal_readonly_com_execution_packet_validator_snapshot",
         "initialization_readiness_snapshot",
         "pre_gas_readiness_snapshot",
     ]
@@ -89,6 +90,11 @@ def test_full_flow_plan_keeps_pressure_and_temperature_before_components(tmp_pat
     )
     assert step_ids.index(
         "formal_readonly_com_execution_blocked_executor_snapshot"
+    ) < step_ids.index(
+        "formal_readonly_com_execution_packet_validator_snapshot"
+    )
+    assert step_ids.index(
+        "formal_readonly_com_execution_packet_validator_snapshot"
     ) < step_ids.index(
         "initialization_readiness_snapshot"
     )
@@ -194,6 +200,9 @@ def test_full_flow_initialization_contract_stage_is_offline_only(tmp_path):
     readonly_com_execution_blocked_executor = next(
         step for step in plan.steps if step.step_id == "formal_readonly_com_execution_blocked_executor_snapshot"
     )
+    readonly_com_execution_packet_validator = next(
+        step for step in plan.steps if step.step_id == "formal_readonly_com_execution_packet_validator_snapshot"
+    )
     readiness = next(step for step in plan.steps if step.step_id == "initialization_readiness_snapshot")
     pre_gas = next(step for step in plan.steps if step.step_id == "pre_gas_readiness_snapshot")
     init_command = list(init_plan.command)
@@ -208,6 +217,7 @@ def test_full_flow_initialization_contract_stage_is_offline_only(tmp_path):
     )
     readonly_com_execution_contract_command = list(readonly_com_execution_contract.command)
     readonly_com_execution_blocked_executor_command = list(readonly_com_execution_blocked_executor.command)
+    readonly_com_execution_packet_validator_command = list(readonly_com_execution_packet_validator.command)
     readiness_command = list(readiness.command)
     pre_gas_command = list(pre_gas.command)
 
@@ -455,6 +465,38 @@ def test_full_flow_initialization_contract_stage_is_offline_only(tmp_path):
         readonly_com_execution_blocked_executor.expected_outputs
     )
 
+    assert readonly_com_execution_packet_validator.execution_mode == "offline_sidecar"
+    assert readonly_com_execution_packet_validator.opens_com_ports is False
+    assert readonly_com_execution_packet_validator.writes_coefficients is False
+    assert readonly_com_execution_packet_validator.writes_device_id is False
+    assert readonly_com_execution_packet_validator.controls_pressure is False
+    assert readonly_com_execution_packet_validator.controls_gas_route is False
+    assert readonly_com_execution_packet_validator.controls_water_route is False
+    assert readonly_com_execution_packet_validator.tool_module == (
+        "gas_calibrator.tools.export_v1_5_formal_readonly_com_execution_packet_validator"
+    )
+    assert _flag_value(
+        readonly_com_execution_packet_validator_command,
+        "--formal-readonly-com-execution-blocked-executor-json",
+    ).endswith(
+        "formal_readonly_com_execution_blocked_executor\\v1_5_formal_readonly_com_execution_blocked_executor.json"
+    )
+    assert _flag_value(readonly_com_execution_packet_validator_command, "--output-dir") == str(
+        (tmp_path / "plan" / "formal_readonly_com_execution_packet_validator").resolve()
+    )
+    assert "--execute" not in readonly_com_execution_packet_validator_command
+    assert "--execute-read-only-real-com" not in readonly_com_execution_packet_validator_command
+    assert "--allow-real-com" not in readonly_com_execution_packet_validator_command
+    assert "--execute-controlled-writes" not in readonly_com_execution_packet_validator_command
+    assert "--operator-confirmation-text" not in readonly_com_execution_packet_validator_command
+    assert "--authorization-id" not in readonly_com_execution_packet_validator_command
+    assert "--authorization-packet-json" not in readonly_com_execution_packet_validator_command
+    assert "--reviewed-port-inventory-json" not in readonly_com_execution_packet_validator_command
+    assert "--active-analyzer-list-json" not in readonly_com_execution_packet_validator_command
+    assert "v1_5_formal_readonly_com_execution_packet_validator.json" in " ".join(
+        readonly_com_execution_packet_validator.expected_outputs
+    )
+
     assert readiness.execution_mode == "offline_sidecar"
     assert readiness.opens_com_ports is False
     assert readiness.writes_coefficients is False
@@ -619,11 +661,12 @@ def test_full_flow_live_runner_readiness_lists_controlled_live_gates(tmp_path):
         "formal_initialization_controlled_executor_design_snapshot",
         "formal_initialization_readonly_com_preflight_design_snapshot",
         "formal_initialization_readonly_com_preflight_blocked_executor_snapshot",
-            "formal_initialization_readonly_com_preflight_controlled_executor_design_snapshot",
-            "formal_initialization_readonly_com_preflight_controlled_blocked_executor_snapshot",
-            "formal_readonly_com_execution_contract_snapshot",
-            "formal_readonly_com_execution_blocked_executor_snapshot",
-            "initialization_readiness_snapshot",
+        "formal_initialization_readonly_com_preflight_controlled_executor_design_snapshot",
+        "formal_initialization_readonly_com_preflight_controlled_blocked_executor_snapshot",
+        "formal_readonly_com_execution_contract_snapshot",
+        "formal_readonly_com_execution_blocked_executor_snapshot",
+        "formal_readonly_com_execution_packet_validator_snapshot",
+        "initialization_readiness_snapshot",
         "pre_gas_readiness_snapshot",
     )
     assert domains["identity_and_epoch0"].stage_ids == (
@@ -1258,6 +1301,9 @@ def test_empty_reviewer_and_approver_are_not_rendered_as_bare_flags(tmp_path):
     )
     assert _flag_value(status_command, "--formal-readonly-com-execution-contract-json").endswith(
         "formal_readonly_com_execution_contract\\v1_5_formal_readonly_com_execution_contract.json"
+    )
+    assert _flag_value(status_command, "--formal-readonly-com-execution-packet-validator-json").endswith(
+        "formal_readonly_com_execution_packet_validator\\v1_5_formal_readonly_com_execution_packet_validator.json"
     )
     assert _flag_value(status_command, "--pre-gas-readiness-json").endswith(
         "pre_gas_readiness\\v1_5_pre_gas_readiness.json"
