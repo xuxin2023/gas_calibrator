@@ -41,6 +41,7 @@ V1.5 现在已经不是“找不到入口”的状态了。正式路径可以整
 | 初始化 executor dry-run | 在真实执行前分类初始化 plan 的 offline / read-only COM / controlled-write 步骤 | `src/gas_calibrator/tools/export_v1_5_formal_initialization_executor_dry_run.py` | 只读 sidecar；不传 `--execute`，不打开 COM、不写 SN/设备 ID、不写 SENCO、不连接 PostgreSQL。 |
 | 初始化 blocked executor | 运行未来初始化 executor 的受阻 stub，证明 live 初始化仍被锁住 | `src/gas_calibrator/tools/run_v1_5_formal_initialization_blocked_executor.py` | 只读 stub；不支持 `--execute`，拒绝 real-COM unlock / controlled-write unlock，不打开 COM、不写 SN/设备 ID、不写 SENCO、不连接 PostgreSQL、不控压力/气路/水路。 |
 | 初始化 read-only COM preflight 设计 | 固化未来只读真机 COM 预检的端口、节拍、身份、GETCO、CHECK 和 hold 合同 | `src/gas_calibrator/tools/export_v1_5_formal_initialization_readonly_com_preflight_design.py` | 只读设计评审；不实现 `--execute-read-only-real-com`，不打开 COM、不写 SN/设备 ID、不写 SENCO、不连接 PostgreSQL、不控压力/气路/水路。 |
+| 初始化 read-only COM preflight blocked executor | 运行未来只读真机 COM 预检的受阻 stub，证明 analyzer contact 仍被锁住 | `src/gas_calibrator/tools/run_v1_5_formal_initialization_readonly_com_preflight_blocked_executor.py` | 只读 stub；拒绝 `--execute-read-only-real-com`、`--allow-real-com`、授权字段和端口清单输入，不打开 COM、不写 SN/设备 ID、不写 SENCO、不连接 PostgreSQL、不控压力/气路/水路。 |
 | SN 身份 | 首次发现设备时分配/写入 8 位数字 SN | `src/gas_calibrator/tools/run_v1_5_sn_identity_initialization.py` | 只写 SN/device_code；不写 SENCO、不采样、不拟合。 |
 | 运行配置 | MODE2、1 Hz 主动上传、滤波/启动设置、CHECK 记录 | `src/gas_calibrator/tools/run_v1_5_analyzer_runtime_setup.py` | 串口命令最小间隔必须 `>=1.0s`。 |
 | 初始化数据库 | 把身份、run_device、GETCO 快照、runtime setup 入库 | `src/gas_calibrator/tools/run_v1_5_initialization_db_preflight.py` | 正式库目标为 PostgreSQL 18；支持 SN/device_code 和设备 ID 兼容查询。 |
@@ -71,6 +72,10 @@ V1.5 现在已经不是“找不到入口”的状态了。正式路径可以整
 ### Initialization read-only COM preflight design addendum
 
 `src/gas_calibrator/tools/export_v1_5_formal_initialization_readonly_com_preflight_design.py` is an offline design review for the future read-only real-COM initialization preflight. It freezes the reviewed active-port inventory, `>=1.0s` command/retry spacing, protocol ID plus 8-digit SN/device_code reads, GETCO1-9 epoch-0 snapshot, CHECK-capable/new-algorithm monitor reads after all active chambers are stable, old-algorithm CHECK skip behavior, and hold policy for serial, identity, GETCO, CHECK, or pacing failures. It does not implement `--execute-read-only-real-com`, open COM, write SN/device_code, write SENCO, connect PostgreSQL, or control pressure/routes.
+
+### Initialization read-only COM preflight blocked executor addendum
+
+`src/gas_calibrator/tools/run_v1_5_formal_initialization_readonly_com_preflight_blocked_executor.py` is the no-COM/no-write stub that must sit after the read-only COM preflight design and before any future analyzer contact. It consumes the reviewed design sidecar, writes an evidence artifact that live read-only COM preflight remains blocked, and rejects `--execute`, `--execute-read-only-real-com`, `--execute-controlled-writes`, `--allow-real-com`, authorization labels, approver/reviewer labels, and reviewed port inventory input. It does not open COM, write SN/device_code, write SENCO, connect PostgreSQL, control pressure, or control gas/water routes.
 
 ## 4. 初始化层的正式过程
 
