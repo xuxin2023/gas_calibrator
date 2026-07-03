@@ -642,6 +642,7 @@ def build_full_flow_live_runner_readiness(plan: FullFlowPlan) -> FullFlowLiveRun
             stage_ids=(
                 "formal_initialization_contract_plan",
                 "formal_initialization_executor_dry_run_snapshot",
+                "formal_initialization_blocked_executor_snapshot",
                 "initialization_readiness_snapshot",
                 "pre_gas_readiness_snapshot",
             ),
@@ -966,6 +967,7 @@ def build_full_flow_plan(
     formal_pkg = root / "formal_run_package"
     formal_initialization_dir = root / "formal_initialization"
     formal_initialization_executor_dry_run_dir = root / "formal_initialization_executor_dry_run"
+    formal_initialization_blocked_executor_dir = root / "formal_initialization_blocked_executor"
     pre_gas_readiness_dir = root / "pre_gas_readiness"
     getco_dir = root / "coefficient_epoch_0_getco_snapshot"
     getco_readiness_dir = root / "identity_getco_readiness"
@@ -1103,6 +1105,43 @@ def build_full_flow_plan(
             notes=(
                 "This is a review sidecar for automation wiring; it is not a live initialization runner.",
                 "Future live executor work must be a separate reviewed PR with explicit unlocks and readback evidence.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
+            step_id="formal_initialization_blocked_executor_snapshot",
+            title="Run blocked formal initialization executor stub without COM",
+            phase="INITIALIZATION_BLOCKED_EXECUTOR",
+            tool_module="gas_calibrator.tools.run_v1_5_formal_initialization_blocked_executor",
+            command=_python_module(
+                "gas_calibrator.tools.run_v1_5_formal_initialization_blocked_executor",
+                "--formal-initialization-executor-dry-run-json",
+                formal_initialization_executor_dry_run_dir / "v1_5_formal_initialization_executor_dry_run.json",
+                "--formal-initialization-plan-json",
+                formal_initialization_dir / "v1_5_formal_initialization_plan.json",
+                "--output-dir",
+                formal_initialization_blocked_executor_dir,
+                "--fail-on-blocked",
+            ),
+            required_inputs=("formal initialization executor dry-run sidecar", "formal initialization plan JSON"),
+            expected_outputs=(
+                "formal_initialization_blocked_executor/v1_5_formal_initialization_blocked_executor.json",
+                "formal_initialization_blocked_executor/V1_5_FORMAL_INITIALIZATION_BLOCKED_EXECUTOR.md",
+                "formal_initialization_blocked_executor/v1_5_formal_initialization_blocked_executor_checks.csv",
+                "formal_initialization_blocked_executor/v1_5_formal_initialization_blocked_executor_summary.csv",
+            ),
+            physical_meaning=(
+                "Invoke the future initialization executor only in blocked-stub mode. This proves the entrypoint "
+                "consumes the reviewed plan/dry-run artifacts and still refuses live COM, SN/device_code writes, "
+                "SENCO writes, PostgreSQL access, pressure control, and gas/water route control."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_before_initialization_executor_live_review",
+            notes=(
+                "This stub intentionally returns non-zero when --fail-on-blocked is used, proving live initialization remains locked.",
+                "A future real initialization executor must be a separate controlled package with explicit authorization and readback evidence.",
             ),
         )
     )
@@ -2410,6 +2449,7 @@ def build_full_flow_plan(
         physical_order=(
             "formal_initialization_contract_readiness_and_pre_gas_sidecar",
             "formal_initialization_executor_dry_run_review",
+            "formal_initialization_blocked_executor_before_live_initialization",
             "device_identity_and_GETCO_snapshot",
             "identity_GETCO_readiness_snapshot",
             "controlled_auxiliary_SENCO5_6_7_8_9_neutralization_after_GETCO_backup",

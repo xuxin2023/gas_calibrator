@@ -19,6 +19,8 @@ REPORT_SCHEMA = "v1_5_formal_flow_contract_report_v1"
 REQUIRED_STEP_IDS = (
     "load_plan_and_traceability",
     "formal_initialization_contract_plan",
+    "formal_initialization_executor_dry_run_snapshot",
+    "formal_initialization_blocked_executor_snapshot",
     "initialization_readiness_snapshot",
     "pre_gas_readiness_snapshot",
     "device_identity_and_getco_snapshot",
@@ -51,6 +53,8 @@ REQUIRED_STEP_IDS = (
 REQUIRED_ORDER = (
     "load_plan_and_traceability",
     "formal_initialization_contract_plan",
+    "formal_initialization_executor_dry_run_snapshot",
+    "formal_initialization_blocked_executor_snapshot",
     "initialization_readiness_snapshot",
     "pre_gas_readiness_snapshot",
     "device_identity_and_getco_snapshot",
@@ -108,6 +112,8 @@ FORMAL_H2O_FORBIDDEN_FLAGS = {
 FORMAL_PHYSICAL_FLOW = (
     "LOAD_PLAN: freeze plan, certificates, config hash, and run identity",
     "INITIALIZATION_CONTRACT: generate the formal initialization plan, PostgreSQL 18 sidecar, and readiness snapshot without COM or writes",
+    "INITIALIZATION_EXECUTOR_DRY_RUN: classify initialization plan steps before any live executor is considered",
+    "INITIALIZATION_BLOCKED_EXECUTOR: run the no-COM initialization executor stub and prove live initialization remains refused",
     "PRE_GAS_READINESS: summarize SN/device_code, PostgreSQL 18, MODE2/1Hz, GETCO, S7/S8, S9, route, and CHECK gates before live identity",
     "PRECHECK: bind analyzer device IDs to ports and snapshot GETCO1-9",
     "IDENTITY_GETCO_READINESS: verify epoch-0 GETCO artifacts, no-write conclusion, and runtime identity-bound config before auxiliary coefficient changes",
@@ -539,6 +545,58 @@ def validate_v1_5_formal_flow_contract(
                         ),
                         step_id,
                     )
+                )
+
+        if step_id == "formal_initialization_blocked_executor_snapshot":
+            if module != "gas_calibrator.tools.run_v1_5_formal_initialization_blocked_executor":
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_initialization_blocked_executor_wrong_tool",
+                        "Formal initialization blocked executor must use the no-COM run_v1_5_formal_initialization_blocked_executor stub",
+                        step_id,
+                    )
+                )
+            if bool(step.get("opens_com_ports")) or bool(step.get("controls_pressure")) or controls_route or writes:
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_initialization_blocked_executor_must_be_offline_no_write",
+                        "Formal initialization blocked executor must not open COM, connect PostgreSQL, control routes/pressure, or write coefficients",
+                        step_id,
+                    )
+                )
+            if bool(step.get("writes_device_id")):
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_initialization_blocked_executor_must_not_write_device_id",
+                        "Formal initialization blocked executor must not write SN/device_code or protocol device ID",
+                        step_id,
+                    )
+                )
+            if not str(step.get("execution_mode") or "").startswith("offline"):
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_initialization_blocked_executor_must_be_offline",
+                        "Formal initialization blocked executor execution_mode must be offline",
+                        step_id,
+                    )
+                )
+            for flag in (
+                "--formal-initialization-executor-dry-run-json",
+                "--formal-initialization-plan-json",
+                "--output-dir",
+                "--fail-on-blocked",
+            ):
+                _require_flag(
+                    command,
+                    flag,
+                    step_id=step_id,
+                    issues=issues,
+                    code="formal_initialization_blocked_executor_missing_required_flag",
+                    message=f"Formal initialization blocked executor command must include {flag}",
                 )
 
         if step_id == "identity_getco_readiness_snapshot":
