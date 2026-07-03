@@ -962,6 +962,8 @@ def _execution_block_reason(
     if step.writes_coefficients:
         if not allow_controlled_writes:
             return "skipped_controlled_write_locked"
+        if step.opens_com_ports and not allow_read_only_real_com:
+            return "blocked_controlled_write_requires_read_only_real_com_unlock"
     if step.opens_com_ports and not step.writes_coefficients and not allow_read_only_real_com:
         return "skipped_read_only_real_com_locked"
     return ""

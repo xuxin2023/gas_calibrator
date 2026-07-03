@@ -560,6 +560,43 @@ def test_formal_initialization_executor_read_only_unlock_does_not_run_writers(tm
     assert by_step["senco78_neutralization_gate"].reason == "skipped_controlled_write_locked"
 
 
+def test_formal_initialization_executor_blocks_controlled_writes_without_real_com_unlock(tmp_path):
+    config = _write_config(tmp_path / "runtime.json")
+    out = tmp_path / "exec_write_without_real_com"
+    plan = build_formal_initialization_plan(config_path=config, output_dir=out, run_id="demo")
+    outputs = write_formal_initialization_plan(plan)
+    calls = []
+
+    def fake_runner(command, **_kwargs):
+        calls.append(tuple(command))
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    report, _outputs = execute_formal_initialization_plan(
+        plan,
+        outputs=outputs,
+        allow_controlled_writes=True,
+        command_runner=fake_runner,
+        stop_on_failure=False,
+    )
+
+    joined = [" ".join(command) for command in calls]
+    assert not any("controlled_write" in command for command in joined)
+    by_step = {row.step_id: row for row in report.step_results}
+    assert by_step["senco5_neutralization_gate"].status == "blocked"
+    assert by_step["senco5_neutralization_gate"].reason == (
+        "blocked_controlled_write_requires_read_only_real_com_unlock"
+    )
+    assert by_step["senco6_neutralization_gate"].reason == (
+        "blocked_controlled_write_requires_read_only_real_com_unlock"
+    )
+    assert by_step["senco78_neutralization_gate"].reason == (
+        "blocked_controlled_write_requires_read_only_real_com_unlock"
+    )
+    assert by_step["senco9_pressure_policy_gate"].reason == (
+        "blocked_controlled_write_requires_read_only_real_com_unlock"
+    )
+
+
 def test_formal_initialization_executor_runs_device_writes_with_operator_authorization_labels(tmp_path):
     config = _write_config(tmp_path / "runtime.json")
     out = tmp_path / "exec_authorized_labels"
