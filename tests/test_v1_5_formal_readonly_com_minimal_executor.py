@@ -199,25 +199,44 @@ def _packet_and_plan(tmp_path: Path, *, count: int, active: Path, ports: Path) -
 
 
 class _FakeClient:
-    def __init__(self, port: str, calls: list[tuple[str, str]], *, non_neutral: bool = False) -> None:
+    def __init__(
+        self,
+        port: str,
+        calls: list[tuple[str, str]],
+        *,
+        non_neutral: bool = False,
+        active_frame_for_getco: bool = False,
+        malformed_getco: str = "",
+    ) -> None:
         self.port = port
         self.calls = calls
         self.non_neutral = non_neutral
+        self.active_frame_for_getco = active_frame_for_getco
+        self.malformed_getco = malformed_getco
 
     def query(self, command: str, *, timeout_s: float) -> str:
         self.calls.append((self.port, command))
         index = int(self.port.replace("COM", "")) - 35
         if command == "SN,YGAS,FFF":
             return f"SN,YGAS,FFF,012607{index:02d}"
-        if command.startswith("GETCO"):
-            group = command.split(",", 1)[0]
+        if command.startswith("GETCO,YGAS,FFF,"):
+            if self.active_frame_for_getco:
+                return "YGAS,001,0626.337,33.125,0.99,0.99,027.13,107.68,0301,2777"
+            group_index = command.rsplit(",", 1)[-1]
+            group = f"GETCO{group_index}"
+            if self.malformed_getco == "s5_gap" and group == "GETCO5":
+                return "<C0:0,C2:1>"
+            if self.malformed_getco == "s7_gap" and group == "GETCO7":
+                return "<C0:0,C1:1,C3:0>"
+            if self.malformed_getco == "s5_duplicate" and group == "GETCO5":
+                return "<C0:0,C1:1,C1:1>"
             if group in {"GETCO5", "GETCO6"}:
                 if self.non_neutral and group == "GETCO5":
-                    return f"{group},YGAS,FFF,2,1"
-                return f"{group},YGAS,FFF,0,1"
+                    return "<C0:2,C1:1>"
+                return "<C0:0,C1:1>"
             if group in {"GETCO7", "GETCO8"}:
-                return f"{group},YGAS,FFF,0,1,0,0"
-            return f"{group},YGAS,FFF,1,2,3,4"
+                return "<C0:0,C1:1,C2:0,C3:0>"
+            return "<C0:1,C1:2,C2:3,C3:4>"
         if command == "CHECK,YGAS,FFF":
             return "CHECK,YGAS,FFF,2.70,2.69,2.70,2.68"
         return "OK"
@@ -257,6 +276,8 @@ def test_minimal_executor_reads_six_legacy_devices_without_check(tmp_path: Path)
     assert len(calls) == 60
     assert all(gap >= 1.0 for gap in sleeps)
     assert all(command != "CHECK,YGAS,FFF" for _, command in calls)
+    assert all(command != "GETCO5,YGAS,FFF" for _, command in calls)
+    assert any(command == "GETCO,YGAS,FFF,5" for _, command in calls)
     assert all(row["auxiliary_neutrality"]["GETCO5"] == "neutral" for row in model["identity_getco_snapshots"])
     assert all(row["auxiliary_neutrality"]["GETCO6"] == "neutral" for row in model["identity_getco_snapshots"])
     assert all(row["auxiliary_neutrality"]["GETCO7"] == "neutral" for row in model["identity_getco_snapshots"])
@@ -377,6 +398,61 @@ def test_minimal_executor_holds_non_neutral_s5_without_writing(tmp_path: Path) -
     assert model["overall_status"] == "readonly_com_minimal_executor_hold"
     assert model["writes_coefficients"] is False
     assert any(row["reason"] == "getco5_non_neutral" for row in model["hold_events"])
+
+
+def test_minimal_executor_rejects_active_ygas_frame_as_getco_response(tmp_path: Path) -> None:
+    ports = _reviewed_ports_json(tmp_path, 1)
+    active = _active_analyzers_json(tmp_path, 1, algorithm="legacy_ratio")
+    packet, plan = _packet_and_plan(tmp_path, count=1, active=active, ports=ports)
+    calls: list[tuple[str, str]] = []
+
+    model = build_v1_5_formal_readonly_com_minimal_executor(
+        execute_read_only_real_com=True,
+        authorization_packet_json=_authorization_json(tmp_path),
+        reviewed_port_inventory_json=ports,
+        active_analyzer_list_json=active,
+        formal_readonly_com_execution_packet_validator_json=packet,
+        formal_readonly_com_execution_plan_preview_json=plan,
+        formal_readonly_com_minimal_executor_stub_json=_stub_json(tmp_path),
+        client_factory=lambda port: _FakeClient(port, calls, active_frame_for_getco=True),
+        sleeper=lambda seconds: None,
+    )
+
+    reasons = {row["reason"] for row in model["hold_events"]}
+    assert model["overall_status"] == "readonly_com_minimal_executor_hold"
+    assert "getco5_parse_error" in reasons
+    assert "getco6_parse_error" in reasons
+    assert any(command == "GETCO,YGAS,FFF,5" for _, command in calls)
+    assert all(command != "GETCO5,YGAS,FFF" for _, command in calls)
+
+
+def test_minimal_executor_rejects_malformed_getco_token_indexes(tmp_path: Path) -> None:
+    ports = _reviewed_ports_json(tmp_path, 1)
+    active = _active_analyzers_json(tmp_path, 1, algorithm="legacy_ratio")
+    packet, plan = _packet_and_plan(tmp_path, count=1, active=active, ports=ports)
+
+    for malformed, expected_reason in (
+        ("s5_gap", "getco5_parse_error"),
+        ("s7_gap", "getco7_parse_error"),
+        ("s5_duplicate", "getco5_parse_error"),
+    ):
+        calls: list[tuple[str, str]] = []
+        model = build_v1_5_formal_readonly_com_minimal_executor(
+            execute_read_only_real_com=True,
+            authorization_packet_json=_authorization_json(tmp_path),
+            reviewed_port_inventory_json=ports,
+            active_analyzer_list_json=active,
+            formal_readonly_com_execution_packet_validator_json=packet,
+            formal_readonly_com_execution_plan_preview_json=plan,
+            formal_readonly_com_minimal_executor_stub_json=_stub_json(tmp_path),
+            client_factory=lambda port, malformed=malformed: _FakeClient(port, calls, malformed_getco=malformed),
+            sleeper=lambda seconds: None,
+        )
+
+        reasons = {row["reason"] for row in model["hold_events"]}
+        assert model["overall_status"] == "readonly_com_minimal_executor_hold"
+        assert expected_reason in reasons
+        assert any(command == "GETCO,YGAS,FFF,5" for _, command in calls)
 
 
 def test_minimal_executor_without_execute_flag_stays_locked_no_com(tmp_path: Path) -> None:
