@@ -26,6 +26,12 @@ HOLD_STATUS = "readonly_com_minimal_executor_hold"
 LOCKED_STATUS = "blocked_missing_execute_readonly_real_com"
 MIN_SERIAL_COMMAND_GAP_S = 1.0
 SN_PATTERN = re.compile(r"^\d{8}$")
+GETCO_ROLE_PATTERN = re.compile(r"^getco(?P<index>\d+)_", re.IGNORECASE)
+GETCO_COMMAND_PATTERN = re.compile(r"^GETCO,YGAS,[^,]+,(?P<index>\d+)$", re.IGNORECASE)
+LEGACY_GETCO_COMMAND_PATTERN = re.compile(r"^GETCO(?P<index>\d+),", re.IGNORECASE)
+COEFFICIENT_TOKEN_PATTERN = re.compile(
+    r"C(?P<index>\d+)\s*:\s*(?P<value>[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)"
+)
 NEW_ALGORITHM_ALIASES = {"new", "new_absorption", "absorption", "absorption_ratio"}
 LEGACY_ALGORITHM_ALIASES = {"legacy", "legacy_ratio", "old", "ratio"}
 CONFIRMATION_TEMPLATE_ID = "v1_5_readonly_com_no_write_reviewed_ports_v1"
@@ -400,17 +406,29 @@ def _parse_sn(raw: str) -> str:
     return match.group(1) if match else ""
 
 
-def _parse_numbers(raw: str, group: str) -> list[float]:
-    parts = [part.strip() for part in raw.split(",") if part.strip()]
-    if parts and parts[0].upper() == group.upper():
-        parts = parts[3:] if len(parts) >= 3 else parts[1:]
-    values: list[float] = []
-    for part in parts:
-        try:
-            values.append(float(part))
-        except ValueError:
-            continue
-    return values
+def _getco_group(plan_row: Mapping[str, Any], command_or_source: str) -> str:
+    read_role = str(plan_row.get("read_role") or "")
+    role_match = GETCO_ROLE_PATTERN.match(read_role)
+    if role_match:
+        return f"GETCO{int(role_match.group('index'))}"
+    for pattern in (GETCO_COMMAND_PATTERN, LEGACY_GETCO_COMMAND_PATTERN):
+        match = pattern.match(str(command_or_source or "").strip())
+        if match:
+            return f"GETCO{int(match.group('index'))}"
+    return ""
+
+
+def _parse_coefficient_values(raw: str) -> list[float]:
+    """Parse mature V1.5 GETCO coefficient tokens and reject active YGAS frames."""
+
+    text = str(raw or "").strip().strip("<>")
+    matches = list(COEFFICIENT_TOKEN_PATTERN.finditer(text))
+    if not matches:
+        return []
+    values_by_index: dict[int, float] = {}
+    for match in matches:
+        values_by_index[int(match.group("index"))] = float(match.group("value"))
+    return [values_by_index[index] for index in sorted(values_by_index)]
 
 
 def _neutral_status(group: str, values: Sequence[float]) -> str:
@@ -716,9 +734,9 @@ def build_v1_5_formal_readonly_com_minimal_executor(
                         )
                         snapshot["holds"].append(reason)
                         result_status = "hold"
-                elif command_or_source.startswith("GETCO"):
-                    group = command_or_source.split(",", 1)[0]
-                    values = _parse_numbers(raw, group)
+                elif _getco_group(plan_row, command_or_source):
+                    group = _getco_group(plan_row, command_or_source)
+                    values = _parse_coefficient_values(raw)
                     parsed_value = json.dumps(values, ensure_ascii=False)
                     snapshot["getco"][group] = {"raw": raw, "values": values}
                     neutral = _neutral_status(group, values)

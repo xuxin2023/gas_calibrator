@@ -320,7 +320,7 @@ def _build_command_plan(active_payload: Mapping[str, Any]) -> list[dict[str, Any
                 analyzer_index=analyzer_index,
                 row=row,
                 read_role=f"getco{index}_epoch0",
-                command_or_source=f"GETCO{index},YGAS,FFF",
+                command_or_source=f"GETCO,YGAS,FFF,{index}",
                 expected_response=f"GETCO{index} coefficient group raw response",
                 hold_condition=f"hold_on_getco{index}_timeout_or_parse_error",
             )

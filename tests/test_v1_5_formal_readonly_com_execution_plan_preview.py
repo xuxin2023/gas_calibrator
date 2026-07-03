@@ -161,8 +161,9 @@ def test_plan_preview_builds_future_read_order_without_opening_com(tmp_path: Pat
     new_device_commands = [row["command_or_source"] for row in commands if row["ga_label"] == "GA01"]
     old_device_commands = [row["command_or_source"] for row in commands if row["ga_label"] == "GA02"]
     assert "SN,YGAS,FFF" in new_device_commands
-    assert "GETCO1,YGAS,FFF" in new_device_commands
-    assert "GETCO9,YGAS,FFF" in new_device_commands
+    assert "GETCO,YGAS,FFF,1" in new_device_commands
+    assert "GETCO,YGAS,FFF,9" in new_device_commands
+    assert "GETCO1,YGAS,FFF" not in new_device_commands
     assert "CHECK,YGAS,FFF" in new_device_commands
     assert "CHECK,YGAS,FFF" not in old_device_commands
     actual_serial_rows = [row for row in commands if row["serial_command"] is True]
