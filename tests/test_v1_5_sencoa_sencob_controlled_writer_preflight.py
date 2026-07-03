@@ -145,3 +145,68 @@ def test_controlled_writer_preflight_writer_and_cli_create_artifacts(tmp_path: P
     )
     assert rc == 0
     assert cli_output.joinpath("V1_5_SENCOA_SENCOB_CONTROLLED_WRITER_PREFLIGHT.md").exists()
+
+
+def test_controlled_writer_preflight_cli_rejects_future_real_write_options(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    output = tmp_path / "locked_preflight"
+    rc = cli_main(
+        [
+            "--profile-path",
+            str(PROFILE_PATH),
+            "--output-dir",
+            str(output),
+            "--execute-controlled-writes",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "real coefficient writing is locked" in captured.err
+    assert "--execute-controlled-writes" in captured.err
+    assert not output.exists()
+
+    auth_output = tmp_path / "locked_auth_preflight"
+    rc = cli_main(
+        [
+            "--profile-path",
+            str(PROFILE_PATH),
+            "--output-dir",
+            str(auth_output),
+            "--operator-confirmation-text",
+            "WRITE_SENCOA_SENCOB_V1_5_R0_PAIR",
+            "--reviewer",
+            "reviewer-a",
+            "--approver",
+            "approver-a",
+            "--authorization-id",
+            "auth-001",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "--operator-confirmation-text" in captured.err
+    assert "--authorization-id" in captured.err
+    assert not auth_output.exists()
+
+    port_output = tmp_path / "locked_port_preflight"
+    rc = cli_main(
+        [
+            "--profile-path",
+            str(PROFILE_PATH),
+            "--output-dir",
+            str(port_output),
+            "--com-port",
+            "COM35",
+            "--target",
+            "001",
+            "--write-coefficients",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "--com-port" in captured.err
+    assert "--target" in captured.err
+    assert "--write-coefficients" in captured.err
+    assert not port_output.exists()
