@@ -475,6 +475,47 @@ def _seed_formal_initialization_readonly_com_preflight_blocked_executor(
     )
 
 
+def _seed_formal_initialization_readonly_com_preflight_controlled_executor_design(
+    root: Path,
+    *,
+    review_required_count: int = 0,
+    side_effect_lock_clean: bool = True,
+) -> Path:
+    status = (
+        "ready_for_readonly_com_preflight_controlled_executor_design_review"
+        if review_required_count == 0
+        else "review_required"
+    )
+    opens_com_ports = not side_effect_lock_clean
+    return _write_json(
+        root
+        / "ro_com_controlled_design"
+        / "v1_5_formal_initialization_readonly_com_preflight_controlled_executor_design.json",
+        {
+            "schema": "v1_5_formal_initialization_readonly_com_preflight_controlled_executor_design_v1",
+            "overall_status": status,
+            "blocker_count": 0,
+            "review_required_count": review_required_count,
+            "production_state": "blocked_design_only",
+            "execution_supported": False,
+            "live_execution_allowed": False,
+            "read_only_real_com_execution_allowed": False,
+            "controlled_write_execution_allowed": False,
+            "real_com_execution_allowed": False,
+            "execute_flag_allowed": False,
+            "opens_com_ports": opens_com_ports,
+            "connects_postgresql": False,
+            "controls_pressure": False,
+            "controls_water_or_gas_routes": False,
+            "writes_sn": False,
+            "writes_device_id": False,
+            "writes_coefficients": False,
+            "database_written": False,
+            "minimum_serial_command_gap_s": 1.0,
+        },
+    )
+
+
 def test_formal_run_status_reports_ready_release_without_touching_devices(tmp_path: Path) -> None:
     run_dir = tmp_path / "ready_run"
     _seed_ready_run(run_dir)
@@ -656,6 +697,55 @@ def test_formal_run_status_blocks_dirty_readonly_com_preflight_blocked_executor_
     assert gate["blocks_release"] is False
     assert gate["blocks_physical_flow"] is False
     assert "side effects are not locked off" in gate["reason"]
+
+
+def test_formal_run_status_surfaces_readonly_com_preflight_controlled_executor_design_without_unlocking_live(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "ready_run_with_readonly_com_controlled_design"
+    _seed_ready_run(run_dir)
+    design_path = _seed_formal_initialization_readonly_com_preflight_controlled_executor_design(run_dir)
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gates = {row["gate_id"]: row for row in model["gates"]}
+    gate = gates["formal_initialization_readonly_com_preflight_controlled_executor_design"]
+
+    assert model["overall_status"] == "formal_release_ready"
+    assert model["formal_release_allowed"] is True
+    assert model["database_import_allowed"] is False
+    assert model["can_continue_physical_flow"] is True
+    assert model["linked_inputs"][
+        "formal_initialization_readonly_com_preflight_controlled_executor_design_json"
+    ] == str(design_path.resolve())
+    assert gate["status"] == "ready"
+    assert gate["release_gate"] is False
+    assert gate["blocks_release"] is False
+    assert gate["blocks_physical_flow"] is False
+
+
+def test_formal_run_status_blocks_dirty_readonly_com_preflight_controlled_executor_design_side_effects(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "dirty_readonly_com_controlled_design"
+    _seed_ready_run(run_dir)
+    _seed_formal_initialization_readonly_com_preflight_controlled_executor_design(
+        run_dir,
+        side_effect_lock_clean=False,
+    )
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gates = {row["gate_id"]: row for row in model["gates"]}
+    gate = gates["formal_initialization_readonly_com_preflight_controlled_executor_design"]
+
+    assert model["overall_status"] == "blocked"
+    assert model["current_stage"] == "formal_initialization_readonly_com_preflight_controlled_executor_design"
+    assert model["formal_release_allowed"] is True
+    assert model["database_import_allowed"] is False
+    assert model["can_continue_physical_flow"] is True
+    assert gate["status"] == "blocked"
+    assert gate["release_gate"] is False
+    assert gate["blocks_release"] is False
+    assert gate["blocks_physical_flow"] is False
 
 
 def test_formal_run_status_surfaces_optional_algorithm_profile_runner_bundle(tmp_path: Path) -> None:
@@ -1102,6 +1192,9 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
     output_dir = tmp_path / "cli_out"
     _seed_ready_run(run_dir)
     readonly_com_blocked_executor_path = _seed_formal_initialization_readonly_com_preflight_blocked_executor(run_dir)
+    readonly_com_controlled_executor_design_path = (
+        _seed_formal_initialization_readonly_com_preflight_controlled_executor_design(run_dir)
+    )
     bundle_path = _seed_algorithm_profile_runner_dry_run(run_dir)
     database_path = _seed_formal_database_dry_run(run_dir)
     import_preflight_path = _seed_formal_database_import_preflight(run_dir)
@@ -1118,6 +1211,8 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
             str(output_dir),
             "--formal-initialization-readonly-com-preflight-blocked-executor-json",
             str(readonly_com_blocked_executor_path),
+            "--formal-initialization-readonly-com-preflight-controlled-executor-design-json",
+            str(readonly_com_controlled_executor_design_path),
             "--algorithm-profile-runner-dry-run-json",
             str(bundle_path),
             "--formal-database-dry-run-json",
@@ -1145,6 +1240,10 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
     exported = json.loads((output_dir / "v1_5_formal_run_status.json").read_text(encoding="utf-8"))
     gates = {row["gate_id"]: row for row in exported["gates"]}
     assert gates["formal_initialization_readonly_com_preflight_blocked_executor"]["status"] == "review_required"
+    assert (
+        gates["formal_initialization_readonly_com_preflight_controlled_executor_design"]["status"]
+        == "ready"
+    )
     assert gates["algorithm_profile_runner_dry_run"]["status"] == "ready"
     assert gates["formal_database_dry_run"]["status"] == "ready"
     assert gates["formal_database_import_preflight"]["status"] == "ready"
