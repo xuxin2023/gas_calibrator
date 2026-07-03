@@ -12198,6 +12198,53 @@ class CalibrationRunner:
             return "missing"
         return "unknown_voltage"
 
+    def _analyzer_supports_check_monitor(self, analyzer_cfg: Any, ga: Any = None) -> bool:
+        cfg_map = analyzer_cfg if isinstance(analyzer_cfg, Mapping) else {}
+        for key in (
+            "check_monitor_supported",
+            "supports_check_monitor",
+            "analyzer_check_monitor_supported",
+        ):
+            if key in cfg_map:
+                return self._as_optional_bool(cfg_map.get(key)) is True
+
+        for attr_name in (
+            "check_monitor_supported",
+            "supports_check_monitor",
+            "analyzer_check_monitor_supported",
+        ):
+            attr = getattr(ga, attr_name, None) if ga is not None else None
+            if callable(attr):
+                try:
+                    return bool(attr())
+                except Exception:
+                    return False
+            if attr is not None:
+                return self._as_optional_bool(attr) is True
+
+        algorithm_fields = (
+            "algorithm",
+            "algorithm_mode",
+            "algorithm_profile",
+            "algorithm_profile_id",
+            "profile_id",
+            "route_profile",
+        )
+        algorithm_text = " ".join(str(cfg_map.get(key) or "") for key in algorithm_fields).strip().lower()
+        if not algorithm_text:
+            return False
+        legacy_markers = {"legacy_ratio_production", "legacy_ratio_r", "old_ratio_temperature"}
+        if any(marker in algorithm_text for marker in legacy_markers):
+            return False
+        check_capable_markers = {
+            "absorption_ratio_shadow",
+            "absorption_ratio_a",
+            "new_absorption",
+            "new_algorithm",
+            "new-algorithm",
+        }
+        return any(marker in algorithm_text for marker in check_capable_markers)
+
     def _append_analyzer_check_monitor_row(self, row: Dict[str, Any]) -> None:
         if self._analyzer_check_monitor_path is None:
             return
@@ -12254,8 +12301,24 @@ class CalibrationRunner:
         )
         all_ok = True
         rows: List[Dict[str, Any]] = []
+        check_analyzers: List[Tuple[str, Any, Any]] = []
+        skipped_labels: List[str] = []
 
-        for idx, (label, ga, analyzer_cfg) in enumerate(analyzers):
+        for label, ga, analyzer_cfg in analyzers:
+            if self._analyzer_supports_check_monitor(analyzer_cfg, ga):
+                check_analyzers.append((label, ga, analyzer_cfg))
+            else:
+                skipped_labels.append(str(label))
+
+        if skipped_labels:
+            self.log(
+                "Analyzer CHECK monitor skipped for non-CHECK-capable analyzers: "
+                f"labels={','.join(skipped_labels)}"
+            )
+        if not check_analyzers:
+            return True
+
+        for idx, (label, ga, analyzer_cfg) in enumerate(check_analyzers):
             cfg_map = analyzer_cfg if isinstance(analyzer_cfg, Mapping) else {}
             command = "CHECK,YGAS,FFF"
             reader = getattr(ga, "read_check_monitor", None)
@@ -12336,7 +12399,7 @@ class CalibrationRunner:
                 command=f"analyzer-check-monitor:{label}",
                 response=json.dumps(row, ensure_ascii=False, separators=(",", ":"), default=str),
             )
-            if idx + 1 < len(analyzers) and command_gap_s > 0:
+            if idx + 1 < len(check_analyzers) and command_gap_s > 0:
                 time.sleep(command_gap_s)
 
         if rows:

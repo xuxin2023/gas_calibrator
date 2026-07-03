@@ -377,8 +377,8 @@ def test_analyzer_chamber_temp_records_check_monitor_after_parallel_all_active_s
             lambda *_: None,
         )
         r._active_gas_analyzers = lambda: [  # type: ignore[method-assign]
-            ("ga01", ga01, {"device_id": "001", "port": "COM1"}),
-            ("ga02", ga02, {"device_id": "002", "port": "COM2"}),
+            ("ga01", ga01, {"device_id": "001", "port": "COM1", "check_monitor_supported": True}),
+            ("ga02", ga02, {"device_id": "002", "port": "COM2", "check_monitor_supported": True}),
         ]
         r._all_gas_analyzers = r._active_gas_analyzers  # type: ignore[method-assign]
 
@@ -406,6 +406,79 @@ def test_analyzer_chamber_temp_records_check_monitor_after_parallel_all_active_s
     assert rows[1]["thermostat_chip1_state"] == "undertemp"
     assert any(seconds >= 1.0 for seconds in clock.sleeps)
     assert any("Analyzer CHECK monitor captured after chamber temp stable" in msg for msg in logs)
+
+
+def test_analyzer_chamber_temp_skips_check_for_legacy_analyzers(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    clock = _FakeClock()
+    monkeypatch.setattr(runner_mod.time, "time", clock.time)
+    monkeypatch.setattr(runner_mod.time, "sleep", clock.sleep)
+
+    legacy = _FakeCheckAnalyzer(2.70, 2.68)
+    new_algorithm = _FakeCheckAnalyzer(2.70, 2.69)
+    sequences = {
+        legacy: [24.000, 24.004, 24.006, 24.005, 24.004, 24.006, 24.005, 24.004],
+        new_algorithm: [24.010, 24.014, 24.016, 24.015, 24.014, 24.016, 24.015, 24.014],
+    }
+    logs = []
+    logger = RunLogger(tmp_path)
+    try:
+        r = runner_mod.CalibrationRunner(
+            {
+                "workflow": {
+                    "stability": {
+                        "temperature": {
+                            "analyzer_chamber_temp_window_s": 0.5,
+                            "analyzer_chamber_temp_span_c": 0.02,
+                            "analyzer_chamber_temp_timeout_s": 3.0,
+                            "analyzer_chamber_temp_first_valid_timeout_s": 1.0,
+                            "analyzer_chamber_temp_poll_s": 0.1,
+                            "analyzer_check_after_chamber_temp_stable_enabled": True,
+                            "analyzer_check_after_chamber_temp_stable_strict": False,
+                            "analyzer_check_command_gap_s": 1.0,
+                        }
+                    }
+                }
+            },
+            {},
+            logger,
+            logs.append,
+            lambda *_: None,
+        )
+        r._active_gas_analyzers = lambda: [  # type: ignore[method-assign]
+            (
+                "ga01",
+                legacy,
+                {"device_id": "001", "port": "COM1", "algorithm_profile": "legacy_ratio_production"},
+            ),
+            (
+                "ga02",
+                new_algorithm,
+                {"device_id": "002", "port": "COM2", "algorithm_profile": "absorption_ratio_shadow"},
+            ),
+        ]
+        r._all_gas_analyzers = r._active_gas_analyzers  # type: ignore[method-assign]
+
+        def read_sensor(ga, *_args, **_kwargs):
+            seq = sequences[ga]
+            value = seq.pop(0) if seq else 24.014
+            return "", {"chamber_temp_c": value}
+
+        r._read_sensor_parsed = read_sensor  # type: ignore[method-assign]
+
+        assert r._wait_analyzer_chamber_temp_stable(25.0) is True
+    finally:
+        logger.close()
+
+    with (logger.run_dir / "analyzer_check_monitor.csv").open("r", encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+
+    assert legacy.check_calls == 0
+    assert new_algorithm.check_calls == 1
+    assert [row["analyzer_label"] for row in rows] == ["ga02"]
+    assert any("non-CHECK-capable analyzers" in msg and "ga01" in msg for msg in logs)
 
 
 def test_temperature_reach_timeout_does_not_cut_off_soak_and_analyzer_wait(monkeypatch, tmp_path: Path) -> None:
