@@ -345,6 +345,49 @@ def _seed_formal_database_import_controlled_executor_design(
     )
 
 
+def _seed_formal_initialization_controlled_executor_design(
+    root: Path,
+    *,
+    review_required_count: int = 0,
+    side_effect_lock_clean: bool = True,
+) -> Path:
+    status = (
+        "ready_for_controlled_initialization_executor_design_review"
+        if review_required_count == 0
+        else "review_required"
+    )
+    opens_com_ports = not side_effect_lock_clean
+    return _write_json(
+        root
+        / "formal_initialization_controlled_executor_design"
+        / "v1_5_formal_initialization_controlled_executor_design.json",
+        {
+            "schema": "v1_5_formal_initialization_controlled_executor_design_v1",
+            "overall_status": status,
+            "blocker_count": 0,
+            "review_required_count": review_required_count,
+            "production_state": "blocked_design_only",
+            "execution_supported": False,
+            "live_execution_allowed": False,
+            "read_only_real_com_execution_allowed": False,
+            "controlled_write_execution_allowed": False,
+            "real_com_execution_allowed": False,
+            "execute_flag_allowed": False,
+            "opens_com_ports": opens_com_ports,
+            "connects_postgresql": False,
+            "controls_pressure": False,
+            "controls_water_or_gas_routes": False,
+            "writes_sn": False,
+            "writes_device_id": False,
+            "writes_coefficients": False,
+            "database_written": False,
+            "formal_release_allowed": False,
+            "database_import_allowed": False,
+            "not_real_acceptance_evidence": True,
+        },
+    )
+
+
 def test_formal_run_status_reports_ready_release_without_touching_devices(tmp_path: Path) -> None:
     run_dir = tmp_path / "ready_run"
     _seed_ready_run(run_dir)
@@ -378,6 +421,54 @@ def test_formal_run_status_reports_ready_release_without_touching_devices(tmp_pa
         "writes_device_id": False,
         "not_real_acceptance_evidence": True,
     }
+
+
+def test_formal_run_status_surfaces_initialization_controlled_executor_design_without_unlocking_live(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "ready_run_with_initialization_design"
+    _seed_ready_run(run_dir)
+    design_path = _seed_formal_initialization_controlled_executor_design(run_dir)
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gates = {row["gate_id"]: row for row in model["gates"]}
+    gate = gates["formal_initialization_controlled_executor_design"]
+
+    assert model["overall_status"] == "formal_release_ready"
+    assert model["formal_release_allowed"] is True
+    assert model["database_import_allowed"] is False
+    assert model["can_continue_physical_flow"] is True
+    assert model["linked_inputs"]["formal_initialization_controlled_executor_design_json"] == str(
+        design_path.resolve()
+    )
+    assert gate["status"] == "ready"
+    assert gate["release_gate"] is False
+    assert gate["blocks_release"] is False
+    assert gate["blocks_physical_flow"] is False
+    assert "live initialization remains blocked" in gate["reason"]
+
+
+def test_formal_run_status_blocks_dirty_initialization_controlled_executor_design_side_effects(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "dirty_initialization_design"
+    _seed_ready_run(run_dir)
+    _seed_formal_initialization_controlled_executor_design(run_dir, side_effect_lock_clean=False)
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gates = {row["gate_id"]: row for row in model["gates"]}
+    gate = gates["formal_initialization_controlled_executor_design"]
+
+    assert model["overall_status"] == "blocked"
+    assert model["current_stage"] == "formal_initialization_controlled_executor_design"
+    assert model["formal_release_allowed"] is True
+    assert model["database_import_allowed"] is False
+    assert model["can_continue_physical_flow"] is True
+    assert gate["status"] == "blocked"
+    assert gate["release_gate"] is False
+    assert gate["blocks_release"] is False
+    assert gate["blocks_physical_flow"] is False
+    assert "no-COM/no-write locks are not preserved" in gate["reason"]
 
 
 def test_formal_run_status_surfaces_optional_algorithm_profile_runner_bundle(tmp_path: Path) -> None:

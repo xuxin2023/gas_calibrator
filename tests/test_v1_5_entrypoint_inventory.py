@@ -211,6 +211,9 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     pre_gas = root / "src/gas_calibrator/tools/export_v1_5_pre_gas_readiness.py"
     init_executor_dry_run = root / "src/gas_calibrator/tools/export_v1_5_formal_initialization_executor_dry_run.py"
     init_blocked_executor = root / "src/gas_calibrator/tools/run_v1_5_formal_initialization_blocked_executor.py"
+    init_controlled_executor_design = (
+        root / "src/gas_calibrator/tools/export_v1_5_formal_initialization_controlled_executor_design.py"
+    )
     getco_readiness = root / "src/gas_calibrator/tools/export_v1_5_getco_identity_readiness.py"
     formal_status = root / "src/gas_calibrator/tools/export_v1_5_formal_run_status.py"
     formal_database_dry_run = root / "src/gas_calibrator/tools/export_v1_5_formal_database_dry_run.py"
@@ -237,6 +240,7 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
         pre_gas,
         init_executor_dry_run,
         init_blocked_executor,
+        init_controlled_executor_design,
         getco_readiness,
         formal_status,
         formal_database_dry_run,
@@ -262,6 +266,10 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     entry = classify_v1_5_entrypoint(pre_gas, root=root)
     init_executor_dry_run_entry = classify_v1_5_entrypoint(init_executor_dry_run, root=root)
     init_blocked_executor_entry = classify_v1_5_entrypoint(init_blocked_executor, root=root)
+    init_controlled_executor_design_entry = classify_v1_5_entrypoint(
+        init_controlled_executor_design,
+        root=root,
+    )
     getco_entry = classify_v1_5_entrypoint(getco_readiness, root=root)
     formal_status_entry = classify_v1_5_entrypoint(formal_status, root=root)
     formal_database_dry_run_entry = classify_v1_5_entrypoint(formal_database_dry_run, root=root)
@@ -314,6 +322,13 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     assert init_blocked_executor_entry.controls_routes is False
     assert init_blocked_executor_entry.writes_coefficients is False
     assert "offline initialization blocked executor stub" in init_blocked_executor_entry.notes[0]
+    assert init_controlled_executor_design_entry.category == "formal_review_evidence"
+    assert init_controlled_executor_design_entry.formal_status == "formal_support"
+    assert init_controlled_executor_design_entry.risk_level == "offline"
+    assert init_controlled_executor_design_entry.opens_com_ports is False
+    assert init_controlled_executor_design_entry.controls_routes is False
+    assert init_controlled_executor_design_entry.writes_coefficients is False
+    assert "offline initialization controlled executor design" in init_controlled_executor_design_entry.notes[0]
     assert getco_entry.category == "formal_review_evidence"
     assert getco_entry.formal_status == "formal_support"
     assert getco_entry.risk_level == "offline"

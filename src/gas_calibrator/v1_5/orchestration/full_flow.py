@@ -643,6 +643,7 @@ def build_full_flow_live_runner_readiness(plan: FullFlowPlan) -> FullFlowLiveRun
                 "formal_initialization_contract_plan",
                 "formal_initialization_executor_dry_run_snapshot",
                 "formal_initialization_blocked_executor_snapshot",
+                "formal_initialization_controlled_executor_design_snapshot",
                 "initialization_readiness_snapshot",
                 "pre_gas_readiness_snapshot",
             ),
@@ -968,6 +969,9 @@ def build_full_flow_plan(
     formal_initialization_dir = root / "formal_initialization"
     formal_initialization_executor_dry_run_dir = root / "formal_initialization_executor_dry_run"
     formal_initialization_blocked_executor_dir = root / "formal_initialization_blocked_executor"
+    formal_initialization_controlled_executor_design_dir = (
+        root / "formal_initialization_controlled_executor_design"
+    )
     pre_gas_readiness_dir = root / "pre_gas_readiness"
     getco_dir = root / "coefficient_epoch_0_getco_snapshot"
     getco_readiness_dir = root / "identity_getco_readiness"
@@ -1142,6 +1146,46 @@ def build_full_flow_plan(
             notes=(
                 "This stub intentionally returns non-zero when --fail-on-blocked is used, proving live initialization remains locked.",
                 "A future real initialization executor must be a separate controlled package with explicit authorization and readback evidence.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
+            step_id="formal_initialization_controlled_executor_design_snapshot",
+            title="Review future controlled initialization executor design",
+            phase="INITIALIZATION_CONTROLLED_EXECUTOR_DESIGN",
+            tool_module="gas_calibrator.tools.export_v1_5_formal_initialization_controlled_executor_design",
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_formal_initialization_controlled_executor_design",
+                "--formal-initialization-blocked-executor-json",
+                formal_initialization_blocked_executor_dir / "v1_5_formal_initialization_blocked_executor.json",
+                "--output-dir",
+                formal_initialization_controlled_executor_design_dir,
+            ),
+            required_inputs=("formal initialization blocked executor JSON",),
+            expected_outputs=(
+                "formal_initialization_controlled_executor_design/v1_5_formal_initialization_controlled_executor_design.json",
+                "formal_initialization_controlled_executor_design/V1_5_FORMAL_INITIALIZATION_CONTROLLED_EXECUTOR_DESIGN.md",
+                "formal_initialization_controlled_executor_design/v1_5_formal_initialization_controlled_executor_authorization_contract.csv",
+                "formal_initialization_controlled_executor_design/v1_5_formal_initialization_controlled_executor_real_com_contract.csv",
+                "formal_initialization_controlled_executor_design/v1_5_formal_initialization_controlled_executor_controlled_write_contract.csv",
+                "formal_initialization_controlled_executor_design/v1_5_formal_initialization_controlled_executor_readback_contract.csv",
+                "formal_initialization_controlled_executor_design/v1_5_formal_initialization_controlled_executor_hold_contract.csv",
+                "formal_initialization_controlled_executor_design/v1_5_formal_initialization_controlled_executor_boundary_gates.csv",
+            ),
+            physical_meaning=(
+                "Freeze the future live initialization executor contract without running it: explicit controlled "
+                "initialization authorization, separate read-only real-COM and controlled-write unlocks, 1 to 6 "
+                "active analyzer scope, >=1s serial command spacing, SN/device_code readback, GETCO epoch-0, "
+                "S7/S8 neutral temperature policy, CHECK-capable analyzer handling after all active chambers are stable, "
+                "and hold policies for identity/write/readback failures."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_before_initialization_executor_live_implementation",
+            notes=(
+                "This design exporter does not implement --execute-controlled-initialization.",
+                "It does not open COM, write SN/device_code, write SENCO, connect PostgreSQL, control pressure, or control gas/water routes.",
             ),
         )
     )
@@ -2343,6 +2387,9 @@ def build_full_flow_plan(
                 formal_status_dir,
                 "--initialization-readiness-json",
                 formal_initialization_dir / "v1_5_initialization_readiness.json",
+                "--formal-initialization-controlled-executor-design-json",
+                formal_initialization_controlled_executor_design_dir
+                / "v1_5_formal_initialization_controlled_executor_design.json",
                 "--pre-gas-readiness-json",
                 pre_gas_readiness_dir / "v1_5_pre_gas_readiness.json",
                 "--getco-readiness-json",
@@ -2371,6 +2418,7 @@ def build_full_flow_plan(
             ),
             required_inputs=(
                 "initialization readiness sidecar",
+                "controlled initialization executor design sidecar",
                 "identity/GETCO readiness sidecar",
                 "pre-gas readiness sidecar",
                 "v1_5_run_evidence_status.json",
@@ -2450,6 +2498,7 @@ def build_full_flow_plan(
             "formal_initialization_contract_readiness_and_pre_gas_sidecar",
             "formal_initialization_executor_dry_run_review",
             "formal_initialization_blocked_executor_before_live_initialization",
+            "formal_initialization_controlled_executor_design_before_live_initialization",
             "device_identity_and_GETCO_snapshot",
             "identity_GETCO_readiness_snapshot",
             "controlled_auxiliary_SENCO5_6_7_8_9_neutralization_after_GETCO_backup",

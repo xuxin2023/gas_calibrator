@@ -245,6 +245,59 @@ def _pre_gas_gate(path: Path | None, payload: Mapping[str, Any]) -> FormalRunGat
     )
 
 
+def _formal_initialization_controlled_executor_design_gate(
+    path: Path,
+    payload: Mapping[str, Any],
+) -> FormalRunGate:
+    source_status = _source_status(payload)
+    boundary_ok = (
+        payload.get("opens_com_ports") is False
+        and payload.get("connects_postgresql") is False
+        and payload.get("controls_pressure") is False
+        and payload.get("controls_water_or_gas_routes") is False
+        and payload.get("writes_sn") is False
+        and payload.get("writes_device_id") is False
+        and payload.get("writes_coefficients") is False
+        and payload.get("database_written") is False
+        and payload.get("live_execution_allowed") is False
+        and payload.get("execution_supported") is False
+    )
+    if source_status == "ready_for_controlled_initialization_executor_design_review" and boundary_ok:
+        status = READY
+        reason = "controlled initialization executor design is ready; live initialization remains blocked"
+    elif not boundary_ok:
+        status = BLOCKED
+        reason = "controlled initialization design boundary is not clean; no-COM/no-write locks are not preserved"
+    elif source_status == "review_required" or int(payload.get("review_required_count") or 0):
+        status = REVIEW_REQUIRED
+        reason = (
+            f"controlled initialization design review_required_count={payload.get('review_required_count')}; "
+            "review blocked-executor linkage before future live initialization design is accepted"
+        )
+    else:
+        status = REVIEW_REQUIRED
+        reason = f"controlled initialization design source_status={source_status or 'missing'} requires review"
+    return _gate(
+        gate_id="formal_initialization_controlled_executor_design",
+        title="Controlled initialization executor design",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action=(
+            "Use this design only as future implementation guidance. Do not open COM or write analyzer state "
+            "until a separate controlled executor adds explicit authorization, readback, and hold evidence."
+        ),
+        physical_meaning=(
+            "Defines the future live-initialization safety contract while preserving the current no-COM, "
+            "no-SN-write, no-SENCO-write V1.5 boundary."
+        ),
+        release_gate=False,
+        blocks_release=False,
+        blocks_physical_flow=False,
+    )
+
+
 def _run_stage_gate(
     *,
     gate_id: str,
@@ -875,6 +928,7 @@ def build_v1_5_formal_run_status(
     *,
     run_dir: str | Path,
     initialization_readiness_json: str | Path | None = None,
+    formal_initialization_controlled_executor_design_json: str | Path | None = None,
     pre_gas_readiness_json: str | Path | None = None,
     getco_readiness_json: str | Path | None = None,
     run_evidence_status_json: str | Path | None = None,
@@ -892,6 +946,11 @@ def build_v1_5_formal_run_status(
 
     root = Path(run_dir).resolve()
     init_path = _explicit_or_latest(root, initialization_readiness_json, "v1_5_initialization_readiness.json")
+    formal_initialization_controlled_executor_design_path = _explicit_or_latest(
+        root,
+        formal_initialization_controlled_executor_design_json,
+        "v1_5_formal_initialization_controlled_executor_design.json",
+    )
     pre_gas_path = _explicit_or_latest(root, pre_gas_readiness_json, "v1_5_pre_gas_readiness.json")
     getco_path = _explicit_or_latest(root, getco_readiness_json, "v1_5_getco_identity_readiness.json")
     run_status_path = _explicit_or_latest(root, run_evidence_status_json, "v1_5_run_evidence_status.json")
@@ -934,6 +993,9 @@ def build_v1_5_formal_run_status(
     )
 
     init_payload = _load_json(init_path)
+    formal_initialization_controlled_executor_design_payload = _load_json(
+        formal_initialization_controlled_executor_design_path
+    )
     pre_gas_payload = _load_json(pre_gas_path)
     getco_payload = _load_json(getco_path)
     run_payload = _load_json(run_status_path)
@@ -949,22 +1011,34 @@ def build_v1_5_formal_run_status(
         formal_database_import_controlled_executor_design_path
     )
 
-    gates = [
-        _initialization_gate(init_path, init_payload),
-        _getco_gate(getco_path, getco_payload),
-        _pre_gas_gate(pre_gas_path, pre_gas_payload),
-        _run_stage_gate(
-            gate_id="pressure_senco9_pre_open_flow",
-            title="Pressure/SENCO9 pre-open-flow check",
-            run_path=run_status_path,
-            run_status=run_payload,
-            stage_id="pressure_quick_check",
-            missing_reason="pressure/S9 evidence has not reached pass state",
-            next_action="Complete pressure/SENCO9 no-write review or controlled pressure write package before gas flow.",
-            physical_meaning="Pressure P must be traceable before CO2/H2O fitting so gas coefficients do not absorb pressure bias.",
-            physical_flow_gate=True,
-        ),
-    ]
+    gates = [_initialization_gate(init_path, init_payload)]
+    if (
+        formal_initialization_controlled_executor_design_path
+        and formal_initialization_controlled_executor_design_payload
+    ):
+        gates.append(
+            _formal_initialization_controlled_executor_design_gate(
+                formal_initialization_controlled_executor_design_path,
+                formal_initialization_controlled_executor_design_payload,
+            )
+        )
+    gates.extend(
+        [
+            _getco_gate(getco_path, getco_payload),
+            _pre_gas_gate(pre_gas_path, pre_gas_payload),
+            _run_stage_gate(
+                gate_id="pressure_senco9_pre_open_flow",
+                title="Pressure/SENCO9 pre-open-flow check",
+                run_path=run_status_path,
+                run_status=run_payload,
+                stage_id="pressure_quick_check",
+                missing_reason="pressure/S9 evidence has not reached pass state",
+                next_action="Complete pressure/SENCO9 no-write review or controlled pressure write package before gas flow.",
+                physical_meaning="Pressure P must be traceable before CO2/H2O fitting so gas coefficients do not absorb pressure bias.",
+                physical_flow_gate=True,
+            ),
+        ]
+    )
     if algorithm_profile_runner_path and algorithm_profile_runner_payload:
         gates.append(
             _algorithm_profile_runner_dry_run_gate(
@@ -1140,6 +1214,11 @@ def build_v1_5_formal_run_status(
         },
         "linked_inputs": {
             "initialization_readiness_json": str(init_path) if init_path else "",
+            "formal_initialization_controlled_executor_design_json": str(
+                formal_initialization_controlled_executor_design_path
+            )
+            if formal_initialization_controlled_executor_design_path
+            else "",
             "pre_gas_readiness_json": str(pre_gas_path) if pre_gas_path else "",
             "getco_readiness_json": str(getco_path) if getco_path else "",
             "run_evidence_status_json": str(run_status_path) if run_status_path else "",
