@@ -12,6 +12,14 @@ from .common import latest_artifact, load_csv_rows
 
 
 _LABEL_TO_KEY = {str(value): str(key) for key, value in _FIELD_LABELS.items()}
+_LABEL_TO_KEY.update(
+    {
+        "MODE2数据合同状态": "mode2_contract_status",
+        "MODE2质控状态": "mode2_qc_status",
+        "MODE2字段JSON": "mode2_tokens_json",
+        "MODE2数据JSON": "mode2_tokens_json",
+    }
+)
 
 
 def normalize_sample_row(row: Mapping[str, Any]) -> Dict[str, Any]:
