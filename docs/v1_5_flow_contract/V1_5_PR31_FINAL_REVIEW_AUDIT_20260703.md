@@ -9,7 +9,10 @@ coefficient writes, or real acceptance.
 - PR: https://github.com/xuxin2023/gas_calibrator/pull/31
 - Branch: `codex/v1.5-structure-review-clean-main`
 - Base: `main`
-- Head at audit time: `2c04b8a068f531a50c74e257e6ed0713b4e1e339`
+- Reviewed source head before adding this audit note:
+  `2c04b8a068f531a50c74e257e6ed0713b4e1e339`
+- Current PR head should be read from GitHub after this note, because the audit
+  note itself is committed as a doc-only follow-up.
 - GitHub PR state: `open`
 - GitHub draft state: `true`
 - GitHub mergeable: `true`
@@ -40,7 +43,9 @@ Important differences from PR #30:
 
 ## Diff Boundary
 
-At audit time, `origin/main..HEAD` contains `634` changed files.
+At audit capture time, `origin/main..HEAD` contained `634` changed files before
+this audit note was added. After this note is committed, the current PR diff is
+expected to contain one additional documentation file.
 
 That large number is expected for a V1.5 structure backfill, but reviewers
 should not read all files as production behavior changes. The diff is grouped
