@@ -73,6 +73,16 @@ def test_formal_flow_contract_passes_for_generated_plan(tmp_path):
     assert report.step_sequence.index(
         "formal_readonly_com_execution_contract_snapshot"
     ) < report.step_sequence.index(
+        "formal_readonly_com_execution_blocked_executor_snapshot"
+    )
+    assert report.step_sequence.index(
+        "formal_readonly_com_execution_blocked_executor_snapshot"
+    ) < report.step_sequence.index(
+        "formal_readonly_com_execution_packet_validator_snapshot"
+    )
+    assert report.step_sequence.index(
+        "formal_readonly_com_execution_packet_validator_snapshot"
+    ) < report.step_sequence.index(
         "initialization_readiness_snapshot"
     )
     assert report.step_sequence.index("initialization_readiness_snapshot") < report.step_sequence.index(
@@ -100,6 +110,8 @@ def test_formal_flow_contract_passes_for_generated_plan(tmp_path):
         report.physical_flow
     )
     assert "FORMAL_READONLY_COM_EXECUTION_CONTRACT" in "\n".join(report.physical_flow)
+    assert "FORMAL_READONLY_COM_EXECUTION_BLOCKED_EXECUTOR" in "\n".join(report.physical_flow)
+    assert "FORMAL_READONLY_COM_EXECUTION_PACKET_VALIDATOR" in "\n".join(report.physical_flow)
     assert "IDENTITY_GETCO_READINESS" in "\n".join(report.physical_flow)
     assert report.step_sequence.index("pressure_senco9_no_write_acquisition") < report.step_sequence.index(
         "pressure_senco9_no_write_review"
@@ -479,6 +491,50 @@ def test_formal_flow_contract_blocks_readonly_com_execution_contract_that_is_not
     assert "formal_readonly_com_execution_contract_must_be_offline" in codes
     assert "formal_readonly_com_execution_contract_missing_required_flag" in codes
     assert "formal_readonly_com_execution_contract_forbidden_unlock" in codes
+
+
+def test_formal_flow_contract_blocks_readonly_com_execution_packet_validator_with_packet_inputs(tmp_path):
+    plan = build_full_flow_plan(config_path=_config(tmp_path), output_dir=tmp_path / "flow", run_id="demo")
+    steps = list(plan.steps)
+    index = [step.step_id for step in steps].index("formal_readonly_com_execution_packet_validator_snapshot")
+    command = tuple(
+        part
+        for part in steps[index].command
+        if part
+        not in {
+            "--formal-readonly-com-execution-blocked-executor-json",
+            "--output-dir",
+        }
+    ) + (
+        "--execute-read-only-real-com",
+        "--authorization-packet-json",
+        "authorization.json",
+        "--reviewed-port-inventory-json",
+        "ports.json",
+    )
+    steps[index] = replace(
+        steps[index],
+        tool_module="gas_calibrator.tools.probe_v1_5_getco_component_snapshot",
+        command=command,
+        execution_mode="read_only_real_com_requires_authorization",
+        opens_com_ports=True,
+        writes_coefficients=True,
+        writes_device_id=True,
+    )
+
+    report = validate_v1_5_formal_flow_contract(
+        replace(plan, steps=tuple(steps)),
+        inventory_entries=_inventory_for_plan(),
+    )
+
+    assert report.status == "blocked"
+    codes = {issue.code for issue in report.issues}
+    assert "formal_readonly_com_execution_packet_validator_wrong_tool" in codes
+    assert "formal_readonly_com_execution_packet_validator_must_be_offline_no_write" in codes
+    assert "formal_readonly_com_execution_packet_validator_must_not_write_device_id" in codes
+    assert "formal_readonly_com_execution_packet_validator_must_be_offline" in codes
+    assert "formal_readonly_com_execution_packet_validator_missing_required_flag" in codes
+    assert "formal_readonly_com_execution_packet_validator_forbidden_unlock_or_packet_input" in codes
 
 
 def test_formal_flow_contract_blocks_identity_getco_readiness_that_is_not_offline(tmp_path):

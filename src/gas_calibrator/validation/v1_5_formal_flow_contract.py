@@ -28,6 +28,7 @@ REQUIRED_STEP_IDS = (
     "formal_initialization_readonly_com_preflight_controlled_blocked_executor_snapshot",
     "formal_readonly_com_execution_contract_snapshot",
     "formal_readonly_com_execution_blocked_executor_snapshot",
+    "formal_readonly_com_execution_packet_validator_snapshot",
     "initialization_readiness_snapshot",
     "pre_gas_readiness_snapshot",
     "device_identity_and_getco_snapshot",
@@ -69,6 +70,7 @@ REQUIRED_ORDER = (
     "formal_initialization_readonly_com_preflight_controlled_blocked_executor_snapshot",
     "formal_readonly_com_execution_contract_snapshot",
     "formal_readonly_com_execution_blocked_executor_snapshot",
+    "formal_readonly_com_execution_packet_validator_snapshot",
     "initialization_readiness_snapshot",
     "pre_gas_readiness_snapshot",
     "device_identity_and_getco_snapshot",
@@ -135,6 +137,7 @@ FORMAL_PHYSICAL_FLOW = (
     "INITIALIZATION_READONLY_COM_PREFLIGHT_CONTROLLED_BLOCKED_EXECUTOR: prove the controlled read-only COM executor remains blocked and no-COM",
     "FORMAL_READONLY_COM_EXECUTION_CONTRACT: freeze future real read-only COM execution packet fields while keeping COM locked",
     "FORMAL_READONLY_COM_EXECUTION_BLOCKED_EXECUTOR: prove the future real read-only COM executor remains blocked and no-COM",
+    "FORMAL_READONLY_COM_EXECUTION_PACKET_VALIDATOR: validate future authorization, reviewed-port, active-analyzer, pacing, and CHECK-skip packet inputs offline",
     "PRE_GAS_READINESS: summarize SN/device_code, PostgreSQL 18, MODE2/1Hz, GETCO, S7/S8, S9, route, and CHECK gates before live identity",
     "PRECHECK: bind analyzer device IDs to ports and snapshot GETCO1-9",
     "IDENTITY_GETCO_READINESS: verify epoch-0 GETCO artifacts, no-write conclusion, and runtime identity-bound config before auxiliary coefficient changes",
@@ -1051,6 +1054,78 @@ def validate_v1_5_formal_flow_contract(
                             "error",
                             "formal_readonly_com_execution_blocked_executor_forbidden_unlock",
                             f"Formal read-only COM execution blocked executor must not include {forbidden}",
+                            step_id,
+                        )
+                    )
+
+        if step_id == "formal_readonly_com_execution_packet_validator_snapshot":
+            if module != "gas_calibrator.tools.export_v1_5_formal_readonly_com_execution_packet_validator":
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_readonly_com_execution_packet_validator_wrong_tool",
+                        "Formal read-only COM execution packet validator must use the offline packet validator exporter",
+                        step_id,
+                    )
+                )
+            if bool(step.get("opens_com_ports")) or bool(step.get("controls_pressure")) or controls_route or writes:
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_readonly_com_execution_packet_validator_must_be_offline_no_write",
+                        "Formal read-only COM execution packet validator must not open COM, control pressure/routes, or write coefficients",
+                        step_id,
+                    )
+                )
+            if bool(step.get("writes_device_id")):
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_readonly_com_execution_packet_validator_must_not_write_device_id",
+                        "Formal read-only COM execution packet validator must not write SN/device_code or protocol device ID",
+                        step_id,
+                    )
+                )
+            if not str(step.get("execution_mode") or "").startswith("offline"):
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_readonly_com_execution_packet_validator_must_be_offline",
+                        "Formal read-only COM execution packet validator execution_mode must be offline",
+                        step_id,
+                    )
+                )
+            for flag in (
+                "--formal-readonly-com-execution-blocked-executor-json",
+                "--output-dir",
+            ):
+                _require_flag(
+                    command,
+                    flag,
+                    step_id=step_id,
+                    issues=issues,
+                    code="formal_readonly_com_execution_packet_validator_missing_required_flag",
+                    message=f"Formal read-only COM execution packet validator command must include {flag}",
+                )
+            for forbidden in (
+                "--execute",
+                "--execute-read-only-real-com",
+                "--execute-controlled-writes",
+                "--allow-real-com",
+                "--operator-confirmation-text",
+                "--authorization-id",
+                "--reviewer",
+                "--approver",
+                "--authorization-packet-json",
+                "--reviewed-port-inventory-json",
+                "--active-analyzer-list-json",
+            ):
+                if forbidden in command:
+                    issues.append(
+                        _issue(
+                            "error",
+                            "formal_readonly_com_execution_packet_validator_forbidden_unlock_or_packet_input",
+                            f"Formal read-only COM execution packet validator full-flow step must not include {forbidden}",
                             step_id,
                         )
                     )

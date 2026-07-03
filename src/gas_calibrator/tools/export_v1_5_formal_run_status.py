@@ -56,6 +56,11 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default="",
         help="Optional explicit blocked read-only COM execution executor JSON.",
     )
+    parser.add_argument(
+        "--formal-readonly-com-execution-packet-validator-json",
+        default="",
+        help="Optional explicit read-only COM execution packet validator JSON.",
+    )
     parser.add_argument("--pre-gas-readiness-json", default="", help="Optional explicit pre-gas readiness JSON.")
     parser.add_argument("--getco-readiness-json", default="", help="Optional explicit identity/GETCO readiness JSON.")
     parser.add_argument("--run-evidence-status-json", default="", help="Optional explicit run evidence status JSON.")
@@ -137,6 +142,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             formal_readonly_com_execution_contract_json=args.formal_readonly_com_execution_contract_json or None,
             formal_readonly_com_execution_blocked_executor_json=(
                 args.formal_readonly_com_execution_blocked_executor_json or None
+            ),
+            formal_readonly_com_execution_packet_validator_json=(
+                args.formal_readonly_com_execution_packet_validator_json or None
             ),
             pre_gas_readiness_json=args.pre_gas_readiness_json or None,
             getco_readiness_json=args.getco_readiness_json or None,
