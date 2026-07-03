@@ -322,6 +322,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("formal route-readiness preflight support; records readiness evidence before mature route runners")
     elif lower == "run_v1_5_formal_initialization_runner":
         notes.append("canonical initialization owner; offline planner, evidence indexer, and readiness gate")
+    elif lower == "export_v1_5_formal_initialization_executor_dry_run":
+        notes.append("offline initialization executor dry-run review; classifies plan steps without executing COM or write commands")
     elif "formal_archive_closure" in lower:
         notes.append("offline archive closure; does not open COM ports or control routes")
     elif lower == "export_v1_5_pre_gas_readiness":

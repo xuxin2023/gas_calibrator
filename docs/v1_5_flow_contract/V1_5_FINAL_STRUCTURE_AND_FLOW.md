@@ -38,6 +38,7 @@ V1.5 现在已经不是“找不到入口”的状态了。正式路径可以整
 |---|---|---|---|
 | 全流程守门 | 规定顺序、生成离线计划、阻止越级 | `src/gas_calibrator/tools/run_v1_5_full_calibration_chain.py` | 这是 planner/gate，不是隐藏真机 runner。 |
 | 初始化 | SN/device_code、设备 ID、MODE2、GETCO1-9、运行配置、数据库预检 | `src/gas_calibrator/tools/run_v1_5_formal_initialization_runner.py` | 单一正式初始化 owner。子工具只服务这一层。 |
+| 初始化 executor dry-run | 在真实执行前分类初始化 plan 的 offline / read-only COM / controlled-write 步骤 | `src/gas_calibrator/tools/export_v1_5_formal_initialization_executor_dry_run.py` | 只读 sidecar；不传 `--execute`，不打开 COM、不写 SN/设备 ID、不写 SENCO、不连接 PostgreSQL。 |
 | SN 身份 | 首次发现设备时分配/写入 8 位数字 SN | `src/gas_calibrator/tools/run_v1_5_sn_identity_initialization.py` | 只写 SN/device_code；不写 SENCO、不采样、不拟合。 |
 | 运行配置 | MODE2、1 Hz 主动上传、滤波/启动设置、CHECK 记录 | `src/gas_calibrator/tools/run_v1_5_analyzer_runtime_setup.py` | 串口命令最小间隔必须 `>=1.0s`。 |
 | 初始化数据库 | 把身份、run_device、GETCO 快照、runtime setup 入库 | `src/gas_calibrator/tools/run_v1_5_initialization_db_preflight.py` | 正式库目标为 PostgreSQL 18；支持 SN/device_code 和设备 ID 兼容查询。 |

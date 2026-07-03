@@ -209,6 +209,7 @@ def test_entrypoint_classifier_marks_route_readiness_as_formal_preflight_support
 def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_path: Path) -> None:
     root = tmp_path
     pre_gas = root / "src/gas_calibrator/tools/export_v1_5_pre_gas_readiness.py"
+    init_executor_dry_run = root / "src/gas_calibrator/tools/export_v1_5_formal_initialization_executor_dry_run.py"
     getco_readiness = root / "src/gas_calibrator/tools/export_v1_5_getco_identity_readiness.py"
     formal_status = root / "src/gas_calibrator/tools/export_v1_5_formal_run_status.py"
     formal_database_dry_run = root / "src/gas_calibrator/tools/export_v1_5_formal_database_dry_run.py"
@@ -233,6 +234,7 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     algorithm_queue_handoff_preflight = root / "src/gas_calibrator/tools/export_v1_5_algorithm_queue_handoff_preflight.py"
     for path in (
         pre_gas,
+        init_executor_dry_run,
         getco_readiness,
         formal_status,
         formal_database_dry_run,
@@ -256,6 +258,7 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
         path.write_text("", encoding="utf-8")
 
     entry = classify_v1_5_entrypoint(pre_gas, root=root)
+    init_executor_dry_run_entry = classify_v1_5_entrypoint(init_executor_dry_run, root=root)
     getco_entry = classify_v1_5_entrypoint(getco_readiness, root=root)
     formal_status_entry = classify_v1_5_entrypoint(formal_status, root=root)
     formal_database_dry_run_entry = classify_v1_5_entrypoint(formal_database_dry_run, root=root)
@@ -294,6 +297,13 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     assert entry.controls_routes is False
     assert entry.writes_coefficients is False
     assert "offline pre-gas readiness sidecar" in entry.notes[0]
+    assert init_executor_dry_run_entry.category == "formal_review_evidence"
+    assert init_executor_dry_run_entry.formal_status == "formal_support"
+    assert init_executor_dry_run_entry.risk_level == "offline"
+    assert init_executor_dry_run_entry.opens_com_ports is False
+    assert init_executor_dry_run_entry.controls_routes is False
+    assert init_executor_dry_run_entry.writes_coefficients is False
+    assert "offline initialization executor dry-run review" in init_executor_dry_run_entry.notes[0]
     assert getco_entry.category == "formal_review_evidence"
     assert getco_entry.formal_status == "formal_support"
     assert getco_entry.risk_level == "offline"

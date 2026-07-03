@@ -27,6 +27,7 @@ def _pre_identity_offline_steps():
     return [
         "load_plan_and_traceability",
         "formal_initialization_contract_plan",
+        "formal_initialization_executor_dry_run_snapshot",
         "initialization_readiness_snapshot",
         "pre_gas_readiness_snapshot",
     ]
@@ -45,7 +46,12 @@ def test_full_flow_plan_keeps_pressure_and_temperature_before_components(tmp_pat
 
     step_ids = [step.step_id for step in plan.steps]
     assert step_ids.index("load_plan_and_traceability") < step_ids.index("formal_initialization_contract_plan")
-    assert step_ids.index("formal_initialization_contract_plan") < step_ids.index("initialization_readiness_snapshot")
+    assert step_ids.index("formal_initialization_contract_plan") < step_ids.index(
+        "formal_initialization_executor_dry_run_snapshot"
+    )
+    assert step_ids.index("formal_initialization_executor_dry_run_snapshot") < step_ids.index(
+        "initialization_readiness_snapshot"
+    )
     assert step_ids.index("initialization_readiness_snapshot") < step_ids.index("pre_gas_readiness_snapshot")
     assert step_ids.index("pre_gas_readiness_snapshot") < step_ids.index("device_identity_and_getco_snapshot")
     assert step_ids.index("device_identity_and_getco_snapshot") < step_ids.index(
@@ -115,9 +121,11 @@ def test_full_flow_initialization_contract_stage_is_offline_only(tmp_path):
     )
 
     init_plan = next(step for step in plan.steps if step.step_id == "formal_initialization_contract_plan")
+    init_executor = next(step for step in plan.steps if step.step_id == "formal_initialization_executor_dry_run_snapshot")
     readiness = next(step for step in plan.steps if step.step_id == "initialization_readiness_snapshot")
     pre_gas = next(step for step in plan.steps if step.step_id == "pre_gas_readiness_snapshot")
     init_command = list(init_plan.command)
+    init_executor_command = list(init_executor.command)
     readiness_command = list(readiness.command)
     pre_gas_command = list(pre_gas.command)
 
@@ -136,6 +144,22 @@ def test_full_flow_initialization_contract_stage_is_offline_only(tmp_path):
     assert "--execute" not in init_command
     assert "--execute-read-only-real-com" not in init_command
     assert "--execute-controlled-writes" not in init_command
+
+    assert init_executor.execution_mode == "offline_sidecar"
+    assert init_executor.opens_com_ports is False
+    assert init_executor.writes_coefficients is False
+    assert init_executor.writes_device_id is False
+    assert init_executor.controls_gas_route is False
+    assert init_executor.controls_water_route is False
+    assert init_executor.tool_module == "gas_calibrator.tools.export_v1_5_formal_initialization_executor_dry_run"
+    assert _flag_value(init_executor_command, "--formal-initialization-plan-json").endswith(
+        "formal_initialization\\v1_5_formal_initialization_plan.json"
+    )
+    assert _flag_value(init_executor_command, "--output-dir") == str(
+        (tmp_path / "plan" / "formal_initialization_executor_dry_run").resolve()
+    )
+    assert "v1_5_formal_initialization_executor_dry_run.json" in " ".join(init_executor.expected_outputs)
+    assert "--execute" not in init_executor_command
 
     assert readiness.execution_mode == "offline_sidecar"
     assert readiness.opens_com_ports is False
@@ -296,6 +320,7 @@ def test_full_flow_live_runner_readiness_lists_controlled_live_gates(tmp_path):
     assert domains["initialization_contract"].status == "ready_offline_supervised"
     assert domains["initialization_contract"].stage_ids == (
         "formal_initialization_contract_plan",
+        "formal_initialization_executor_dry_run_snapshot",
         "initialization_readiness_snapshot",
         "pre_gas_readiness_snapshot",
     )
@@ -1085,12 +1110,15 @@ def test_supervised_run_executes_ready_offline_step_and_stops_before_com(tmp_pat
     result = run_supervised_full_flow(
         plan,
         execute_commands=True,
-        max_steps=5,
+        max_steps=len(_pre_identity_offline_steps()) + 1,
         output_dir=tmp_path / "exec",
         cwd=tmp_path,
     )
 
-    assert [event.status for event in result.events] == ["completed", "completed", "completed", "completed", "stopped"]
+    assert [event.status for event in result.events] == [
+        *("completed" for _ in _pre_identity_offline_steps()),
+        "stopped",
+    ]
     assert result.final_state.completed_step_ids == tuple(_pre_identity_offline_steps())
     assert result.final_state.current_step_id == "device_identity_and_getco_snapshot"
     assert result.final_state.current_status == "blocked_real_com_authorization"
@@ -1119,7 +1147,7 @@ def test_write_final_state_after_supervised_offline_success(tmp_path):
     result = run_supervised_full_flow(
         plan,
         execute_commands=True,
-        max_steps=4,
+        max_steps=len(_pre_identity_offline_steps()),
         output_dir=tmp_path / "exec",
         cwd=tmp_path,
     )
