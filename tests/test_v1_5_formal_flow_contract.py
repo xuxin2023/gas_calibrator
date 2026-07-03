@@ -48,6 +48,11 @@ def test_formal_flow_contract_passes_for_generated_plan(tmp_path):
     assert report.step_sequence.index(
         "formal_initialization_controlled_executor_design_snapshot"
     ) < report.step_sequence.index(
+        "formal_initialization_readonly_com_preflight_design_snapshot"
+    )
+    assert report.step_sequence.index(
+        "formal_initialization_readonly_com_preflight_design_snapshot"
+    ) < report.step_sequence.index(
         "initialization_readiness_snapshot"
     )
     assert report.step_sequence.index("initialization_readiness_snapshot") < report.step_sequence.index(
@@ -66,6 +71,7 @@ def test_formal_flow_contract_passes_for_generated_plan(tmp_path):
     assert "INITIALIZATION_EXECUTOR_DRY_RUN" in "\n".join(report.physical_flow)
     assert "INITIALIZATION_BLOCKED_EXECUTOR" in "\n".join(report.physical_flow)
     assert "INITIALIZATION_CONTROLLED_EXECUTOR_DESIGN" in "\n".join(report.physical_flow)
+    assert "INITIALIZATION_READONLY_COM_PREFLIGHT_DESIGN" in "\n".join(report.physical_flow)
     assert "IDENTITY_GETCO_READINESS" in "\n".join(report.physical_flow)
     assert report.step_sequence.index("pressure_senco9_no_write_acquisition") < report.step_sequence.index(
         "pressure_senco9_no_write_review"
@@ -220,6 +226,45 @@ def test_formal_flow_contract_blocks_initialization_controlled_design_that_is_no
     assert "formal_initialization_controlled_executor_design_must_not_write_device_id" in codes
     assert "formal_initialization_controlled_executor_design_must_be_offline" in codes
     assert "formal_initialization_controlled_executor_design_missing_required_flag" in codes
+
+
+def test_formal_flow_contract_blocks_readonly_com_preflight_design_that_is_not_offline(tmp_path):
+    plan = build_full_flow_plan(config_path=_config(tmp_path), output_dir=tmp_path / "flow", run_id="demo")
+    steps = list(plan.steps)
+    index = [
+        step.step_id for step in steps
+    ].index("formal_initialization_readonly_com_preflight_design_snapshot")
+    command = tuple(
+        part
+        for part in steps[index].command
+        if part
+        not in {
+            "--formal-initialization-controlled-executor-design-json",
+            "--output-dir",
+        }
+    )
+    steps[index] = replace(
+        steps[index],
+        tool_module="gas_calibrator.tools.run_v1_5_formal_initialization_runner",
+        execution_mode="read_only_real_com_requires_authorization",
+        opens_com_ports=True,
+        writes_coefficients=True,
+        writes_device_id=True,
+        command=command,
+    )
+
+    report = validate_v1_5_formal_flow_contract(
+        replace(plan, steps=tuple(steps)),
+        inventory_entries=_inventory_for_plan(),
+    )
+
+    assert report.status == "blocked"
+    codes = {issue.code for issue in report.issues}
+    assert "formal_initialization_readonly_com_preflight_design_wrong_tool" in codes
+    assert "formal_initialization_readonly_com_preflight_design_must_be_offline_no_write" in codes
+    assert "formal_initialization_readonly_com_preflight_design_must_not_write_device_id" in codes
+    assert "formal_initialization_readonly_com_preflight_design_must_be_offline" in codes
+    assert "formal_initialization_readonly_com_preflight_design_missing_required_flag" in codes
 
 
 def test_formal_flow_contract_blocks_identity_getco_readiness_that_is_not_offline(tmp_path):
