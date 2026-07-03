@@ -348,6 +348,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline read-only COM minimal executor review; defines future output evidence and failure hold matrix without opening COM")
     elif lower == "run_v1_5_formal_readonly_com_minimal_executor_stub":
         notes.append("offline read-only COM minimal executor stub; records would-execute evidence without opening COM or using authorization context as unlock")
+    elif lower == "run_v1_5_formal_readonly_com_minimal_executor":
+        notes.append("manual-authorized minimal read-only COM executor; reads SN/GETCO/runtime/CHECK evidence only, never writes analyzer state, database, pressure, or routes")
     elif "formal_archive_closure" in lower:
         notes.append("offline archive closure; does not open COM ports or control routes")
     elif lower == "export_v1_5_pre_gas_readiness":
@@ -520,6 +522,13 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             formal_status = "formal_support"
             risk_level = "offline"
             opens_com_ports = False
+            controls_routes = False
+            writes_coefficients = False
+        elif lower == "run_v1_5_formal_readonly_com_minimal_executor":
+            category = "formal_review_evidence"
+            formal_status = "manual_authorized_read_only_com_support"
+            risk_level = "real_com_read_only_no_write_risk"
+            opens_com_ports = True
             controls_routes = False
             writes_coefficients = False
         elif lower in FORMAL_INITIALIZATION_SUPPORT_TOOL_NAMES:
