@@ -24,6 +24,16 @@ LOCKED_NO_PACKET_STATUS = "blocked_pending_readonly_com_execution_authorization_
 REVIEW_STATUS = "review_required"
 MIN_SERIAL_COMMAND_GAP_S = 1.0
 SN_PATTERN = re.compile(r"^\d{8}$")
+CONFIRMATION_TEMPLATE_ID = "v1_5_readonly_com_no_write_reviewed_ports_v1"
+STRUCTURED_CONFIRMATION_FIELDS = (
+    "read_only",
+    "no_write",
+    "reviewed_ports",
+    "no_senco_write",
+    "no_database_import",
+    "no_route_control",
+)
+LEGACY_CONFIRMATION_TOKENS = ("read-only", "no-write", "reviewed ports")
 
 
 @dataclass(frozen=True)
@@ -96,6 +106,14 @@ def _bool(row: Mapping[str, Any], *names: str) -> bool:
     return False
 
 
+def _mapping(row: Mapping[str, Any], *names: str) -> Mapping[str, Any]:
+    for name in names:
+        value = row.get(name)
+        if isinstance(value, Mapping):
+            return value
+    return {}
+
+
 def _check(
     *,
     check: str,
@@ -156,13 +174,37 @@ def _blocked_executor_reasons(payload: Mapping[str, Any]) -> list[str]:
     return reasons
 
 
+def _structured_confirmation_reasons(payload: Mapping[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    if payload.get("confirmation_template_id") != CONFIRMATION_TEMPLATE_ID:
+        reasons.append(f"confirmation_template_id={payload.get('confirmation_template_id')!r}")
+    fields = _mapping(payload, "confirmation_fields", "structured_confirmation")
+    if not fields:
+        reasons.append("confirmation_fields=missing")
+        return reasons
+    for field in STRUCTURED_CONFIRMATION_FIELDS:
+        if fields.get(field) is not True:
+            reasons.append(f"confirmation_fields_{field}={fields.get(field)!r}")
+    return reasons
+
+
+def _legacy_confirmation_reasons(payload: Mapping[str, Any]) -> list[str]:
+    confirmation = str(payload.get("operator_confirmation_text") or "").lower()
+    if not confirmation.strip():
+        return ["operator_confirmation_text=missing"]
+    reasons: list[str] = []
+    for token in LEGACY_CONFIRMATION_TOKENS:
+        if token not in confirmation:
+            reasons.append(f"operator_confirmation_missing_{token.replace('-', '_').replace(' ', '_')}")
+    return reasons
+
+
 def _authorization_reasons(payload: Mapping[str, Any], *, required: bool) -> list[str]:
     reasons: list[str] = []
     if not payload:
         return ["authorization_packet_missing"] if required else []
     required_fields = (
         "authorization_id",
-        "operator_confirmation_text",
         "operator",
         "reviewer",
         "approver",
@@ -174,10 +216,12 @@ def _authorization_reasons(payload: Mapping[str, Any], *, required: bool) -> lis
         reasons.append(f"requested_flag={payload.get('requested_flag')!r}")
     if str(payload.get("reviewer") or "").strip() == str(payload.get("approver") or "").strip():
         reasons.append("reviewer_and_approver_must_be_distinct")
-    confirmation = str(payload.get("operator_confirmation_text") or "").lower()
-    for token in ("read-only", "no-write", "reviewed ports"):
-        if token not in confirmation:
-            reasons.append(f"operator_confirmation_missing_{token.replace('-', '_').replace(' ', '_')}")
+    structured_reasons = _structured_confirmation_reasons(payload)
+    legacy_reasons = _legacy_confirmation_reasons(payload)
+    if structured_reasons and legacy_reasons:
+        reasons.append("operator_confirmation_missing_structured_template_or_legacy_text")
+        reasons.extend(structured_reasons)
+        reasons.extend(legacy_reasons)
     if float(payload.get("minimum_serial_command_gap_s") or 0.0) < MIN_SERIAL_COMMAND_GAP_S:
         reasons.append(f"minimum_serial_command_gap_s={payload.get('minimum_serial_command_gap_s')!r}")
     if float(payload.get("retry_gap_s") or 0.0) < MIN_SERIAL_COMMAND_GAP_S:
@@ -358,8 +402,9 @@ def build_v1_5_formal_readonly_com_execution_packet_validator(
             evidence_role="future_authorization_packet",
             reasons=authorization_reasons,
             physical_meaning=(
-                "A future read-only COM run requires explicit operator confirmation, distinct reviewer and "
-                "approver, no-write wording, and >=1s command/retry pacing before any serial port can open."
+                "A future read-only COM run requires explicit structured operator confirmation or legacy "
+                "confirmation text fallback, distinct reviewer and approver, no-write boundaries, and >=1s "
+                "command/retry pacing before any serial port can open."
             ),
             next_action="Fix authorization packet fields before a future executor can consume them.",
             details={"source_path": str(authorization_path) if authorization_path else ""},
@@ -436,6 +481,9 @@ def build_v1_5_formal_readonly_com_execution_packet_validator(
         "database_import_allowed": False,
         "not_real_acceptance_evidence": True,
         "required_future_read_only_real_com_flag": "--execute-read-only-real-com",
+        "structured_confirmation_template_id": CONFIRMATION_TEMPLATE_ID,
+        "structured_confirmation_required_fields": list(STRUCTURED_CONFIRMATION_FIELDS),
+        "legacy_confirmation_text_tokens": list(LEGACY_CONFIRMATION_TOKENS),
         "minimum_serial_command_gap_s": MIN_SERIAL_COMMAND_GAP_S,
         "retry_gap_s": MIN_SERIAL_COMMAND_GAP_S,
         "supported_active_analyzer_count": "1_to_6",

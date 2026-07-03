@@ -5,6 +5,7 @@ from gas_calibrator.tools.export_v1_5_formal_readonly_com_execution_packet_valid
     main as packet_validator_main,
 )
 from gas_calibrator.validation.v1_5_formal_readonly_com_execution_packet_validator import (
+    CONFIRMATION_TEMPLATE_ID,
     build_v1_5_formal_readonly_com_execution_packet_validator,
     write_v1_5_formal_readonly_com_execution_packet_validator_outputs,
 )
@@ -46,32 +47,50 @@ def _blocked_executor_json(tmp_path: Path, *, opens_com_ports: bool = False) -> 
     )
 
 
-def _authorization_packet_json(tmp_path: Path) -> Path:
+def _authorization_packet_json(
+    tmp_path: Path,
+    *,
+    confirmation_text: str | None = None,
+    structured_confirmation: bool = False,
+) -> Path:
+    payload = {
+        "authorization_id": "AUTH-READONLY-001",
+        "requested_flag": "--execute-read-only-real-com",
+        "operator": "operator-a",
+        "reviewer": "reviewer-a",
+        "approver": "approver-a",
+        "operator_confirmation_text": (
+            confirmation_text
+            if confirmation_text is not None
+            else "operator confirms read-only no-write initialization COM check with reviewed ports"
+        ),
+        "minimum_serial_command_gap_s": 1.0,
+        "retry_gap_s": 1.0,
+        "opens_com_ports": False,
+        "connects_postgresql": False,
+        "controls_pressure": False,
+        "controls_water_or_gas_routes": False,
+        "writes_sn": False,
+        "writes_device_id": False,
+        "writes_coefficients": False,
+        "database_written": False,
+        "formal_release_allowed": False,
+        "database_import_allowed": False,
+        "not_real_acceptance_evidence": True,
+    }
+    if structured_confirmation:
+        payload["confirmation_template_id"] = CONFIRMATION_TEMPLATE_ID
+        payload["confirmation_fields"] = {
+            "read_only": True,
+            "no_write": True,
+            "reviewed_ports": True,
+            "no_senco_write": True,
+            "no_database_import": True,
+            "no_route_control": True,
+        }
     return _write_json(
         tmp_path / "packet" / "authorization.json",
-        {
-            "authorization_id": "AUTH-READONLY-001",
-            "requested_flag": "--execute-read-only-real-com",
-            "operator": "operator-a",
-            "reviewer": "reviewer-a",
-            "approver": "approver-a",
-            "operator_confirmation_text": (
-                "operator confirms read-only no-write initialization COM check with reviewed ports"
-            ),
-            "minimum_serial_command_gap_s": 1.0,
-            "retry_gap_s": 1.0,
-            "opens_com_ports": False,
-            "connects_postgresql": False,
-            "controls_pressure": False,
-            "controls_water_or_gas_routes": False,
-            "writes_sn": False,
-            "writes_device_id": False,
-            "writes_coefficients": False,
-            "database_written": False,
-            "formal_release_allowed": False,
-            "database_import_allowed": False,
-            "not_real_acceptance_evidence": True,
-        },
+        payload,
     )
 
 
@@ -157,6 +176,45 @@ def test_packet_validator_accepts_complete_packet_as_offline_review_only(tmp_pat
     assert model["read_only_real_com_execution_allowed"] is False
     assert model["opens_com_ports"] is False
     assert {row["status"] for row in model["checks"]} == {"ready"}
+
+
+def test_packet_validator_accepts_structured_confirmation_without_english_tokens(tmp_path: Path) -> None:
+    model = build_v1_5_formal_readonly_com_execution_packet_validator(
+        formal_readonly_com_execution_blocked_executor_json=_blocked_executor_json(tmp_path),
+        authorization_packet_json=_authorization_packet_json(
+            tmp_path,
+            confirmation_text="操作员确认：仅只读检查已审核端口清单，禁止写入和数据库导入。",
+            structured_confirmation=True,
+        ),
+        reviewed_port_inventory_json=_reviewed_ports_json(tmp_path),
+        active_analyzer_list_json=_active_analyzers_json(tmp_path),
+    )
+
+    assert model["overall_status"] == "ready_for_readonly_com_execution_packet_review"
+    assert model["packet_validated_offline"] is True
+    auth_check = next(row for row in model["checks"] if row["check"] == "authorization_packet_shape")
+    assert auth_check["status"] == "ready"
+    assert model["structured_confirmation_template_id"] == CONFIRMATION_TEMPLATE_ID
+    assert model["opens_com_ports"] is False
+
+
+def test_packet_validator_rejects_confirmation_without_structured_or_legacy_tokens(tmp_path: Path) -> None:
+    model = build_v1_5_formal_readonly_com_execution_packet_validator(
+        formal_readonly_com_execution_blocked_executor_json=_blocked_executor_json(tmp_path),
+        authorization_packet_json=_authorization_packet_json(
+            tmp_path,
+            confirmation_text="操作员确认：已查看现场条件。",
+        ),
+        reviewed_port_inventory_json=_reviewed_ports_json(tmp_path),
+        active_analyzer_list_json=_active_analyzers_json(tmp_path),
+    )
+
+    assert model["overall_status"] == "review_required"
+    auth_check = next(row for row in model["checks"] if row["check"] == "authorization_packet_shape")
+    assert "operator_confirmation_missing_structured_template_or_legacy_text" in auth_check["reasons"]
+    assert "confirmation_fields=missing" in auth_check["reasons"]
+    assert "operator_confirmation_missing_read_only" in auth_check["reasons"]
+    assert model["read_only_real_com_execution_allowed"] is False
 
 
 def test_packet_validator_rejects_old_algorithm_check_requirement(tmp_path: Path) -> None:
