@@ -206,11 +206,13 @@ class _FakeClient:
         *,
         non_neutral: bool = False,
         active_frame_for_getco: bool = False,
+        malformed_getco: str = "",
     ) -> None:
         self.port = port
         self.calls = calls
         self.non_neutral = non_neutral
         self.active_frame_for_getco = active_frame_for_getco
+        self.malformed_getco = malformed_getco
 
     def query(self, command: str, *, timeout_s: float) -> str:
         self.calls.append((self.port, command))
@@ -222,6 +224,12 @@ class _FakeClient:
                 return "YGAS,001,0626.337,33.125,0.99,0.99,027.13,107.68,0301,2777"
             group_index = command.rsplit(",", 1)[-1]
             group = f"GETCO{group_index}"
+            if self.malformed_getco == "s5_gap" and group == "GETCO5":
+                return "<C0:0,C2:1>"
+            if self.malformed_getco == "s7_gap" and group == "GETCO7":
+                return "<C0:0,C1:1,C3:0>"
+            if self.malformed_getco == "s5_duplicate" and group == "GETCO5":
+                return "<C0:0,C1:1,C1:1>"
             if group in {"GETCO5", "GETCO6"}:
                 if self.non_neutral and group == "GETCO5":
                     return "<C0:2,C1:1>"
@@ -416,6 +424,35 @@ def test_minimal_executor_rejects_active_ygas_frame_as_getco_response(tmp_path: 
     assert "getco6_parse_error" in reasons
     assert any(command == "GETCO,YGAS,FFF,5" for _, command in calls)
     assert all(command != "GETCO5,YGAS,FFF" for _, command in calls)
+
+
+def test_minimal_executor_rejects_malformed_getco_token_indexes(tmp_path: Path) -> None:
+    ports = _reviewed_ports_json(tmp_path, 1)
+    active = _active_analyzers_json(tmp_path, 1, algorithm="legacy_ratio")
+    packet, plan = _packet_and_plan(tmp_path, count=1, active=active, ports=ports)
+
+    for malformed, expected_reason in (
+        ("s5_gap", "getco5_parse_error"),
+        ("s7_gap", "getco7_parse_error"),
+        ("s5_duplicate", "getco5_parse_error"),
+    ):
+        calls: list[tuple[str, str]] = []
+        model = build_v1_5_formal_readonly_com_minimal_executor(
+            execute_read_only_real_com=True,
+            authorization_packet_json=_authorization_json(tmp_path),
+            reviewed_port_inventory_json=ports,
+            active_analyzer_list_json=active,
+            formal_readonly_com_execution_packet_validator_json=packet,
+            formal_readonly_com_execution_plan_preview_json=plan,
+            formal_readonly_com_minimal_executor_stub_json=_stub_json(tmp_path),
+            client_factory=lambda port, malformed=malformed: _FakeClient(port, calls, malformed_getco=malformed),
+            sleeper=lambda seconds: None,
+        )
+
+        reasons = {row["reason"] for row in model["hold_events"]}
+        assert model["overall_status"] == "readonly_com_minimal_executor_hold"
+        assert expected_reason in reasons
+        assert any(command == "GETCO,YGAS,FFF,5" for _, command in calls)
 
 
 def test_minimal_executor_without_execute_flag_stays_locked_no_com(tmp_path: Path) -> None:

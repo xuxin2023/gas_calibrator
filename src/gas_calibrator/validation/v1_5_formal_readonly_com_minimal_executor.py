@@ -418,8 +418,16 @@ def _getco_group(plan_row: Mapping[str, Any], command_or_source: str) -> str:
     return ""
 
 
-def _parse_coefficient_values(raw: str) -> list[float]:
-    """Parse mature V1.5 GETCO coefficient tokens and reject active YGAS frames."""
+def _expected_getco_indexes(group: str) -> tuple[int, ...]:
+    if group in {"GETCO5", "GETCO6"}:
+        return (0, 1)
+    if group in {"GETCO7", "GETCO8"}:
+        return (0, 1, 2, 3)
+    return ()
+
+
+def _parse_coefficient_values(raw: str, group: str) -> list[float]:
+    """Parse mature V1.5 GETCO coefficient tokens and reject malformed or active frames."""
 
     text = str(raw or "").strip().strip("<>")
     matches = list(COEFFICIENT_TOKEN_PATTERN.finditer(text))
@@ -427,8 +435,19 @@ def _parse_coefficient_values(raw: str) -> list[float]:
         return []
     values_by_index: dict[int, float] = {}
     for match in matches:
-        values_by_index[int(match.group("index"))] = float(match.group("value"))
-    return [values_by_index[index] for index in sorted(values_by_index)]
+        index = int(match.group("index"))
+        if index in values_by_index:
+            return []
+        values_by_index[index] = float(match.group("value"))
+    expected_indexes = _expected_getco_indexes(group)
+    if expected_indexes:
+        if tuple(sorted(values_by_index)) != expected_indexes:
+            return []
+        return [values_by_index[index] for index in expected_indexes]
+    sorted_indexes = tuple(sorted(values_by_index))
+    if sorted_indexes != tuple(range(len(sorted_indexes))):
+        return []
+    return [values_by_index[index] for index in sorted_indexes]
 
 
 def _neutral_status(group: str, values: Sequence[float]) -> str:
@@ -736,7 +755,7 @@ def build_v1_5_formal_readonly_com_minimal_executor(
                         result_status = "hold"
                 elif _getco_group(plan_row, command_or_source):
                     group = _getco_group(plan_row, command_or_source)
-                    values = _parse_coefficient_values(raw)
+                    values = _parse_coefficient_values(raw, group)
                     parsed_value = json.dumps(values, ensure_ascii=False)
                     snapshot["getco"][group] = {"raw": raw, "values": values}
                     neutral = _neutral_status(group, values)
