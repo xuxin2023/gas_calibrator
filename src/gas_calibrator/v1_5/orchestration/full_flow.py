@@ -648,6 +648,7 @@ def build_full_flow_live_runner_readiness(plan: FullFlowPlan) -> FullFlowLiveRun
                 "formal_initialization_readonly_com_preflight_blocked_executor_snapshot",
                 "formal_initialization_readonly_com_preflight_controlled_executor_design_snapshot",
                 "formal_initialization_readonly_com_preflight_controlled_blocked_executor_snapshot",
+                "formal_readonly_com_execution_contract_snapshot",
                 "initialization_readiness_snapshot",
                 "pre_gas_readiness_snapshot",
             ),
@@ -988,6 +989,7 @@ def build_full_flow_plan(
     formal_initialization_readonly_com_preflight_controlled_blocked_executor_dir = (
         root / "formal_initialization_readonly_com_preflight_controlled_blocked_executor"
     )
+    formal_readonly_com_execution_contract_dir = root / "formal_readonly_com_execution_contract"
     pre_gas_readiness_dir = root / "pre_gas_readiness"
     getco_dir = root / "coefficient_epoch_0_getco_snapshot"
     getco_readiness_dir = root / "identity_getco_readiness"
@@ -1360,6 +1362,43 @@ def build_full_flow_plan(
             notes=(
                 "This stub intentionally returns non-zero when --fail-on-blocked is used, proving controlled read-only COM remains locked.",
                 "A future real read-only COM preflight executor must be a separate reviewed package with explicit authorization and read evidence.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
+            step_id="formal_readonly_com_execution_contract_snapshot",
+            title="Export controlled read-only COM execution packet contract",
+            phase="FORMAL_READONLY_COM_EXECUTION_CONTRACT",
+            tool_module="gas_calibrator.tools.export_v1_5_formal_readonly_com_execution_contract",
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_formal_readonly_com_execution_contract",
+                "--formal-initialization-readonly-com-preflight-controlled-blocked-executor-json",
+                formal_initialization_readonly_com_preflight_controlled_blocked_executor_dir
+                / "v1_5_formal_initialization_readonly_com_preflight_controlled_blocked_executor.json",
+                "--output-dir",
+                formal_readonly_com_execution_contract_dir,
+                "--fail-on-review-required",
+            ),
+            required_inputs=("controlled read-only COM preflight blocked executor JSON",),
+            expected_outputs=(
+                "formal_readonly_com_execution_contract/v1_5_formal_readonly_com_execution_contract.json",
+                "formal_readonly_com_execution_contract/V1_5_FORMAL_READONLY_COM_EXECUTION_CONTRACT.md",
+                "formal_readonly_com_execution_contract/v1_5_formal_readonly_com_execution_packet_contract.csv",
+                "formal_readonly_com_execution_contract/v1_5_formal_readonly_com_denied_action_contract.csv",
+                "formal_readonly_com_execution_contract/v1_5_formal_readonly_com_future_read_sequence_contract.csv",
+            ),
+            physical_meaning=(
+                "Freeze the future execution packet contract for authorized read-only COM identity/GETCO/CHECK "
+                "preflight. This artifact defines required authorization, reviewed port inventory, active analyzer "
+                "list, serial pacing, and denied write/route/database actions without opening COM."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_before_future_readonly_real_com_executor_review",
+            notes=(
+                "This is not a live executor and it does not accept --execute-read-only-real-com.",
+                "Old-algorithm devices remain CHECK-skipped by contract; CHECK-capable/new-algorithm devices require CHECK review in a future live package.",
             ),
         )
     )
@@ -2576,6 +2615,8 @@ def build_full_flow_plan(
                 "--formal-initialization-readonly-com-preflight-controlled-blocked-executor-json",
                 formal_initialization_readonly_com_preflight_controlled_blocked_executor_dir
                 / "v1_5_formal_initialization_readonly_com_preflight_controlled_blocked_executor.json",
+                "--formal-readonly-com-execution-contract-json",
+                formal_readonly_com_execution_contract_dir / "v1_5_formal_readonly_com_execution_contract.json",
                 "--pre-gas-readiness-json",
                 pre_gas_readiness_dir / "v1_5_pre_gas_readiness.json",
                 "--getco-readiness-json",
