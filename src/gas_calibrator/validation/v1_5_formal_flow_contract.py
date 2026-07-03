@@ -25,6 +25,7 @@ REQUIRED_STEP_IDS = (
     "formal_initialization_readonly_com_preflight_design_snapshot",
     "formal_initialization_readonly_com_preflight_blocked_executor_snapshot",
     "formal_initialization_readonly_com_preflight_controlled_executor_design_snapshot",
+    "formal_initialization_readonly_com_preflight_controlled_blocked_executor_snapshot",
     "initialization_readiness_snapshot",
     "pre_gas_readiness_snapshot",
     "device_identity_and_getco_snapshot",
@@ -63,6 +64,7 @@ REQUIRED_ORDER = (
     "formal_initialization_readonly_com_preflight_design_snapshot",
     "formal_initialization_readonly_com_preflight_blocked_executor_snapshot",
     "formal_initialization_readonly_com_preflight_controlled_executor_design_snapshot",
+    "formal_initialization_readonly_com_preflight_controlled_blocked_executor_snapshot",
     "initialization_readiness_snapshot",
     "pre_gas_readiness_snapshot",
     "device_identity_and_getco_snapshot",
@@ -126,6 +128,7 @@ FORMAL_PHYSICAL_FLOW = (
     "INITIALIZATION_READONLY_COM_PREFLIGHT_DESIGN: freeze future read-only real-COM port, pacing, identity, GETCO, CHECK, and hold requirements without executing",
     "INITIALIZATION_READONLY_COM_PREFLIGHT_BLOCKED_EXECUTOR: run the no-COM read-only preflight stub and prove analyzer contact remains refused",
     "INITIALIZATION_READONLY_COM_PREFLIGHT_CONTROLLED_EXECUTOR_DESIGN: freeze future controlled read-only COM executor authorization, port, read sequence, evidence, and hold requirements without executing",
+    "INITIALIZATION_READONLY_COM_PREFLIGHT_CONTROLLED_BLOCKED_EXECUTOR: prove the controlled read-only COM executor remains blocked and no-COM",
     "PRE_GAS_READINESS: summarize SN/device_code, PostgreSQL 18, MODE2/1Hz, GETCO, S7/S8, S9, route, and CHECK gates before live identity",
     "PRECHECK: bind analyzer device IDs to ports and snapshot GETCO1-9",
     "IDENTITY_GETCO_READINESS: verify epoch-0 GETCO artifacts, no-write conclusion, and runtime identity-bound config before auxiliary coefficient changes",
@@ -829,6 +832,78 @@ def validate_v1_5_formal_flow_contract(
                     code="formal_initialization_readonly_com_preflight_controlled_executor_design_missing_required_flag",
                     message=f"Formal initialization read-only COM preflight controlled executor design command must include {flag}",
                 )
+
+        if step_id == "formal_initialization_readonly_com_preflight_controlled_blocked_executor_snapshot":
+            if (
+                module
+                != "gas_calibrator.tools.run_v1_5_formal_initialization_readonly_com_preflight_controlled_blocked_executor"
+            ):
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_initialization_readonly_com_preflight_controlled_blocked_executor_wrong_tool",
+                        "Formal initialization read-only COM preflight controlled blocked executor must use the blocked stub",
+                        step_id,
+                    )
+                )
+            if bool(step.get("opens_com_ports")) or bool(step.get("controls_pressure")) or controls_route or writes:
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_initialization_readonly_com_preflight_controlled_blocked_executor_must_be_offline_no_write",
+                        "Formal initialization read-only COM preflight controlled blocked executor must not open COM, connect PostgreSQL, control routes/pressure, or write coefficients",
+                        step_id,
+                    )
+                )
+            if bool(step.get("writes_device_id")):
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_initialization_readonly_com_preflight_controlled_blocked_executor_must_not_write_device_id",
+                        "Formal initialization read-only COM preflight controlled blocked executor must not write SN/device_code or protocol device ID",
+                        step_id,
+                    )
+                )
+            if not str(step.get("execution_mode") or "").startswith("offline"):
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_initialization_readonly_com_preflight_controlled_blocked_executor_must_be_offline",
+                        "Formal initialization read-only COM preflight controlled blocked executor execution_mode must be offline",
+                        step_id,
+                    )
+                )
+            for flag in (
+                "--formal-initialization-readonly-com-preflight-controlled-executor-design-json",
+                "--output-dir",
+                "--fail-on-blocked",
+            ):
+                _require_flag(
+                    command,
+                    flag,
+                    step_id=step_id,
+                    issues=issues,
+                    code="formal_initialization_readonly_com_preflight_controlled_blocked_executor_missing_required_flag",
+                    message=(
+                        "Formal initialization read-only COM preflight controlled blocked executor "
+                        f"command must include {flag}"
+                    ),
+                )
+            for forbidden in (
+                "--execute",
+                "--execute-read-only-real-com",
+                "--execute-controlled-writes",
+                "--allow-real-com",
+            ):
+                if forbidden in command:
+                    issues.append(
+                        _issue(
+                            "error",
+                            "formal_initialization_readonly_com_preflight_controlled_blocked_executor_forbidden_unlock",
+                            f"Formal initialization read-only COM preflight controlled blocked executor must not include {forbidden}",
+                            step_id,
+                        )
+                    )
 
         if step_id == "identity_getco_readiness_snapshot":
             if module != "gas_calibrator.tools.export_v1_5_getco_identity_readiness":
