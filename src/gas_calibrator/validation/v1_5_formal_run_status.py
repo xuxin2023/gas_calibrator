@@ -871,6 +871,64 @@ def _formal_readonly_com_minimal_executor_stub_gate(
     )
 
 
+def _formal_readonly_com_minimal_executor_gate(
+    path: Path,
+    payload: Mapping[str, Any],
+) -> FormalRunGate:
+    source_status = _source_status(payload)
+    no_write_boundary = (
+        payload.get("connects_postgresql") is False
+        and payload.get("controls_pressure") is False
+        and payload.get("controls_water_or_gas_routes") is False
+        and payload.get("writes_sn") is False
+        and payload.get("writes_device_id") is False
+        and payload.get("writes_coefficients") is False
+        and payload.get("database_written") is False
+        and payload.get("formal_release_allowed") is False
+        and payload.get("database_import_allowed") is False
+        and payload.get("not_real_acceptance_evidence") is True
+    )
+    if not no_write_boundary:
+        status = BLOCKED
+        reason = "minimal read-only COM executor boundary is not clean; write/import/route locks are not preserved"
+        blocks_physical = True
+    elif source_status == "readonly_com_minimal_executor_completed_no_write" and int(payload.get("hold_count") or 0) == 0:
+        status = READY
+        reason = "minimal read-only COM executor completed identity/SN/GETCO/runtime/CHECK reads without writes"
+        blocks_physical = False
+    elif source_status == "readonly_com_minimal_executor_hold" or int(payload.get("hold_count") or 0):
+        status = REVIEW_REQUIRED
+        reason = f"minimal read-only COM executor hold_count={payload.get('hold_count')}"
+        blocks_physical = True
+    elif source_status == "blocked_missing_execute_readonly_real_com":
+        status = REVIEW_REQUIRED
+        reason = "minimal read-only COM executor artifact exists but real read-only execution was not requested"
+        blocks_physical = False
+    else:
+        status = REVIEW_REQUIRED
+        reason = f"minimal read-only COM executor source_status={source_status or 'missing'} requires review"
+        blocks_physical = False
+    return _gate(
+        gate_id="formal_readonly_com_minimal_executor",
+        title="Minimal read-only COM executor",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action=(
+            "Review read-only command attempts, raw responses, hold events, and identity/GETCO snapshot. "
+            "Do not treat this as SENCO write, release, database import, pressure, or route-control evidence."
+        ),
+        physical_meaning=(
+            "Reads reviewed analyzer COM ports for protocol/SN/GETCO/runtime/CHECK initialization evidence while "
+            "preserving no-write, no-database, no-pressure, and no-route boundaries."
+        ),
+        release_gate=False,
+        blocks_release=False,
+        blocks_physical_flow=blocks_physical,
+    )
+
+
 def _run_stage_gate(
     *,
     gate_id: str,
@@ -1512,6 +1570,7 @@ def build_v1_5_formal_run_status(
     formal_readonly_com_execution_plan_preview_json: str | Path | None = None,
     formal_readonly_com_minimal_executor_review_json: str | Path | None = None,
     formal_readonly_com_minimal_executor_stub_json: str | Path | None = None,
+    formal_readonly_com_minimal_executor_json: str | Path | None = None,
     pre_gas_readiness_json: str | Path | None = None,
     getco_readiness_json: str | Path | None = None,
     run_evidence_status_json: str | Path | None = None,
@@ -1583,6 +1642,11 @@ def build_v1_5_formal_run_status(
         root,
         formal_readonly_com_minimal_executor_stub_json,
         "v1_5_formal_readonly_com_minimal_executor_stub.json",
+    )
+    formal_readonly_com_minimal_executor_path = _explicit_or_latest(
+        root,
+        formal_readonly_com_minimal_executor_json,
+        "v1_5_formal_readonly_com_minimal_executor.json",
     )
     pre_gas_path = _explicit_or_latest(root, pre_gas_readiness_json, "v1_5_pre_gas_readiness.json")
     getco_path = _explicit_or_latest(root, getco_readiness_json, "v1_5_getco_identity_readiness.json")
@@ -1656,6 +1720,9 @@ def build_v1_5_formal_run_status(
     )
     formal_readonly_com_minimal_executor_stub_payload = _load_json(
         formal_readonly_com_minimal_executor_stub_path
+    )
+    formal_readonly_com_minimal_executor_payload = _load_json(
+        formal_readonly_com_minimal_executor_path
     )
     pre_gas_payload = _load_json(pre_gas_path)
     getco_payload = _load_json(getco_path)
@@ -1778,6 +1845,16 @@ def build_v1_5_formal_run_status(
             _formal_readonly_com_minimal_executor_stub_gate(
                 formal_readonly_com_minimal_executor_stub_path,
                 formal_readonly_com_minimal_executor_stub_payload,
+            )
+        )
+    if (
+        formal_readonly_com_minimal_executor_path
+        and formal_readonly_com_minimal_executor_payload
+    ):
+        gates.append(
+            _formal_readonly_com_minimal_executor_gate(
+                formal_readonly_com_minimal_executor_path,
+                formal_readonly_com_minimal_executor_payload,
             )
         )
     gates.extend(
@@ -2024,6 +2101,11 @@ def build_v1_5_formal_run_status(
                 formal_readonly_com_minimal_executor_stub_path
             )
             if formal_readonly_com_minimal_executor_stub_path
+            else "",
+            "formal_readonly_com_minimal_executor_json": str(
+                formal_readonly_com_minimal_executor_path
+            )
+            if formal_readonly_com_minimal_executor_path
             else "",
             "pre_gas_readiness_json": str(pre_gas_path) if pre_gas_path else "",
             "getco_readiness_json": str(getco_path) if getco_path else "",

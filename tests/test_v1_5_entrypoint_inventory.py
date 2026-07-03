@@ -61,6 +61,25 @@ def test_entrypoint_classifier_marks_open_flow_sampling_as_canonical_worker(tmp_
         assert "canonical per-point sampling worker" in entry.notes[0]
 
 
+def test_entrypoint_classifier_marks_minimal_readonly_com_executor_as_manual_support(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path
+    executor = root / "src/gas_calibrator/tools/run_v1_5_formal_readonly_com_minimal_executor.py"
+    executor.parent.mkdir(parents=True, exist_ok=True)
+    executor.write_text("", encoding="utf-8")
+
+    entry = classify_v1_5_entrypoint(executor, root=root)
+
+    assert entry.category == "formal_review_evidence"
+    assert entry.formal_status == "manual_authorized_read_only_com_support"
+    assert entry.risk_level == "real_com_read_only_no_write_risk"
+    assert entry.opens_com_ports is True
+    assert entry.controls_routes is False
+    assert entry.writes_coefficients is False
+    assert "manual-authorized minimal read-only COM executor" in entry.notes[0]
+
+
 def test_entrypoint_classifier_marks_pressure_runner_and_legacy_v1_reference(tmp_path: Path) -> None:
     root = tmp_path
     pressure_runner = root / "src/gas_calibrator/tools/validate_pressure_only.py"
