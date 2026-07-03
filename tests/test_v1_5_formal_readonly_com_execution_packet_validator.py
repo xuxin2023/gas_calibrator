@@ -107,7 +107,12 @@ def _reviewed_ports_json(tmp_path: Path) -> Path:
     )
 
 
-def _active_analyzers_json(tmp_path: Path, *, old_check_required: bool = False) -> Path:
+def _active_analyzers_json(
+    tmp_path: Path,
+    *,
+    old_check_required: bool = False,
+    old_check_capable: bool = False,
+) -> Path:
     return _write_json(
         tmp_path / "packet" / "active_analyzers.json",
         {
@@ -128,7 +133,7 @@ def _active_analyzers_json(tmp_path: Path, *, old_check_required: bool = False) 
                     "protocol_device_id": "052",
                     "sn_code": "01260702",
                     "algorithm": "legacy_ratio",
-                    "check_capable": False,
+                    "check_capable": old_check_capable,
                     "check_required": old_check_required,
                 },
             ],
@@ -223,6 +228,20 @@ def test_packet_validator_rejects_old_algorithm_check_requirement(tmp_path: Path
         authorization_packet_json=_authorization_packet_json(tmp_path),
         reviewed_port_inventory_json=_reviewed_ports_json(tmp_path),
         active_analyzer_list_json=_active_analyzers_json(tmp_path, old_check_required=True),
+    )
+
+    assert model["overall_status"] == "review_required"
+    active_check = next(row for row in model["checks"] if row["check"] == "active_analyzer_list_shape")
+    assert "active_2_old_algorithm_check_must_be_skipped" in active_check["reasons"]
+    assert model["opens_com_ports"] is False
+
+
+def test_packet_validator_rejects_old_algorithm_check_capable_flag(tmp_path: Path) -> None:
+    model = build_v1_5_formal_readonly_com_execution_packet_validator(
+        formal_readonly_com_execution_blocked_executor_json=_blocked_executor_json(tmp_path),
+        authorization_packet_json=_authorization_packet_json(tmp_path),
+        reviewed_port_inventory_json=_reviewed_ports_json(tmp_path),
+        active_analyzer_list_json=_active_analyzers_json(tmp_path, old_check_capable=True),
     )
 
     assert model["overall_status"] == "review_required"

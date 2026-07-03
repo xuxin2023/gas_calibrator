@@ -322,7 +322,7 @@ def _active_analyzer_reasons(
             if not check_capable or not check_required:
                 reasons.append(f"active_{index}_new_algorithm_check_must_be_required")
         else:
-            if check_required:
+            if check_required or check_capable:
                 reasons.append(f"active_{index}_old_algorithm_check_must_be_skipped")
     return reasons
 
