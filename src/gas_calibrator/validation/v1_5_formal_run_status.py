@@ -594,6 +594,59 @@ def _formal_readonly_com_execution_contract_gate(
     )
 
 
+def _formal_readonly_com_execution_blocked_executor_gate(
+    path: Path,
+    payload: Mapping[str, Any],
+) -> FormalRunGate:
+    source_status = _source_status(payload)
+    boundary_ok = (
+        payload.get("opens_com_ports") is False
+        and payload.get("read_only_real_com_execution_allowed") is False
+        and payload.get("controlled_write_execution_allowed") is False
+        and payload.get("writes_sn") is False
+        and payload.get("writes_device_id") is False
+        and payload.get("writes_coefficients") is False
+        and payload.get("connects_postgresql") is False
+        and payload.get("controls_pressure") is False
+        and payload.get("controls_water_or_gas_routes") is False
+    )
+    if (
+        source_status == "blocked_pending_readonly_com_real_executor_implementation"
+        and payload.get("blocked_executor_ready") is True
+        and boundary_ok
+    ):
+        status = READY
+        reason = "future read-only COM executor is proven blocked while live COM remains disabled"
+    elif not boundary_ok:
+        status = BLOCKED
+        reason = "read-only COM execution blocked executor boundary locks are not preserved"
+    elif "review" in source_status or int(payload.get("review_required_count") or 0):
+        status = REVIEW_REQUIRED
+        reason = f"source_status={source_status or 'unknown'}"
+    else:
+        status = REVIEW_REQUIRED
+        reason = f"source_status={source_status or 'unknown'}"
+    return _gate(
+        gate_id="formal_readonly_com_execution_blocked_executor",
+        title="Read-only COM execution blocked executor",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action=(
+            "Keep analyzer COM locked. A later real read-only executor must explicitly implement authorization, "
+            "reviewed ports, >=1s pacing, identity/SN/GETCO/runtime/CHECK reads, and hold records."
+        ),
+        physical_meaning=(
+            "Proves the future real read-only analyzer-contact executor still has no current "
+            "COM, no-SN-write, no-SENCO-write, no-database, no-route execution path."
+        ),
+        release_gate=False,
+        blocks_release=False,
+        blocks_physical_flow=False,
+    )
+
+
 def _run_stage_gate(
     *,
     gate_id: str,
@@ -1230,6 +1283,7 @@ def build_v1_5_formal_run_status(
     formal_initialization_readonly_com_preflight_controlled_executor_design_json: str | Path | None = None,
     formal_initialization_readonly_com_preflight_controlled_blocked_executor_json: str | Path | None = None,
     formal_readonly_com_execution_contract_json: str | Path | None = None,
+    formal_readonly_com_execution_blocked_executor_json: str | Path | None = None,
     pre_gas_readiness_json: str | Path | None = None,
     getco_readiness_json: str | Path | None = None,
     run_evidence_status_json: str | Path | None = None,
@@ -1276,6 +1330,11 @@ def build_v1_5_formal_run_status(
         root,
         formal_readonly_com_execution_contract_json,
         "v1_5_formal_readonly_com_execution_contract.json",
+    )
+    formal_readonly_com_execution_blocked_executor_path = _explicit_or_latest(
+        root,
+        formal_readonly_com_execution_blocked_executor_json,
+        "v1_5_formal_readonly_com_execution_blocked_executor.json",
     )
     pre_gas_path = _explicit_or_latest(root, pre_gas_readiness_json, "v1_5_pre_gas_readiness.json")
     getco_path = _explicit_or_latest(root, getco_readiness_json, "v1_5_getco_identity_readiness.json")
@@ -1335,6 +1394,9 @@ def build_v1_5_formal_run_status(
         formal_initialization_readonly_com_preflight_controlled_blocked_executor_path
     )
     formal_readonly_com_execution_contract_payload = _load_json(formal_readonly_com_execution_contract_path)
+    formal_readonly_com_execution_blocked_executor_payload = _load_json(
+        formal_readonly_com_execution_blocked_executor_path
+    )
     pre_gas_payload = _load_json(pre_gas_path)
     getco_payload = _load_json(getco_path)
     run_payload = _load_json(run_status_path)
@@ -1406,6 +1468,16 @@ def build_v1_5_formal_run_status(
             _formal_readonly_com_execution_contract_gate(
                 formal_readonly_com_execution_contract_path,
                 formal_readonly_com_execution_contract_payload,
+            )
+        )
+    if (
+        formal_readonly_com_execution_blocked_executor_path
+        and formal_readonly_com_execution_blocked_executor_payload
+    ):
+        gates.append(
+            _formal_readonly_com_execution_blocked_executor_gate(
+                formal_readonly_com_execution_blocked_executor_path,
+                formal_readonly_com_execution_blocked_executor_payload,
             )
         )
     gates.extend(
@@ -1627,6 +1699,11 @@ def build_v1_5_formal_run_status(
             else "",
             "formal_readonly_com_execution_contract_json": str(formal_readonly_com_execution_contract_path)
             if formal_readonly_com_execution_contract_path
+            else "",
+            "formal_readonly_com_execution_blocked_executor_json": str(
+                formal_readonly_com_execution_blocked_executor_path
+            )
+            if formal_readonly_com_execution_blocked_executor_path
             else "",
             "pre_gas_readiness_json": str(pre_gas_path) if pre_gas_path else "",
             "getco_readiness_json": str(getco_path) if getco_path else "",

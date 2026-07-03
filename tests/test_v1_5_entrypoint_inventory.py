@@ -233,6 +233,9 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     readonly_com_execution_contract = (
         root / "src/gas_calibrator/tools/export_v1_5_formal_readonly_com_execution_contract.py"
     )
+    readonly_com_execution_blocked_executor = (
+        root / "src/gas_calibrator/tools/run_v1_5_formal_readonly_com_execution_blocked_executor.py"
+    )
     getco_readiness = root / "src/gas_calibrator/tools/export_v1_5_getco_identity_readiness.py"
     formal_status = root / "src/gas_calibrator/tools/export_v1_5_formal_run_status.py"
     formal_database_dry_run = root / "src/gas_calibrator/tools/export_v1_5_formal_database_dry_run.py"
@@ -265,6 +268,7 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
         init_readonly_com_preflight_controlled_executor_design,
         init_readonly_com_preflight_controlled_blocked_executor,
         readonly_com_execution_contract,
+        readonly_com_execution_blocked_executor,
         getco_readiness,
         formal_status,
         formal_database_dry_run,
@@ -312,6 +316,10 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     )
     readonly_com_execution_contract_entry = classify_v1_5_entrypoint(
         readonly_com_execution_contract,
+        root=root,
+    )
+    readonly_com_execution_blocked_executor_entry = classify_v1_5_entrypoint(
+        readonly_com_execution_blocked_executor,
         root=root,
     )
     getco_entry = classify_v1_5_entrypoint(getco_readiness, root=root)
@@ -420,6 +428,16 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     assert readonly_com_execution_contract_entry.controls_routes is False
     assert readonly_com_execution_contract_entry.writes_coefficients is False
     assert "offline read-only COM execution packet contract" in readonly_com_execution_contract_entry.notes[0]
+    assert readonly_com_execution_blocked_executor_entry.category == "formal_review_evidence"
+    assert readonly_com_execution_blocked_executor_entry.formal_status == "formal_support"
+    assert readonly_com_execution_blocked_executor_entry.risk_level == "offline"
+    assert readonly_com_execution_blocked_executor_entry.opens_com_ports is False
+    assert readonly_com_execution_blocked_executor_entry.controls_routes is False
+    assert readonly_com_execution_blocked_executor_entry.writes_coefficients is False
+    assert (
+        "offline read-only COM execution blocked executor stub"
+        in readonly_com_execution_blocked_executor_entry.notes[0]
+    )
     assert getco_entry.category == "formal_review_evidence"
     assert getco_entry.formal_status == "formal_support"
     assert getco_entry.risk_level == "offline"

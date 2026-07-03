@@ -609,6 +609,55 @@ def _seed_formal_readonly_com_execution_contract(
     )
 
 
+def _seed_formal_readonly_com_execution_blocked_executor(
+    root: Path,
+    *,
+    review_required_count: int = 0,
+    side_effect_lock_clean: bool = True,
+) -> Path:
+    status = (
+        "blocked_pending_readonly_com_real_executor_implementation"
+        if review_required_count == 0
+        else "review_required"
+    )
+    opens_com_ports = not side_effect_lock_clean
+    path = root / "ro_executor_blocked" / "v1_5_formal_readonly_com_execution_blocked_executor.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return _write_json(
+        path,
+        {
+            "schema": "v1_5_formal_readonly_com_execution_blocked_executor_v1",
+            "overall_status": status,
+            "blocker_count": 0,
+            "review_required_count": review_required_count,
+            "blocked_executor_ready": review_required_count == 0,
+            "contract_ready_for_future_readonly_com_executor_review": review_required_count == 0,
+            "production_state": "blocked_executor_only",
+            "execution_supported": False,
+            "execution_requested": False,
+            "dry_run_only": True,
+            "live_execution_allowed": False,
+            "read_only_real_com_execution_allowed": False,
+            "controlled_write_execution_allowed": False,
+            "real_com_execution_allowed": False,
+            "execute_flag_allowed": False,
+            "opens_com_ports": opens_com_ports,
+            "connects_postgresql": False,
+            "controls_pressure": False,
+            "controls_water_or_gas_routes": False,
+            "writes_sn": False,
+            "writes_device_id": False,
+            "writes_coefficients": False,
+            "database_written": False,
+            "formal_release_allowed": False,
+            "database_import_allowed": False,
+            "not_real_acceptance_evidence": True,
+            "minimum_serial_command_gap_s": 1.0,
+            "supports_old_algorithm_check_skip": True,
+        },
+    )
+
+
 def test_formal_run_status_reports_ready_release_without_touching_devices(tmp_path: Path) -> None:
     run_dir = tmp_path / "ready_run"
     _seed_ready_run(run_dir)
@@ -930,6 +979,54 @@ def test_formal_run_status_blocks_dirty_readonly_com_execution_contract_side_eff
 
     assert model["overall_status"] == "blocked"
     assert model["current_stage"] == "formal_readonly_com_execution_contract"
+    assert model["formal_release_allowed"] is True
+    assert model["database_import_allowed"] is False
+    assert model["can_continue_physical_flow"] is True
+    assert gate["status"] == "blocked"
+    assert gate["release_gate"] is False
+    assert gate["blocks_release"] is False
+    assert gate["blocks_physical_flow"] is False
+    assert "boundary locks are not preserved" in gate["reason"]
+
+
+def test_formal_run_status_surfaces_readonly_com_execution_blocked_executor_without_unlocking_live(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "ready_run_with_readonly_com_execution_blocked_executor"
+    _seed_ready_run(run_dir)
+    blocked_executor_path = _seed_formal_readonly_com_execution_blocked_executor(run_dir)
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gates = {row["gate_id"]: row for row in model["gates"]}
+    gate = gates["formal_readonly_com_execution_blocked_executor"]
+
+    assert model["overall_status"] == "formal_release_ready"
+    assert model["formal_release_allowed"] is True
+    assert model["database_import_allowed"] is False
+    assert model["can_continue_physical_flow"] is True
+    assert model["linked_inputs"]["formal_readonly_com_execution_blocked_executor_json"] == str(
+        blocked_executor_path.resolve()
+    )
+    assert gate["status"] == "ready"
+    assert gate["release_gate"] is False
+    assert gate["blocks_release"] is False
+    assert gate["blocks_physical_flow"] is False
+    assert "live COM remains disabled" in gate["reason"]
+
+
+def test_formal_run_status_blocks_dirty_readonly_com_execution_blocked_executor_side_effects(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "dirty_readonly_com_execution_blocked_executor"
+    _seed_ready_run(run_dir)
+    _seed_formal_readonly_com_execution_blocked_executor(run_dir, side_effect_lock_clean=False)
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gates = {row["gate_id"]: row for row in model["gates"]}
+    gate = gates["formal_readonly_com_execution_blocked_executor"]
+
+    assert model["overall_status"] == "blocked"
+    assert model["current_stage"] == "formal_readonly_com_execution_blocked_executor"
     assert model["formal_release_allowed"] is True
     assert model["database_import_allowed"] is False
     assert model["can_continue_physical_flow"] is True
