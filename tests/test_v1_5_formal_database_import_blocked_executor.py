@@ -212,3 +212,22 @@ def test_real_import_options_are_locked(tmp_path: Path, capsys) -> None:
     rc = cli_main(["--apply-migrations"])
     assert rc == 2
     assert "locked" in capsys.readouterr().err
+
+    rc = cli_main(["--execute-controlled-import"])
+    assert rc == 2
+    assert "--execute-controlled-import" in capsys.readouterr().err
+
+    rc = cli_main(
+        [
+            "--operator-confirmation-text",
+            "I confirm this formal import",
+            "--reviewer",
+            "reviewer-a",
+            "--approver",
+            "approver-a",
+            "--authorization-id",
+            "auth-001",
+        ]
+    )
+    assert rc == 2
+    assert "authorization metadata" in capsys.readouterr().err

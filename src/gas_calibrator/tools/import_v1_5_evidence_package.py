@@ -103,6 +103,11 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     forbidden = parser.add_argument_group("locked real-import options")
     forbidden.add_argument("--dsn", default=None, help=argparse.SUPPRESS)
     forbidden.add_argument("--apply-migrations", action="store_true", help=argparse.SUPPRESS)
+    forbidden.add_argument("--execute-controlled-import", action="store_true", help=argparse.SUPPRESS)
+    forbidden.add_argument("--operator-confirmation-text", default=None, help=argparse.SUPPRESS)
+    forbidden.add_argument("--reviewer", default=None, help=argparse.SUPPRESS)
+    forbidden.add_argument("--approver", default=None, help=argparse.SUPPRESS)
+    forbidden.add_argument("--authorization-id", default=None, help=argparse.SUPPRESS)
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -114,6 +119,18 @@ def _write_summary(path: str | Path, payload: dict[str, object]) -> None:
 
 def _contract_mode_requested(args: argparse.Namespace) -> bool:
     return bool(args.formal_database_import_command_contract_json or args.output_dir)
+
+
+def _locked_real_import_option_requested(args: argparse.Namespace) -> bool:
+    return bool(
+        args.dsn
+        or args.apply_migrations
+        or args.execute_controlled_import
+        or args.operator_confirmation_text
+        or args.reviewer
+        or args.approver
+        or args.authorization_id
+    )
 
 
 def _run_blocked_executor(args: argparse.Namespace) -> int:
@@ -196,10 +213,11 @@ def _run_legacy_bundle_dry_run(args: argparse.Namespace) -> int:
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = _parse_args(argv)
-    if args.dsn or args.apply_migrations:
+    if _locked_real_import_option_requested(args):
         print(
-            "V1.5 real PostgreSQL import and migrations are locked in this command. "
-            "Use the blocked executor contract path first.",
+            "V1.5 real PostgreSQL import execution is locked in this command. "
+            "--execute-controlled-import and authorization metadata are reserved for a future separately "
+            "reviewed controlled executor. Use the blocked executor contract path first.",
             file=sys.stderr,
             flush=True,
         )
