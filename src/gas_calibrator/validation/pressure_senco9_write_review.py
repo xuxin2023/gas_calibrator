@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
+from ..senco_format import format_senco_values
 from .common import load_csv_rows
 from .reporting import ValidationMetadata, write_validation_report
 
@@ -59,7 +60,12 @@ def _extract_old_getco9(snapshot: Mapping[str, Any], device_id: str = "") -> str
         for key in (device_id, f"device_{device_id}", f"YGAS_{device_id}"):
             value = snapshot.get(key)
             if isinstance(value, Mapping):
-                candidates.extend([value.get("GETCO9"), value.get("SENCO9"), value.get("9")])
+                candidates.extend([value.get("GETCO9"), value.get("GETCO9_before"), value.get("SENCO9"), value.get("9")])
+        devices = snapshot.get("devices")
+        if isinstance(devices, Mapping):
+            value = devices.get(device_id)
+            if isinstance(value, Mapping):
+                candidates.extend([value.get("GETCO9"), value.get("GETCO9_before"), value.get("SENCO9"), value.get("9")])
     candidates.extend(
         [
             snapshot.get("GETCO9"),
@@ -90,6 +96,37 @@ def _candidate_supported(row: Mapping[str, Any]) -> bool:
     )
 
 
+def _linear_exception_supported(row: Mapping[str, Any]) -> bool:
+    intercept = _safe_float(row.get("linear_intercept_kpa"))
+    slope = _safe_float(row.get("linear_slope"))
+    offset_mean = _safe_float(row.get("offset_only_residual_mean_abs_hpa"))
+    offset_max = _safe_float(row.get("offset_only_residual_max_abs_hpa"))
+    residual_mean = _safe_float(row.get("linear_residual_mean_abs_hpa"))
+    residual_max = _safe_float(row.get("linear_residual_max_abs_hpa"))
+    return (
+        str(row.get("status") or "").strip().lower() == "fail"
+        and intercept is not None
+        and slope is not None
+        and (
+            (offset_mean is not None and offset_mean > 1.0)
+            or (offset_max is not None and offset_max > 2.0)
+        )
+        and residual_mean is not None
+        and residual_mean <= 0.75
+        and residual_max is not None
+        and residual_max <= 1.5
+        and not _truthy(row.get("write_allowed"))
+    )
+
+
+def _linear_exception_command(row: Mapping[str, Any]) -> str:
+    intercept = _safe_float(row.get("linear_intercept_kpa"))
+    slope = _safe_float(row.get("linear_slope"))
+    if intercept is None or slope is None:
+        return ""
+    return "SENCO9,YGAS,FFF," + ",".join(format_senco_values((intercept, slope, 0.0, 0.0)))
+
+
 def _selected(row: Mapping[str, Any], *, selected_device_id: str, selected_prefix: str) -> bool:
     device_id = str(row.get("analyzer_device_id") or "").strip()
     prefix = str(row.get("analyzer_prefix") or "").strip().lower()
@@ -109,6 +146,7 @@ def build_pressure_senco9_write_review_tables(
     old_getco_snapshot: Optional[Mapping[str, Any]] = None,
     reviewer: str = "",
     approver: str = "",
+    allow_linear_senco9_exception: bool = False,
 ) -> tuple[Dict[str, List[Dict[str, Any]]], Dict[str, Any]]:
     """Build controlled-write review tables from no-write fit results."""
 
@@ -123,7 +161,9 @@ def build_pressure_senco9_write_review_tables(
     selected_rows: List[Mapping[str, Any]] = []
     supported_count = 0
     for row in fit_summary_rows:
-        supported = _candidate_supported(row)
+        offset_supported = _candidate_supported(row)
+        linear_supported = bool(allow_linear_senco9_exception) and _linear_exception_supported(row)
+        supported = offset_supported or linear_supported
         if supported:
             supported_count += 1
         is_selected = _selected(row, selected_device_id=selected_device_id, selected_prefix=selected_prefix)
@@ -131,11 +171,22 @@ def build_pressure_senco9_write_review_tables(
             selected_rows.append(row)
         device_id = str(row.get("analyzer_device_id") or "").strip()
         old_getco9 = _extract_old_getco9(old_snapshot, device_id) if is_selected else ""
+        candidate_command = (
+            _linear_exception_command(row) if linear_supported else row.get("senco9_candidate_command", "")
+        )
+        candidate_model = "linear_exception" if linear_supported else "offset_only"
         candidate_rows.append(
             {
                 "analyzer_prefix": str(row.get("analyzer_prefix") or ""),
                 "analyzer_device_id": device_id,
-                "candidate_status": "supported_for_review" if supported else "blocked",
+                "candidate_status": (
+                    "supported_linear_exception_for_review"
+                    if linear_supported
+                    else "supported_for_review"
+                    if offset_supported
+                    else "blocked"
+                ),
+                "candidate_model": candidate_model,
                 "selected_for_controlled_write_review": bool(is_selected),
                 "fit_status": str(row.get("status") or ""),
                 "recommendation": str(row.get("recommendation") or ""),
@@ -146,8 +197,12 @@ def build_pressure_senco9_write_review_tables(
                 "candidate_offset_kpa": row.get("offset_only_offset_kpa", ""),
                 "offset_residual_mean_abs_hpa": row.get("offset_only_residual_mean_abs_hpa", ""),
                 "offset_residual_max_abs_hpa": row.get("offset_only_residual_max_abs_hpa", ""),
+                "linear_intercept_kpa": row.get("linear_intercept_kpa", ""),
+                "linear_slope": row.get("linear_slope", ""),
                 "linear_slope_bias": row.get("linear_slope_bias", ""),
-                "candidate_command": row.get("senco9_candidate_command", ""),
+                "linear_residual_mean_abs_hpa": row.get("linear_residual_mean_abs_hpa", ""),
+                "linear_residual_max_abs_hpa": row.get("linear_residual_max_abs_hpa", ""),
+                "candidate_command": candidate_command,
                 "candidate_command_scope": "review_only_not_execution_do_not_broadcast_fff",
                 "old_getco9_snapshot": old_getco9,
                 "write_allowed_by_evaluation_artifact": bool(_truthy(row.get("write_allowed"))),
@@ -155,7 +210,11 @@ def build_pressure_senco9_write_review_tables(
             }
         )
 
-    selected_supported = [row for row in selected_rows if _candidate_supported(row)]
+    selected_supported = [
+        row
+        for row in selected_rows
+        if _candidate_supported(row) or (allow_linear_senco9_exception and _linear_exception_supported(row))
+    ]
     old_getco9_selected = ""
     selected_device = ""
     selected_channel = ""
@@ -164,7 +223,11 @@ def build_pressure_senco9_write_review_tables(
         selected = selected_supported[0]
         selected_device = str(selected.get("analyzer_device_id") or "").strip()
         selected_channel = str(selected.get("analyzer_prefix") or "").strip()
-        selected_command = str(selected.get("senco9_candidate_command") or "").strip()
+        selected_command = (
+            _linear_exception_command(selected)
+            if allow_linear_senco9_exception and _linear_exception_supported(selected)
+            else str(selected.get("senco9_candidate_command") or "").strip()
+        )
         old_getco9_selected = _extract_old_getco9(old_snapshot, selected_device)
 
     checks: List[Dict[str, Any]] = []
@@ -240,6 +303,7 @@ def build_pressure_senco9_write_review_tables(
         writes_senco9=False,
         writes_device_id=False,
         formal_co2_h2o_fit=False,
+        allow_linear_senco9_exception=bool(allow_linear_senco9_exception),
     )
     add_check(
         "broadcast_address_guard",
@@ -265,6 +329,7 @@ def build_pressure_senco9_write_review_tables(
             "old_getco9_snapshot_present": bool(old_getco9_selected),
             "reviewer": reviewer_name,
             "approver": approver_name,
+            "allow_linear_senco9_exception": bool(allow_linear_senco9_exception),
             "write_allowed_by_this_tool": False,
             "controls_water_or_gas_routes": False,
             "writes_senco9": False,
@@ -417,6 +482,7 @@ def write_pressure_senco9_write_review_report(
     old_getco_snapshot_path: str | Path | None = None,
     reviewer: str = "",
     approver: str = "",
+    allow_linear_senco9_exception: bool = False,
 ) -> Dict[str, Path]:
     root = Path(fit_dir).resolve()
     summary_path = root / "pressure_fit_summary.csv"
@@ -434,6 +500,7 @@ def write_pressure_senco9_write_review_report(
         old_getco_snapshot=old_getco_snapshot,
         reviewer=reviewer,
         approver=approver,
+        allow_linear_senco9_exception=allow_linear_senco9_exception,
     )
     destination = Path(output_dir).resolve()
     metadata = ValidationMetadata(
@@ -454,6 +521,7 @@ def write_pressure_senco9_write_review_report(
             "review_status": context.get("review_status", ""),
             "selected_analyzer_device_id": context.get("selected_analyzer_device_id", ""),
             "write_allowed": False,
+            "allow_linear_senco9_exception": bool(allow_linear_senco9_exception),
         },
         notes=[
             "Offline controlled SENCO9 write-review package.",

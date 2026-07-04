@@ -37,6 +37,14 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument("--reviewer", default="", help="Reviewer name or identifier.")
     parser.add_argument("--approver", default="", help="Approver name or identifier.")
+    parser.add_argument(
+        "--allow-linear-senco9-exception",
+        action="store_true",
+        help=(
+            "Allow a single selected analyzer with a repeatable linear pressure scale bias "
+            "to enter review as an explicit SENCO9 C0/C1 exception. Default offset-only review stays unchanged."
+        ),
+    )
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -55,6 +63,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             old_getco_snapshot_path=args.old_getco_json,
             reviewer=args.reviewer,
             approver=args.approver,
+            allow_linear_senco9_exception=bool(args.allow_linear_senco9_exception),
         )
     except Exception as exc:
         print(f"Pressure/SENCO9 write-review export failed: {exc}", flush=True)

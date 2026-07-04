@@ -60,6 +60,31 @@ def _point_rows():
     ]
 
 
+def _linear_exception_fit_summary_rows():
+    return [
+        {
+            "analyzer_prefix": "ga04",
+            "analyzer_device_id": "076",
+            "status": "fail",
+            "recommendation": "do_not_write_senco9_investigate_pressure_channel",
+            "reason": "pressure_fit_residuals_exceed_limits",
+            "valid_pair_count": "105",
+            "distinct_pressure_points": "7",
+            "reference_span_hpa": "599.592",
+            "offset_only_offset_kpa": "-3.73598",
+            "offset_only_residual_mean_abs_hpa": "1.598",
+            "offset_only_residual_max_abs_hpa": "3.004",
+            "linear_intercept_kpa": "-2.9616976234456303",
+            "linear_slope": "0.9907505353405923",
+            "linear_slope_bias": "-0.00924946465940768",
+            "linear_residual_mean_abs_hpa": "0.0389",
+            "linear_residual_max_abs_hpa": "0.2045",
+            "senco9_candidate_command": "SENCO9,YGAS,FFF,-3.736,1.000,0.000,0.000",
+            "write_allowed": "False",
+        }
+    ]
+
+
 def _write_csv(path, rows):
     header = []
     for row in rows:
@@ -131,6 +156,47 @@ def test_pressure_senco9_write_review_can_be_ready_for_one_selected_device_witho
     assert all(row["status"] == "pass" for row in checks.values())
     assert selected[0]["old_getco9_snapshot"].startswith("GETCO9")
     assert tables["rollback_plan"][0]["rollback_available"] is True
+
+
+def test_pressure_senco9_write_review_keeps_linear_exception_blocked_by_default():
+    tables, context = build_pressure_senco9_write_review_tables(
+        fit_summary_rows=_linear_exception_fit_summary_rows(),
+        selected_analyzer_device_id="076",
+        old_getco_snapshot={"devices": {"076": {"GETCO9_before": [0.0, 1.0, 0.0, 0.0]}}},
+        reviewer="reviewer-a",
+        approver="approver-b",
+    )
+
+    assert context["review_status"] == "blocked"
+    candidates = tables["pressure_senco9_write_candidates"]
+    assert candidates[0]["candidate_status"] == "blocked"
+    failed = {
+        row["check"]: row["reasons"]
+        for row in tables["pressure_senco9_write_review_checks"]
+        if row["status"] == "fail"
+    }
+    assert failed["candidate_evidence_available"] == "no_supported_no_write_offset_candidate"
+
+
+def test_pressure_senco9_write_review_supports_explicit_linear_exception_without_writing():
+    tables, context = build_pressure_senco9_write_review_tables(
+        fit_summary_rows=_linear_exception_fit_summary_rows(),
+        selected_analyzer_device_id="076",
+        old_getco_snapshot={"devices": {"076": {"GETCO9_before": [0.0, 1.0, 0.0, 0.0]}}},
+        reviewer="reviewer-a",
+        approver="approver-b",
+        allow_linear_senco9_exception=True,
+    )
+
+    summary = tables["pressure_senco9_write_review_summary"][0]
+    candidates = tables["pressure_senco9_write_candidates"]
+    assert context["review_status"] == "ready_for_controlled_single_device_write_review"
+    assert candidates[0]["candidate_status"] == "supported_linear_exception_for_review"
+    assert candidates[0]["candidate_model"] == "linear_exception"
+    assert "9.90751e-01" in candidates[0]["candidate_command"]
+    assert summary["allow_linear_senco9_exception"] is True
+    assert summary["write_allowed_by_this_tool"] is False
+    assert summary["writes_senco9"] is False
 
 
 def test_pressure_senco9_write_review_report_and_cli_write_artifacts(tmp_path):

@@ -26,6 +26,7 @@ from .v1_5_serial_safety import require_fragile_serial_timing
 
 
 CONFIRMATION_TEXT = "WRITE_SENCO9_V1_5_PRESSURE_ONLY"
+LINEAR_EXCEPTION_CONFIRMATION_TEXT = "WRITE_LINEAR_SENCO9_V1_5_PRESSURE_EXCEPTION"
 
 
 def _log(message: str) -> None:
@@ -109,12 +110,43 @@ def _supported_fit_rows(fit_summary_rows: Sequence[Mapping[str, Any]]) -> List[D
     return out
 
 
+def _linear_exception_supported(row: Mapping[str, Any]) -> bool:
+    intercept = _safe_float(row.get("linear_intercept_kpa"))
+    slope = _safe_float(row.get("linear_slope"))
+    offset_mean = _safe_float(row.get("offset_only_residual_mean_abs_hpa"))
+    offset_max = _safe_float(row.get("offset_only_residual_max_abs_hpa"))
+    residual_mean = _safe_float(row.get("linear_residual_mean_abs_hpa"))
+    residual_max = _safe_float(row.get("linear_residual_max_abs_hpa"))
+    return (
+        str(row.get("status") or "").strip().lower() == "fail"
+        and intercept is not None
+        and slope is not None
+        and (
+            (offset_mean is not None and offset_mean > 1.0)
+            or (offset_max is not None and offset_max > 2.0)
+        )
+        and residual_mean is not None
+        and residual_mean <= 0.75
+        and residual_max is not None
+        and residual_max <= 1.5
+        and not _truthy(row.get("write_allowed"))
+    )
+
+
 def _select_targets(
     fit_summary_rows: Sequence[Mapping[str, Any]],
     *,
     selected_device_ids: Sequence[str],
     write_all_supported: bool,
+    allow_linear_senco9_exception: bool = False,
 ) -> List[Dict[str, Any]]:
+    if allow_linear_senco9_exception:
+        wanted = {_device_id(item) for item in selected_device_ids if str(item or "").strip()}
+        return [
+            dict(row)
+            for row in fit_summary_rows
+            if _device_id(row.get("analyzer_device_id")) in wanted and _linear_exception_supported(row)
+        ]
     supported = _supported_fit_rows(fit_summary_rows)
     if write_all_supported:
         return supported
@@ -230,6 +262,14 @@ def _resolve_senco9_target(old_values: Sequence[float], offset_delta_kpa: float)
     return current
 
 
+def _resolve_linear_exception_target(row: Mapping[str, Any]) -> List[float]:
+    intercept = _safe_float(row.get("linear_intercept_kpa"))
+    slope = _safe_float(row.get("linear_slope"))
+    if intercept is None or slope is None:
+        raise RuntimeError("linear_exception_missing_intercept_or_slope")
+    return [float(intercept), float(slope), 0.0, 0.0]
+
+
 def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Controlled V1.5 SENCO9 pressure-channel writer.")
     parser.add_argument("--config", required=True, help="V1.5 hardware config JSON.")
@@ -317,6 +357,19 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default="add-to-current-c0",
         help="Interpret no-write fit offset as a delta added to the current GETCO9 C0.",
     )
+    parser.add_argument(
+        "--allow-linear-senco9-exception",
+        action="store_true",
+        help=(
+            "Write a single selected analyzer using linear_intercept_kpa/linear_slope from a no-write fit "
+            "that failed only because offset-only S9 is insufficient."
+        ),
+    )
+    parser.add_argument(
+        "--linear-exception-confirmation",
+        default="",
+        help=f"Must equal {LINEAR_EXCEPTION_CONFIRMATION_TEXT!r} when --allow-linear-senco9-exception is used.",
+    )
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -336,6 +389,13 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     if str(args.reviewer).strip() == str(args.approver).strip():
         _log("Refusing SENCO9 write: reviewer and approver must differ.")
         return 2
+    if bool(args.allow_linear_senco9_exception):
+        if bool(args.write_all_supported) or len([item for item in args.device_id if str(item or "").strip()]) != 1:
+            _log("Refusing linear SENCO9 exception: select exactly one --device-id and do not use --write-all-supported.")
+            return 2
+        if args.linear_exception_confirmation != LINEAR_EXCEPTION_CONFIRMATION_TEXT:
+            _log("Refusing linear SENCO9 exception: exact linear exception confirmation text is required.")
+            return 2
 
     cfg_path = Path(args.config).resolve()
     fit_dir = Path(args.fit_dir).resolve()
@@ -350,6 +410,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         fit_rows,
         selected_device_ids=args.device_id,
         write_all_supported=bool(args.write_all_supported),
+        allow_linear_senco9_exception=bool(args.allow_linear_senco9_exception),
     )
     if not targets:
         _log("No supported SENCO9 targets selected.")
@@ -382,7 +443,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             continue
 
         offset = _safe_float(row.get("offset_only_offset_kpa"))
-        if offset is None:
+        if offset is None and not bool(args.allow_linear_senco9_exception):
             summary_rows.append(
                 {
                     "analyzer_device_id": device_id,
@@ -425,7 +486,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                     f"identity_mismatch expected={device_id} observed={identity_before.get('id') or '<missing>'}"
                 )
             coeff_before_precheck = _read_getco9_values(ga)
-            coeffs = _resolve_senco9_target(coeff_before_precheck, float(offset))
+            if bool(args.allow_linear_senco9_exception):
+                coeffs = _resolve_linear_exception_target(row)
+            else:
+                coeffs = _resolve_senco9_target(coeff_before_precheck, float(offset))
             verify_result = write_senco_groups_with_full_verification(
                 ga,
                 expected_groups={9: coeffs},
@@ -483,6 +547,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             "GETCO9_before": old_values_for_record,
             "candidate_offset_kpa": offset,
             "candidate_offset_mode": str(args.senco9_offset_mode),
+            "candidate_model": "linear_exception" if bool(args.allow_linear_senco9_exception) else "offset_only",
             "candidate_values": list(coeffs),
             "readback": coeff_readback,
             "rollback_readback": coeff_rollback,
@@ -493,11 +558,16 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 "analyzer_device_id": device_id,
                 "port": analyzer_cfg.get("port", ""),
                 "candidate_offset_kpa": offset,
+                "candidate_linear_intercept_kpa": row.get("linear_intercept_kpa", ""),
+                "candidate_linear_slope": row.get("linear_slope", ""),
                 "old_senco9_c0": old_values_for_record[0] if old_values_for_record else "",
                 "target_senco9_c0": coeffs[0] if coeffs else "",
+                "target_senco9_c1": coeffs[1] if len(coeffs) > 1 else "",
                 "target_senco9_values": json.dumps(coeffs, ensure_ascii=False),
                 "candidate_offset_mode": str(args.senco9_offset_mode),
+                "candidate_model": "linear_exception" if bool(args.allow_linear_senco9_exception) else "offset_only",
                 "candidate_residual_max_abs_hpa": row.get("offset_only_residual_max_abs_hpa", ""),
+                "candidate_linear_residual_max_abs_hpa": row.get("linear_residual_max_abs_hpa", ""),
                 "status": status,
                 "reason": reason,
                 "write_applied": status == "written_readback_verified",
@@ -523,7 +593,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 "identity_before_json": json.dumps(identity_before, ensure_ascii=False, default=str),
                 "identity_after_json": json.dumps(identity_after, ensure_ascii=False, default=str),
                 "coeff_before_json": json.dumps(coeff_before, ensure_ascii=False),
-                "coeff_target_json": json.dumps([float(offset), 1.0, 0.0, 0.0], ensure_ascii=False),
+                "coeff_target_json": json.dumps(coeffs, ensure_ascii=False),
                 "coeff_readback_json": json.dumps(coeff_readback, ensure_ascii=False),
                 "verify_result_json": json.dumps(verify_result, ensure_ascii=False, default=str),
                 "runtime_restore_json": json.dumps(restore, ensure_ascii=False, default=str),
@@ -579,6 +649,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             "coefficient_read_delay_s": float(args.coefficient_read_delay_s),
             "coefficient_read_retries": int(args.coefficient_read_retries),
             "senco9_offset_mode": str(args.senco9_offset_mode),
+            "allow_linear_senco9_exception": bool(args.allow_linear_senco9_exception),
         },
         notes=[
             "Controlled real-device SENCO9 write.",

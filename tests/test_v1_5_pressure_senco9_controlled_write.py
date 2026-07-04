@@ -93,6 +93,29 @@ def _fit_rows():
     ]
 
 
+def _linear_exception_fit_rows():
+    return [
+        {
+            "analyzer_prefix": "ga01",
+            "analyzer_device_id": "023",
+            "status": "fail",
+            "recommendation": "do_not_write_senco9_investigate_pressure_channel",
+            "reason": "pressure_fit_residuals_exceed_limits",
+            "valid_pair_count": "105",
+            "distinct_pressure_points": "7",
+            "reference_span_hpa": "599.592",
+            "offset_only_offset_kpa": "-3.73598",
+            "offset_only_residual_max_abs_hpa": "3.004",
+            "linear_intercept_kpa": "-2.9616976234456303",
+            "linear_slope": "0.9907505353405923",
+            "linear_slope_bias": "-0.00924946465940768",
+            "linear_residual_mean_abs_hpa": "0.0389",
+            "linear_residual_max_abs_hpa": "0.2045",
+            "write_allowed": "False",
+        }
+    ]
+
+
 class _FakeGasAnalyzer:
     instances = {}
 
@@ -183,6 +206,37 @@ def test_controlled_senco9_write_requires_explicit_unlock(tmp_path):
     assert rc == 2
 
 
+def test_controlled_senco9_linear_exception_requires_second_confirmation(tmp_path):
+    cfg_path = tmp_path / "cfg.json"
+    fit_dir = tmp_path / "fit"
+    fit_dir.mkdir()
+    _write_json(cfg_path, _config(tmp_path))
+    _write_csv(fit_dir / "pressure_fit_summary.csv", _linear_exception_fit_rows())
+
+    rc = writer.main(
+        [
+            "--config",
+            str(cfg_path),
+            "--fit-dir",
+            str(fit_dir),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--device-id",
+            "023",
+            "--enable-senco9-write",
+            "--operator-confirmation",
+            writer.CONFIRMATION_TEXT,
+            "--allow-linear-senco9-exception",
+            "--reviewer",
+            "reviewer-a",
+            "--approver",
+            "approver-b",
+        ]
+    )
+
+    assert rc == 2
+
+
 def test_controlled_senco9_write_all_supported_is_sequential_and_restores_runtime(monkeypatch, tmp_path):
     _FakeGasAnalyzer.instances = {}
     monkeypatch.setattr(writer, "GasAnalyzer", _FakeGasAnalyzer)
@@ -231,6 +285,48 @@ def test_controlled_senco9_write_all_supported_is_sequential_and_restores_runtim
     assert ("avg", 49, False) in ga01.calls
     assert ("comm", True, False) in ga01.calls
     assert rows[0]["active_freq_restore_status"] == "skipped"
+
+
+def test_controlled_senco9_write_uses_direct_target_for_linear_exception(monkeypatch, tmp_path):
+    _FakeGasAnalyzer.instances = {}
+    monkeypatch.setattr(writer, "GasAnalyzer", _FakeGasAnalyzer)
+    cfg_path = tmp_path / "cfg.json"
+    fit_dir = tmp_path / "fit"
+    out_dir = tmp_path / "out"
+    fit_dir.mkdir()
+    _write_json(cfg_path, _config(tmp_path))
+    _write_csv(fit_dir / "pressure_fit_summary.csv", _linear_exception_fit_rows())
+
+    rc = writer.main(
+        [
+            "--config",
+            str(cfg_path),
+            "--fit-dir",
+            str(fit_dir),
+            "--output-dir",
+            str(out_dir),
+            "--device-id",
+            "023",
+            "--enable-senco9-write",
+            "--operator-confirmation",
+            writer.CONFIRMATION_TEXT,
+            "--allow-linear-senco9-exception",
+            "--linear-exception-confirmation",
+            writer.LINEAR_EXCEPTION_CONFIRMATION_TEXT,
+            "--reviewer",
+            "reviewer-a",
+            "--approver",
+            "approver-b",
+        ]
+    )
+
+    assert rc == 0
+    rows = _read_csv(out_dir / "senco9_write_summary.csv")
+    ga01 = _FakeGasAnalyzer.instances["COM35"]
+    assert ga01.coeff9 == [-2.9617, 0.990751, 0.0, 0.0]
+    assert rows[0]["candidate_model"] == "linear_exception"
+    assert rows[0]["target_senco9_c1"] == "0.9907505353405923"
+    assert rows[0]["candidate_linear_residual_max_abs_hpa"] == "0.2045"
 
 
 def test_controlled_senco9_write_can_restore_active_freq_when_explicitly_requested(monkeypatch, tmp_path):
