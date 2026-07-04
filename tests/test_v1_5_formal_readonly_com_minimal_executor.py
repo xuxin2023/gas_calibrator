@@ -208,6 +208,8 @@ class _FakeClient:
         non_neutral: bool = False,
         active_frame_for_getco: bool = False,
         active_then_coefficient_for_getco: bool = False,
+        transient_sn_active_once: bool = False,
+        transient_getco_active_group: str = "",
         malformed_getco: str = "",
     ) -> None:
         self.port = port
@@ -215,7 +217,16 @@ class _FakeClient:
         self.non_neutral = non_neutral
         self.active_frame_for_getco = active_frame_for_getco
         self.active_then_coefficient_for_getco = active_then_coefficient_for_getco
+        self.transient_sn_active_once = transient_sn_active_once
+        self.transient_getco_active_group = transient_getco_active_group
         self.malformed_getco = malformed_getco
+        self.query_counts: dict[str, int] = {}
+
+    def _record(self, command: str) -> int:
+        self.calls.append((self.port, command))
+        count = self.query_counts.get(command, 0) + 1
+        self.query_counts[command] = count
+        return count
 
     def _getco_response(self, command: str) -> str:
         group_index = command.rsplit(",", 1)[-1]
@@ -235,9 +246,11 @@ class _FakeClient:
         return "<C0:1,C1:2,C2:3,C3:4>"
 
     def query(self, command: str, *, timeout_s: float) -> str:
-        self.calls.append((self.port, command))
+        count = self._record(command)
         index = int(self.port.replace("COM", "")) - 35
         if command == "SN,YGAS,FFF":
+            if self.transient_sn_active_once and count == 1:
+                return "YGAS,001,0626.337,33.125,0.99,0.99,027.13,107.68,0301,2777"
             return f"SN,YGAS,FFF,012607{index:02d}"
         if command.startswith("GETCO,YGAS,FFF,"):
             if self.active_frame_for_getco:
@@ -248,7 +261,10 @@ class _FakeClient:
         return "OK"
 
     def query_getco(self, command: str, *, timeout_s: float) -> str:
-        self.calls.append((self.port, command))
+        count = self._record(command)
+        group = f"GETCO{command.rsplit(',', 1)[-1]}"
+        if self.transient_getco_active_group == group and count == 1:
+            return "YGAS,001,0626.337,33.125,0.99,0.99,027.13,107.68,0301,2777"
         if self.active_frame_for_getco:
             return "YGAS,001,0626.337,33.125,0.99,0.99,027.13,107.68,0301,2777"
         if self.active_then_coefficient_for_getco:
@@ -545,6 +561,47 @@ def test_minimal_executor_scans_past_active_ygas_frame_for_getco_coefficients(tm
     assert snapshot["auxiliary_neutrality"]["GETCO6"] == "neutral"
     assert snapshot["auxiliary_neutrality"]["GETCO7"] == "neutral"
     assert snapshot["auxiliary_neutrality"]["GETCO8"] == "neutral"
+
+
+def test_minimal_executor_retries_sn_and_getco_read_failures_without_writing(tmp_path: Path) -> None:
+    ports = _reviewed_ports_json(tmp_path, 1)
+    active = _active_analyzers_json(tmp_path, 1, algorithm="legacy_ratio")
+    packet, plan = _packet_and_plan(tmp_path, count=1, active=active, ports=ports)
+    calls: list[tuple[str, str]] = []
+    sleeps: list[float] = []
+
+    model = build_v1_5_formal_readonly_com_minimal_executor(
+        execute_read_only_real_com=True,
+        authorization_packet_json=_authorization_json(tmp_path),
+        reviewed_port_inventory_json=ports,
+        active_analyzer_list_json=active,
+        formal_readonly_com_execution_packet_validator_json=packet,
+        formal_readonly_com_execution_plan_preview_json=plan,
+        formal_readonly_com_minimal_executor_stub_json=_stub_json(tmp_path),
+        client_factory=lambda port: _FakeClient(
+            port,
+            calls,
+            transient_sn_active_once=True,
+            transient_getco_active_group="GETCO5",
+        ),
+        sleeper=sleeps.append,
+    )
+
+    assert model["overall_status"] == "readonly_com_minimal_executor_completed_no_write"
+    assert model["read_retry_count"] == 2
+    assert model["writes_sn"] is False
+    assert model["writes_coefficients"] is False
+    assert model["connects_postgresql"] is False
+    assert calls.count(("COM36", "SN,YGAS,FFF")) == 2
+    assert calls.count(("COM36", "GETCO,YGAS,FFF,5")) == 2
+    assert all(gap >= 1.0 for gap in sleeps)
+    sn_attempt = next(row for row in model["command_attempts"] if row["command_or_source"] == "SN,YGAS,FFF")
+    getco5_attempt = next(
+        row for row in model["command_attempts"] if row["command_or_source"] == "GETCO,YGAS,FFF,5"
+    )
+    assert sn_attempt["retry_count"] == 1
+    assert getco5_attempt["retry_count"] == 1
+    assert all(command != "CHECK,YGAS,FFF" for _, command in calls)
 
 
 def test_minimal_executor_rejects_malformed_getco_token_indexes(tmp_path: Path) -> None:
