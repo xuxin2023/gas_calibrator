@@ -468,7 +468,8 @@ def _ensure_pressure_atmosphere_hold(
     vent_ok = bool(runner._set_pressure_controller_vent(True, reason=reason))
     runner._refresh_pressure_controller_atmosphere_hold(force=True, reason=reason)
     snapshot = runner._pace_state_snapshot(pace, refresh=True)
-    hold_active = bool(runner._pressure_controller_atmosphere_hold_active(pace))
+    gate_summary = dict(getattr(runner, "_last_atmosphere_gate_summary", {}) or {})
+    hold_active = bool(_pace_hold_active(pace)) or bool(gate_summary.get("atmosphere_ready"))
     status = "verified" if vent_ok and hold_active else "not_verified"
     fields = {
         "pressure_atmosphere_hold_required": True,
@@ -668,11 +669,22 @@ def _read_pace_pressure_for_control(
             except Exception as exc:
                 return None, f"pace_gauge:{exc}", "gauge_plus_atmosphere"
         return None, "pace_gauge:atmosphere_reference_or_reader_unavailable", "gauge_plus_atmosphere"
+    get_in_limits = getattr(pace, "get_in_limits", None)
+    if callable(get_in_limits):
+        try:
+            pressure_hpa, _in_limit = get_in_limits()
+            return float(pressure_hpa), "", "in_limits_absolute_pressure"
+        except Exception as exc:
+            in_limits_error = f"pace_in_limits:{exc}"
+    else:
+        in_limits_error = "pace_in_limits:unavailable"
     read_pressure = getattr(pace, "read_pressure", None)
     if callable(read_pressure):
         try:
             return float(read_pressure()), "", "absolute_read_pressure"
         except Exception as exc:
+            if in_limits_error:
+                return None, f"{in_limits_error};pace:{exc}", "absolute_read_pressure"
             return None, f"pace:{exc}", "absolute_read_pressure"
     return None, "pace:read_unavailable", "absolute_read_pressure"
 
