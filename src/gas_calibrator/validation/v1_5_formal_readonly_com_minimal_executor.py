@@ -85,6 +85,25 @@ class PySerialReadOnlyClient:
         raw = self._serial.readline()
         return raw.decode("utf-8", errors="replace").strip()
 
+    def query_getco(self, command: str, *, timeout_s: float) -> str:
+        """Send one GETCO read and scan past active MODE2 frames for coefficient tokens."""
+
+        deadline = time.time() + max(0.05, float(timeout_s))
+        self._serial.timeout = min(0.1, max(0.05, float(timeout_s)))
+        self._serial.write((command + "\r\n").encode("ascii", errors="strict"))
+        first_response = ""
+        while time.time() < deadline:
+            raw = self._serial.readline()
+            text = raw.decode("utf-8", errors="replace").strip()
+            if not text:
+                continue
+            for candidate in [part.strip() for part in text.splitlines() if part.strip()]:
+                if not first_response:
+                    first_response = candidate
+                if COEFFICIENT_TOKEN_PATTERN.search(candidate):
+                    return candidate
+        return first_response
+
     def close(self) -> None:
         self._serial.close()
 
@@ -542,6 +561,20 @@ def _real_client_factory(*, baudrate: int, timeout_s: float) -> Callable[[str], 
     return factory
 
 
+def _query_readonly_command(
+    client: ReadOnlySerialClient,
+    command_or_source: str,
+    *,
+    timeout_s: float,
+    getco_group: str,
+) -> str:
+    if getco_group:
+        query_getco = getattr(client, "query_getco", None)
+        if callable(query_getco):
+            return str(query_getco(command_or_source, timeout_s=timeout_s)).strip()
+    return client.query(command_or_source, timeout_s=timeout_s).strip()
+
+
 def build_v1_5_formal_readonly_com_minimal_executor(
     *,
     execute_read_only_real_com: bool,
@@ -697,7 +730,12 @@ def build_v1_5_formal_readonly_com_minimal_executor(
                     if client is None:
                         client = factory(key[1])
                         client_by_port[key[1]] = client
-                    raw = client.query(command_or_source, timeout_s=timeout_s).strip()
+                    raw = _query_readonly_command(
+                        client,
+                        command_or_source,
+                        timeout_s=timeout_s,
+                        getco_group=_getco_group(plan_row, command_or_source),
+                    )
                     ended_at = _now()
                 except Exception as exc:
                     raw = ""

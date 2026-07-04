@@ -12,6 +12,7 @@ from gas_calibrator.validation.v1_5_formal_readonly_com_execution_plan_preview i
     write_v1_5_formal_readonly_com_execution_plan_preview_outputs,
 )
 from gas_calibrator.validation.v1_5_formal_readonly_com_minimal_executor import (
+    PySerialReadOnlyClient,
     build_v1_5_formal_readonly_com_minimal_executor,
     write_v1_5_formal_readonly_com_minimal_executor_outputs,
 )
@@ -206,13 +207,32 @@ class _FakeClient:
         *,
         non_neutral: bool = False,
         active_frame_for_getco: bool = False,
+        active_then_coefficient_for_getco: bool = False,
         malformed_getco: str = "",
     ) -> None:
         self.port = port
         self.calls = calls
         self.non_neutral = non_neutral
         self.active_frame_for_getco = active_frame_for_getco
+        self.active_then_coefficient_for_getco = active_then_coefficient_for_getco
         self.malformed_getco = malformed_getco
+
+    def _getco_response(self, command: str) -> str:
+        group_index = command.rsplit(",", 1)[-1]
+        group = f"GETCO{group_index}"
+        if self.malformed_getco == "s5_gap" and group == "GETCO5":
+            return "<C0:0,C2:1>"
+        if self.malformed_getco == "s7_gap" and group == "GETCO7":
+            return "<C0:0,C1:1,C3:0>"
+        if self.malformed_getco == "s5_duplicate" and group == "GETCO5":
+            return "<C0:0,C1:1,C1:1>"
+        if group in {"GETCO5", "GETCO6"}:
+            if self.non_neutral and group == "GETCO5":
+                return "<C0:2,C1:1>"
+            return "<C0:0,C1:1>"
+        if group in {"GETCO7", "GETCO8"}:
+            return "<C0:0,C1:1,C2:0,C3:0>"
+        return "<C0:1,C1:2,C2:3,C3:4>"
 
     def query(self, command: str, *, timeout_s: float) -> str:
         self.calls.append((self.port, command))
@@ -222,27 +242,52 @@ class _FakeClient:
         if command.startswith("GETCO,YGAS,FFF,"):
             if self.active_frame_for_getco:
                 return "YGAS,001,0626.337,33.125,0.99,0.99,027.13,107.68,0301,2777"
-            group_index = command.rsplit(",", 1)[-1]
-            group = f"GETCO{group_index}"
-            if self.malformed_getco == "s5_gap" and group == "GETCO5":
-                return "<C0:0,C2:1>"
-            if self.malformed_getco == "s7_gap" and group == "GETCO7":
-                return "<C0:0,C1:1,C3:0>"
-            if self.malformed_getco == "s5_duplicate" and group == "GETCO5":
-                return "<C0:0,C1:1,C1:1>"
-            if group in {"GETCO5", "GETCO6"}:
-                if self.non_neutral and group == "GETCO5":
-                    return "<C0:2,C1:1>"
-                return "<C0:0,C1:1>"
-            if group in {"GETCO7", "GETCO8"}:
-                return "<C0:0,C1:1,C2:0,C3:0>"
-            return "<C0:1,C1:2,C2:3,C3:4>"
+            return self._getco_response(command)
         if command == "CHECK,YGAS,FFF":
             return "CHECK,YGAS,FFF,2.70,2.69,2.70,2.68"
         return "OK"
 
+    def query_getco(self, command: str, *, timeout_s: float) -> str:
+        self.calls.append((self.port, command))
+        if self.active_frame_for_getco:
+            return "YGAS,001,0626.337,33.125,0.99,0.99,027.13,107.68,0301,2777"
+        if self.active_then_coefficient_for_getco:
+            return self._getco_response(command)
+        return self._getco_response(command)
+
     def close(self) -> None:
         return None
+
+
+class _FakeSerial:
+    def __init__(self, lines: list[str]) -> None:
+        self.lines = [line.encode("utf-8") for line in lines]
+        self.timeout = 1.0
+        self.writes: list[bytes] = []
+
+    def write(self, payload: bytes) -> None:
+        self.writes.append(payload)
+
+    def readline(self) -> bytes:
+        if self.lines:
+            return self.lines.pop(0)
+        return b""
+
+
+def test_pyserial_getco_query_scans_past_active_frame_to_coefficient_tokens() -> None:
+    client = PySerialReadOnlyClient.__new__(PySerialReadOnlyClient)
+    fake_serial = _FakeSerial(
+        [
+            "YGAS,001,0626.337,33.125,0.99,0.99,027.13,107.68,0301,2777\r\n",
+            "<C0:0,C1:1>\r\n",
+        ]
+    )
+    client._serial = fake_serial
+
+    response = client.query_getco("GETCO,YGAS,FFF,5", timeout_s=0.2)
+
+    assert response == "<C0:0,C1:1>"
+    assert fake_serial.writes == [b"GETCO,YGAS,FFF,5\r\n"]
 
 
 def test_minimal_executor_reads_six_legacy_devices_without_check(tmp_path: Path) -> None:
@@ -424,6 +469,40 @@ def test_minimal_executor_rejects_active_ygas_frame_as_getco_response(tmp_path: 
     assert "getco6_parse_error" in reasons
     assert any(command == "GETCO,YGAS,FFF,5" for _, command in calls)
     assert all(command != "GETCO5,YGAS,FFF" for _, command in calls)
+
+
+def test_minimal_executor_scans_past_active_ygas_frame_for_getco_coefficients(tmp_path: Path) -> None:
+    ports = _reviewed_ports_json(tmp_path, 1)
+    active = _active_analyzers_json(tmp_path, 1, algorithm="legacy_ratio")
+    packet, plan = _packet_and_plan(tmp_path, count=1, active=active, ports=ports)
+    calls: list[tuple[str, str]] = []
+
+    model = build_v1_5_formal_readonly_com_minimal_executor(
+        execute_read_only_real_com=True,
+        authorization_packet_json=_authorization_json(tmp_path),
+        reviewed_port_inventory_json=ports,
+        active_analyzer_list_json=active,
+        formal_readonly_com_execution_packet_validator_json=packet,
+        formal_readonly_com_execution_plan_preview_json=plan,
+        formal_readonly_com_minimal_executor_stub_json=_stub_json(tmp_path),
+        client_factory=lambda port: _FakeClient(
+            port,
+            calls,
+            active_then_coefficient_for_getco=True,
+        ),
+        sleeper=lambda seconds: None,
+    )
+
+    assert model["overall_status"] == "readonly_com_minimal_executor_completed_no_write"
+    assert model["hold_count"] == 0
+    assert any(command == "GETCO,YGAS,FFF,5" for _, command in calls)
+    assert all(command != "GETCO5,YGAS,FFF" for _, command in calls)
+    assert all(command != "CHECK,YGAS,FFF" for _, command in calls)
+    snapshot = model["identity_getco_snapshots"][0]
+    assert snapshot["auxiliary_neutrality"]["GETCO5"] == "neutral"
+    assert snapshot["auxiliary_neutrality"]["GETCO6"] == "neutral"
+    assert snapshot["auxiliary_neutrality"]["GETCO7"] == "neutral"
+    assert snapshot["auxiliary_neutrality"]["GETCO8"] == "neutral"
 
 
 def test_minimal_executor_rejects_malformed_getco_token_indexes(tmp_path: Path) -> None:
