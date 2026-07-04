@@ -260,18 +260,60 @@ class _FakeClient:
 
 
 class _FakeSerial:
-    def __init__(self, lines: list[str]) -> None:
+    def __init__(self, lines: list[str], *, pre_command_lines: list[str] | None = None) -> None:
+        self.pre_command_lines = [line.encode("utf-8") for line in pre_command_lines or []]
         self.lines = [line.encode("utf-8") for line in lines]
         self.timeout = 1.0
         self.writes: list[bytes] = []
+        self.drains = 0
+
+    def reset_input_buffer(self) -> None:
+        self.drains += 1
+        self.pre_command_lines.clear()
 
     def write(self, payload: bytes) -> None:
         self.writes.append(payload)
 
     def readline(self) -> bytes:
+        if self.pre_command_lines:
+            return self.pre_command_lines.pop(0)
         if self.lines:
             return self.lines.pop(0)
         return b""
+
+
+def test_pyserial_query_drains_pre_command_active_frame_before_sn_response() -> None:
+    client = PySerialReadOnlyClient.__new__(PySerialReadOnlyClient)
+    fake_serial = _FakeSerial(
+        ["SN,YGAS,FFF,01260701\r\n"],
+        pre_command_lines=[
+            "YGAS,001,0626.337,33.125,0.99,0.99,027.13,107.68,0301,2777\r\n",
+        ],
+    )
+    client._serial = fake_serial
+
+    response = client.query("SN,YGAS,FFF", timeout_s=0.2)
+
+    assert response == "SN,YGAS,FFF,01260701"
+    assert fake_serial.drains == 1
+    assert fake_serial.writes == [b"SN,YGAS,FFF\r\n"]
+
+
+def test_pyserial_getco_query_drains_pre_command_active_frame_before_scan() -> None:
+    client = PySerialReadOnlyClient.__new__(PySerialReadOnlyClient)
+    fake_serial = _FakeSerial(
+        ["<C0:0,C1:1>\r\n"],
+        pre_command_lines=[
+            "YGAS,001,0626.337,33.125,0.99,0.99,027.13,107.68,0301,2777\r\n",
+        ],
+    )
+    client._serial = fake_serial
+
+    response = client.query_getco("GETCO,YGAS,FFF,5", timeout_s=0.2)
+
+    assert response == "<C0:0,C1:1>"
+    assert fake_serial.drains == 1
+    assert fake_serial.writes == [b"GETCO,YGAS,FFF,5\r\n"]
 
 
 def test_pyserial_getco_query_scans_past_active_frame_to_coefficient_tokens() -> None:
