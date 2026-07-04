@@ -541,6 +541,8 @@ def _attempt_row(
     raw_response: str = "",
     error: str = "",
     gap_wait_s: float | str = "",
+    retry_count: int = 0,
+    retry_gap_s: float | str = "",
 ) -> dict[str, Any]:
     return {
         "order": plan_row.get("order", ""),
@@ -558,6 +560,8 @@ def _attempt_row(
         "result_status": result_status,
         "raw_response": raw_response,
         "error": error,
+        "retry_count": retry_count,
+        "retry_gap_s": retry_gap_s,
         "writes_sn": False,
         "writes_device_id": False,
         "writes_coefficients": False,
@@ -580,12 +584,29 @@ def _query_readonly_command(
     *,
     timeout_s: float,
     getco_group: str,
-) -> str:
-    if getco_group:
-        query_getco = getattr(client, "query_getco", None)
-        if callable(query_getco):
-            return str(query_getco(command_or_source, timeout_s=timeout_s)).strip()
-    return client.query(command_or_source, timeout_s=timeout_s).strip()
+    retry_gap_s: float,
+    sleeper: Callable[[float], None],
+) -> tuple[str, int]:
+    def query_once() -> str:
+        if getco_group:
+            query_getco = getattr(client, "query_getco", None)
+            if callable(query_getco):
+                return str(query_getco(command_or_source, timeout_s=timeout_s)).strip()
+        return client.query(command_or_source, timeout_s=timeout_s).strip()
+
+    def valid_response(raw_response: str) -> bool:
+        if command_or_source == "SN,YGAS,FFF":
+            return bool(_parse_sn(raw_response))
+        if getco_group:
+            return bool(_parse_coefficient_values(raw_response, getco_group))
+        return True
+
+    raw = query_once()
+    if (command_or_source == "SN,YGAS,FFF" or getco_group) and not valid_response(raw):
+        gap = max(MIN_SERIAL_COMMAND_GAP_S, float(retry_gap_s or 0.0))
+        sleeper(gap)
+        return query_once(), 1
+    return raw, 0
 
 
 def build_v1_5_formal_readonly_com_minimal_executor(
@@ -633,6 +654,10 @@ def build_v1_5_formal_readonly_com_minimal_executor(
     command_plan = plan_payload.get("command_plan") if isinstance(plan_payload.get("command_plan"), list) else []
     active_map = _active_by_key(active_payload)
     command_gap = max(MIN_SERIAL_COMMAND_GAP_S, float(command_gap_s or 0.0))
+    try:
+        retry_gap = max(MIN_SERIAL_COMMAND_GAP_S, float(authorization_payload.get("retry_gap_s") or 0.0))
+    except (TypeError, ValueError):
+        retry_gap = MIN_SERIAL_COMMAND_GAP_S
     attempts: list[dict[str, Any]] = []
     raw_responses: list[dict[str, Any]] = []
     holds: list[dict[str, Any]] = []
@@ -743,15 +768,18 @@ def build_v1_5_formal_readonly_com_minimal_executor(
                     if client is None:
                         client = factory(key[1])
                         client_by_port[key[1]] = client
-                    raw = _query_readonly_command(
+                    raw, retry_count = _query_readonly_command(
                         client,
                         command_or_source,
                         timeout_s=timeout_s,
                         getco_group=_getco_group(plan_row, command_or_source),
+                        retry_gap_s=retry_gap,
+                        sleeper=sleeper,
                     )
                     ended_at = _now()
                 except Exception as exc:
                     raw = ""
+                    retry_count = 0
                     ended_at = _now()
                     reason = f"serial_query_failed:{exc}"
                     _append_hold(
@@ -772,6 +800,8 @@ def build_v1_5_formal_readonly_com_minimal_executor(
                             ended_at=ended_at,
                             error=reason,
                             gap_wait_s=command_gap,
+                            retry_count=retry_count,
+                            retry_gap_s=retry_gap if retry_count else "",
                         )
                     )
                     continue
@@ -848,6 +878,8 @@ def build_v1_5_formal_readonly_com_minimal_executor(
                         ended_at=ended_at,
                         raw_response=raw,
                         gap_wait_s=command_gap,
+                        retry_count=retry_count,
+                        retry_gap_s=retry_gap if retry_count else "",
                     )
                 )
                 raw_responses.append(
@@ -860,6 +892,8 @@ def build_v1_5_formal_readonly_com_minimal_executor(
                         "raw_response": raw,
                         "parsed_value": parsed_value,
                         "result_status": result_status,
+                        "retry_count": retry_count,
+                        "retry_gap_s": retry_gap if retry_count else "",
                     }
                 )
         finally:
@@ -917,6 +951,7 @@ def build_v1_5_formal_readonly_com_minimal_executor(
         "required_read_only_real_com_flag": "--execute-read-only-real-com",
         "minimum_serial_command_gap_s": MIN_SERIAL_COMMAND_GAP_S,
         "command_gap_s": command_gap,
+        "retry_gap_s": retry_gap,
         "baudrate": baudrate,
         "timeout_s": timeout_s,
         "authorization_packet_json": str(authorization_path) if authorization_path else "",
@@ -928,6 +963,7 @@ def build_v1_5_formal_readonly_com_minimal_executor(
         "active_analyzer_count": len(_rows(active_payload, "active_analyzers")),
         "command_attempt_count": len(attempts),
         "raw_response_count": len(raw_responses),
+        "read_retry_count": sum(int(row.get("retry_count") or 0) for row in attempts),
         "identity_getco_snapshot_count": len(snapshots),
         "check_command_attempt_count": sum(1 for row in attempts if row.get("command_or_source") == "CHECK,YGAS,FFF"),
         "legacy_check_command_attempt_count": sum(
