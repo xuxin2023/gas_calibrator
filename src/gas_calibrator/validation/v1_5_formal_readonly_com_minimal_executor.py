@@ -79,8 +79,20 @@ class PySerialReadOnlyClient:
             raise RuntimeError("pyserial is required for live read-only COM execution") from exc
         self._serial = serial.Serial(port=port, baudrate=baudrate, timeout=timeout_s)
 
+    def _drain_input_buffer(self) -> None:
+        """Discard active MODE2 frames queued before issuing a read-only command."""
+
+        reset_input_buffer = getattr(self._serial, "reset_input_buffer", None)
+        if callable(reset_input_buffer):
+            reset_input_buffer()
+            return
+        flush_input = getattr(self._serial, "flushInput", None)
+        if callable(flush_input):  # pragma: no cover - pyserial compatibility fallback
+            flush_input()
+
     def query(self, command: str, *, timeout_s: float) -> str:
         self._serial.timeout = timeout_s
+        self._drain_input_buffer()
         self._serial.write((command + "\r\n").encode("ascii", errors="strict"))
         raw = self._serial.readline()
         return raw.decode("utf-8", errors="replace").strip()
@@ -90,6 +102,7 @@ class PySerialReadOnlyClient:
 
         deadline = time.time() + max(0.05, float(timeout_s))
         self._serial.timeout = min(0.1, max(0.05, float(timeout_s)))
+        self._drain_input_buffer()
         self._serial.write((command + "\r\n").encode("ascii", errors="strict"))
         first_response = ""
         while time.time() < deadline:
