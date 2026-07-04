@@ -181,6 +181,49 @@ class _FakePressureGauge:
         return None
 
 
+class _FakePaceAtmosphereHold:
+    def is_atmosphere_hold_active(self):
+        return False
+
+
+class _FakePaceInLimitsControl:
+    def __init__(self):
+        self.read_pressure_called = False
+
+    def get_in_limits(self):
+        return 1099.45, 1
+
+    def read_pressure(self):
+        self.read_pressure_called = True
+        return 102.2
+
+
+class _FakePressureHoldRunner:
+    def __init__(self):
+        self.devices = {"pace": _FakePaceAtmosphereHold()}
+        self._pressure_atmosphere_hold_strategy = "fake_atmosphere_hold"
+        self._last_atmosphere_gate_summary = {}
+
+    def _set_pressure_controller_vent(self, active, reason=""):
+        self._last_atmosphere_gate_summary = {"atmosphere_ready": bool(active)}
+        return bool(active)
+
+    def _refresh_pressure_controller_atmosphere_hold(self, force=False, reason=""):
+        return None
+
+    def _pace_state_snapshot(self, pace, refresh=False):
+        return {
+            "pace_vent_status": "1",
+            "pace_output_state": "0",
+            "pace_isolation_state": "open",
+        }
+
+
+class _FakePressureControlRunner:
+    def __init__(self):
+        self.cfg = {"workflow": {"pressure": {"control_setpoint_mode": "absolute"}}}
+
+
 class _FakeRoundtripAnalyzer:
     def __init__(self, *args, **kwargs):
         self.groups = {
@@ -605,6 +648,33 @@ def test_validate_pressure_only_exports_pressure_checks(monkeypatch, tmp_path: P
     run_dir = next((tmp_path / "out").glob("pressure_only_*"))
     assert (run_dir / "pressure_source_check.csv").exists()
     assert (run_dir / "pressure_senco9_fit_evaluation" / "pressure_fit_summary.csv").exists()
+
+
+def test_validate_pressure_only_atmosphere_hold_uses_pace_state() -> None:
+    fields = validate_pressure_only._ensure_pressure_atmosphere_hold(
+        _FakePressureHoldRunner(),
+        enabled=True,
+        require=True,
+        reason="unit test pressure hold",
+    )
+
+    assert fields["pressure_atmosphere_hold_status"] == "verified"
+    assert fields["pressure_atmosphere_hold_active"] is True
+    assert fields["pressure_atmosphere_hold_strategy"] == "fake_atmosphere_hold"
+
+
+def test_validate_pressure_only_control_prefers_pace_in_limits_absolute_pressure() -> None:
+    pace = _FakePaceInLimitsControl()
+
+    pressure_hpa, error, mode = validate_pressure_only._read_pace_pressure_for_control(
+        _FakePressureControlRunner(),
+        pace,
+    )
+
+    assert pressure_hpa == 1099.45
+    assert error == ""
+    assert mode == "in_limits_absolute_pressure"
+    assert pace.read_pressure_called is False
 
 
 def test_verify_coefficient_roundtrip_with_same_value_write(monkeypatch, tmp_path: Path) -> None:
