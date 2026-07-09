@@ -66,4 +66,3 @@ Before fitting or writeback, the formal run package must pass:
 3. Route run root-cause audit: no unresolved blockers such as dewpoint rebound, PACE/pressure `NO_RESPONSE`, stale running manifests, aborted no-manifest runs, or unbound direct/retry points.
 
 If any of these fail, the process must not proceed as a continuous formal run. Recovery data can still be used only after explicit accepted-manifest review with point-level supersedence.
-

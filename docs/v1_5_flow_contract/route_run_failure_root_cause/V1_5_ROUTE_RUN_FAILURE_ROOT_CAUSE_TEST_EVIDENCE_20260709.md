@@ -22,4 +22,3 @@ Coverage:
 - Direct/retry point folders without closed queue manifests require supersedence review.
 - Pressure gauge `NO_RESPONSE` is separated from PACE vent `NO_RESPONSE`.
 - The audit remains offline/no-COM/no-write/no-DB/no-route.
-
