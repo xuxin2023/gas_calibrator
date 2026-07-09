@@ -159,6 +159,9 @@ def test_full_flow_plan_keeps_pressure_and_temperature_before_components(tmp_pat
     assert step_ids.index("formal_database_import_command_contract_snapshot") < step_ids.index("database_import")
     assert step_ids.index("zh_calibration_reports") < step_ids.index("final_evidence_status_refresh")
     assert step_ids.index("final_evidence_status_refresh") < step_ids.index(
+        "automation_control_contract_snapshot"
+    )
+    assert step_ids.index("automation_control_contract_snapshot") < step_ids.index(
         "algorithm_profile_runner_dry_run_snapshot"
     )
     assert step_ids.index("algorithm_profile_runner_dry_run_snapshot") < step_ids.index(
@@ -1040,6 +1043,8 @@ def test_full_flow_cli_writes_json_markdown_and_command_list(tmp_path):
     assert (out / "formal_run_status" / "v1_5_formal_run_status.json").exists()
     assert (out / "formal_run_status" / "v1_5_formal_run_status.md").exists()
     assert (out / "formal_run_status" / "v1_5_formal_run_status_gates.csv").exists()
+    assert (out / "automation_control_contract" / "v1_5_automation_control_contract.json").exists()
+    assert (out / "automation_control_contract" / "V1_5_AUTOMATION_CONTROL_CONTRACT.md").exists()
     assert (out / "algorithm_profile_runner_dry_run" / "v1_5_algorithm_profile_runner_dry_run.json").exists()
     assert (out / "algorithm_profile_runner_dry_run" / "V1_5_ALGORITHM_PROFILE_RUNNER_DRY_RUN.md").exists()
     assert (out / "formal_database_dry_run" / "v1_5_formal_database_dry_run.json").exists()
@@ -1232,6 +1237,16 @@ def test_empty_reviewer_and_approver_are_not_rendered_as_bare_flags(tmp_path):
     refresh_step = next(step for step in plan.steps if step.step_id == "final_evidence_status_refresh")
     assert refresh_step.tool_module == "gas_calibrator.tools.export_v1_5_run_evidence_status"
     assert str(refresh_step.command[refresh_step.command.index("--run-dir") + 1]).endswith("plan")
+    automation_step = next(step for step in plan.steps if step.step_id == "automation_control_contract_snapshot")
+    automation_command = list(automation_step.command)
+    assert automation_step.tool_module == "gas_calibrator.tools.export_v1_5_automation_control_contract"
+    assert automation_step.execution_mode == "offline_sidecar"
+    assert automation_step.opens_com_ports is False
+    assert automation_step.controls_gas_route is False
+    assert automation_step.controls_water_route is False
+    assert automation_step.writes_coefficients is False
+    assert _flag_value(automation_command, "--output-dir").endswith("automation_control_contract")
+    assert "0620/0621 physical route core" in automation_step.physical_meaning
     algorithm_step = next(step for step in plan.steps if step.step_id == "algorithm_profile_runner_dry_run_snapshot")
     algorithm_command = list(algorithm_step.command)
     assert algorithm_step.tool_module == "gas_calibrator.tools.export_v1_5_algorithm_profile_runner_dry_run"
