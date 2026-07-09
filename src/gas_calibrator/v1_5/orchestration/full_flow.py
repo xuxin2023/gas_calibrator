@@ -1025,6 +1025,7 @@ def build_full_flow_plan(
     post_write_verify_dir = root / "post_write_reverification"
     reports_dir = root / "reports"
     formal_status_dir = root / "formal_run_status"
+    automation_control_contract_dir = root / "automation_control_contract"
     algorithm_profile_runner_dir = root / "algorithm_profile_runner_dry_run"
     formal_database_dry_run_dir = root / "formal_database_dry_run"
     formal_database_import_preflight_dir = root / "formal_database_import_preflight"
@@ -2750,6 +2751,36 @@ def build_full_flow_plan(
             ),
             execution_mode="offline_sidecar",
             gate="required_after_reports_for_archive_closure",
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
+            step_id="automation_control_contract_snapshot",
+            title="Export V1.5 automation shell and mature-core control contract",
+            phase="AUTOMATION_CONTROL_CONTRACT",
+            tool_module="gas_calibrator.tools.export_v1_5_automation_control_contract",
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_automation_control_contract",
+                "--output-dir",
+                automation_control_contract_dir,
+            ),
+            required_inputs=("0613 fitting baseline", "0620/0621 mature physical execution path"),
+            expected_outputs=(
+                "automation_control_contract/v1_5_automation_control_contract.json",
+                "automation_control_contract/v1_5_automation_control_contract_checks.csv",
+                "automation_control_contract/V1_5_AUTOMATION_CONTROL_CONTRACT.md",
+            ),
+            physical_meaning=(
+                "Freeze the rule that V1.5 automation is an orchestration shell around the mature 0613 fitting "
+                "and 0620/0621 physical route core. This sidecar does not execute route runners."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_before_algorithm_or_status_rollup",
+            notes=(
+                "This contract keeps migrated/root/0624 scripts out of production launch paths unless separately reviewed as equivalent.",
+                "This step does not open COM, control gas/water routes, connect PostgreSQL, write SN/device IDs, write coefficients, or modify mature runners.",
+            ),
         )
     )
 

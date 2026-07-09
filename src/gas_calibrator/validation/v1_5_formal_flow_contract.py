@@ -58,6 +58,7 @@ REQUIRED_STEP_IDS = (
     "database_import",
     "zh_calibration_reports",
     "final_evidence_status_refresh",
+    "automation_control_contract_snapshot",
     "formal_run_status_snapshot",
 )
 
@@ -103,6 +104,7 @@ REQUIRED_ORDER = (
     "database_import",
     "zh_calibration_reports",
     "final_evidence_status_refresh",
+    "automation_control_contract_snapshot",
     "formal_run_status_snapshot",
 )
 
@@ -167,6 +169,7 @@ FORMAL_PHYSICAL_FLOW = (
     "FORMAL_DATABASE_IMPORT_BLOCKED_EXECUTOR: run the no-connect import command stub and prove PostgreSQL writes remain refused",
     "FORMAL_DATABASE_IMPORT_CONTROLLED_EXECUTOR_DESIGN: freeze future double-authorization, transaction, readback, and rollback requirements without connecting",
     "ARCHIVE_REPORT: bundle evidence, database index, and Chinese reports",
+    "AUTOMATION_CONTROL_CONTRACT: freeze that automation is an offline orchestration shell around the 0613 fitting and 0620/0621 mature route core",
     "FORMAL_RUN_STATUS: refresh the top-level current-stage and release-readiness dashboard from offline sidecars",
 )
 
@@ -558,7 +561,9 @@ def validate_v1_5_formal_flow_contract(
     )
     _require_before(step_ids, "formal_evidence_sidecar", "zh_calibration_reports", issues)
     _require_before(step_ids, "zh_calibration_reports", "final_evidence_status_refresh", issues)
-    _require_before(step_ids, "final_evidence_status_refresh", "formal_run_status_snapshot", issues)
+    _require_before(step_ids, "final_evidence_status_refresh", "automation_control_contract_snapshot", issues)
+    _require_before(step_ids, "automation_control_contract_snapshot", "algorithm_profile_runner_dry_run_snapshot", issues)
+    _require_before(step_ids, "automation_control_contract_snapshot", "formal_run_status_snapshot", issues)
 
     by_module = _inventory_by_module(inventory_entries)
     formal_runner_steps: list[str] = []
@@ -1399,6 +1404,52 @@ def validate_v1_5_formal_flow_contract(
                         step_id,
                     )
                 )
+
+        if step_id == "automation_control_contract_snapshot":
+            if module != "gas_calibrator.tools.export_v1_5_automation_control_contract":
+                issues.append(
+                    _issue(
+                        "error",
+                        "automation_control_contract_wrong_tool",
+                        "Automation control contract must use the offline export_v1_5_automation_control_contract sidecar",
+                        step_id,
+                    )
+                )
+            if bool(step.get("opens_com_ports")) or bool(step.get("controls_pressure")) or controls_route or writes:
+                issues.append(
+                    _issue(
+                        "error",
+                        "automation_control_contract_must_be_offline_no_write",
+                        "Automation control contract must not open COM, connect PostgreSQL, control routes/pressure, or write coefficients",
+                        step_id,
+                    )
+                )
+            if bool(step.get("writes_device_id")):
+                issues.append(
+                    _issue(
+                        "error",
+                        "automation_control_contract_must_not_write_device_id",
+                        "Automation control contract must not write SN/device_code or protocol device ID",
+                        step_id,
+                    )
+                )
+            if not str(step.get("execution_mode") or "").startswith("offline"):
+                issues.append(
+                    _issue(
+                        "error",
+                        "automation_control_contract_must_be_offline",
+                        "Automation control contract execution_mode must be offline",
+                        step_id,
+                    )
+                )
+            _require_flag(
+                command,
+                "--output-dir",
+                step_id=step_id,
+                issues=issues,
+                code="automation_control_contract_missing_required_flag",
+                message="Automation control contract command must include --output-dir",
+            )
 
         if step_id == "formal_database_dry_run_snapshot":
             if module != "gas_calibrator.tools.export_v1_5_formal_database_dry_run":

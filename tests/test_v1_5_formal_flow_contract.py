@@ -169,14 +169,22 @@ def test_formal_flow_contract_passes_for_generated_plan(tmp_path):
         "database_import"
     )
     assert report.step_sequence.index("final_evidence_status_refresh") < report.step_sequence.index(
+        "automation_control_contract_snapshot"
+    )
+    assert report.step_sequence.index("automation_control_contract_snapshot") < report.step_sequence.index(
         "formal_run_status_snapshot"
     )
+    if "algorithm_profile_runner_dry_run_snapshot" in report.step_sequence:
+        assert report.step_sequence.index("automation_control_contract_snapshot") < report.step_sequence.index(
+            "algorithm_profile_runner_dry_run_snapshot"
+        )
     assert "FORMAL_DATABASE_DRY_RUN" in "\n".join(report.physical_flow)
     assert "FORMAL_DATABASE_IMPORT_PREFLIGHT" in "\n".join(report.physical_flow)
     assert "FORMAL_DATABASE_IMPORT_AUTHORIZATION" in "\n".join(report.physical_flow)
     assert "FORMAL_DATABASE_IMPORT_COMMAND_CONTRACT" in "\n".join(report.physical_flow)
     assert "FORMAL_DATABASE_IMPORT_BLOCKED_EXECUTOR" in "\n".join(report.physical_flow)
     assert "FORMAL_DATABASE_IMPORT_CONTROLLED_EXECUTOR_DESIGN" in "\n".join(report.physical_flow)
+    assert "AUTOMATION_CONTROL_CONTRACT" in "\n".join(report.physical_flow)
     assert "FORMAL_RUN_STATUS" in "\n".join(report.physical_flow)
 
 
@@ -816,6 +824,31 @@ def test_formal_flow_contract_blocks_formal_status_that_is_not_offline(tmp_path)
     assert "formal_run_status_wrong_tool" in codes
     assert "formal_run_status_must_be_offline_no_write" in codes
     assert "formal_run_status_must_be_offline" in codes
+
+
+def test_formal_flow_contract_blocks_automation_contract_that_is_not_offline(tmp_path):
+    plan = build_full_flow_plan(config_path=_config(tmp_path), output_dir=tmp_path / "flow", run_id="demo")
+    steps = list(plan.steps)
+    index = [step.step_id for step in steps].index("automation_control_contract_snapshot")
+    broken = replace(
+        steps[index],
+        tool_module="gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue",
+        execution_mode="real_route_runner_when_authorized",
+        opens_com_ports=True,
+        controls_gas_route=True,
+        writes_coefficients=True,
+        command=tuple(part for part in steps[index].command if part != "--output-dir"),
+    )
+    steps[index] = broken
+
+    report = validate_v1_5_formal_flow_contract(replace(plan, steps=tuple(steps)), inventory_entries=_inventory_for_plan())
+
+    assert report.status == "blocked"
+    codes = {issue.code for issue in report.issues}
+    assert "automation_control_contract_wrong_tool" in codes
+    assert "automation_control_contract_must_be_offline_no_write" in codes
+    assert "automation_control_contract_must_be_offline" in codes
+    assert "automation_control_contract_missing_required_flag" in codes
 
 
 def test_formal_flow_contract_blocks_database_dry_run_that_is_not_offline(tmp_path):

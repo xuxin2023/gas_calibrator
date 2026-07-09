@@ -41,6 +41,10 @@ from ..validation.v1_5_algorithm_profile_runner_dry_run import (
     build_v1_5_algorithm_profile_runner_dry_run,
     write_v1_5_algorithm_profile_runner_dry_run_outputs,
 )
+from ..validation.v1_5_automation_control_contract import (
+    build_v1_5_automation_control_contract,
+    write_v1_5_automation_control_contract,
+)
 from ..validation.v1_5_formal_database_dry_run import (
     build_v1_5_formal_database_dry_run_contract,
     write_v1_5_formal_database_dry_run_outputs,
@@ -192,6 +196,15 @@ def _write_algorithm_profile_runner_dry_run(*, output_dir: str | Path) -> tuple[
     return model, {key: Path(value).resolve() for key, value in raw_paths.items()}
 
 
+def _write_automation_control_contract(*, output_dir: str | Path) -> tuple[dict, dict[str, Path]]:
+    """Write the offline automation shell/mature-core control contract."""
+
+    root = Path(output_dir).resolve()
+    model = build_v1_5_automation_control_contract()
+    raw_paths = write_v1_5_automation_control_contract(output_dir=root / "automation_control_contract")
+    return model, {key: Path(value).resolve() for key, value in raw_paths.items()}
+
+
 def _write_formal_database_dry_run(*, output_dir: str | Path) -> tuple[dict, dict[str, Path]]:
     """Write the offline PostgreSQL 18 schema/insert-preview dry-run contract."""
 
@@ -332,6 +345,12 @@ def _record_algorithm_profile_runner_outputs(outputs: dict, paths: dict[str, Pat
     outputs["algorithm_profile_runner_dry_run_json"] = paths["json"]
     outputs["algorithm_profile_runner_dry_run_markdown"] = paths["markdown"]
     outputs["algorithm_profile_runner_dry_run_checks"] = paths["checks_csv"]
+
+
+def _record_automation_control_contract_outputs(outputs: dict, paths: dict[str, Path]) -> None:
+    outputs["automation_control_contract_json"] = paths["manifest"]
+    outputs["automation_control_contract_markdown"] = paths["markdown"]
+    outputs["automation_control_contract_checks"] = paths["checks"]
 
 
 def _record_formal_database_dry_run_outputs(outputs: dict, paths: dict[str, Path]) -> None:
@@ -605,6 +624,10 @@ def main(argv: Iterable[str] | None = None) -> int:
     )
     outputs["run_evidence_status_json"] = status_json
     outputs["run_evidence_status_markdown"] = status_md
+    _automation_control_model, automation_control_paths = _write_automation_control_contract(
+        output_dir=args.output_dir,
+    )
+    _record_automation_control_contract_outputs(outputs, automation_control_paths)
     _algorithm_profile_model, algorithm_profile_paths = _write_algorithm_profile_runner_dry_run(
         output_dir=args.output_dir,
     )
