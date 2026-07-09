@@ -16,6 +16,16 @@ python -m pytest tests\test_v1_5_route_physical_recovery_readiness.py tests\test
 32 passed in 6.52s
 ```
 
+## Formal Status Integration Check
+
+```powershell
+python -m pytest tests\test_v1_5_formal_run_status.py tests\test_v1_5_route_physical_recovery_readiness.py tests\test_v1_5_route_run_failure_root_cause.py tests\test_v1_5_formal_run_continuity_gate.py tests\test_v1_5_production_entrypoint_gate.py tests\test_v1_5_mature_route_contract.py -q
+```
+
+```text
+74 passed in 16.22s
+```
+
 ## Review Meaning
 
 This evidence confirms that unresolved PACE vent NO_RESPONSE, pressure-gauge NO_RESPONSE, dry-gas dewpoint rebound, stale running manifests, direct/retry point artifacts, and queue-aborted segments cannot silently unlock the next continuous V1.5 formal route run.

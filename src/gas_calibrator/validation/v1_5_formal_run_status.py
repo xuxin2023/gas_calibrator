@@ -90,6 +90,11 @@ def _source_status(payload: Mapping[str, Any]) -> str:
     return ""
 
 
+def _manifest_payload(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    manifest = payload.get("manifest")
+    return manifest if isinstance(manifest, Mapping) else payload
+
+
 def _stage_status(payload: Mapping[str, Any], stage_id: str) -> str:
     for row in payload.get("stage_statuses") or []:
         if not isinstance(row, Mapping):
@@ -242,6 +247,70 @@ def _pre_gas_gate(path: Path | None, payload: Mapping[str, Any]) -> FormalRunGat
             "GETCO baseline, S7/S8 neutral state, CHECK timing, and database preflight."
         ),
         blocks_physical_flow=status in {MISSING, REVIEW_REQUIRED, BLOCKED},
+    )
+
+
+def _route_physical_recovery_gate(path: Path, payload: Mapping[str, Any]) -> FormalRunGate:
+    manifest = _manifest_payload(payload)
+    source_status = _source_status(manifest)
+    blocker_count = int(manifest.get("blocker_count") or 0)
+    review_required_count = int(manifest.get("review_required_count") or 0)
+    next_run_allowed = manifest.get("next_continuous_run_allowed") is True
+    no_write_boundary = (
+        manifest.get("opens_com_ports") is False
+        and manifest.get("connects_postgresql") is False
+        and manifest.get("controls_pressure") is False
+        and manifest.get("controls_water_or_gas_routes") is False
+        and manifest.get("writes_coefficients") is False
+        and manifest.get("writes_sn_or_device_code") is False
+        and manifest.get("formal_release_allowed") is False
+        and manifest.get("database_import_allowed") is False
+        and manifest.get("not_real_acceptance_evidence") is True
+    )
+    if not no_write_boundary:
+        status = BLOCKED
+        reason = "route physical recovery readiness sidecar boundary is not clean"
+        blocks_physical = True
+    elif source_status == "pass" and blocker_count == 0 and next_run_allowed:
+        status = READY
+        reason = "route physical recovery evidence and fresh canonical next-run policy are ready"
+        blocks_physical = False
+    elif blocker_count:
+        status = BLOCKED
+        reason = (
+            f"route physical blockers remain: blocker_count={blocker_count}; "
+            "PACE vent, pressure gauge, dry-gas dewpoint, or fresh queue policy is not recovered"
+        )
+        blocks_physical = True
+    elif review_required_count:
+        status = REVIEW_REQUIRED
+        reason = (
+            f"route physical recovery has review_required_count={review_required_count}; "
+            "segmented/direct/retry evidence still needs accepted-manifest review"
+        )
+        blocks_physical = not next_run_allowed
+    else:
+        status = REVIEW_REQUIRED
+        reason = f"route physical recovery source_status={source_status or 'missing'} requires review"
+        blocks_physical = not next_run_allowed
+    return _gate(
+        gate_id="route_physical_recovery_readiness",
+        title="Route physical recovery readiness",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action=(
+            "Recover PACE vent, pressure-gauge readback, and dry-gas dewpoint stability; then bind "
+            "the next run to a fresh 0613/0620/0621 canonical queue before starting continuous CO2/H2O."
+        ),
+        physical_meaning=(
+            "Prevents PACE vent NO_RESPONSE, pressure-gauge NO_RESPONSE, dry-gas dewpoint rebound, "
+            "stale running manifests, and direct/retry/manual segments from being treated as a valid next continuous run."
+        ),
+        release_gate=False,
+        blocks_release=False,
+        blocks_physical_flow=blocks_physical,
     )
 
 
@@ -1571,6 +1640,7 @@ def build_v1_5_formal_run_status(
     formal_readonly_com_minimal_executor_review_json: str | Path | None = None,
     formal_readonly_com_minimal_executor_stub_json: str | Path | None = None,
     formal_readonly_com_minimal_executor_json: str | Path | None = None,
+    route_physical_recovery_readiness_json: str | Path | None = None,
     pre_gas_readiness_json: str | Path | None = None,
     getco_readiness_json: str | Path | None = None,
     run_evidence_status_json: str | Path | None = None,
@@ -1648,6 +1718,11 @@ def build_v1_5_formal_run_status(
         formal_readonly_com_minimal_executor_json,
         "v1_5_formal_readonly_com_minimal_executor.json",
     )
+    route_physical_recovery_path = _explicit_or_latest(
+        root,
+        route_physical_recovery_readiness_json,
+        "v1_5_route_physical_recovery_readiness.json",
+    )
     pre_gas_path = _explicit_or_latest(root, pre_gas_readiness_json, "v1_5_pre_gas_readiness.json")
     getco_path = _explicit_or_latest(root, getco_readiness_json, "v1_5_getco_identity_readiness.json")
     run_status_path = _explicit_or_latest(root, run_evidence_status_json, "v1_5_run_evidence_status.json")
@@ -1724,6 +1799,7 @@ def build_v1_5_formal_run_status(
     formal_readonly_com_minimal_executor_payload = _load_json(
         formal_readonly_com_minimal_executor_path
     )
+    route_physical_recovery_payload = _load_json(route_physical_recovery_path)
     pre_gas_payload = _load_json(pre_gas_path)
     getco_payload = _load_json(getco_path)
     run_payload = _load_json(run_status_path)
@@ -1855,6 +1931,13 @@ def build_v1_5_formal_run_status(
             _formal_readonly_com_minimal_executor_gate(
                 formal_readonly_com_minimal_executor_path,
                 formal_readonly_com_minimal_executor_payload,
+            )
+        )
+    if route_physical_recovery_path and route_physical_recovery_payload:
+        gates.append(
+            _route_physical_recovery_gate(
+                route_physical_recovery_path,
+                route_physical_recovery_payload,
             )
         )
     gates.extend(
@@ -2106,6 +2189,9 @@ def build_v1_5_formal_run_status(
                 formal_readonly_com_minimal_executor_path
             )
             if formal_readonly_com_minimal_executor_path
+            else "",
+            "route_physical_recovery_readiness_json": str(route_physical_recovery_path)
+            if route_physical_recovery_path
             else "",
             "pre_gas_readiness_json": str(pre_gas_path) if pre_gas_path else "",
             "getco_readiness_json": str(getco_path) if getco_path else "",
