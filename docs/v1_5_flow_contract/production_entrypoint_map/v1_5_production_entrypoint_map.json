@@ -1,0 +1,266 @@
+{
+  "schema": "v1_5_production_entrypoint_map_v1",
+  "generated_at": "2026-07-09T06:22:58Z",
+  "manifest": {
+    "status": "pass",
+    "blocker_count": 0,
+    "mature_fitting_baseline": "0613-style V1.5 fitting method",
+    "mature_physical_baseline": "0620/0621 mature physical execution path",
+    "legacy_point_contract": {
+      "co2": 45,
+      "h2o_wet": 13
+    },
+    "new_algorithm_profile_contract": {
+      "co2": 47,
+      "h2o_wet": 14
+    },
+    "production_entry_count": 8,
+    "forbidden_surface_count": 5,
+    "opens_com_ports": false,
+    "controls_pressure": false,
+    "controls_water_or_gas_routes": false,
+    "connects_postgresql": false,
+    "writes_coefficients": false,
+    "writes_sn_or_device_code": false,
+    "formal_release_allowed": false,
+    "database_import_allowed": false,
+    "not_real_acceptance_evidence": true,
+    "protected_core_files": [
+      "src/gas_calibrator/tools/run_v1_5_formal_co2_open_flow_queue.py",
+      "src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_queue.py",
+      "src/gas_calibrator/tools/run_v1_5_formal_open_flow_sampling.py",
+      "src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_sampling.py",
+      "src/gas_calibrator/workflow/runner.py",
+      "src/gas_calibrator/devices/gas_analyzer.py",
+      "configs/default_config.json",
+      "run_app.py"
+    ]
+  },
+  "production_entrypoints": [
+    {
+      "entrypoint_id": "initialization_planner",
+      "path": "src/gas_calibrator/tools/run_v1_5_formal_initialization_runner.py",
+      "group": "01_initialization",
+      "production_role": "formal initialization planner and readiness index",
+      "launch_policy": "offline_plan_and_gate_only",
+      "mature_baseline": "0620/0621 mature physical execution path",
+      "algorithm_scope": "legacy_and_new_algorithm",
+      "opens_com_when_authorized": false,
+      "controls_pressure_when_authorized": false,
+      "controls_routes_when_authorized": false,
+      "writes_coefficients_when_authorized": false,
+      "connects_postgresql_when_authorized": false,
+      "point_contract": "not_a_route_runner",
+      "required_before_use": "Use as the owner of the formal initialization plan; subordinate tools handle read-only COM or controlled writes.",
+      "forbidden_substitutes": "Do not start initialization from ad hoc root scripts, _handoff evidence, or V1/V2 launchers.",
+      "notes": "Owns SN/device_code, protocol ID alias, runtime, GETCO, neutralization, S9, CHECK, and pre-gas evidence contracts."
+    },
+    {
+      "entrypoint_id": "readonly_com_identity_getco_closeout",
+      "path": "src/gas_calibrator/tools/run_v1_5_formal_readonly_com_minimal_executor.py",
+      "group": "01_initialization",
+      "production_role": "manual-authorized read-only identity, SN, GETCO, runtime, and CHECK-capable evidence",
+      "launch_policy": "manual_authorized_read_only_com_only",
+      "mature_baseline": "0620/0621 mature physical execution path",
+      "algorithm_scope": "legacy_and_new_algorithm",
+      "opens_com_when_authorized": true,
+      "controls_pressure_when_authorized": false,
+      "controls_routes_when_authorized": false,
+      "writes_coefficients_when_authorized": false,
+      "connects_postgresql_when_authorized": false,
+      "point_contract": "not_a_route_runner",
+      "required_before_use": "Requires packet validator, reviewed ports, active analyzer list, authorization packet, >=1s pacing, no-write/no-db/no-route confirmation.",
+      "forbidden_substitutes": "Do not use raw serial scripts as production identity evidence.",
+      "notes": "Legacy analyzers must not receive CHECK; new-algorithm/CHECK-capable analyzers may read CHECK only after the read-only plan allows it."
+    },
+    {
+      "entrypoint_id": "pressure_s9_no_write",
+      "path": "src/gas_calibrator/tools/validate_pressure_only.py",
+      "group": "02_pressure",
+      "production_role": "pressure/S9 no-write acquisition and review",
+      "launch_policy": "manual_authorized_pressure_no_write",
+      "mature_baseline": "0620/0621 mature physical execution path",
+      "algorithm_scope": "legacy_and_new_algorithm",
+      "opens_com_when_authorized": true,
+      "controls_pressure_when_authorized": true,
+      "controls_routes_when_authorized": false,
+      "writes_coefficients_when_authorized": false,
+      "connects_postgresql_when_authorized": false,
+      "point_contract": "PACE INL absolute pressure, S9 no-write first",
+      "required_before_use": "Pressure reference and route-independent pressure evidence must be ready; writes remain separate controlled steps.",
+      "forbidden_substitutes": "Do not use the wrong PACE pressure query or CO2/H2O route data as pressure readiness.",
+      "notes": "Linear S9 exceptions must be explicit controlled exceptions with write/readback/reverify evidence."
+    },
+    {
+      "entrypoint_id": "co2_mature_legacy_queue",
+      "path": "src/gas_calibrator/tools/run_v1_5_formal_co2_open_flow_queue.py",
+      "group": "03_co2",
+      "production_role": "mature legacy CO2 open-flow production queue",
+      "launch_policy": "manual_authorized_route_runner",
+      "mature_baseline": "0620/0621 mature physical execution path",
+      "algorithm_scope": "legacy_ratio_production",
+      "opens_com_when_authorized": true,
+      "controls_pressure_when_authorized": false,
+      "controls_routes_when_authorized": true,
+      "writes_coefficients_when_authorized": false,
+      "connects_postgresql_when_authorized": false,
+      "point_contract": "legacy CO2 45 points",
+      "required_before_use": "Pre-gas readiness, pressure/S9, route readiness, dewpoint/source readiness, and mature 0620/0621 physical conditions must be closed.",
+      "forbidden_substitutes": "Do not use root migration runners, 0624 handoff queues, diagnostic probes, or _handoff scripts.",
+      "notes": "Single-analyzer ratio instability should degrade analyzer/point quality; public physical gates decide point-level failure."
+    },
+    {
+      "entrypoint_id": "h2o_mature_legacy_queue",
+      "path": "src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_queue.py",
+      "group": "04_h2o",
+      "production_role": "mature legacy H2O open-flow production queue",
+      "launch_policy": "manual_authorized_route_runner",
+      "mature_baseline": "0620/0621 mature physical execution path",
+      "algorithm_scope": "legacy_ratio_production",
+      "opens_com_when_authorized": true,
+      "controls_pressure_when_authorized": false,
+      "controls_routes_when_authorized": true,
+      "writes_coefficients_when_authorized": false,
+      "connects_postgresql_when_authorized": false,
+      "point_contract": "legacy H2O 13 wet points",
+      "required_before_use": "CO2 route evidence, pressure readiness, humidity-generator readiness, dewpoint/reference evidence, and mature 0620/0621 route behavior must be closed.",
+      "forbidden_substitutes": "Do not use 0624 handoff H2O queue or migrated root queue as the mature baseline.",
+      "notes": "CO2 zero gas and H2O dry/low-water anchor evidence remain physically separate."
+    },
+    {
+      "entrypoint_id": "candidate_fit_review",
+      "path": "src/gas_calibrator/tools/export_v1_5_candidate_coefficients.py",
+      "group": "05_fitting",
+      "production_role": "offline candidate coefficient calculation and fit review",
+      "launch_policy": "offline_no_write_review",
+      "mature_baseline": "0613-style V1.5 fitting method",
+      "algorithm_scope": "legacy_and_new_algorithm_profile_gated",
+      "opens_com_when_authorized": false,
+      "controls_pressure_when_authorized": false,
+      "controls_routes_when_authorized": false,
+      "writes_coefficients_when_authorized": false,
+      "connects_postgresql_when_authorized": false,
+      "point_contract": "uses eligible production evidence only",
+      "required_before_use": "Use 0613-style fitting and keep rejected/superseded/diagnostic evidence out of formal fit eligibility unless explicitly reviewed.",
+      "forbidden_substitutes": "Do not use V1 old fitting shortcuts, smoke points, or diagnostic rows as production fit data.",
+      "notes": "S1/S3 and S2/S4 are main chains; S5/S6 are final linear layers handled as separate review/write decisions."
+    },
+    {
+      "entrypoint_id": "controlled_coefficient_writes",
+      "path": "src/gas_calibrator/tools/run_v1_5_co2_senco13_controlled_write.py",
+      "group": "06_controlled_write",
+      "production_role": "representative controlled coefficient write surface",
+      "launch_policy": "manual_authorized_controlled_write_only",
+      "mature_baseline": "0613-style V1.5 fitting method",
+      "algorithm_scope": "legacy_and_new_algorithm_profile_gated",
+      "opens_com_when_authorized": true,
+      "controls_pressure_when_authorized": false,
+      "controls_routes_when_authorized": false,
+      "writes_coefficients_when_authorized": true,
+      "connects_postgresql_when_authorized": false,
+      "point_contract": "write/readback/reverify required",
+      "required_before_use": "Requires old GETCO snapshot, candidate review, explicit authorization, exact payload formatting, readback, and short reverify.",
+      "forbidden_substitutes": "Do not run controlled-write tools as background evidence, replay, or report steps.",
+      "notes": "SENCO5 writes must compose with current GETCO5 and prefer CLEARSENCO5,YGAS,FFF before writing the final layer."
+    },
+    {
+      "entrypoint_id": "archive_and_database_locked_chain",
+      "path": "src/gas_calibrator/tools/export_v1_5_formal_run_status.py",
+      "group": "07_archive_database",
+      "production_role": "offline release/import status rollup",
+      "launch_policy": "offline_status_only",
+      "mature_baseline": "archive/release gate chain",
+      "algorithm_scope": "legacy_and_new_algorithm",
+      "opens_com_when_authorized": false,
+      "controls_pressure_when_authorized": false,
+      "controls_routes_when_authorized": false,
+      "writes_coefficients_when_authorized": false,
+      "connects_postgresql_when_authorized": false,
+      "point_contract": "not_a_route_runner",
+      "required_before_use": "Archive closure, SN traceability, readback, reverify, PostgreSQL 18 dry-run/import gates, and reviewer authorization remain separate gates.",
+      "forbidden_substitutes": "Do not treat status rollups, dry-run database contracts, or no-write math as real release/import evidence.",
+      "notes": "This map does not allow release or database import."
+    }
+  ],
+  "forbidden_surfaces": [
+    {
+      "surface_id": "handoff_evidence",
+      "surface": "_handoff",
+      "examples": "_handoff/*, ad hoc run folders, copied evidence bundles",
+      "policy": "not_a_production_launcher",
+      "reason": "Evidence and scratch artifacts can explain a decision, but must not be used as executable production entrypoints."
+    },
+    {
+      "surface_id": "root_migration_area",
+      "surface": "D:/gas_calibrator root migration drafts",
+      "examples": "root-level migrated runners, temporary queue experiments, 0624 handoff logic",
+      "policy": "not_a_mature_baseline",
+      "reason": "The current production baseline is the 0613 fitting method plus 0620/0621 mature physical path, not later migration drafts."
+    },
+    {
+      "surface_id": "diagnostic_probes",
+      "surface": "diagnostic/probe/tune scripts",
+      "examples": "dynamic pressure diagnostics, no-OUTP probes, sealed-pressure tuning, extended hold experiments",
+      "policy": "diagnostic_only",
+      "reason": "Diagnostic rows may explain physics, but are not production fit or release evidence unless separately reviewed."
+    },
+    {
+      "surface_id": "sampling_workers",
+      "surface": "per-point sampling workers",
+      "examples": "run_v1_5_formal_open_flow_sampling.py, run_v1_5_formal_h2o_open_flow_sampling.py",
+      "policy": "worker_not_top_level",
+      "reason": "Workers must be called by canonical CO2/H2O queue runners so point order, route setup, and evidence indexing stay coherent."
+    },
+    {
+      "surface_id": "legacy_v1_or_v2_surfaces",
+      "surface": "V1/V2 launchers and references",
+      "examples": "run_v1_*, V2 device workbench, V2 engineering probes",
+      "policy": "not_v1_5_production_entry",
+      "reason": "V1 is historical/fallback reference and V2 remains outside V1.5 production entrypoint control."
+    }
+  ],
+  "checks": [
+    {
+      "check_id": "ENTRY-MAP-001",
+      "status": "pass",
+      "severity": "blocker",
+      "requirement": "Legacy CO2 production entry must remain the mature 45-point queue.",
+      "observed": "legacy CO2 45 points"
+    },
+    {
+      "check_id": "ENTRY-MAP-002",
+      "status": "pass",
+      "severity": "blocker",
+      "requirement": "Legacy H2O production entry must remain the mature 13 wet-point queue.",
+      "observed": "legacy H2O 13 wet points"
+    },
+    {
+      "check_id": "ENTRY-MAP-003",
+      "status": "pass",
+      "severity": "blocker",
+      "requirement": "Sampling workers must not be top-level production launchers.",
+      "observed": "worker_not_top_level"
+    },
+    {
+      "check_id": "ENTRY-MAP-004",
+      "status": "pass",
+      "severity": "blocker",
+      "requirement": "Root migration and 0624 handoff areas must not be treated as mature V1.5 baseline.",
+      "observed": "not_a_mature_baseline"
+    },
+    {
+      "check_id": "ENTRY-MAP-005",
+      "status": "pass",
+      "severity": "blocker",
+      "requirement": "Coefficient writes are only manual-authorized controlled-write surfaces with readback/reverify.",
+      "observed": "manual_authorized_controlled_write_only"
+    },
+    {
+      "check_id": "ENTRY-MAP-006",
+      "status": "pass",
+      "severity": "blocker",
+      "requirement": "This entrypoint map is offline documentation and must not grant release, import, COM, route, pressure, or write actions.",
+      "observed": "offline_map_only"
+    }
+  ]
+}
