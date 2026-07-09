@@ -394,6 +394,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline V1.5 automation control contract; keeps automation as a shell around the 0613/0620/0621 mature core")
     elif lower == "export_v1_5_production_entrypoint_map":
         notes.append("offline V1.5 production entrypoint map; separates formal launchers, workers, diagnostics, controlled writes, and forbidden surfaces")
+    elif lower == "export_v1_5_production_entrypoint_gate":
+        notes.append("offline V1.5 production entrypoint gate; blocks _handoff, root migration, 0624, diagnostic, worker, V1, and V2 references in formal plans")
     elif "formal_evidence_sidecar" in lower or "formal_offline_review_chain" in lower:
         notes.append("offline review/evidence sidecar; no COM or route control")
     elif "diagnostic" in lower or "probe" in lower or "tune" in lower:
@@ -522,6 +524,7 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             "export_v1_5_formal_readonly_com_minimal_executor_review",
             "run_v1_5_formal_readonly_com_minimal_executor_stub",
             "export_v1_5_automation_control_contract",
+            "export_v1_5_production_entrypoint_gate",
         }:
             category = "formal_review_evidence"
             formal_status = "formal_support"

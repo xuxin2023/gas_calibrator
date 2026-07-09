@@ -1,0 +1,38 @@
+{
+  "schema": "v1_5_production_entrypoint_gate_sample_plan_v1",
+  "not_real_acceptance_evidence": true,
+  "steps": [
+    {
+      "step_id": "formal_initialization",
+      "entrypoint": "src/gas_calibrator/tools/run_v1_5_formal_initialization_runner.py"
+    },
+    {
+      "step_id": "readonly_com_identity_getco_closeout",
+      "entrypoint": "src/gas_calibrator/tools/run_v1_5_formal_readonly_com_minimal_executor.py"
+    },
+    {
+      "step_id": "pressure_s9_no_write",
+      "entrypoint": "src/gas_calibrator/tools/validate_pressure_only.py"
+    },
+    {
+      "step_id": "legacy_co2_45",
+      "entrypoint": "src/gas_calibrator/tools/run_v1_5_formal_co2_open_flow_queue.py"
+    },
+    {
+      "step_id": "legacy_h2o_13",
+      "entrypoint": "src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_queue.py"
+    },
+    {
+      "step_id": "candidate_fit_review",
+      "entrypoint": "src/gas_calibrator/tools/export_v1_5_candidate_coefficients.py"
+    },
+    {
+      "step_id": "controlled_coefficient_write",
+      "entrypoint": "src/gas_calibrator/tools/run_v1_5_co2_senco13_controlled_write.py"
+    },
+    {
+      "step_id": "formal_run_status",
+      "entrypoint": "src/gas_calibrator/tools/export_v1_5_formal_run_status.py"
+    }
+  ]
+}
