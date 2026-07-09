@@ -1,0 +1,7 @@
+check_id,status,severity,requirement,observed
+ENTRY-MAP-001,pass,blocker,Legacy CO2 production entry must remain the mature 45-point queue.,legacy CO2 45 points
+ENTRY-MAP-002,pass,blocker,Legacy H2O production entry must remain the mature 13 wet-point queue.,legacy H2O 13 wet points
+ENTRY-MAP-003,pass,blocker,Sampling workers must not be top-level production launchers.,worker_not_top_level
+ENTRY-MAP-004,pass,blocker,Root migration and 0624 handoff areas must not be treated as mature V1.5 baseline.,not_a_mature_baseline
+ENTRY-MAP-005,pass,blocker,Coefficient writes are only manual-authorized controlled-write surfaces with readback/reverify.,manual_authorized_controlled_write_only
+ENTRY-MAP-006,pass,blocker,"This entrypoint map is offline documentation and must not grant release, import, COM, route, pressure, or write actions.",offline_map_only

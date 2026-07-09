@@ -1,0 +1,6 @@
+surface_id,surface,examples,policy,reason
+handoff_evidence,_handoff,"_handoff/*, ad hoc run folders, copied evidence bundles",not_a_production_launcher,"Evidence and scratch artifacts can explain a decision, but must not be used as executable production entrypoints."
+root_migration_area,D:/gas_calibrator root migration drafts,"root-level migrated runners, temporary queue experiments, 0624 handoff logic",not_a_mature_baseline,"The current production baseline is the 0613 fitting method plus 0620/0621 mature physical path, not later migration drafts."
+diagnostic_probes,diagnostic/probe/tune scripts,"dynamic pressure diagnostics, no-OUTP probes, sealed-pressure tuning, extended hold experiments",diagnostic_only,"Diagnostic rows may explain physics, but are not production fit or release evidence unless separately reviewed."
+sampling_workers,per-point sampling workers,"run_v1_5_formal_open_flow_sampling.py, run_v1_5_formal_h2o_open_flow_sampling.py",worker_not_top_level,"Workers must be called by canonical CO2/H2O queue runners so point order, route setup, and evidence indexing stay coherent."
+legacy_v1_or_v2_surfaces,V1/V2 launchers and references,"run_v1_*, V2 device workbench, V2 engineering probes",not_v1_5_production_entry,V1 is historical/fallback reference and V2 remains outside V1.5 production entrypoint control.

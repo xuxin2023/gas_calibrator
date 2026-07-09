@@ -392,6 +392,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline algorithm queue handoff preflight; requires dry-run/no-prompt evidence before any future live queue wiring")
     elif lower == "export_v1_5_automation_control_contract":
         notes.append("offline V1.5 automation control contract; keeps automation as a shell around the 0613/0620/0621 mature core")
+    elif lower == "export_v1_5_production_entrypoint_map":
+        notes.append("offline V1.5 production entrypoint map; separates formal launchers, workers, diagnostics, controlled writes, and forbidden surfaces")
     elif "formal_evidence_sidecar" in lower or "formal_offline_review_chain" in lower:
         notes.append("offline review/evidence sidecar; no COM or route control")
     elif "diagnostic" in lower or "probe" in lower or "tune" in lower:
