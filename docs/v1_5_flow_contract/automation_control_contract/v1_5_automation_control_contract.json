@@ -1,0 +1,143 @@
+{
+  "schema": "v1_5_automation_control_contract_v1",
+  "generated_at": "2026-07-09T03:16:25Z",
+  "manifest": {
+    "status": "pass",
+    "blocker_count": 0,
+    "mature_fitting_baseline": "0613-style V1.5 fitting method",
+    "mature_physical_baseline": "0620/0621 mature physical execution path",
+    "automation_model": "mature_core_with_automation_shell",
+    "legacy_co2_point_count": 45,
+    "legacy_h2o_wet_point_count": 13,
+    "new_algorithm_profile_point_count": {
+      "co2": 47,
+      "h2o": 14
+    },
+    "opens_com_ports": false,
+    "controls_water_or_gas_routes": false,
+    "connects_postgresql": false,
+    "writes_coefficients": false,
+    "writes_sn_or_device_code": false,
+    "formal_release_allowed": false,
+    "database_import_allowed": false,
+    "not_real_acceptance_evidence": true,
+    "protected_core_files": [
+      "src/gas_calibrator/tools/run_v1_5_formal_co2_open_flow_queue.py",
+      "src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_queue.py",
+      "src/gas_calibrator/tools/run_v1_5_formal_open_flow_sampling.py",
+      "src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_sampling.py",
+      "src/gas_calibrator/workflow/runner.py",
+      "src/gas_calibrator/devices/gas_analyzer.py",
+      "configs/default_config.json",
+      "run_app.py"
+    ],
+    "canonical_automation_stages": [
+      "01_initialization_identity_runtime_closeout",
+      "02_pre_gas_readiness_and_pressure_s9",
+      "03_mature_legacy_co2_45_route",
+      "04_mature_legacy_h2o_13_route",
+      "05_no_write_fit_strategy_review",
+      "06_controlled_write_with_readback",
+      "07_short_reverify",
+      "08_archive_and_database_dry_run"
+    ]
+  },
+  "checks": [
+    {
+      "check_id": "AUTO-CORE-001",
+      "status": "pass",
+      "severity": "blocker",
+      "topic": "mature_core",
+      "requirement": "V1.5 automation must call the 0613 fitting baseline and the 0620/0621 mature physical execution path; automation is a shell, not a rewritten route kernel.",
+      "forbidden_failure_mode": "Do not patch migrated/root/0624 route logic until it appears equivalent."
+    },
+    {
+      "check_id": "AUTO-CORE-002",
+      "status": "pass",
+      "severity": "blocker",
+      "topic": "protected_files",
+      "requirement": "This contract package must not modify protected mature route, protocol, default, or app-entry files.",
+      "forbidden_failure_mode": "Do not mix automation documentation with live runner/protocol/default_config edits."
+    },
+    {
+      "check_id": "AUTO-ENTRY-001",
+      "status": "pass",
+      "severity": "blocker",
+      "topic": "entrypoints",
+      "requirement": "Production launchers are initialization, pre-gas readiness, mature CO2/H2O queues, no-write fit review, controlled write, reverify, archive, and database dry-run/import gates.",
+      "forbidden_failure_mode": "Do not start production from diagnostic, replay, root migration, 0624, V1/V2, or _handoff scripts."
+    },
+    {
+      "check_id": "AUTO-ROUTE-001",
+      "status": "pass",
+      "severity": "blocker",
+      "topic": "legacy_route",
+      "requirement": "Legacy production remains CO2 45 points and H2O 13 wet points unless a separate reviewed profile says otherwise.",
+      "forbidden_failure_mode": "Do not accidentally run the new-algorithm 47/14 plan for legacy analyzers."
+    },
+    {
+      "check_id": "AUTO-ROUTE-002",
+      "status": "pass",
+      "severity": "blocker",
+      "topic": "point_quality",
+      "requirement": "Analyzer-local ratio instability downgrades that analyzer/point quality; public physical gates such as pressure, route, dewpoint, and source failure are the point-level blockers.",
+      "forbidden_failure_mode": "Do not fail a whole point only because one analyzer misses the ratio threshold."
+    },
+    {
+      "check_id": "AUTO-PRESS-001",
+      "status": "pass",
+      "severity": "blocker",
+      "topic": "pressure",
+      "requirement": "Pressure uses PACE INL absolute pressure evidence before CO2/H2O route execution.",
+      "forbidden_failure_mode": "Do not use the wrong PACE pressure query as S9 readiness evidence."
+    },
+    {
+      "check_id": "AUTO-FIT-001",
+      "status": "pass",
+      "severity": "blocker",
+      "topic": "co2_fit",
+      "requirement": "CO2 fitting uses S1/S3 as the main model and S5 as a final linear layer; S5 writes must account for current GETCO5 state and prefer CLEARSENCO5,YGAS,FFF before writing.",
+      "forbidden_failure_mode": "Do not treat S5 as a naive overwrite or skip live GETCO5 composition."
+    },
+    {
+      "check_id": "AUTO-FIT-002",
+      "status": "pass",
+      "severity": "blocker",
+      "topic": "h2o_fit",
+      "requirement": "H2O fitting uses S2/S4 as the main model and S6 as a separate final linear layer.",
+      "forbidden_failure_mode": "Do not mix S6 from one fit strategy with incompatible S2/S4 coefficients."
+    },
+    {
+      "check_id": "AUTO-FIT-003",
+      "status": "pass",
+      "severity": "blocker",
+      "topic": "anchors",
+      "requirement": "Keep CO2 zero gas and H2O dry-gas or low-water anchor physically separate.",
+      "forbidden_failure_mode": "Do not collapse CO2 zero gas into an unconditional H2O zero anchor."
+    },
+    {
+      "check_id": "AUTO-EVID-001",
+      "status": "pass",
+      "severity": "blocker",
+      "topic": "evidence_state",
+      "requirement": "Separate real_pass, no_write_candidate, diagnostic_only, review_required, superseded, and rejected evidence states.",
+      "forbidden_failure_mode": "Do not use no-write math, smoke tests, or diagnostic points as production fit evidence by default."
+    },
+    {
+      "check_id": "AUTO-DB-001",
+      "status": "pass",
+      "severity": "blocker",
+      "topic": "database",
+      "requirement": "PostgreSQL 18 import remains after archive/release gates and SN/device_code traceability are closed.",
+      "forbidden_failure_mode": "Do not import calibration data before final archive, readback, and reverify evidence are complete."
+    },
+    {
+      "check_id": "AUTO-LIVE-001",
+      "status": "pass",
+      "severity": "blocker",
+      "topic": "live_actions",
+      "requirement": "This contract is offline only and does not execute COM, route, pressure, database, or coefficient writes.",
+      "forbidden_failure_mode": "Do not attach a live executor to this contract package."
+    }
+  ]
+}

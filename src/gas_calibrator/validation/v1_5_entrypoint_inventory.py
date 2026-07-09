@@ -390,6 +390,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline algorithm profile runner dry-run; bundles runlist, readiness, and runner dry-run evidence without executing formal runners")
     elif lower == "export_v1_5_algorithm_queue_handoff_preflight":
         notes.append("offline algorithm queue handoff preflight; requires dry-run/no-prompt evidence before any future live queue wiring")
+    elif lower == "export_v1_5_automation_control_contract":
+        notes.append("offline V1.5 automation control contract; keeps automation as a shell around the 0613/0620/0621 mature core")
     elif "formal_evidence_sidecar" in lower or "formal_offline_review_chain" in lower:
         notes.append("offline review/evidence sidecar; no COM or route control")
     elif "diagnostic" in lower or "probe" in lower or "tune" in lower:
@@ -517,6 +519,7 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             "export_v1_5_formal_readonly_com_execution_plan_preview",
             "export_v1_5_formal_readonly_com_minimal_executor_review",
             "run_v1_5_formal_readonly_com_minimal_executor_stub",
+            "export_v1_5_automation_control_contract",
         }:
             category = "formal_review_evidence"
             formal_status = "formal_support"
