@@ -102,6 +102,38 @@ def _seed_algorithm_profile_runner_dry_run(root: Path, *, blocker_count: int = 0
     )
 
 
+def _seed_route_physical_recovery_readiness(
+    root: Path,
+    *,
+    status: str = "pass",
+    blocker_count: int = 0,
+    review_required_count: int = 0,
+    next_continuous_run_allowed: bool = True,
+) -> Path:
+    return _write_json(
+        root / "route_physical_recovery_readiness" / "v1_5_route_physical_recovery_readiness.json",
+        {
+            "schema": "v1_5_route_physical_recovery_readiness_v1",
+            "manifest": {
+                "status": status,
+                "blocker_count": blocker_count,
+                "review_required_count": review_required_count,
+                "next_continuous_run_allowed": next_continuous_run_allowed,
+                "segmented_evidence_fit_use_allowed": False,
+                "opens_com_ports": False,
+                "connects_postgresql": False,
+                "controls_pressure": False,
+                "controls_water_or_gas_routes": False,
+                "writes_coefficients": False,
+                "writes_sn_or_device_code": False,
+                "formal_release_allowed": False,
+                "database_import_allowed": False,
+                "not_real_acceptance_evidence": True,
+            },
+        },
+    )
+
+
 def _seed_formal_database_dry_run(root: Path, *, blocker_count: int = 0) -> Path:
     status = "ready_for_postgresql18_schema_dry_run_review" if blocker_count == 0 else "blocked"
     return _write_json(
@@ -869,6 +901,64 @@ def test_formal_run_status_reports_ready_release_without_touching_devices(tmp_pa
         "writes_device_id": False,
         "not_real_acceptance_evidence": True,
     }
+
+
+def test_formal_run_status_blocks_physical_flow_on_route_recovery_blockers(tmp_path: Path) -> None:
+    run_dir = tmp_path / "ready_run_with_unrecovered_route_physics"
+    _seed_ready_run(run_dir)
+    recovery_path = _seed_route_physical_recovery_readiness(
+        run_dir,
+        status="blocked",
+        blocker_count=4,
+        review_required_count=1,
+        next_continuous_run_allowed=False,
+    )
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gate = next(row for row in model["gates"] if row["gate_id"] == "route_physical_recovery_readiness")
+
+    assert model["overall_status"] == "blocked"
+    assert model["current_stage"] == "route_physical_recovery_readiness"
+    assert model["formal_release_allowed"] is True
+    assert model["database_import_allowed"] is False
+    assert model["can_continue_physical_flow"] is False
+    assert model["linked_inputs"]["route_physical_recovery_readiness_json"] == str(recovery_path.resolve())
+    assert gate["status"] == "blocked"
+    assert gate["release_gate"] is False
+    assert gate["blocks_release"] is False
+    assert gate["blocks_physical_flow"] is True
+
+
+def test_formal_run_status_accepts_route_recovery_without_unlocking_import(tmp_path: Path) -> None:
+    run_dir = tmp_path / "ready_run_with_recovered_route_physics"
+    _seed_ready_run(run_dir)
+    recovery_path = _seed_route_physical_recovery_readiness(run_dir)
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gate = next(row for row in model["gates"] if row["gate_id"] == "route_physical_recovery_readiness")
+
+    assert model["overall_status"] == "formal_release_ready"
+    assert model["formal_release_allowed"] is True
+    assert model["database_import_allowed"] is False
+    assert model["can_continue_physical_flow"] is True
+    assert model["linked_inputs"]["route_physical_recovery_readiness_json"] == str(recovery_path.resolve())
+    assert gate["status"] == "ready"
+    assert gate["release_gate"] is False
+    assert gate["blocks_release"] is False
+    assert gate["blocks_physical_flow"] is False
+    assert (
+        export_status_main(
+            [
+                "--run-dir",
+                str(run_dir),
+                "--route-physical-recovery-readiness-json",
+                str(recovery_path),
+                "--output-dir",
+                str(tmp_path / "status_cli"),
+            ]
+        )
+        == 0
+    )
 
 
 def test_formal_run_status_surfaces_initialization_controlled_executor_design_without_unlocking_live(
