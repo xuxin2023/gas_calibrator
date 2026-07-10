@@ -24,6 +24,7 @@ from ..config import load_config
 from ..devices import GasAnalyzer
 from ..senco_format import format_senco_value
 from ..validation.reporting import ValidationMetadata, write_validation_report
+from ..validation.v1_5_final_senco_prewrite_gate import validate_final_senco_prewrite_gate
 from . import run_v1_5_co2_senco1_controlled_write as base
 from .v1_5_serial_safety import require_fragile_serial_timing
 
@@ -203,6 +204,11 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Controlled V1.5 CO2 SENCO5 affine-trim writer.")
     parser.add_argument("--config", required=True, help="V1.5 hardware config JSON.")
     parser.add_argument("--candidate-coefficients-csv", required=True, help="Reviewed SENCO5 candidate coefficient CSV.")
+    parser.add_argument(
+        "--main-senco-precheck-dir",
+        default="",
+        help="Required #78 final SENCO precheck directory with passing CO2 fit-input traceability.",
+    )
     parser.add_argument("--output-dir", required=True, help="Output directory for write evidence.")
     parser.add_argument("--device-id", action="append", default=[], help="Analyzer MODE2 device ID to write.")
     parser.add_argument("--write-all-ready", action="store_true", help="Write every review_ready candidate in the CSV.")
@@ -278,6 +284,18 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         return 2
     if not candidates:
         print("No review_ready SENCO5 candidates selected.", file=sys.stderr)
+        return 2
+    prewrite_ok, prewrite_reasons, prewrite_detail = validate_final_senco_prewrite_gate(
+        args.main_senco_precheck_dir,
+        component="co2",
+        device_ids=[base._device_id(row.get("device_id")) for row in candidates],
+    )
+    if not prewrite_ok:
+        print(
+            "SENCO5 linear write locked: final fit-input prewrite gate failed "
+            f"({';'.join(prewrite_reasons)}).",
+            file=sys.stderr,
+        )
         return 2
 
     cfg_path = Path(args.config).resolve()
@@ -478,6 +496,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 "created_at": end_ts,
                 "tool": "run_v1_5_co2_senco5_linear_controlled_write",
                 "candidate_coefficients_csv": str(candidate_path),
+                "main_senco_precheck_dir": str(prewrite_detail.get("precheck_dir") or ""),
+                "fit_input_traceability_status": str(prewrite_detail.get("fit_input_traceability_status") or "blocked"),
                 "confirmation_text": CONFIRMATION_TEXT,
                 "reviewer": args.reviewer,
                 "approver": args.approver,
@@ -506,7 +526,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         tool_name="run_v1_5_co2_senco5_linear_controlled_write",
         created_at=end_ts,
         analyzers=[str(row.get("device_id") or "") for row in rows],
-        input_paths=[str(cfg_path), str(candidate_path)],
+        input_paths=[str(cfg_path), str(candidate_path), str(prewrite_detail.get("meta_path") or "")],
         output_dir=str(output_dir),
         config_path=str(cfg_path),
         config_summary={

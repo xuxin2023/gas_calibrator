@@ -27,6 +27,40 @@ def _read_csv(path):
         return list(csv.DictReader(handle))
 
 
+def _precheck_dir(tmp_path):
+    root = tmp_path / "main_senco_precheck"
+    root.mkdir(exist_ok=True)
+    _write_csv(
+        root / "candidate_write_review_checks.csv",
+        [
+            {"check": "fit_input_traceability_required_before_final_senco_review", "status": "pass"},
+            {"check": "fit_input_traceability_bound:h2o:022", "status": "pass"},
+        ],
+    )
+    _write_csv(
+        root / "main_senco_write_precheck_summary.csv",
+        [
+            {
+                "analyzer_device_id": "022",
+                "h2o_fit_input_traceability_status": "pass",
+                "h2o_fit_input_traceability_blockers": "",
+            }
+        ],
+    )
+    _write_json(
+        root / "main_senco_write_precheck_meta.json",
+        {
+            "no_write": True,
+            "opens_com": False,
+            "writes_senco": False,
+            "controls_routes": False,
+            "fit_input_traceability_required": True,
+            "fit_input_traceability_status": "pass",
+        },
+    )
+    return root
+
+
 def _config(tmp_path):
     return {
         "devices": {
@@ -146,6 +180,7 @@ def test_senco6_linear_writer_writes_decimal_payload_and_readback(monkeypatch, t
     out = tmp_path / "out"
     _write_json(cfg, _config(tmp_path))
     _candidates(candidates)
+    precheck = _precheck_dir(tmp_path)
 
     rc = writer.main(
         [
@@ -153,6 +188,8 @@ def test_senco6_linear_writer_writes_decimal_payload_and_readback(monkeypatch, t
             str(cfg),
             "--candidate-coefficients-csv",
             str(candidates),
+            "--main-senco-precheck-dir",
+            str(precheck),
             "--output-dir",
             str(out),
             "--device-id",
@@ -213,6 +250,7 @@ def test_senco6_linear_writer_accepts_missing_ack_when_readback_matches(monkeypa
     out = tmp_path / "out"
     _write_json(cfg, _config(tmp_path))
     _candidates(candidates)
+    precheck = _precheck_dir(tmp_path)
 
     rc = writer.main(
         [
@@ -220,6 +258,8 @@ def test_senco6_linear_writer_accepts_missing_ack_when_readback_matches(monkeypa
             str(cfg),
             "--candidate-coefficients-csv",
             str(candidates),
+            "--main-senco-precheck-dir",
+            str(precheck),
             "--output-dir",
             str(out),
             "--device-id",
@@ -277,6 +317,38 @@ def test_senco6_linear_writer_refuses_blocked_candidate(tmp_path):
     )
 
     assert rc == 2
+
+
+def test_senco6_linear_writer_refuses_missing_fit_input_precheck_before_open(monkeypatch, tmp_path):
+    _FakeGasAnalyzer.instances = {}
+    monkeypatch.setattr(writer, "GasAnalyzer", _FakeGasAnalyzer)
+    cfg = tmp_path / "cfg.json"
+    candidates = tmp_path / "candidates.csv"
+    _write_json(cfg, _config(tmp_path))
+    _candidates(candidates)
+
+    rc = writer.main(
+        [
+            "--config",
+            str(cfg),
+            "--candidate-coefficients-csv",
+            str(candidates),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--device-id",
+            "022",
+            "--enable-senco6-write",
+            "--operator-confirmation",
+            writer.CONFIRMATION_TEXT,
+            "--reviewer",
+            "reviewer-a",
+            "--approver",
+            "approver-b",
+        ]
+    )
+
+    assert rc == 2
+    assert _FakeGasAnalyzer.instances == {}
 
 
 def test_senco6_linear_writer_refuses_model_prediction_source(tmp_path):

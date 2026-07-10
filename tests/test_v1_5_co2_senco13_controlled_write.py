@@ -43,8 +43,38 @@ def _write_formula_contract_pass(review_dir):
                 "status": "pass",
                 "meaning": "unit test supplies a reviewed CO2 SENCO5/SENCO6 linear-correction preserve decision",
                 "evidence": "test_only",
-            }
+            },
+            {
+                "check": "fit_input_traceability_required_before_final_senco_review",
+                "status": "pass",
+                "meaning": "unit test supplies the final fit-input traceability gate",
+                "evidence": "test_only",
+            },
+            {"check": "fit_input_traceability_bound:co2:030", "status": "pass"},
+            {"check": "fit_input_traceability_bound:co2:022", "status": "pass"},
         ],
+    )
+    _write_csv(
+        review_dir / "main_senco_write_precheck_summary.csv",
+        [
+            {
+                "analyzer_device_id": device_id,
+                "co2_fit_input_traceability_status": "pass",
+                "co2_fit_input_traceability_blockers": "",
+            }
+            for device_id in ("030", "022")
+        ],
+    )
+    _write_json(
+        review_dir / "main_senco_write_precheck_meta.json",
+        {
+            "no_write": True,
+            "opens_com": False,
+            "writes_senco": False,
+            "controls_routes": False,
+            "fit_input_traceability_required": True,
+            "fit_input_traceability_status": "pass",
+        },
     )
 
 
@@ -343,6 +373,41 @@ def test_controlled_co2_senco13_write_refuses_missing_old_snapshot(tmp_path):
     )
 
     assert rc == 2
+
+
+def test_controlled_co2_senco13_write_refuses_missing_fit_input_precheck_before_open(monkeypatch, tmp_path):
+    _FakeGasAnalyzer.instances = {}
+    monkeypatch.setattr(writer, "GasAnalyzer", _FakeGasAnalyzer)
+    cfg_path = tmp_path / "cfg.json"
+    review_dir = tmp_path / "review"
+    review_dir.mkdir()
+    _write_json(cfg_path, _config(tmp_path))
+    _write_csv(review_dir / "candidate_senco_mapping_review.csv", _mapping_rows())
+    _write_formula_contract_pass(review_dir)
+    (review_dir / "main_senco_write_precheck_meta.json").unlink()
+
+    rc = writer.main(
+        [
+            "--config",
+            str(cfg_path),
+            "--review-dir",
+            str(review_dir),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--device-id",
+            "030",
+            "--enable-senco13-write",
+            "--operator-confirmation",
+            writer.CONFIRMATION_TEXT,
+            "--reviewer",
+            "reviewer-a",
+            "--approver",
+            "approver-b",
+        ]
+    )
+
+    assert rc == 2
+    assert _FakeGasAnalyzer.instances == {}
 
 
 def test_controlled_co2_senco13_write_refuses_missing_formula_contract(tmp_path):

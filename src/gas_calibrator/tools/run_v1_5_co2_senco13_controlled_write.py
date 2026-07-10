@@ -19,6 +19,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 from ..devices import GasAnalyzer
 from ..senco_format import senco_readback_matches
 from ..validation.reporting import ValidationMetadata, write_validation_report
+from ..validation.v1_5_final_senco_prewrite_gate import validate_final_senco_prewrite_gate
 from . import run_v1_5_co2_senco1_controlled_write as base
 from .v1_5_serial_safety import require_fragile_serial_timing
 
@@ -501,6 +502,17 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     if not targets:
         base._log("No ready CO2 SENCO1/SENCO3 pair targets selected.")
         return 2
+    prewrite_ok, prewrite_reasons, prewrite_detail = validate_final_senco_prewrite_gate(
+        review_dir,
+        component="co2",
+        device_ids=[base._device_id(row.get("analyzer_device_id")) for row in targets],
+    )
+    if not prewrite_ok:
+        base._log(
+            "Refusing SENCO1/SENCO3 write: final fit-input prewrite gate failed "
+            f"({';'.join(prewrite_reasons)})."
+        )
+        return 2
 
     analyzer_by_id = base._build_analyzer_map(cfg)
     destination = Path(args.output_dir).resolve()
@@ -728,7 +740,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         tool_name="run_v1_5_co2_senco13_controlled_write",
         created_at=end_ts,
         analyzers=[f"{row.get('analyzer_prefix')}:{row.get('analyzer_device_id')}" for row in summary_rows],
-        input_paths=[str(cfg_path), str(mapping_path)],
+        input_paths=[str(cfg_path), str(mapping_path), str(prewrite_detail.get("meta_path") or "")],
         output_dir=str(destination),
         config_path=str(cfg_path),
         config_summary={
@@ -740,6 +752,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             "writes_device_id": False,
             "writes_senco1": True,
             "writes_senco3": True,
+            "fit_input_traceability_status": str(prewrite_detail.get("fit_input_traceability_status") or "blocked"),
             "clears_senco": False,
             "pre_device_cooldown_s": float(args.pre_device_cooldown_s),
             "inter_device_delay_s": float(args.inter_device_delay_s),

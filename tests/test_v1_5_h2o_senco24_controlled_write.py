@@ -27,6 +27,46 @@ def _read_csv(path):
         return list(csv.DictReader(handle))
 
 
+def _write_fit_input_precheck(review_dir, device_ids=("051", "100")):
+    checks_path = review_dir / "candidate_write_review_checks.csv"
+    checks = _read_csv(checks_path) if checks_path.exists() else []
+    checks.extend(
+        [
+            {
+                "check": "fit_input_traceability_required_before_final_senco_review",
+                "status": "pass",
+            },
+            *[
+                {"check": f"fit_input_traceability_bound:h2o:{device_id}", "status": "pass"}
+                for device_id in device_ids
+            ],
+        ]
+    )
+    _write_csv(checks_path, checks)
+    _write_csv(
+        review_dir / "main_senco_write_precheck_summary.csv",
+        [
+            {
+                "analyzer_device_id": device_id,
+                "h2o_fit_input_traceability_status": "pass",
+                "h2o_fit_input_traceability_blockers": "",
+            }
+            for device_id in device_ids
+        ],
+    )
+    _write_json(
+        review_dir / "main_senco_write_precheck_meta.json",
+        {
+            "no_write": True,
+            "opens_com": False,
+            "writes_senco": False,
+            "controls_routes": False,
+            "fit_input_traceability_required": True,
+            "fit_input_traceability_status": "pass",
+        },
+    )
+
+
 def _config(tmp_path):
     return {
         "devices": {
@@ -131,6 +171,7 @@ def _write_review_artifacts(review_dir):
             },
         ],
     )
+    _write_fit_input_precheck(review_dir)
 
 
 def _write_new_absorption_review_artifacts(
@@ -195,6 +236,7 @@ def _write_new_absorption_review_artifacts(
             }
         ],
     )
+    _write_fit_input_precheck(review_dir, ("051",))
 
 
 def _write_snapshot(path, *, getco6=None):
@@ -450,6 +492,44 @@ def test_h2o_senco24_writer_accepts_short_legacy_getco4_zero_tail(monkeypatch, t
     rows = _read_csv(out_dir / "h2o_senco24_pair_write_summary.csv")
     assert rows[0]["status"] == "written_readback_verified"
     assert rows[0]["senco4_readback"] == json.dumps([1.29711, -0.00152365, -0.683155, 0.0, 0.0, 0.0])
+
+
+def test_h2o_senco24_writer_refuses_missing_fit_input_precheck_before_open(monkeypatch, tmp_path):
+    _FakeGasAnalyzer.instances = {}
+    monkeypatch.setattr(writer, "GasAnalyzer", _FakeGasAnalyzer)
+    cfg_path = tmp_path / "cfg.json"
+    review_dir = tmp_path / "review"
+    snapshot_path = tmp_path / "snapshot.json"
+    review_dir.mkdir()
+    _write_json(cfg_path, _config(tmp_path))
+    _write_review_artifacts(review_dir)
+    _write_snapshot(snapshot_path)
+    (review_dir / "main_senco_write_precheck_meta.json").unlink()
+
+    rc = writer.main(
+        [
+            "--config",
+            str(cfg_path),
+            "--review-dir",
+            str(review_dir),
+            "--old-component-snapshot-json",
+            str(snapshot_path),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--device-id",
+            "051",
+            "--enable-senco24-write",
+            "--operator-confirmation",
+            writer.CONFIRMATION_TEXT,
+            "--reviewer",
+            "reviewer-a",
+            "--approver",
+            "approver-b",
+        ]
+    )
+
+    assert rc == 2
+    assert _FakeGasAnalyzer.instances == {}
 
 
 def test_h2o_senco24_writer_accepts_live_getco_zero_tail_omission(monkeypatch, tmp_path):
