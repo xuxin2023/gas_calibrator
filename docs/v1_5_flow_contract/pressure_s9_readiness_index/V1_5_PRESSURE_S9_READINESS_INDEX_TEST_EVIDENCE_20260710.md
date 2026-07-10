@@ -14,7 +14,7 @@
 Result:
 
 ```text
-4 passed in 1.89s
+5 passed in 1.14s
 ```
 
 ## Compatibility Command
@@ -26,7 +26,7 @@ Result:
 Result:
 
 ```text
-40 passed, 1 warning in 8.61s
+41 passed, 1 warning in 7.38s
 ```
 
 The warning is the existing `pytest.mark.v1_5_formal_gate` registration warning from the entrypoint inventory suite.
@@ -36,4 +36,5 @@ The warning is the existing `pytest.mark.v1_5_formal_gate` registration warning 
 - Default S9 model remains `offset_only`.
 - Linear S9 is accepted only as an explicit controlled exception with no-write fit basis, write/readback evidence, and pressure-only reverify evidence.
 - Missing per-device readback or pressure reverify keeps the index in `review_required`.
+- The generated per-device CSV exposes `readiness_status` and `can_enter_open_flow_main_calibration` so the batch initialization closeout index can consume this pressure/S9 result directly.
 - The generated default artifact is conservative: without input evidence it remains `review_required` and cannot unlock mature open-flow routes.

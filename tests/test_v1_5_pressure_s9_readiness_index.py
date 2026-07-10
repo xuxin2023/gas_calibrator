@@ -4,6 +4,9 @@ from pathlib import Path
 
 from gas_calibrator.tools.export_v1_5_pressure_s9_readiness_index import main as cli_main
 from gas_calibrator.validation.v1_5_entrypoint_inventory import classify_v1_5_entrypoint
+from gas_calibrator.validation.v1_5_batch_initialization_closeout_index import (
+    build_v1_5_batch_initialization_closeout_index,
+)
 from gas_calibrator.validation.v1_5_pressure_s9_readiness_index import (
     READY_STATUS,
     REVIEW_STATUS,
@@ -110,6 +113,50 @@ def _reverify_rows() -> list[dict]:
     return rows
 
 
+def _readonly_payload(count: int = 6) -> dict:
+    snapshots = []
+    for index in range(1, count + 1):
+        sn = f"012607{index:02d}"
+        getco = {f"GETCO{group}": {"values": [float(group)]} for group in range(1, 10)}
+        getco["GETCO5"] = {"values": [0.0, 1.0]}
+        getco["GETCO6"] = {"values": [0.0, 1.0]}
+        getco["GETCO7"] = {"values": [0.0, 1.0, 0.0, 0.0]}
+        getco["GETCO8"] = {"values": [0.0, 1.0, 0.0, 0.0]}
+        snapshots.append(
+            {
+                "ga_label": f"GA{index:02d}",
+                "port": f"COM{34 + index}",
+                "protocol_device_id_expected": f"{index:03d}",
+                "sn_code_expected": sn,
+                "sn_code_read": sn,
+                "device_code": sn,
+                "algorithm": "legacy_ratio",
+                "getco": getco,
+                "runtime_evidence": {
+                    "mode": 2,
+                    "ftd_hz": 1.0,
+                    "average1": "AVERAGE1",
+                    "average2": "AVERAGE2",
+                },
+                "check_monitor_raw": "",
+            }
+        )
+    return {
+        "overall_status": "readonly_com_minimal_executor_completed_no_write",
+        "writes_sn": False,
+        "writes_device_id": False,
+        "writes_coefficients": False,
+        "connects_postgresql": False,
+        "controls_pressure": False,
+        "controls_water_or_gas_routes": False,
+        "database_written": False,
+        "formal_release_allowed": False,
+        "database_import_allowed": False,
+        "not_real_acceptance_evidence": True,
+        "identity_getco_snapshots": snapshots,
+    }
+
+
 def test_pressure_s9_readiness_index_allows_offset_default_and_linear_exception(tmp_path: Path) -> None:
     model = build_v1_5_pressure_s9_readiness_index(
         no_write_fit_summary_json=None,
@@ -139,6 +186,8 @@ def test_pressure_s9_readiness_index_allows_offset_default_and_linear_exception(
     assert ga04["s9_model"] == "linear_s9_controlled_exception"
     assert ga04["linear_exception_authorized"] is True
     assert ga04["pressure_reverify_ready"] is True
+    assert ga04["readiness_status"] == "pass"
+    assert ga04["can_enter_open_flow_main_calibration"] is True
     assert all(row["status"] == "pass" for row in model["gate_rows"])
     assert model["opens_com_ports"] is False
     assert model["controls_pressure"] is False
@@ -195,6 +244,31 @@ def test_pressure_s9_readiness_requires_readback_and_reverify(tmp_path: Path) ->
     assert any("getco9_readback_values_missing_or_short" in reason for reason in model["review_reasons"])
     assert any("pressure_reverify_max_abs_error_hpa=0.900>limit=0.500" in reason for reason in model["review_reasons"])
     assert model["device_ready_count"] == 4
+
+
+def test_pressure_s9_device_csv_feeds_batch_initialization_closeout(tmp_path: Path) -> None:
+    fit_path = _write_csv(tmp_path / "fit.csv", _fit_rows())
+    write_path = _write_csv(tmp_path / "write.csv", _write_rows())
+    reverify_path = _write_csv(tmp_path / "reverify.csv", _reverify_rows())
+    readonly_path = _write_json(tmp_path / "readonly.json", _readonly_payload())
+    route_path = _write_json(tmp_path / "route.json", {"overall_status": "pass"})
+
+    paths = write_v1_5_pressure_s9_readiness_index(
+        output_dir=tmp_path / "pressure_index",
+        no_write_fit_summary_csv=fit_path,
+        senco9_write_readback_csv=write_path,
+        pressure_reverify_csv=reverify_path,
+    )
+
+    batch = build_v1_5_batch_initialization_closeout_index(
+        readonly_com_executor_json=readonly_path,
+        pressure_device_readiness_csv=paths["devices"],
+        route_readiness_json=route_path,
+    )
+
+    assert batch["overall_status"] == "ready_for_mature_open_flow_from_initialization_index"
+    assert batch["ready_for_mature_open_flow_from_initialization_index"] is True
+    assert all(row["s9_pressure_ready"] is True for row in batch["device_rows"])
 
 
 def test_pressure_s9_readiness_writer_cli_and_entrypoint(tmp_path: Path) -> None:

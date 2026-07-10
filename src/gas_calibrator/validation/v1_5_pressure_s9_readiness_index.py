@@ -74,6 +74,8 @@ class PressureS9DeviceRow:
     pressure_reverify_ready: bool
     linear_exception_authorized: bool
     ready_for_pressure_s9_index: bool
+    readiness_status: str
+    can_enter_open_flow_main_calibration: bool
     getco9_readback_values: str
     reverify_max_abs_error_hpa: str
     reasons: str
@@ -440,6 +442,8 @@ def _merge_rows(
                 pressure_reverify_ready=reverify_ready,
                 linear_exception_authorized=linear_authorized,
                 ready_for_pressure_s9_index=ready,
+                readiness_status="pass" if ready else "review_required",
+                can_enter_open_flow_main_calibration=ready,
                 getco9_readback_values=_format_values(getco9_values),
                 reverify_max_abs_error_hpa=residual,
                 reasons=";".join(reasons),
