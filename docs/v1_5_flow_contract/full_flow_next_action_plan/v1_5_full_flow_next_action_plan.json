@@ -1,0 +1,108 @@
+{
+  "schema": "v1_5_full_flow_next_action_plan_v1",
+  "generated_at": "2026-07-10T05:40:06Z",
+  "overall_status": "review_ready",
+  "source_automation_closure_status": "structure_closed_live_full_auto_still_gated",
+  "source_blocker_count": 0,
+  "source_remaining_full_auto_gap_count": 9,
+  "mature_fitting_baseline": "0613 V1.5 fitting path",
+  "mature_route_baseline": "0620/0621 clean-worktree mature physical route path",
+  "legacy_point_counts": {
+    "co2": 45,
+    "h2o": 13
+  },
+  "new_algorithm_profile_point_counts": {
+    "co2": 47,
+    "h2o": 14
+  },
+  "recommended_next_action_id": "batch_initialization_closeout_pre_gas_evidence_index",
+  "recommended_next_pr_scope": "Bind per-batch SN/device_code, protocol ID, GETCO1-9, runtime, S5-S8 neutralization, S9 pressure readiness, and read-only COM closeout into one pre-gas evidence index.",
+  "review_reasons": [],
+  "full_production_auto_allowed": false,
+  "formal_release_allowed": false,
+  "database_import_allowed": false,
+  "opens_com_ports": false,
+  "controls_water_or_gas_routes": false,
+  "connects_postgresql": false,
+  "writes_coefficients": false,
+  "not_real_acceptance_evidence": true,
+  "next_actions": [
+    {
+      "priority": 1,
+      "action_id": "batch_initialization_closeout_pre_gas_evidence_index",
+      "source_stage_id": "01_initialization_identity_runtime_closeout",
+      "action_type": "offline_evidence_binder",
+      "recommended_pr_scope": "Bind per-batch SN/device_code, protocol ID, GETCO1-9, runtime, S5-S8 neutralization, S9 pressure readiness, and read-only COM closeout into one pre-gas evidence index.",
+      "allowed_scope": "offline plan/evidence/status only unless a later dedicated controlled executor is explicitly reviewed",
+      "forbidden_scope": "no COM, no gas/water route, no coefficient write, no PostgreSQL import, no formal release unlock",
+      "done_when": "A generated pre-gas evidence index can prove which batch is ready for mature CO2/H2O routes without reopening COM or writing any coefficient.",
+      "blocks_full_auto": true
+    },
+    {
+      "priority": 2,
+      "action_id": "pressure_s9_exception_and_reverify_evidence_index",
+      "source_stage_id": "02_pressure_s9_readiness",
+      "action_type": "offline_evidence_binder",
+      "recommended_pr_scope": "Normalize offset-only S9 and explicit linear-S9 exception evidence into pressure readiness without changing the mature route runners.",
+      "allowed_scope": "offline plan/evidence/status only unless a later dedicated controlled executor is explicitly reviewed",
+      "forbidden_scope": "no COM, no gas/water route, no coefficient write, no PostgreSQL import, no formal release unlock",
+      "done_when": "S9 write/readback/reverify evidence is explicit per device and cannot be confused with route data.",
+      "blocks_full_auto": true
+    },
+    {
+      "priority": 3,
+      "action_id": "route_physical_recovery_live_smoke_binding_contract",
+      "source_stage_id": "03_route_physical_readiness_guard",
+      "action_type": "offline_contract",
+      "recommended_pr_scope": "Define the reviewed mature-path smoke evidence packet required before a fresh continuous CO2/H2O run.",
+      "allowed_scope": "offline plan/evidence/status only unless a later dedicated controlled executor is explicitly reviewed",
+      "forbidden_scope": "no COM, no gas/water route, no coefficient write, no PostgreSQL import, no formal release unlock",
+      "done_when": "PACE vent, pressure gauge, dewpoint, and fresh queue readiness can be reviewed without using diagnostic points as fit data.",
+      "blocks_full_auto": true
+    },
+    {
+      "priority": 4,
+      "action_id": "mature_route_continuity_run_manifest_gate",
+      "source_stage_id": "04_mature_legacy_co2_45_route",
+      "action_type": "offline_guard",
+      "recommended_pr_scope": "Require a fresh continuous mature-run manifest before CO2/H2O route evidence can feed fitting or release.",
+      "allowed_scope": "offline plan/evidence/status only unless a later dedicated controlled executor is explicitly reviewed",
+      "forbidden_scope": "no COM, no gas/water route, no coefficient write, no PostgreSQL import, no formal release unlock",
+      "done_when": "Segmented, retry, direct-recovery, and empty-manifest route attempts are blocked from formal continuous-run status.",
+      "blocks_full_auto": true
+    },
+    {
+      "priority": 5,
+      "action_id": "0613_fit_strategy_matrix_no_write",
+      "source_stage_id": "06_fit_strategy_review",
+      "action_type": "offline_no_write_review",
+      "recommended_pr_scope": "Codify the 0613 multi-strategy fit review for CO2/H2O, including physical reject/supersede rules and anchor roles.",
+      "allowed_scope": "offline plan/evidence/status only unless a later dedicated controlled executor is explicitly reviewed",
+      "forbidden_scope": "no COM, no gas/water route, no coefficient write, no PostgreSQL import, no formal release unlock",
+      "done_when": "Candidate coefficients are reviewed through one no-write strategy matrix before any controlled write package.",
+      "blocks_full_auto": true
+    },
+    {
+      "priority": 6,
+      "action_id": "controlled_write_readback_reverify_bundle",
+      "source_stage_id": "07_controlled_write_readback",
+      "action_type": "controlled_write_contract",
+      "recommended_pr_scope": "Unify old-value snapshot, controlled write, GETCO readback, and short reverify references into one post-fit write bundle.",
+      "allowed_scope": "offline plan/evidence/status only unless a later dedicated controlled executor is explicitly reviewed",
+      "forbidden_scope": "no COM, no gas/water route, no coefficient write, no PostgreSQL import, no formal release unlock",
+      "done_when": "Write success and validation success are reported separately per device and coefficient family.",
+      "blocks_full_auto": true
+    },
+    {
+      "priority": 7,
+      "action_id": "archive_release_postgresql18_import_unlock_sequence",
+      "source_stage_id": "09_archive_report_database",
+      "action_type": "offline_import_gate",
+      "recommended_pr_scope": "Keep PostgreSQL 18 import locked behind archive release, dry-run, authorization, controlled executor, and readback evidence.",
+      "allowed_scope": "offline plan/evidence/status only unless a later dedicated controlled executor is explicitly reviewed",
+      "forbidden_scope": "no COM, no gas/water route, no coefficient write, no PostgreSQL import, no formal release unlock",
+      "done_when": "Database import cannot run from route, fit, smoke, or no-write evidence alone.",
+      "blocks_full_auto": true
+    }
+  ]
+}
