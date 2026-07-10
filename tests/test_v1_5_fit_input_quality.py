@@ -1,4 +1,5 @@
 import csv
+import json
 
 from gas_calibrator.tools.export_v1_5_fit_input_quality import main as cli_main
 from gas_calibrator.validation.v1_5_fit_input_quality import (
@@ -25,12 +26,83 @@ def _read_csv(path):
         return list(csv.DictReader(handle))
 
 
+def _write_json(path, payload):
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
+def _write_passing_continuity_gate(path):
+    return _write_json(
+        path,
+        {
+            "manifest": {
+                "status": "pass",
+                "continuous_route_run_fit_eligible": True,
+                "blocker_count": 0,
+                "review_required_count": 0,
+            }
+        },
+    )
+
+
+def _write_ready_formal_status(path):
+    return _write_json(
+        path,
+        {
+            "gates": [
+                {
+                    "gate_id": "mature_route_continuity_gate",
+                    "status": "ready",
+                    "blocks_formal_release": True,
+                    "blocks_database_import": True,
+                }
+            ]
+        },
+    )
+
+
+def _write_good_inputs(tmp_path):
+    co2_policy = tmp_path / "co2_policy.csv"
+    co2_residuals = tmp_path / "co2_residuals.csv"
+    h2o_policy = tmp_path / "h2o_policy.csv"
+    h2o_residuals = tmp_path / "h2o_residuals.csv"
+    _write_csv(
+        co2_policy,
+        [
+            {
+                "analyzer_device_id": "022",
+                "allowed_to_fit": "True",
+                "fit_sample_count": "10",
+                "fit_point_count": "1",
+                "formal_a_grade_count": "10",
+                "preparation_rejected_count": "0",
+            }
+        ],
+    )
+    _write_csv(co2_residuals, [{"analyzer_device_id": "022", "point_identity": "co2"}])
+    _write_csv(
+        h2o_policy,
+        [
+            {
+                "analyzer_device_id": "022",
+                "complete_point_count": "8",
+                "complete_wet_point_count": "3",
+                "complete_dry_anchor_count": "5",
+                "rejected_point_count": "0",
+            }
+        ],
+    )
+    _write_csv(h2o_residuals, [{"analyzer_device_id": "022", "point_run_id": "h2o"}])
+    return co2_policy, co2_residuals, h2o_policy, h2o_residuals
+
+
 def test_fit_input_quality_marks_target_devices_a_and_excludes_scope_devices(tmp_path):
     co2_policy = tmp_path / "co2_policy.csv"
     co2_residuals = tmp_path / "co2_residuals.csv"
     h2o_policy = tmp_path / "h2o_policy.csv"
     h2o_residuals = tmp_path / "h2o_residuals.csv"
     h2o_inputs = tmp_path / "h2o_inputs.csv"
+    continuity_gate = _write_passing_continuity_gate(tmp_path / "mature_route_continuity_gate.json")
 
     _write_csv(
         co2_policy,
@@ -102,6 +174,7 @@ def test_fit_input_quality_marks_target_devices_a_and_excludes_scope_devices(tmp
         h2o_policy_csv=h2o_policy,
         h2o_residuals_csv=h2o_residuals,
         h2o_point_inputs_csv=h2o_inputs,
+        mature_route_continuity_gate_json=continuity_gate,
         cfg=FitInputQualityConfig(target_device_ids=("022",), excluded_device_ids=("023",), co2_min_fit_samples=10),
     )
 
@@ -120,6 +193,7 @@ def test_fit_input_quality_keeps_scope_exclusion_visible_without_source_rows(tmp
     co2_residuals = tmp_path / "co2_residuals.csv"
     h2o_policy = tmp_path / "h2o_policy.csv"
     h2o_residuals = tmp_path / "h2o_residuals.csv"
+    continuity_gate = _write_passing_continuity_gate(tmp_path / "mature_route_continuity_gate.json")
 
     _write_csv(
         co2_policy,
@@ -153,6 +227,7 @@ def test_fit_input_quality_keeps_scope_exclusion_visible_without_source_rows(tmp
         co2_residuals_csv=co2_residuals,
         h2o_policy_csv=h2o_policy,
         h2o_residuals_csv=h2o_residuals,
+        mature_route_continuity_gate_json=continuity_gate,
         cfg=FitInputQualityConfig(target_device_ids=("022",), excluded_device_ids=("023",)),
     )
 
@@ -168,6 +243,7 @@ def test_fit_input_quality_writer_and_cli_are_offline(tmp_path):
     co2_residuals = tmp_path / "co2_residuals.csv"
     h2o_policy = tmp_path / "h2o_policy.csv"
     h2o_residuals = tmp_path / "h2o_residuals.csv"
+    continuity_gate = _write_passing_continuity_gate(tmp_path / "mature_route_continuity_gate.json")
 
     _write_csv(
         co2_policy,
@@ -203,6 +279,7 @@ def test_fit_input_quality_writer_and_cli_are_offline(tmp_path):
         co2_residuals_csv=co2_residuals,
         h2o_policy_csv=h2o_policy,
         h2o_residuals_csv=h2o_residuals,
+        mature_route_continuity_gate_json=continuity_gate,
         output_dir=output,
         cfg=FitInputQualityConfig(target_device_ids=("022",), excluded_device_ids=()),
     )
@@ -223,6 +300,8 @@ def test_fit_input_quality_writer_and_cli_are_offline(tmp_path):
             str(h2o_policy),
             "--h2o-residuals-csv",
             str(h2o_residuals),
+            "--mature-route-continuity-gate-json",
+            str(continuity_gate),
             "--output-dir",
             str(cli_output),
             "--target-device-id",
@@ -231,3 +310,75 @@ def test_fit_input_quality_writer_and_cli_are_offline(tmp_path):
     )
     assert rc == 0
     assert (cli_output / "v1_5_fit_input_quality_devices.csv").exists()
+    meta = json.loads((cli_output / "v1_5_fit_input_quality_meta.json").read_text(encoding="utf-8"))
+    assert meta["inputs"]["mature_route_continuity_gate_json"].endswith("mature_route_continuity_gate.json")
+
+
+def test_fit_input_quality_blocks_without_mature_route_continuity_evidence(tmp_path):
+    co2_policy, co2_residuals, h2o_policy, h2o_residuals = _write_good_inputs(tmp_path)
+
+    tables = build_fit_input_quality_tables(
+        co2_policy_csv=co2_policy,
+        co2_residuals_csv=co2_residuals,
+        h2o_policy_csv=h2o_policy,
+        h2o_residuals_csv=h2o_residuals,
+        cfg=FitInputQualityConfig(target_device_ids=("022",), excluded_device_ids=()),
+    )
+
+    summary = tables["summary"][0]
+    assert summary["run_status"] == "blocked"
+    assert summary["fit_input_continuity_gate_status"] == "blocked"
+    assert "fit_input_continuity_evidence_missing" in summary["fit_input_continuity_gate_reason"]
+    assert {row["fit_input_grade"] for row in tables["device_quality"]} == {"REJECT"}
+    assert all("fit_input_continuity_gate_not_ready" in row["reject_reasons"] for row in tables["device_quality"])
+    assert {row["fit_input_grade"] for row in tables["point_quality"]} == {"REJECT"}
+
+
+def test_fit_input_quality_accepts_formal_status_continuity_gate(tmp_path):
+    co2_policy, co2_residuals, h2o_policy, h2o_residuals = _write_good_inputs(tmp_path)
+    formal_status = _write_ready_formal_status(tmp_path / "v1_5_formal_run_status.json")
+
+    tables = build_fit_input_quality_tables(
+        co2_policy_csv=co2_policy,
+        co2_residuals_csv=co2_residuals,
+        h2o_policy_csv=h2o_policy,
+        h2o_residuals_csv=h2o_residuals,
+        formal_run_status_json=formal_status,
+        cfg=FitInputQualityConfig(target_device_ids=("022",), excluded_device_ids=()),
+    )
+
+    summary = tables["summary"][0]
+    assert summary["run_status"] == "pass"
+    assert summary["fit_input_continuity_gate_status"] == "pass"
+    assert summary["fit_input_continuity_gate_reason"] == "formal_run_status_mature_route_continuity_ready"
+    assert {row["fit_input_grade"] for row in tables["device_quality"]} == {"A"}
+
+
+def test_fit_input_quality_rejects_blocked_direct_continuity_gate(tmp_path):
+    co2_policy, co2_residuals, h2o_policy, h2o_residuals = _write_good_inputs(tmp_path)
+    continuity_gate = _write_json(
+        tmp_path / "v1_5_mature_route_continuity_gate.json",
+        {
+            "manifest": {
+                "status": "blocked",
+                "continuous_route_run_fit_eligible": False,
+                "blocker_count": 1,
+                "review_required_count": 0,
+            }
+        },
+    )
+
+    tables = build_fit_input_quality_tables(
+        co2_policy_csv=co2_policy,
+        co2_residuals_csv=co2_residuals,
+        h2o_policy_csv=h2o_policy,
+        h2o_residuals_csv=h2o_residuals,
+        mature_route_continuity_gate_json=continuity_gate,
+        cfg=FitInputQualityConfig(target_device_ids=("022",), excluded_device_ids=()),
+    )
+
+    summary = tables["summary"][0]
+    assert summary["run_status"] == "blocked"
+    assert summary["fit_input_continuity_gate_status"] == "blocked"
+    assert "mature_route_continuity_gate_not_ready" in summary["fit_input_continuity_gate_reason"]
+    assert {row["fit_input_grade"] for row in tables["device_quality"]} == {"REJECT"}
