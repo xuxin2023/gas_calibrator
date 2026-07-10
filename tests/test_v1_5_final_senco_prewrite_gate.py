@@ -16,16 +16,25 @@ def _write_csv(path, rows):
         writer.writerows(rows)
 
 
-def _pack(tmp_path, *, global_status="pass", device_status="pass", blockers=""):
+def _pack(
+    tmp_path,
+    *,
+    package_meta_status="pass",
+    package_check_status="pass",
+    device_status="pass",
+    blockers="",
+):
     root = tmp_path / "precheck"
     root.mkdir()
     (root / "main_senco_write_precheck_meta.json").write_text(
         json.dumps(
             {
                 "no_write": True,
+                "opens_com": False,
                 "writes_senco": False,
+                "controls_routes": False,
                 "fit_input_traceability_required": True,
-                "fit_input_traceability_status": global_status,
+                "fit_input_traceability_status": package_meta_status,
             }
         ),
         encoding="utf-8",
@@ -35,7 +44,7 @@ def _pack(tmp_path, *, global_status="pass", device_status="pass", blockers=""):
         [
             {
                 "check": "fit_input_traceability_required_before_final_senco_review",
-                "status": global_status,
+                "status": package_check_status,
             },
             {"check": "fit_input_traceability_bound:co2:091", "status": device_status},
         ],
@@ -64,13 +73,15 @@ def test_final_senco_prewrite_gate_accepts_bound_device(tmp_path):
     assert detail["fit_input_traceability_status"] == "pass"
 
 
-def test_final_senco_prewrite_gate_rejects_global_failure(tmp_path):
-    root = _pack(tmp_path, global_status="block_write")
+def test_final_senco_prewrite_gate_allows_selected_component_when_unrelated_package_rows_are_blocked(tmp_path):
+    root = _pack(tmp_path, package_meta_status="blocked", package_check_status="block_write")
 
-    ok, reasons, _ = validate_final_senco_prewrite_gate(root, component="co2", device_ids=["091"])
+    ok, reasons, detail = validate_final_senco_prewrite_gate(root, component="co2", device_ids=["091"])
 
-    assert ok is False
-    assert "fit_input_traceability_global_status_not_pass" in reasons
+    assert ok is True
+    assert reasons == []
+    assert detail["package_fit_input_traceability_status"] == "blocked"
+    assert detail["fit_input_traceability_status"] == "pass"
 
 
 def test_final_senco_prewrite_gate_rejects_missing_device_check(tmp_path):
@@ -90,3 +101,16 @@ def test_final_senco_prewrite_gate_rejects_device_blockers(tmp_path):
 
     assert ok is False
     assert any(reason.startswith("co2_fit_input_traceability_blockers:091:") for reason in reasons)
+
+
+def test_final_senco_prewrite_gate_rejects_missing_safety_boundary_field(tmp_path):
+    root = _pack(tmp_path)
+    meta_path = root / "main_senco_write_precheck_meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    del meta["writes_senco"]
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+
+    ok, reasons, _ = validate_final_senco_prewrite_gate(root, component="co2", device_ids=["091"])
+
+    assert ok is False
+    assert "main_senco_precheck_boundary_missing:writes_senco" in reasons

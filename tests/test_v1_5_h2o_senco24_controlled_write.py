@@ -58,7 +58,9 @@ def _write_fit_input_precheck(review_dir, device_ids=("051", "100")):
         review_dir / "main_senco_write_precheck_meta.json",
         {
             "no_write": True,
+            "opens_com": False,
             "writes_senco": False,
+            "controls_routes": False,
             "fit_input_traceability_required": True,
             "fit_input_traceability_status": "pass",
         },

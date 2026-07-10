@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 
 GLOBAL_CHECK = "fit_input_traceability_required_before_final_senco_review"
@@ -62,21 +62,32 @@ def validate_final_senco_prewrite_gate(
     if not isinstance(meta, Mapping):
         return False, ["main_senco_precheck_meta_not_object"], {"precheck_dir": str(root)}
 
-    if not _truthy(meta.get("no_write")):
-        reasons.append("main_senco_precheck_not_no_write")
-    if _truthy(meta.get("writes_senco")):
-        reasons.append("main_senco_precheck_declares_senco_write")
+    boundary_contract = {
+        "no_write": True,
+        "opens_com": False,
+        "writes_senco": False,
+        "controls_routes": False,
+    }
+    for field, expected in boundary_contract.items():
+        if field not in meta:
+            reasons.append(f"main_senco_precheck_boundary_missing:{field}")
+            continue
+        actual = _truthy(meta.get(field))
+        if actual != expected:
+            reasons.append(f"main_senco_precheck_boundary_mismatch:{field}")
     if not _truthy(meta.get("fit_input_traceability_required")):
         reasons.append("fit_input_traceability_not_required_by_precheck")
-    if str(meta.get("fit_input_traceability_status") or "").strip().lower() != "pass":
-        reasons.append("fit_input_traceability_global_status_not_pass")
+    package_traceability_status = str(meta.get("fit_input_traceability_status") or "").strip().lower()
+    if package_traceability_status not in {"pass", "blocked"}:
+        reasons.append(f"fit_input_traceability_package_status_invalid:{package_traceability_status or 'missing'}")
 
     checks = {
         str(row.get("check") or "").strip(): str(row.get("status") or "").strip().lower()
         for row in _read_csv(checks_path)
     }
-    if checks.get(GLOBAL_CHECK) != "pass":
-        reasons.append(f"{GLOBAL_CHECK}:{checks.get(GLOBAL_CHECK) or 'missing'}")
+    package_check_status = checks.get(GLOBAL_CHECK)
+    if package_check_status not in {"pass", "block_write"}:
+        reasons.append(f"{GLOBAL_CHECK}:{package_check_status or 'missing'}")
 
     summary_by_device = {
         _device_id(row.get("analyzer_device_id") or row.get("device_id")): row
@@ -107,6 +118,8 @@ def validate_final_senco_prewrite_gate(
         "summary_path": str(summary_path),
         "component": component_key,
         "device_ids": normalized_devices,
+        "package_fit_input_traceability_status": package_traceability_status,
+        "package_fit_input_traceability_check_status": package_check_status,
         "fit_input_traceability_status": "pass" if not reasons else "blocked",
     }
     return not reasons, list(dict.fromkeys(reasons)), detail

@@ -51,7 +51,9 @@ def _precheck_dir(tmp_path):
         root / "main_senco_write_precheck_meta.json",
         {
             "no_write": True,
+            "opens_com": False,
             "writes_senco": False,
+            "controls_routes": False,
             "fit_input_traceability_required": True,
             "fit_input_traceability_status": "pass",
         },
