@@ -17,6 +17,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
+from ..validation.v1_5_artifact_hash_binding import write_artifact_hash_manifest
+
 from ..senco_format import format_senco_values
 
 
@@ -411,6 +413,8 @@ def build_precheck_pack(
     output_dir: Path,
     plan_path: Optional[Path] = None,
     old_coefficients_path: Optional[Path] = None,
+    co2_senco5_candidate_path: Optional[Path] = None,
+    h2o_senco6_candidate_path: Optional[Path] = None,
     include_devices: Sequence[str] = DEFAULT_INCLUDE_DEVICES,
     max_relative_error_pct: float = DEFAULT_RELATIVE_LIMIT_PCT,
 ) -> Dict[str, Path]:
@@ -756,6 +760,7 @@ def build_precheck_pack(
         "h2o_policy": output_dir / "h2o_senco24_device_policy.csv",
         "h2o_diagnostics": output_dir / "h2o_senco24_output_diagnostics.csv",
         "report": output_dir / "main_senco_write_precheck_pack_zh.md",
+        "hash_manifest": output_dir / "main_senco_artifact_hash_manifest.json",
         "meta": output_dir / "main_senco_write_precheck_meta.json",
     }
     _write_csv(paths["summary"], summary_rows)
@@ -844,6 +849,42 @@ def build_precheck_pack(
     )
     paths["report"].write_text("\n".join(report_lines) + "\n", encoding="utf-8")
 
+    hash_artifacts: Dict[str, Path] = {
+        "co2_candidate_run_summary": co2_candidate_dir / "candidate_run_summary.csv",
+        "co2_candidate_policy_summary": co2_candidate_dir / "candidate_policy_summary.csv",
+        "co2_model_selection_summary": co2_model_selection_dir / "model_selection_summary.csv",
+        "h2o_candidate_run_summary": h2o_candidate_dir / "candidate_run_summary.csv",
+        "h2o_candidate_policy_summary": h2o_candidate_dir / "candidate_policy_summary.csv",
+        "h2o_model_selection_summary": h2o_model_selection_dir / "model_selection_summary.csv",
+        "precheck_summary": paths["summary"],
+        "precheck_commands": paths["commands"],
+        "precheck_blocked": paths["blocked"],
+        "precheck_neutral_prerequisites": paths["neutral"],
+        "precheck_verification_plan": paths["verification"],
+        "precheck_co2_mapping": paths["co2_mapping"],
+        "precheck_checks": paths["write_checks"],
+        "precheck_h2o_payload": paths["h2o_payload"],
+        "precheck_h2o_policy": paths["h2o_policy"],
+        "precheck_h2o_diagnostics": paths["h2o_diagnostics"],
+    }
+    for component, summary in candidate_summaries.items():
+        for field, suffix in (
+            ("fit_input_quality_summary_source", "fit_input_quality_summary"),
+            ("fit_input_quality_devices_source", "fit_input_quality_devices"),
+        ):
+            source = str(summary.get(field) or "").strip()
+            if source:
+                hash_artifacts[f"{component}_{suffix}"] = Path(source)
+    if plan_path:
+        hash_artifacts["runtime_plan"] = plan_path
+    if old_coefficients_path:
+        hash_artifacts["old_coefficients_snapshot"] = old_coefficients_path
+    if co2_senco5_candidate_path:
+        hash_artifacts["co2_senco5_candidate_coefficients"] = co2_senco5_candidate_path
+    if h2o_senco6_candidate_path:
+        hash_artifacts["h2o_senco6_candidate_coefficients"] = h2o_senco6_candidate_path
+    write_artifact_hash_manifest(paths["hash_manifest"], artifacts=hash_artifacts)
+
     meta = {
         "generated_at": _now(),
         "no_write": True,
@@ -858,6 +899,9 @@ def build_precheck_pack(
         "blocked_device_count": len(blocked),
         "fit_input_traceability_required": True,
         "fit_input_traceability_status": fit_input_traceability_status,
+        "artifact_hash_manifest_required": True,
+        "artifact_hash_manifest_path": str(paths["hash_manifest"].resolve()),
+        "artifact_hash_algorithm": "sha256",
         "outputs": {key: str(value) for key, value in paths.items()},
     }
     paths["meta"].write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -873,6 +917,8 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--plan-json", default=None)
     parser.add_argument("--old-coefficients-json", default=None)
+    parser.add_argument("--co2-senco5-candidate-coefficients-csv", default=None)
+    parser.add_argument("--h2o-senco6-candidate-coefficients-csv", default=None)
     parser.add_argument("--include-device-id", action="append", default=None)
     parser.add_argument("--max-relative-error-pct", type=float, default=DEFAULT_RELATIVE_LIMIT_PCT)
     return parser.parse_args(list(argv) if argv is not None else None)
@@ -889,6 +935,16 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             output_dir=Path(args.output_dir),
             plan_path=Path(args.plan_json) if args.plan_json else None,
             old_coefficients_path=Path(args.old_coefficients_json) if args.old_coefficients_json else None,
+            co2_senco5_candidate_path=(
+                Path(args.co2_senco5_candidate_coefficients_csv)
+                if args.co2_senco5_candidate_coefficients_csv
+                else None
+            ),
+            h2o_senco6_candidate_path=(
+                Path(args.h2o_senco6_candidate_coefficients_csv)
+                if args.h2o_senco6_candidate_coefficients_csv
+                else None
+            ),
             include_devices=tuple(args.include_device_id or DEFAULT_INCLUDE_DEVICES),
             max_relative_error_pct=float(args.max_relative_error_pct),
         )

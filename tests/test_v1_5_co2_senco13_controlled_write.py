@@ -5,6 +5,7 @@ from gas_calibrator.storage.v1_5_evidence.bundle import _build_sidecar_write_eve
 from gas_calibrator.senco_format import rounded_senco_values
 from gas_calibrator.tools import run_v1_5_co2_senco13_controlled_rollback as rollback
 from gas_calibrator.tools import run_v1_5_co2_senco13_controlled_write as writer
+from gas_calibrator.validation.v1_5_artifact_hash_binding import write_artifact_hash_manifest
 
 
 def _write_json(path, payload):
@@ -74,8 +75,27 @@ def _write_formula_contract_pass(review_dir):
             "controls_routes": False,
             "fit_input_traceability_required": True,
             "fit_input_traceability_status": "pass",
+            "artifact_hash_manifest_required": True,
+            "artifact_hash_manifest_path": str((review_dir / "main_senco_artifact_hash_manifest.json").resolve()),
+            "artifact_hash_algorithm": "sha256",
         },
     )
+    artifacts = {
+        "precheck_summary": review_dir / "main_senco_write_precheck_summary.csv",
+        "precheck_checks": review_dir / "candidate_write_review_checks.csv",
+        "precheck_co2_mapping": review_dir / "candidate_senco_mapping_review.csv",
+    }
+    for role in (
+        "co2_fit_input_quality_summary",
+        "co2_fit_input_quality_devices",
+        "co2_candidate_run_summary",
+        "co2_candidate_policy_summary",
+        "co2_model_selection_summary",
+    ):
+        source = review_dir / f"{role}.csv"
+        source.write_text("status\npass\n", encoding="utf-8")
+        artifacts[role] = source
+    write_artifact_hash_manifest(review_dir / "main_senco_artifact_hash_manifest.json", artifacts=artifacts)
 
 
 def _config(tmp_path):
@@ -323,6 +343,9 @@ def test_controlled_co2_senco13_pair_write_selected_only(monkeypatch, tmp_path):
     assert rows[0]["controls_water_or_gas_routes"] == "False"
     assert rows[0]["writes_device_id"] == "False"
     assert rows[0]["clears_senco"] == "False"
+    conclusion = _read_csv(out_dir / "co2_senco13_pair_write_conclusion.csv")[0]
+    assert conclusion["artifact_hash_status"] == "pass"
+    assert int(conclusion["artifact_hash_count"]) >= 8
     ga = _FakeGasAnalyzer.instances["COM36"]
     assert ga.coeff1 == [14881.5, -25610.4, 13458.5, -1521.12, 0.0, 0.0]
     assert ga.coeff3 == [20.6216, 0.0235468, -22.1346, 0.0, 0.0, 0.0]
@@ -385,6 +408,43 @@ def test_controlled_co2_senco13_write_refuses_missing_fit_input_precheck_before_
     _write_csv(review_dir / "candidate_senco_mapping_review.csv", _mapping_rows())
     _write_formula_contract_pass(review_dir)
     (review_dir / "main_senco_write_precheck_meta.json").unlink()
+
+    rc = writer.main(
+        [
+            "--config",
+            str(cfg_path),
+            "--review-dir",
+            str(review_dir),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--device-id",
+            "030",
+            "--enable-senco13-write",
+            "--operator-confirmation",
+            writer.CONFIRMATION_TEXT,
+            "--reviewer",
+            "reviewer-a",
+            "--approver",
+            "approver-b",
+        ]
+    )
+
+    assert rc == 2
+    assert _FakeGasAnalyzer.instances == {}
+
+
+def test_controlled_co2_senco13_write_refuses_replaced_review_artifact_before_open(monkeypatch, tmp_path):
+    _FakeGasAnalyzer.instances = {}
+    monkeypatch.setattr(writer, "GasAnalyzer", _FakeGasAnalyzer)
+    cfg_path = tmp_path / "cfg.json"
+    review_dir = tmp_path / "review"
+    review_dir.mkdir()
+    _write_json(cfg_path, _config(tmp_path))
+    _write_csv(review_dir / "candidate_senco_mapping_review.csv", _mapping_rows())
+    _write_formula_contract_pass(review_dir)
+    rows = _read_csv(review_dir / "candidate_senco_mapping_review.csv")
+    rows[0]["primary_candidate_values"] = "9,9,9,9,0,0"
+    _write_csv(review_dir / "candidate_senco_mapping_review.csv", rows)
 
     rc = writer.main(
         [
