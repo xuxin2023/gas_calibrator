@@ -1215,6 +1215,19 @@ def _candidate_fit_command(
     )
 
 
+def _model_selection_command(
+    *,
+    fit_input_quality_summary_csv: Path,
+    fit_input_quality_devices_csv: Path,
+) -> str:
+    return (
+        "python -m gas_calibrator.tools.export_v1_5_candidate_model_selection_review "
+        f'--fit-input-quality-summary-csv "{fit_input_quality_summary_csv}" '
+        f'--fit-input-quality-devices-csv "{fit_input_quality_devices_csv}" '
+        "--require-fit-input-quality"
+    )
+
+
 def _execution_commands(
     *,
     fit_input_quality_summary_csv: Path,
@@ -1294,7 +1307,10 @@ def _execution_commands(
         {
             "order": 60,
             "action": "model_selection_and_s5_s6_review",
-            "tool": "python -m gas_calibrator.tools.export_v1_5_candidate_model_selection_review",
+            "tool": _model_selection_command(
+                fit_input_quality_summary_csv=fit_input_quality_summary_csv,
+                fit_input_quality_devices_csv=fit_input_quality_devices_csv,
+            ),
             "writes_senco": False,
             "physical_gate": "S5/S6 are final displayed-output affine trims and are reviewed after main-chain fit",
         },
@@ -1753,6 +1769,7 @@ def build_post_run_coefficient_executor_model(
             "temperature_before_components": True,
             "fit_all_eligible_stable_points": True,
             "fit_input_quality_review_before_controlled_write": True,
+            "model_selection_and_s5_s6_require_fit_input_quality": True,
             "fit_verification_labels_do_not_exclude_samples_by_default": True,
             "co2_source_state_gate_blocks_writes": True,
             "co2_zero_anchor_distinct_from_h2o_dry_anchor": True,

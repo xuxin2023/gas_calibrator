@@ -149,6 +149,7 @@ def test_post_run_executor_builds_ready_plan_without_touching_devices(tmp_path):
     assert model["workflow_contract"]["temperature_before_components"] is True
     assert model["workflow_contract"]["fit_all_eligible_stable_points"] is True
     assert model["workflow_contract"]["fit_input_quality_review_before_controlled_write"] is True
+    assert model["workflow_contract"]["model_selection_and_s5_s6_require_fit_input_quality"] is True
     assert model["workflow_contract"]["co2_zero_anchor_distinct_from_h2o_dry_anchor"] is True
     assert stages["pressure_input_quantity"]["status"] == "ready"
     assert stages["temperature_input_quantity"]["status"] == "ready"
@@ -168,6 +169,12 @@ def test_post_run_executor_builds_ready_plan_without_touching_devices(tmp_path):
         assert str((run_dir / "v1_5_fit_input_quality_summary.csv").resolve()) in tool
         assert "--fit-input-quality-devices-csv" in tool
         assert str((run_dir / "v1_5_fit_input_quality_devices.csv").resolve()) in tool
+    model_selection_tool = execution_order["model_selection_and_s5_s6_review"]["tool"]
+    assert "--require-fit-input-quality" in model_selection_tool
+    assert "--fit-input-quality-summary-csv" in model_selection_tool
+    assert str((run_dir / "v1_5_fit_input_quality_summary.csv").resolve()) in model_selection_tool
+    assert "--fit-input-quality-devices-csv" in model_selection_tool
+    assert str((run_dir / "v1_5_fit_input_quality_devices.csv").resolve()) in model_selection_tool
 
 
 def test_post_run_executor_blocks_missing_pressure_and_temperature_inputs(tmp_path):
