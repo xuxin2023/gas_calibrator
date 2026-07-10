@@ -43,4 +43,3 @@ python -m pytest tests\test_v1_5_fit_input_quality.py tests\test_v1_5_candidate_
 ```
 
 The warning is the existing unregistered `v1_5_formal_gate` pytest marker.
-
