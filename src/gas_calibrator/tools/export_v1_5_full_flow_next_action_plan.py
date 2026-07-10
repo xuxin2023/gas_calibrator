@@ -23,6 +23,15 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default="",
         help="Optional explicit v1_5_full_flow_automation_closure.json input.",
     )
+    parser.add_argument(
+        "--completed-action-id",
+        action="append",
+        default=[],
+        help=(
+            "Action id already closed by reviewed evidence. Repeat to make the offline planner "
+            "recommend the first remaining V1.5 automation handoff."
+        ),
+    )
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -32,6 +41,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         paths = write_v1_5_full_flow_next_action_plan(
             output_dir=args.output_dir,
             automation_closure_json=args.automation_closure_json or None,
+            completed_action_ids=args.completed_action_id,
         )
     except Exception as exc:  # pragma: no cover - CLI guardrail
         print(f"ERROR: {exc}", file=sys.stderr)

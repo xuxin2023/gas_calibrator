@@ -35,6 +35,8 @@ def test_next_action_plan_ranks_initialization_closeout_first() -> None:
     assert model["legacy_point_counts"] == {"co2": 45, "h2o": 13}
     assert model["new_algorithm_profile_point_counts"] == {"co2": 47, "h2o": 14}
     assert model["recommended_next_action_id"] == "batch_initialization_closeout_pre_gas_evidence_index"
+    assert model["remaining_next_action_count"] == len(model["next_actions"])
+    assert first["action_status"] == "recommended"
     assert first["source_stage_id"] == "01_initialization_identity_runtime_closeout"
     assert first["action_type"] == "offline_evidence_binder"
     assert "SN/device_code" in first["recommended_pr_scope"]
@@ -49,6 +51,40 @@ def test_next_action_plan_ranks_initialization_closeout_first() -> None:
     assert model["connects_postgresql"] is False
     assert model["writes_coefficients"] is False
     assert model["not_real_acceptance_evidence"] is True
+
+
+def test_next_action_plan_advances_after_explicit_completed_evidence() -> None:
+    model = build_v1_5_full_flow_next_action_plan(
+        completed_action_ids=[
+            "batch_initialization_closeout_pre_gas_evidence_index",
+            "pressure_s9_exception_and_reverify_evidence_index",
+        ],
+    )
+
+    assert model["overall_status"] == "review_ready"
+    assert model["completed_action_ids"] == [
+        "batch_initialization_closeout_pre_gas_evidence_index",
+        "pressure_s9_exception_and_reverify_evidence_index",
+    ]
+    assert model["remaining_next_action_count"] == len(model["next_actions"]) - 2
+    assert model["recommended_next_action_id"] == "route_physical_recovery_live_smoke_binding_contract"
+    statuses = {row["action_id"]: row["action_status"] for row in model["next_actions"]}
+    assert statuses["batch_initialization_closeout_pre_gas_evidence_index"] == "completed"
+    assert statuses["pressure_s9_exception_and_reverify_evidence_index"] == "completed"
+    assert statuses["route_physical_recovery_live_smoke_binding_contract"] == "recommended"
+    assert "mature-path smoke evidence packet" in model["recommended_next_pr_scope"]
+    assert model["opens_com_ports"] is False
+    assert model["controls_water_or_gas_routes"] is False
+
+
+def test_next_action_plan_reviews_unknown_completed_action_id() -> None:
+    model = build_v1_5_full_flow_next_action_plan(completed_action_ids=["not_a_known_v1_5_action"])
+
+    assert model["overall_status"] == "review_required"
+    assert model["unknown_completed_action_ids"] == ["not_a_known_v1_5_action"]
+    assert "unknown_completed_action_id=not_a_known_v1_5_action" in model["review_reasons"]
+    assert model["recommended_next_action_id"] == "batch_initialization_closeout_pre_gas_evidence_index"
+    assert model["opens_com_ports"] is False
 
 
 def test_next_action_plan_reviews_dirty_or_mismatched_closure(tmp_path: Path) -> None:
@@ -85,12 +121,29 @@ def test_next_action_plan_writer_and_cli(tmp_path: Path) -> None:
     markdown = paths["markdown"].read_text(encoding="utf-8")
 
     assert model["recommended_next_action_id"] == "batch_initialization_closeout_pre_gas_evidence_index"
+    assert model["next_actions"][0]["action_status"] == "recommended"
     assert "pressure_s9_exception_and_reverify_evidence_index" in actions_csv
     assert "This plan ranks the remaining V1.5 automation handoffs" in markdown
 
     cli_dir = tmp_path / "cli"
-    assert cli_main(["--output-dir", str(cli_dir), "--automation-closure-json", str(closure_path)]) == 0
+    assert (
+        cli_main(
+            [
+                "--output-dir",
+                str(cli_dir),
+                "--automation-closure-json",
+                str(closure_path),
+                "--completed-action-id",
+                "batch_initialization_closeout_pre_gas_evidence_index",
+                "--completed-action-id",
+                "pressure_s9_exception_and_reverify_evidence_index",
+            ]
+        )
+        == 0
+    )
     assert (cli_dir / "v1_5_full_flow_next_action_plan.json").exists()
+    cli_model = json.loads((cli_dir / "v1_5_full_flow_next_action_plan.json").read_text(encoding="utf-8"))
+    assert cli_model["recommended_next_action_id"] == "route_physical_recovery_live_smoke_binding_contract"
 
 
 def test_next_action_plan_exporter_is_offline_review_evidence() -> None:

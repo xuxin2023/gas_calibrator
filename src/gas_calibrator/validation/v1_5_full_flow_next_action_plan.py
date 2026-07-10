@@ -14,7 +14,7 @@ import json
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 from .v1_5_full_flow_automation_closure import (
     MATURE_FITTING_BASELINE,
@@ -108,6 +108,7 @@ class NextActionRow:
     forbidden_scope: str
     done_when: str
     blocks_full_auto: bool
+    action_status: str
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -162,16 +163,41 @@ def _stage_lookup(closure: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
     return {str(row.get("stage_id")): row for row in closure.get("stages") or [] if isinstance(row, Mapping)}
 
 
+def _normalize_completed_action_ids(completed_action_ids: Iterable[str] | None) -> list[str]:
+    ids: list[str] = []
+    seen: set[str] = set()
+    for value in completed_action_ids or ():
+        action_id = str(value).strip()
+        if action_id and action_id not in seen:
+            ids.append(action_id)
+            seen.add(action_id)
+    return ids
+
+
 def build_v1_5_full_flow_next_action_plan(
     *,
     automation_closure_json: str | Path | None = None,
+    completed_action_ids: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     closure = _load_closure(automation_closure_json)
     reasons = _closure_review_reasons(closure)
     stages = _stage_lookup(closure)
+    completed_input = _normalize_completed_action_ids(completed_action_ids)
+    known_action_ids = {spec["action_id"] for spec in NEXT_ACTIONS}
+    unknown_completed_action_ids = [action_id for action_id in completed_input if action_id not in known_action_ids]
+    completed_set = set(completed_input) & known_action_ids
+    for action_id in unknown_completed_action_ids:
+        reasons.append(f"unknown_completed_action_id={action_id}")
+    recommended_next_action_id = next(
+        (spec["action_id"] for spec in NEXT_ACTIONS if spec["action_id"] not in completed_set),
+        "",
+    )
     rows: list[NextActionRow] = []
     for idx, spec in enumerate(NEXT_ACTIONS, start=1):
         stage = stages.get(spec["source_stage_id"], {})
+        action_status = "completed" if spec["action_id"] in completed_set else "pending"
+        if spec["action_id"] == recommended_next_action_id:
+            action_status = "recommended"
         rows.append(
             NextActionRow(
                 priority=idx,
@@ -183,9 +209,11 @@ def build_v1_5_full_flow_next_action_plan(
                 forbidden_scope="no COM, no gas/water route, no coefficient write, no PostgreSQL import, no formal release unlock",
                 done_when=spec["done_when"],
                 blocks_full_auto=bool(stage.get("blocks_full_auto", True)),
+                action_status=action_status,
             )
         )
     overall_status = "review_ready" if not reasons else "review_required"
+    recommended_row = next((row for row in rows if row.action_id == recommended_next_action_id), None)
     return {
         "schema": SCHEMA,
         "generated_at": _now(),
@@ -197,8 +225,11 @@ def build_v1_5_full_flow_next_action_plan(
         "mature_route_baseline": closure.get("mature_route_baseline", ""),
         "legacy_point_counts": closure.get("legacy_point_counts", {}),
         "new_algorithm_profile_point_counts": closure.get("new_algorithm_profile_point_counts", {}),
-        "recommended_next_action_id": rows[0].action_id if rows else "",
-        "recommended_next_pr_scope": rows[0].recommended_pr_scope if rows else "",
+        "completed_action_ids": [spec["action_id"] for spec in NEXT_ACTIONS if spec["action_id"] in completed_set],
+        "unknown_completed_action_ids": unknown_completed_action_ids,
+        "remaining_next_action_count": sum(1 for row in rows if row.action_status != "completed"),
+        "recommended_next_action_id": recommended_next_action_id,
+        "recommended_next_pr_scope": recommended_row.recommended_pr_scope if recommended_row else "",
         "review_reasons": reasons,
         "full_production_auto_allowed": False,
         "formal_release_allowed": False,
@@ -219,6 +250,8 @@ def _markdown(model: Mapping[str, Any]) -> str:
         f"- schema: `{model['schema']}`",
         f"- overall_status: `{model['overall_status']}`",
         f"- recommended_next_action_id: `{model['recommended_next_action_id']}`",
+        f"- completed_action_ids: `{len(model.get('completed_action_ids', []))}`",
+        f"- remaining_next_action_count: `{model.get('remaining_next_action_count', 0)}`",
         f"- mature_fitting_baseline: `{model['mature_fitting_baseline']}`",
         f"- mature_route_baseline: `{model['mature_route_baseline']}`",
         f"- full_production_auto_allowed: `{str(model['full_production_auto_allowed']).lower()}`",
@@ -229,13 +262,14 @@ def _markdown(model: Mapping[str, Any]) -> str:
         "",
         "## Next Actions",
         "",
-        "| priority | action_id | action_type | recommended_pr_scope | done_when |",
-        "|---:|---|---|---|---|",
+        "| priority | status | action_id | action_type | recommended_pr_scope | done_when |",
+        "|---:|---|---|---|---|---|",
     ]
     for row in model["next_actions"]:
         lines.append(
-            "| {priority} | `{action_id}` | `{action_type}` | {scope} | {done_when} |".format(
+            "| {priority} | `{status}` | `{action_id}` | `{action_type}` | {scope} | {done_when} |".format(
                 priority=row["priority"],
+                status=row["action_status"],
                 action_id=row["action_id"],
                 action_type=row["action_type"],
                 scope=row["recommended_pr_scope"].replace("|", "/"),
@@ -267,10 +301,14 @@ def write_v1_5_full_flow_next_action_plan(
     *,
     output_dir: str | Path,
     automation_closure_json: str | Path | None = None,
+    completed_action_ids: Iterable[str] | None = None,
 ) -> dict[str, Path]:
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
-    model = build_v1_5_full_flow_next_action_plan(automation_closure_json=automation_closure_json)
+    model = build_v1_5_full_flow_next_action_plan(
+        automation_closure_json=automation_closure_json,
+        completed_action_ids=completed_action_ids,
+    )
     paths = {
         "manifest": out / "v1_5_full_flow_next_action_plan.json",
         "actions": out / "v1_5_full_flow_next_action_plan_actions.csv",
@@ -290,6 +328,7 @@ def write_v1_5_full_flow_next_action_plan(
                 "forbidden_scope",
                 "done_when",
                 "blocks_full_auto",
+                "action_status",
             ),
         )
         writer.writeheader()
