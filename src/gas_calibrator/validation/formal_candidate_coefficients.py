@@ -7,6 +7,7 @@ ports, switch water/gas routes, control PACE/valves, or write SENCO values.
 
 from __future__ import annotations
 
+import csv
 import json
 import math
 import re
@@ -76,6 +77,9 @@ class CandidateCoefficientPolicyConfig:
     preserved_secondary_coefficients_source: str = ""
     co2_dry_correction_h2o_source: str = "reference_first"
     factory_signal_health_summary_csv: str | Path | None = None
+    fit_input_quality_summary_csv: str | Path | None = None
+    fit_input_quality_devices_csv: str | Path | None = None
+    require_fit_input_quality: bool = False
     review_only_wide_sample_fallback: bool = False
     max_fit_absolute_relative_error_pct_for_review: Mapping[str, float] = field(
         default_factory=lambda: {"co2": 10.0, "h2o": 10.0}
@@ -100,6 +104,24 @@ def _safe_float(value: Any) -> Optional[float]:
     if not math.isfinite(numeric):
         return None
     return numeric
+
+
+def _read_csv_rows(path: str | Path | None) -> List[Dict[str, Any]]:
+    if not path:
+        return []
+    source = Path(path)
+    if not source.exists() or not source.is_file():
+        return []
+    with source.open("r", encoding="utf-8-sig", newline="") as handle:
+        return [dict(row) for row in csv.DictReader(handle)]
+
+
+def _status_text(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _truthy_status(value: Any) -> bool:
+    return _status_text(value) in {"1", "true", "yes", "y", "pass", "ok", "ready"}
 
 
 def _first_value(row: Mapping[str, Any], keys: Iterable[str]) -> Any:
@@ -1880,6 +1902,164 @@ def _apply_factory_signal_health_gate(
     return gated
 
 
+def _fit_input_quality_summary_state(
+    cfg: CandidateCoefficientPolicyConfig,
+) -> Dict[str, Any]:
+    summary_source = (
+        str(Path(cfg.fit_input_quality_summary_csv).resolve())
+        if cfg.fit_input_quality_summary_csv
+        else ""
+    )
+    devices_source = (
+        str(Path(cfg.fit_input_quality_devices_csv).resolve())
+        if cfg.fit_input_quality_devices_csv
+        else ""
+    )
+    configured = bool(summary_source or devices_source or cfg.require_fit_input_quality)
+    summary_rows = _read_csv_rows(cfg.fit_input_quality_summary_csv)
+    summary = dict(summary_rows[0]) if summary_rows else {}
+    run_status = _status_text(summary.get("run_status"))
+    continuity_status = _status_text(summary.get("fit_input_continuity_gate_status"))
+    boundary_reasons: List[str] = []
+    if cfg.require_fit_input_quality and not summary_source:
+        boundary_reasons.append("fit_input_quality_summary_csv_missing")
+    if cfg.require_fit_input_quality and not devices_source:
+        boundary_reasons.append("fit_input_quality_devices_csv_missing")
+    if configured and not summary_rows:
+        boundary_reasons.append("fit_input_quality_summary_missing_or_empty")
+    if summary_rows and run_status != "pass":
+        boundary_reasons.append(f"fit_input_quality_run_status_not_pass:{run_status or 'missing'}")
+    if summary_rows and continuity_status != "pass":
+        boundary_reasons.append(
+            f"fit_input_continuity_gate_not_pass:{continuity_status or 'missing'}"
+        )
+    for key, reason in (
+        ("opens_com_ports", "fit_input_quality_boundary_opens_com_ports"),
+        ("controls_water_or_gas_routes", "fit_input_quality_boundary_controls_routes"),
+        ("writes_coefficients", "fit_input_quality_boundary_writes_coefficients"),
+    ):
+        if _truthy_status(summary.get(key)):
+            boundary_reasons.append(reason)
+    return {
+        "configured": configured,
+        "ready": configured and not boundary_reasons,
+        "summary_source": summary_source,
+        "devices_source": devices_source,
+        "run_status": run_status,
+        "continuity_status": continuity_status,
+        "reason": ";".join(dict.fromkeys(boundary_reasons)),
+    }
+
+
+def _fit_input_quality_by_group(
+    cfg: CandidateCoefficientPolicyConfig,
+) -> Dict[Tuple[str, str], Mapping[str, Any]]:
+    rows = _read_csv_rows(cfg.fit_input_quality_devices_csv)
+    out: Dict[Tuple[str, str], Mapping[str, Any]] = {}
+    for row in rows:
+        component = str(row.get("component") or "").strip().lower()
+        device = _normalized_device_id(
+            row.get("analyzer_device_id")
+            or row.get("device_id")
+            or row.get("runtime_device_id")
+            or row.get("device")
+        )
+        if component and device:
+            out[(component, device)] = row
+    return out
+
+
+def _fit_input_quality_block_reason(
+    *,
+    component: str,
+    device_id: str,
+    summary_state: Mapping[str, Any],
+    group_row: Mapping[str, Any] | None,
+) -> str:
+    if not summary_state.get("configured"):
+        return ""
+    summary_reason = str(summary_state.get("reason") or "").strip()
+    if summary_reason:
+        return f"fit_input_quality_review_not_ready:{summary_reason}"
+    if group_row is None:
+        return f"fit_input_quality_missing_device_component:{component}:{device_id}"
+    grade = str(group_row.get("fit_input_grade") or "").strip().upper()
+    status = _status_text(group_row.get("fit_input_status"))
+    if grade == "A" and status in {"", "usable_for_candidate_fit", "ready", "pass"}:
+        return ""
+    reason = str(group_row.get("reject_reasons") or status or grade or "not_a_grade").strip()
+    return f"fit_input_quality_rejected:{component}:{reason}"
+
+
+def _apply_fit_input_quality_gate(
+    result: Dict[str, Any],
+    *,
+    gate_row: Mapping[str, Any] | None,
+    summary_state: Mapping[str, Any],
+) -> Dict[str, Any]:
+    policy_row = dict(result["policy_row"])
+    verification_summary = dict(result["verification_summary"])
+    coefficient_rows = [dict(row) for row in result["coefficient_rows"]]
+    component = str(policy_row.get("component") or "").strip().lower()
+    device_id = _normalized_device_id(policy_row.get("analyzer_device_id"))
+    block_reason = _fit_input_quality_block_reason(
+        component=component,
+        device_id=device_id,
+        summary_state=summary_state,
+        group_row=gate_row,
+    )
+
+    quality_fields = {
+        "fit_input_quality_summary_source": summary_state.get("summary_source", ""),
+        "fit_input_quality_devices_source": summary_state.get("devices_source", ""),
+        "fit_input_quality_run_status": summary_state.get("run_status", ""),
+        "fit_input_quality_continuity_gate_status": summary_state.get("continuity_status", ""),
+        "fit_input_quality_grade": (gate_row or {}).get("fit_input_grade", ""),
+        "fit_input_quality_status": (gate_row or {}).get("fit_input_status", ""),
+        "fit_input_quality_reject_reasons": (gate_row or {}).get("reject_reasons", ""),
+    }
+    policy_row.update(quality_fields)
+    verification_summary.update(
+        {
+            "fit_input_quality_summary_source": summary_state.get("summary_source", ""),
+            "fit_input_quality_devices_source": summary_state.get("devices_source", ""),
+            "fit_input_quality_run_status": summary_state.get("run_status", ""),
+            "fit_input_quality_continuity_gate_status": summary_state.get("continuity_status", ""),
+        }
+    )
+    for row in coefficient_rows:
+        row.update(quality_fields)
+
+    if block_reason:
+        blockers = [
+            item
+            for item in str(policy_row.get("blocked_reasons") or "").split(";")
+            if item
+        ]
+        blockers.append(block_reason)
+        policy_row["blocked_reasons"] = ";".join(dict.fromkeys(blockers))
+        policy_row["candidate_status"] = "blocked"
+        policy_row["allowed_to_fit"] = False
+        policy_row["allowed_for_review"] = False
+        policy_row["evidence_reuse_class"] = "fit_input_quality_blocked_not_reusable_for_formal_fit"
+        verification_summary["candidate_status"] = "blocked"
+        verification_summary["verification_status"] = "blocked"
+        verification_reasons = [
+            item
+            for item in str(verification_summary.get("verification_reasons") or "").split(";")
+            if item
+        ]
+        verification_reasons.append(block_reason)
+        verification_summary["verification_reasons"] = ";".join(dict.fromkeys(verification_reasons))
+        coefficient_rows = []
+
+    gated = dict(result)
+    gated["policy_row"] = policy_row
+    gated["verification_summary"] = verification_summary
+    gated["coefficient_rows"] = coefficient_rows
+    return gated
+
+
 def build_candidate_coefficient_tables(
     *,
     run_dir: str | Path,
@@ -1904,6 +2084,8 @@ def build_candidate_coefficient_tables(
     factory_signal_health_by_device = load_factory_signal_health_summary(
         config.factory_signal_health_summary_csv
     )
+    fit_input_quality_state = _fit_input_quality_summary_state(config)
+    fit_input_quality_by_group = _fit_input_quality_by_group(config)
     package_tables, package_context = build_formal_calibration_package_tables(
         run_dir=run_dir,
         plan=plan,
@@ -1987,6 +2169,11 @@ def build_candidate_coefficient_tables(
             cfg=config,
             common_mode_outlier_target_keys=common_mode_outlier_exclusions.get((comp, prefix, device_id), []),
         )
+        result = _apply_fit_input_quality_gate(
+            result,
+            gate_row=fit_input_quality_by_group.get((comp, device_id)),
+            summary_state=fit_input_quality_state,
+        )
         if factory_signal_health_source:
             result = _apply_factory_signal_health_gate(
                 result,
@@ -2037,6 +2224,17 @@ def build_candidate_coefficient_tables(
             ),
             "excluded_device_ids": ";".join(sorted(excluded_device_ids)),
             "factory_signal_health_source": factory_signal_health_source,
+            "fit_input_quality_required": bool(config.require_fit_input_quality),
+            "fit_input_quality_summary_source": fit_input_quality_state.get("summary_source", ""),
+            "fit_input_quality_devices_source": fit_input_quality_state.get("devices_source", ""),
+            "fit_input_quality_run_status": fit_input_quality_state.get("run_status", ""),
+            "fit_input_quality_continuity_gate_status": fit_input_quality_state.get("continuity_status", ""),
+            "fit_input_quality_gate_status": (
+                "pass"
+                if fit_input_quality_state.get("ready")
+                else ("not_configured" if not fit_input_quality_state.get("configured") else "blocked")
+            ),
+            "fit_input_quality_gate_reason": fit_input_quality_state.get("reason", ""),
             "review_only_wide_sample_fallback": bool(config.review_only_wide_sample_fallback),
             "review_only_fallback_source": review_only_fallback_source,
             "review_only_fallback_prefixes": ";".join(review_only_fallback_prefixes),
@@ -2058,6 +2256,15 @@ def build_candidate_coefficient_tables(
         "pressure_check_source": package_context.get("pressure_check_source", ""),
         "analyzer_prefixes": package_context.get("analyzer_prefixes", []),
         "factory_signal_health_source": factory_signal_health_source,
+        "fit_input_quality_required": bool(config.require_fit_input_quality),
+        "fit_input_quality_summary_source": fit_input_quality_state.get("summary_source", ""),
+        "fit_input_quality_devices_source": fit_input_quality_state.get("devices_source", ""),
+        "fit_input_quality_gate_status": (
+            "pass"
+            if fit_input_quality_state.get("ready")
+            else ("not_configured" if not fit_input_quality_state.get("configured") else "blocked")
+        ),
+        "fit_input_quality_gate_reason": fit_input_quality_state.get("reason", ""),
         "review_only_wide_sample_fallback": bool(config.review_only_wide_sample_fallback),
         "review_only_fallback_source": review_only_fallback_source,
     }
@@ -2075,6 +2282,7 @@ def _write_markdown_report(destination: Path, tables: Mapping[str, Sequence[Mapp
         f"- Status: {summary.get('candidate_run_status', '')}",
         f"- Package status: {summary.get('package_status', '')}",
         f"- Pressure check source: {summary.get('pressure_check_source', '')}",
+        f"- Fit input quality gate: {summary.get('fit_input_quality_gate_status', 'not_configured')}",
         "- Boundary: offline/no-write candidate review only; no COM ports, no PACE/valves, no water/gas route control, no SENCO write.",
         "",
         "## Policy Summary",
@@ -2192,6 +2400,16 @@ def write_candidate_coefficient_report(
             str(Path(plan_path).resolve()) if plan_path else "",
             str(Path(pressure_reference_path).resolve()) if pressure_reference_path else "",
             str(Path(pressure_check_path).resolve()) if pressure_check_path else "",
+            (
+                str(Path((cfg or CandidateCoefficientPolicyConfig()).fit_input_quality_summary_csv).resolve())
+                if (cfg or CandidateCoefficientPolicyConfig()).fit_input_quality_summary_csv
+                else ""
+            ),
+            (
+                str(Path((cfg or CandidateCoefficientPolicyConfig()).fit_input_quality_devices_csv).resolve())
+                if (cfg or CandidateCoefficientPolicyConfig()).fit_input_quality_devices_csv
+                else ""
+            ),
         ],
         output_dir=str(destination),
         config_summary={
@@ -2206,10 +2424,15 @@ def write_candidate_coefficient_report(
             "writes_coefficients": False,
             "fit_all_eligible_samples": bool((cfg or CandidateCoefficientPolicyConfig()).fit_all_eligible_samples),
             "factory_signal_health_source": context.get("factory_signal_health_source", ""),
+            "fit_input_quality_required": bool(context.get("fit_input_quality_required", False)),
+            "fit_input_quality_summary_source": context.get("fit_input_quality_summary_source", ""),
+            "fit_input_quality_devices_source": context.get("fit_input_quality_devices_source", ""),
+            "fit_input_quality_gate_status": context.get("fit_input_quality_gate_status", ""),
         },
         notes=[
             "Offline V1.5 candidate coefficient review.",
             "Pressure terms are excluded for the current-atmosphere open-flow contract. Temperature terms are included only when the data span makes them identifiable and the policy explicitly enables them.",
+            "When enabled, fit-input quality must pass before a candidate can be reviewed as writeable evidence.",
             "No coefficient write is performed or authorized by this export.",
         ],
     )
