@@ -897,6 +897,8 @@ def test_full_flow_plan_requires_factory_signal_health_before_fit_review(tmp_pat
 
     fit_review = next(item for item in plan.steps if item.step_id == "fit_input_quality_review")
     assert fit_review.gate == "requires_factory_signal_health_review"
+    assert "v1_5_fit_input_quality_summary.csv" in fit_review.expected_outputs
+    assert "v1_5_fit_input_quality_devices.csv" in fit_review.expected_outputs
 
 
 def test_full_flow_plan_adds_no_write_post_run_coefficient_executor(tmp_path):
@@ -940,6 +942,12 @@ def test_full_flow_plan_adds_no_write_post_run_coefficient_executor(tmp_path):
             / "pressure_channel_completion"
             / "pressure_channel_device_readiness.csv"
         ).resolve()
+    )
+    assert _flag_value(command, "--fit-input-quality-summary-csv") == str(
+        (tmp_path / "plan" / "fit_input_quality" / "v1_5_fit_input_quality_summary.csv").resolve()
+    )
+    assert _flag_value(command, "--fit-input-quality-devices-csv") == str(
+        (tmp_path / "plan" / "fit_input_quality" / "v1_5_fit_input_quality_devices.csv").resolve()
     )
     assert "post_run_coefficient_executor/executor_manifest.json" in step.expected_outputs
     assert "post_run_coefficient_executor/device_eligibility.csv" in step.expected_outputs

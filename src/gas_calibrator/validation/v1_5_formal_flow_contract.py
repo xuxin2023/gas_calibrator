@@ -45,6 +45,7 @@ REQUIRED_STEP_IDS = (
     "co2_open_flow_sampling",
     "h2o_open_flow_sampling",
     "fit_input_quality_review",
+    "post_run_coefficient_executor",
     "co2_candidate_write_review",
     "controlled_component_write_placeholder",
     "post_write_reverification_placeholder",
@@ -91,6 +92,7 @@ REQUIRED_ORDER = (
     "co2_open_flow_sampling",
     "h2o_open_flow_sampling",
     "fit_input_quality_review",
+    "post_run_coefficient_executor",
     "co2_candidate_write_review",
     "controlled_component_write_placeholder",
     "post_write_reverification_placeholder",
@@ -1404,6 +1406,42 @@ def validate_v1_5_formal_flow_contract(
                         step_id,
                     )
                 )
+
+        if step_id == "post_run_coefficient_executor":
+            if module != "gas_calibrator.tools.export_v1_5_post_run_coefficient_executor":
+                issues.append(
+                    _issue(
+                        "error",
+                        "post_run_coefficient_executor_wrong_tool",
+                        "Post-run coefficient executor must use the canonical offline V1.5 exporter",
+                        step_id,
+                    )
+                )
+            if bool(step.get("opens_com_ports")) or bool(step.get("controls_pressure")) or controls_route or writes:
+                issues.append(
+                    _issue(
+                        "error",
+                        "post_run_coefficient_executor_must_be_offline_no_write",
+                        "Post-run coefficient executor must remain offline, no-route, and no-write",
+                        step_id,
+                    )
+                )
+            required_fit_input_flags = {
+                "--fit-input-quality-summary-csv": "v1_5_fit_input_quality_summary.csv",
+                "--fit-input-quality-devices-csv": "v1_5_fit_input_quality_devices.csv",
+            }
+            for flag, expected_name in required_fit_input_flags.items():
+                value = _command_value_after(command, flag)
+                normalized = value.replace("\\", "/")
+                if not value or not normalized.endswith(f"fit_input_quality/{expected_name}"):
+                    issues.append(
+                        _issue(
+                            "error",
+                            "post_run_coefficient_executor_missing_fit_input_gate",
+                            f"Post-run coefficient executor must bind {flag} to fit_input_quality/{expected_name}",
+                            step_id,
+                        )
+                    )
 
         if step_id == "automation_control_contract_snapshot":
             if module != "gas_calibrator.tools.export_v1_5_automation_control_contract":
