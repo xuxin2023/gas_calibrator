@@ -1,0 +1,4 @@
+severity,requirement,status,reason,required_action
+info,dry_gas_dewpoint_recovery,pass,Dry-gas dewpoint tail worst value is -29.9 C with stable span/slope.,Feed this packet to the route physical recovery packet validator.
+info,pace_vent_recovery,pass,PACE vent trace proves ON/OFF roundtrip with no NO_RESPONSE.,Feed this packet to the route physical recovery packet validator.
+info,pressure_gauge_recovery,pass,Pressure gauge trace proves INL absolute-pressure readback with valid numeric samples and no NO_RESPONSE.,Feed this packet to the route physical recovery packet validator.

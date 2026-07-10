@@ -1,0 +1,3 @@
+elapsed_s,query,pressure_hpa
+0,:SENS:PRES:INL?,1000.5
+1,:SENS:PRES:INL?,1000.6
