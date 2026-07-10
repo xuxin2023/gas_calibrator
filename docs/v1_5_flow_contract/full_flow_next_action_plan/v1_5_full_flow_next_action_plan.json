@@ -1,6 +1,6 @@
 {
   "schema": "v1_5_full_flow_next_action_plan_v1",
-  "generated_at": "2026-07-10T05:40:06Z",
+  "generated_at": "2026-07-10T07:43:46Z",
   "overall_status": "review_ready",
   "source_automation_closure_status": "structure_closed_live_full_auto_still_gated",
   "source_blocker_count": 0,
@@ -15,6 +15,9 @@
     "co2": 47,
     "h2o": 14
   },
+  "completed_action_ids": [],
+  "unknown_completed_action_ids": [],
+  "remaining_next_action_count": 7,
   "recommended_next_action_id": "batch_initialization_closeout_pre_gas_evidence_index",
   "recommended_next_pr_scope": "Bind per-batch SN/device_code, protocol ID, GETCO1-9, runtime, S5-S8 neutralization, S9 pressure readiness, and read-only COM closeout into one pre-gas evidence index.",
   "review_reasons": [],
@@ -36,7 +39,8 @@
       "allowed_scope": "offline plan/evidence/status only unless a later dedicated controlled executor is explicitly reviewed",
       "forbidden_scope": "no COM, no gas/water route, no coefficient write, no PostgreSQL import, no formal release unlock",
       "done_when": "A generated pre-gas evidence index can prove which batch is ready for mature CO2/H2O routes without reopening COM or writing any coefficient.",
-      "blocks_full_auto": true
+      "blocks_full_auto": true,
+      "action_status": "recommended"
     },
     {
       "priority": 2,
@@ -47,7 +51,8 @@
       "allowed_scope": "offline plan/evidence/status only unless a later dedicated controlled executor is explicitly reviewed",
       "forbidden_scope": "no COM, no gas/water route, no coefficient write, no PostgreSQL import, no formal release unlock",
       "done_when": "S9 write/readback/reverify evidence is explicit per device and cannot be confused with route data.",
-      "blocks_full_auto": true
+      "blocks_full_auto": true,
+      "action_status": "pending"
     },
     {
       "priority": 3,
@@ -58,7 +63,8 @@
       "allowed_scope": "offline plan/evidence/status only unless a later dedicated controlled executor is explicitly reviewed",
       "forbidden_scope": "no COM, no gas/water route, no coefficient write, no PostgreSQL import, no formal release unlock",
       "done_when": "PACE vent, pressure gauge, dewpoint, and fresh queue readiness can be reviewed without using diagnostic points as fit data.",
-      "blocks_full_auto": true
+      "blocks_full_auto": true,
+      "action_status": "pending"
     },
     {
       "priority": 4,
@@ -69,7 +75,8 @@
       "allowed_scope": "offline plan/evidence/status only unless a later dedicated controlled executor is explicitly reviewed",
       "forbidden_scope": "no COM, no gas/water route, no coefficient write, no PostgreSQL import, no formal release unlock",
       "done_when": "Segmented, retry, direct-recovery, and empty-manifest route attempts are blocked from formal continuous-run status.",
-      "blocks_full_auto": true
+      "blocks_full_auto": true,
+      "action_status": "pending"
     },
     {
       "priority": 5,
@@ -80,7 +87,8 @@
       "allowed_scope": "offline plan/evidence/status only unless a later dedicated controlled executor is explicitly reviewed",
       "forbidden_scope": "no COM, no gas/water route, no coefficient write, no PostgreSQL import, no formal release unlock",
       "done_when": "Candidate coefficients are reviewed through one no-write strategy matrix before any controlled write package.",
-      "blocks_full_auto": true
+      "blocks_full_auto": true,
+      "action_status": "pending"
     },
     {
       "priority": 6,
@@ -91,7 +99,8 @@
       "allowed_scope": "offline plan/evidence/status only unless a later dedicated controlled executor is explicitly reviewed",
       "forbidden_scope": "no COM, no gas/water route, no coefficient write, no PostgreSQL import, no formal release unlock",
       "done_when": "Write success and validation success are reported separately per device and coefficient family.",
-      "blocks_full_auto": true
+      "blocks_full_auto": true,
+      "action_status": "pending"
     },
     {
       "priority": 7,
@@ -102,7 +111,8 @@
       "allowed_scope": "offline plan/evidence/status only unless a later dedicated controlled executor is explicitly reviewed",
       "forbidden_scope": "no COM, no gas/water route, no coefficient write, no PostgreSQL import, no formal release unlock",
       "done_when": "Database import cannot run from route, fit, smoke, or no-write evidence alone.",
-      "blocks_full_auto": true
+      "blocks_full_auto": true,
+      "action_status": "pending"
     }
   ]
 }
