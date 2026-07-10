@@ -1,0 +1,143 @@
+{
+  "schema": "v1_5_route_physical_recovery_evidence_packet_template_v1",
+  "generated_at": "2026-07-10T02:39:34Z",
+  "manifest": {
+    "status": "template_ready",
+    "root_cause_audit_path": "docs\\v1_5_flow_contract\\route_run_failure_root_cause\\v1_5_route_run_failure_root_cause_audit.json",
+    "root_cause_category_counts": {
+      "dry_gas_dewpoint_rebound_or_not_dry_enough": 1,
+      "stale_running_manifest_with_completed_point_artifacts": 2,
+      "manual_parameter_or_execution_mode_change": 13,
+      "pressure_controller_vent_no_response": 3,
+      "running_manifest_without_completed_point_artifacts": 2,
+      "direct_or_retry_point_without_queue_manifest": 8,
+      "pressure_gauge_no_response": 1,
+      "queue_aborted_before_sampling_no_manifest": 3
+    },
+    "collection_step_count": 5,
+    "packet_schema": "v1_5_route_physical_recovery_evidence_packet_v1",
+    "ready_for_validator": false,
+    "reason": "Template fields must be replaced with reviewed physical evidence before validator pass is possible.",
+    "opens_com_ports": false,
+    "controls_pressure": false,
+    "controls_water_or_gas_routes": false,
+    "connects_postgresql": false,
+    "writes_coefficients": false,
+    "writes_sn_or_device_code": false,
+    "formal_release_allowed": false,
+    "database_import_allowed": false,
+    "not_real_acceptance_evidence": true
+  },
+  "collection_plan": [
+    {
+      "step_id": "dry_gas_dewpoint_recovery",
+      "packet_field": "dry_gas_dewpoint_recovery",
+      "physical_meaning": "Prove the zero-gas route and dryer are dry enough before any formal CO2 dry/zero point.",
+      "required_evidence": "Dewpoint trace after route/dryer check with stable tail.",
+      "pass_condition": "status=pass; dewpoint_c <= -28 C; tail_span_c <= 0.5 C; tail_slope_abs_c_per_s <= 0.01; route_or_dryer_checked=true.",
+      "recommended_artifacts": "dewpoint_trace.csv plus route/dryer check note or trace.",
+      "collection_requires_real_hardware": true,
+      "forbidden_actions": "Do not write SN/device_code/SENCO, do not connect PostgreSQL, do not start CO2/H2O queue."
+    },
+    {
+      "step_id": "pace_vent_recovery",
+      "packet_field": "pace_vent_recovery",
+      "physical_meaning": "Prove PACE vent communication recovered after previous NO_RESPONSE failures.",
+      "required_evidence": "PACE vent ON/OFF roundtrip trace with no NO_RESPONSE.",
+      "pass_condition": "status=pass; vent_on_off_roundtrip_pass=true; no_response_absent=true.",
+      "recommended_artifacts": "pace_vent_roundtrip.csv or reviewed IO trace.",
+      "collection_requires_real_hardware": true,
+      "forbidden_actions": "Do not write SN/device_code/SENCO, do not connect PostgreSQL, do not start CO2/H2O queue."
+    },
+    {
+      "step_id": "pressure_gauge_recovery",
+      "packet_field": "pressure_gauge_recovery",
+      "physical_meaning": "Prove COM22 pressure gauge readback uses mature INL absolute pressure and is responsive.",
+      "required_evidence": "Pressure gauge readback trace using INL absolute-pressure source.",
+      "pass_condition": "status=pass; readback_status=pass; absolute_pressure_source=inl; no_response_absent=true.",
+      "recommended_artifacts": "com22_inl_readback.csv or reviewed pressure trace.",
+      "collection_requires_real_hardware": true,
+      "forbidden_actions": "Do not write SN/device_code/SENCO, do not connect PostgreSQL, do not start CO2/H2O queue."
+    },
+    {
+      "step_id": "fresh_canonical_queue_policy",
+      "packet_field": "next_run_policy",
+      "physical_meaning": "Prevent another segmented/direct/retry run from being treated as the next formal continuous run.",
+      "required_evidence": "Reviewed plan that names the mature 0613/0620/0621 CO2/H2O queue entrypoints.",
+      "pass_condition": "fresh_canonical_queue=true; baseline includes 0613/0620/0621; forbidden_surfaces_absent=true; canonical queue entrypoints named.",
+      "recommended_artifacts": "fresh run plan JSON or reviewed operator note.",
+      "collection_requires_real_hardware": false,
+      "forbidden_actions": "Do not reference _handoff, 0624, diagnostic, worker, retry, or root migration surfaces."
+    },
+    {
+      "step_id": "accepted_manifest_review",
+      "packet_field": "accepted_manifest_review",
+      "physical_meaning": "Keep old segmented/direct/retry evidence out of fitting unless explicitly superseded.",
+      "required_evidence": "Accepted manifest path and supersedence review id, if segmented evidence will be used.",
+      "pass_condition": "status=pass; accepted_manifest_path is non-empty; supersedence_review_id is non-empty.",
+      "recommended_artifacts": "accepted_manifest.csv and review note.",
+      "collection_requires_real_hardware": false,
+      "forbidden_actions": "Do not make segmented evidence fit-eligible without accepted-manifest review."
+    }
+  ],
+  "recovery_evidence_packet_template": {
+    "schema": "v1_5_route_physical_recovery_evidence_packet_v1",
+    "dry_gas_dewpoint_recovery": {
+      "status": "pending_review",
+      "dewpoint_c": null,
+      "dry_enough_threshold_c": -28.0,
+      "tail_span_c": null,
+      "max_tail_span_c": 0.5,
+      "tail_slope_abs_c_per_s": null,
+      "max_tail_slope_abs_c_per_s": 0.01,
+      "route_or_dryer_checked": false,
+      "evidence": {
+        "dewpoint_trace": "",
+        "route_or_dryer_check": "",
+        "operator_note": ""
+      }
+    },
+    "pace_vent_recovery": {
+      "status": "pending_review",
+      "vent_on_off_roundtrip_pass": false,
+      "no_response_absent": false,
+      "evidence": {
+        "pace_vent_roundtrip_trace": "",
+        "operator_note": ""
+      }
+    },
+    "pressure_gauge_recovery": {
+      "status": "pending_review",
+      "readback_status": "pending_review",
+      "absolute_pressure_source": "inl",
+      "no_response_absent": false,
+      "evidence": {
+        "pressure_gauge_inl_trace": "",
+        "operator_note": ""
+      }
+    },
+    "accepted_manifest_review": {
+      "status": "pending_review",
+      "accepted_manifest_path": "",
+      "supersedence_review_id": "",
+      "note": "Required only before segmented/direct/retry evidence is made fit-eligible."
+    },
+    "next_run_policy": {
+      "fresh_canonical_queue": true,
+      "mature_physical_baseline": "0613/0620/0621",
+      "forbidden_surfaces_absent": true,
+      "co2_entrypoint": "src/gas_calibrator/tools/run_v1_5_formal_co2_open_flow_queue.py",
+      "h2o_entrypoint": "src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_queue.py",
+      "note": "Open the next continuous run from mature queue entrypoints only, not _handoff, 0624, worker, diagnostic, retry, or root migration surfaces."
+    },
+    "opens_com_ports": false,
+    "controls_pressure": false,
+    "controls_water_or_gas_routes": false,
+    "connects_postgresql": false,
+    "writes_coefficients": false,
+    "writes_sn_or_device_code": false,
+    "formal_release_allowed": false,
+    "database_import_allowed": false,
+    "not_real_acceptance_evidence": true
+  }
+}

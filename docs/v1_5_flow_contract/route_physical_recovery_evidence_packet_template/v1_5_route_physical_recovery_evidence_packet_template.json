@@ -1,0 +1,60 @@
+{
+  "schema": "v1_5_route_physical_recovery_evidence_packet_v1",
+  "dry_gas_dewpoint_recovery": {
+    "status": "pending_review",
+    "dewpoint_c": null,
+    "dry_enough_threshold_c": -28.0,
+    "tail_span_c": null,
+    "max_tail_span_c": 0.5,
+    "tail_slope_abs_c_per_s": null,
+    "max_tail_slope_abs_c_per_s": 0.01,
+    "route_or_dryer_checked": false,
+    "evidence": {
+      "dewpoint_trace": "",
+      "route_or_dryer_check": "",
+      "operator_note": ""
+    }
+  },
+  "pace_vent_recovery": {
+    "status": "pending_review",
+    "vent_on_off_roundtrip_pass": false,
+    "no_response_absent": false,
+    "evidence": {
+      "pace_vent_roundtrip_trace": "",
+      "operator_note": ""
+    }
+  },
+  "pressure_gauge_recovery": {
+    "status": "pending_review",
+    "readback_status": "pending_review",
+    "absolute_pressure_source": "inl",
+    "no_response_absent": false,
+    "evidence": {
+      "pressure_gauge_inl_trace": "",
+      "operator_note": ""
+    }
+  },
+  "accepted_manifest_review": {
+    "status": "pending_review",
+    "accepted_manifest_path": "",
+    "supersedence_review_id": "",
+    "note": "Required only before segmented/direct/retry evidence is made fit-eligible."
+  },
+  "next_run_policy": {
+    "fresh_canonical_queue": true,
+    "mature_physical_baseline": "0613/0620/0621",
+    "forbidden_surfaces_absent": true,
+    "co2_entrypoint": "src/gas_calibrator/tools/run_v1_5_formal_co2_open_flow_queue.py",
+    "h2o_entrypoint": "src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_queue.py",
+    "note": "Open the next continuous run from mature queue entrypoints only, not _handoff, 0624, worker, diagnostic, retry, or root migration surfaces."
+  },
+  "opens_com_ports": false,
+  "controls_pressure": false,
+  "controls_water_or_gas_routes": false,
+  "connects_postgresql": false,
+  "writes_coefficients": false,
+  "writes_sn_or_device_code": false,
+  "formal_release_allowed": false,
+  "database_import_allowed": false,
+  "not_real_acceptance_evidence": true
+}
