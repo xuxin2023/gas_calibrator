@@ -41,6 +41,16 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument("--temperature-review-csv", default="", help="Optional temperature/SENCO7/8 review CSV.")
     parser.add_argument("--device-quality-review-csv", default="", help="Optional device root-cause/quality review CSV.")
+    parser.add_argument(
+        "--fit-input-quality-summary-csv",
+        default="",
+        help="Optional v1_5_fit_input_quality_summary.csv from the mature-route continuity consumer gate.",
+    )
+    parser.add_argument(
+        "--fit-input-quality-devices-csv",
+        default="",
+        help="Optional v1_5_fit_input_quality_devices.csv with per-device A/REJECT fit-input grades.",
+    )
     parser.add_argument("--main-precheck-meta-json", default="", help="Optional main SENCO write precheck metadata JSON.")
     parser.add_argument("--post-write-reverification-json", default="", help="Optional post-write reverification JSON.")
     parser.add_argument("--archive-closure-json", default="", help="Optional formal archive closure index JSON.")
@@ -74,6 +84,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             pressure_device_readiness_csv=args.pressure_device_readiness_csv or None,
             temperature_review_csv=args.temperature_review_csv or None,
             device_quality_review_csv=args.device_quality_review_csv or None,
+            fit_input_quality_summary_csv=args.fit_input_quality_summary_csv or None,
+            fit_input_quality_devices_csv=args.fit_input_quality_devices_csv or None,
             main_precheck_meta_json=args.main_precheck_meta_json or None,
             post_write_reverification_json=args.post_write_reverification_json or None,
             archive_closure_json=args.archive_closure_json or None,

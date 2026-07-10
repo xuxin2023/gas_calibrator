@@ -67,6 +67,33 @@ def _seed_complete_post_run_evidence(root, *, devices=("001", "002")):
     )
     _write_json(root / "main_senco_write_precheck_meta.json", {"overall_status": "ready"})
     _write_json(root / "post_write_reverification_review.json", {"overall_status": "ready"})
+    _write_csv(
+        root / "v1_5_fit_input_quality_summary.csv",
+        [
+            {
+                "run_status": "pass",
+                "fit_input_continuity_gate_status": "pass",
+                "target_device_ids": ";".join(devices),
+                "opens_com_ports": "False",
+                "controls_water_or_gas_routes": "False",
+                "writes_coefficients": "False",
+            }
+        ],
+    )
+    _write_csv(
+        root / "v1_5_fit_input_quality_devices.csv",
+        [
+            {
+                "component": component,
+                "device_id": device_id,
+                "fit_input_grade": "A",
+                "fit_input_status": "usable_for_candidate_fit",
+                "reject_reasons": "",
+            }
+            for device_id in devices
+            for component in ("co2", "h2o")
+        ],
+    )
 
     candidate_rows = []
     model_rows = []
@@ -121,11 +148,14 @@ def test_post_run_executor_builds_ready_plan_without_touching_devices(tmp_path):
     assert model["workflow_contract"]["pressure_before_components"] is True
     assert model["workflow_contract"]["temperature_before_components"] is True
     assert model["workflow_contract"]["fit_all_eligible_stable_points"] is True
+    assert model["workflow_contract"]["fit_input_quality_review_before_controlled_write"] is True
     assert model["workflow_contract"]["co2_zero_anchor_distinct_from_h2o_dry_anchor"] is True
     assert stages["pressure_input_quantity"]["status"] == "ready"
     assert stages["temperature_input_quantity"]["status"] == "ready"
     assert stages["component_candidate_fit"]["status"] == "ready"
+    assert stages["fit_input_quality_review"]["status"] == "ready"
     assert devices["001"]["overall_status"] == "ready_for_controlled_write_review"
+    assert devices["001"]["fit_input_quality_status"] == "ready"
     assert devices["002"]["co2_status"] == "candidate_ready_co2"
     assert devices["002"]["h2o_status"] == "candidate_ready_h2o"
 
@@ -168,6 +198,78 @@ def test_post_run_executor_blocks_missing_pressure_and_temperature_inputs(tmp_pa
     assert "压力输入量 P" in device["blocker_summary_zh"]
     assert "缺失证据" in device["next_action_zh"] or "阻断该设备" in device["next_action_zh"]
     assert any("压力输入量 P" in row["reason_zh"] for row in model["closure_gaps"])
+
+
+def test_post_run_executor_blocks_controlled_write_when_fit_input_quality_missing(tmp_path):
+    run_dir = tmp_path / "missing_fit_input_quality"
+    _seed_complete_post_run_evidence(run_dir, devices=("077",))
+    (run_dir / "v1_5_fit_input_quality_summary.csv").unlink()
+    (run_dir / "v1_5_fit_input_quality_devices.csv").unlink()
+
+    model = build_post_run_coefficient_executor_model(run_dir=run_dir)
+    stages = {row["stage_id"]: row for row in model["stages"]}
+    device = model["devices"][0]
+
+    assert model["overall_status"] == "blocked"
+    assert stages["fit_input_quality_review"]["status"] == "blocked"
+    assert stages["fit_input_quality_review"]["reason"] == "missing_roles=fit_input_quality"
+    assert device["fit_input_quality_status"] == "fit_input_quality_review_not_ready"
+    assert device["overall_status"] == "blocked_or_partial"
+    assert "fit_input_quality_review_not_ready" in device["blockers"]
+    assert all(row["phase"] == "blocked" for row in model["controlled_write_package"])
+
+
+def test_post_run_executor_blocks_only_device_rejected_by_fit_input_quality(tmp_path):
+    run_dir = tmp_path / "fit_input_quality_rejects_one_device"
+    _seed_complete_post_run_evidence(run_dir, devices=("077", "091"))
+    _write_csv(
+        run_dir / "v1_5_fit_input_quality_devices.csv",
+        [
+            {
+                "component": "co2",
+                "device_id": "077",
+                "fit_input_grade": "A",
+                "fit_input_status": "usable_for_candidate_fit",
+                "reject_reasons": "",
+            },
+            {
+                "component": "h2o",
+                "device_id": "077",
+                "fit_input_grade": "A",
+                "fit_input_status": "usable_for_candidate_fit",
+                "reject_reasons": "",
+            },
+            {
+                "component": "co2",
+                "device_id": "091",
+                "fit_input_grade": "REJECT",
+                "fit_input_status": "excluded_from_candidate_fit",
+                "reject_reasons": "fit_input_continuity_gate_not_ready:segmented_route_evidence",
+            },
+            {
+                "component": "h2o",
+                "device_id": "091",
+                "fit_input_grade": "A",
+                "fit_input_status": "usable_for_candidate_fit",
+                "reject_reasons": "",
+            },
+        ],
+    )
+
+    model = build_post_run_coefficient_executor_model(run_dir=run_dir)
+    devices = {row["device_id"]: row for row in model["devices"]}
+    ready_write_rows = [
+        row
+        for row in model["controlled_write_package"]
+        if row["plan_status"] == "ready_for_controlled_write_review"
+    ]
+
+    assert model["overall_status"] == "partial"
+    assert devices["077"]["overall_status"] == "ready_for_controlled_write_review"
+    assert devices["091"]["overall_status"] == "blocked_or_partial"
+    assert devices["091"]["fit_input_quality_status"].startswith("fit_input_quality_rejected:co2:")
+    assert "fit_input_continuity_gate_not_ready" in devices["091"]["fit_input_quality_status"]
+    assert {row["device_id"] for row in ready_write_rows} == {"077"}
 
 
 def test_post_run_executor_writes_machine_and_chinese_reviewer_outputs(tmp_path):
@@ -292,6 +394,31 @@ def test_post_run_executor_discovers_r4_style_candidate_artifacts(tmp_path):
     _write_json(run_dir / "initialization_archive_confirmation_20260611.json", {"status": "archived"})
     _write_json(run_dir / "pressure_senco9_review.json", {"overall_status": "ready"})
     _write_json(run_dir / "temperature_channel_review_summary.json", {"overall_status": "ready"})
+    _write_csv(
+        run_dir / "v1_5_fit_input_quality_summary.csv",
+        [
+            {
+                "run_status": "pass",
+                "fit_input_continuity_gate_status": "pass",
+                "opens_com_ports": "False",
+                "controls_water_or_gas_routes": "False",
+                "writes_coefficients": "False",
+            }
+        ],
+    )
+    _write_csv(
+        run_dir / "v1_5_fit_input_quality_devices.csv",
+        [
+            {
+                "component": component,
+                "device_id": "077",
+                "fit_input_grade": "A",
+                "fit_input_status": "usable_for_candidate_fit",
+                "reject_reasons": "",
+            }
+            for component in ("co2", "h2o")
+        ],
+    )
 
     co2_dir = run_dir / "co2_best_writeable_candidate_search_20260610"
     _write_csv(

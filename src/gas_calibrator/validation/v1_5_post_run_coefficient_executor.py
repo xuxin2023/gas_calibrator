@@ -42,6 +42,7 @@ class DeviceClosure:
     pressure_status: str
     temperature_status: str
     device_quality_status: str
+    fit_input_quality_status: str
     co2_status: str
     h2o_status: str
     h2o_dry_anchor_bridge_status: str
@@ -344,6 +345,25 @@ def _discover_artifacts(run_dir: Path, explicit: Mapping[str, str | Path | None]
         ),
         "archive_closure": one("archive_closure_json", ("v1_5_formal_archive_closure_index.json",)),
     }
+    fit_input_quality_paths = list(
+        one(
+            "fit_input_quality_summary_csv",
+            ("v1_5_fit_input_quality_summary.csv", "fit_input_quality_summary.csv"),
+        )
+    )
+    explicit_fit_devices = explicit.get("fit_input_quality_devices_csv")
+    if explicit_fit_devices:
+        path = Path(explicit_fit_devices).resolve()
+        if path.exists() and path.is_file():
+            fit_input_quality_paths.append(path)
+    else:
+        devices_path = _existing_latest(
+            run_dir,
+            ("v1_5_fit_input_quality_devices.csv", "fit_input_quality_devices.csv"),
+        )
+        if devices_path:
+            fit_input_quality_paths.append(devices_path.resolve())
+    artifacts["fit_input_quality"] = tuple(dict.fromkeys(fit_input_quality_paths))
     candidate_dirs = _existing_dirs_with_any(
         run_dir,
         (
@@ -567,6 +587,17 @@ def _csv_artifact_ready(role: str, path: Path) -> bool:
     rows = _read_csv(path)
     if not rows:
         return False
+    if role == "fit_input_quality":
+        if "summary" not in path.name.lower():
+            return False
+        row = rows[0]
+        run_status = _status_text(row.get("run_status") or row.get("overall_status") or row.get("status"))
+        continuity_status = _status_text(row.get("fit_input_continuity_gate_status"))
+        unsafe = any(
+            _truthy_text(row.get(key))
+            for key in ("opens_com_ports", "controls_water_or_gas_routes", "writes_coefficients")
+        )
+        return run_status == "pass" and continuity_status == "pass" and not unsafe
     if role == "initialization_readiness":
         snapshot_ready = _initialization_getco_snapshot_csv_ready(rows)
         if snapshot_ready is not None:
@@ -829,6 +860,32 @@ def _device_quality_status_by_device(artifacts: Mapping[str, Sequence[Path]]) ->
     }
 
 
+def _fit_input_quality_status_by_device(artifacts: Mapping[str, Sequence[Path]]) -> dict[str, str]:
+    """Return per-device fit-input blockers from the offline fit-input audit."""
+
+    findings: dict[str, list[str]] = {}
+    for path in artifacts.get("fit_input_quality", ()):
+        if not path.is_file() or "devices" not in path.name.lower():
+            continue
+        for row in _read_csv(path):
+            device_id = _normalize_device_id(
+                row.get("analyzer_device_id") or row.get("device_id") or row.get("runtime_device_id")
+            )
+            if not device_id:
+                continue
+            component = str(row.get("component") or "component").strip().lower() or "component"
+            grade = str(row.get("fit_input_grade") or "").strip().upper()
+            status = _status_text(row.get("fit_input_status"))
+            if grade == "A" and status in {"", "usable_for_candidate_fit", "ready", "pass"}:
+                continue
+            reason = str(row.get("reject_reasons") or status or grade or "not_a_grade").strip()
+            findings.setdefault(device_id, []).append(f"{component}:{reason}")
+    return {
+        device_id: "fit_input_quality_rejected:" + ";".join(dict.fromkeys(reasons))
+        for device_id, reasons in findings.items()
+    }
+
+
 def _h2o_dry_anchor_bridge_status_by_device(artifacts: Mapping[str, Sequence[Path]]) -> dict[str, str]:
     """Return per-device H2O dry-anchor bridge status when bridge evidence exists.
 
@@ -944,9 +1001,11 @@ def _classify_devices(run_dir: Path, artifacts: Mapping[str, Sequence[Path]]) ->
     has_pressure = _role_ready(artifacts, "pressure_review")
     pressure_status_by_device = _pressure_completion_status_by_device(artifacts)
     device_quality_by_device = _device_quality_status_by_device(artifacts)
+    fit_input_quality_by_device = _fit_input_quality_status_by_device(artifacts)
     dry_anchor_bridge_by_device = _h2o_dry_anchor_bridge_status_by_device(artifacts)
     co2_source_state_status, co2_source_state_reason, _ = _co2_source_state_gate_status(artifacts)
     has_temp = _role_ready(artifacts, "temperature_review")
+    has_fit_input_quality = _role_ready(artifacts, "fit_input_quality")
     candidate_dirs = artifacts.get("candidate_dirs", ())
     model_dirs = artifacts.get("model_selection_dirs", ())
     trim_dirs = artifacts.get("linear_trim_dirs", ())
@@ -968,6 +1027,12 @@ def _classify_devices(run_dir: Path, artifacts: Mapping[str, Sequence[Path]]) ->
         device_quality_status = device_quality_by_device.get(device_id, "ready")
         if device_quality_status != "ready":
             blockers.append(device_quality_status)
+        fit_input_quality_status = fit_input_quality_by_device.get(
+            device_id,
+            "ready" if has_fit_input_quality else "fit_input_quality_review_not_ready",
+        )
+        if fit_input_quality_status != "ready":
+            blockers.append(fit_input_quality_status)
         co2_status = _component_status_for_device(device_id, candidate_dirs, model_dirs, "co2")
         h2o_status = _component_status_for_device(device_id, candidate_dirs, model_dirs, "h2o")
         if co2_source_state_status == "blocked":
@@ -997,6 +1062,7 @@ def _classify_devices(run_dir: Path, artifacts: Mapping[str, Sequence[Path]]) ->
                 pressure_status=pressure_status,
                 temperature_status=temperature_status,
                 device_quality_status=device_quality_status,
+                fit_input_quality_status=fit_input_quality_status,
                 co2_status=co2_status,
                 h2o_status=h2o_status,
                 h2o_dry_anchor_bridge_status=h2o_dry_anchor_bridge_status,
@@ -1186,6 +1252,16 @@ def _execution_commands() -> list[dict[str, Any]]:
             "physical_gate": (
                 "gas-route dry anchors may constrain the H2O low end only after "
                 "dewpoint, pressure, and temperature bridge review"
+            ),
+        },
+        {
+            "order": 58,
+            "action": "fit_input_quality_review",
+            "tool": "python -m gas_calibrator.tools.export_v1_5_fit_input_quality",
+            "writes_senco": False,
+            "physical_gate": (
+                "controlled writes require route-continuity-aware A-grade fit inputs; "
+                "segmented or migration evidence stays blocked"
             ),
         },
         {
@@ -1462,6 +1538,8 @@ def build_post_run_coefficient_executor_model(
     post_write_reverification_json: str | Path | None = None,
     archive_closure_json: str | Path | None = None,
     co2_source_state_gate: str | Path | None = None,
+    fit_input_quality_summary_csv: str | Path | None = None,
+    fit_input_quality_devices_csv: str | Path | None = None,
 ) -> dict[str, Any]:
     root = Path(run_dir).resolve()
     explicit = {
@@ -1478,6 +1556,8 @@ def build_post_run_coefficient_executor_model(
         "post_write_reverification_json": post_write_reverification_json,
         "archive_closure_json": archive_closure_json,
         "co2_source_state_gate": co2_source_state_gate,
+        "fit_input_quality_summary_csv": fit_input_quality_summary_csv,
+        "fit_input_quality_devices_csv": fit_input_quality_devices_csv,
     }
     artifacts = _discover_artifacts(root, explicit)
     stages = (
@@ -1512,6 +1592,17 @@ def build_post_run_coefficient_executor_model(
             required_roles=("candidate_dirs", "model_selection_dirs"),
             physical_meaning="Open-flow stable component data are converted into S1/S3 and S2/S4 candidates.",
             next_action="export_candidate_coefficients_and_model_selection",
+        ),
+        _stage_status(
+            artifacts,
+            stage_id="fit_input_quality_review",
+            title="Route-continuity-aware fit-input quality review",
+            required_roles=("fit_input_quality",),
+            physical_meaning=(
+                "Candidate coefficient rows may feed controlled write review only after the fit-input audit "
+                "confirms A-grade device/component inputs from a continuous mature route run."
+            ),
+            next_action="export_v1_5_fit_input_quality_after_mature_route_continuity_gate_passes",
         ),
         _co2_source_state_gate_stage(artifacts),
         _stage_status(
@@ -1614,6 +1705,7 @@ def build_post_run_coefficient_executor_model(
             "pressure_before_components": True,
             "temperature_before_components": True,
             "fit_all_eligible_stable_points": True,
+            "fit_input_quality_review_before_controlled_write": True,
             "fit_verification_labels_do_not_exclude_samples_by_default": True,
             "co2_source_state_gate_blocks_writes": True,
             "co2_zero_anchor_distinct_from_h2o_dry_anchor": True,
