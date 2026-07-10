@@ -201,6 +201,25 @@ def test_formal_flow_contract_blocks_component_sampling_before_pressure(tmp_path
     assert any(issue.code == "physical_order_violation" for issue in report.issues)
 
 
+@pytest.mark.parametrize(
+    "missing_flag",
+    ("--fit-input-quality-summary-csv", "--fit-input-quality-devices-csv"),
+)
+def test_formal_flow_contract_blocks_post_run_executor_without_fit_input_gate(tmp_path, missing_flag):
+    plan = build_full_flow_plan(config_path=_config(tmp_path), output_dir=tmp_path / "flow", run_id="demo")
+    step_index = [step.step_id for step in plan.steps].index("post_run_coefficient_executor")
+    command = list(plan.steps[step_index].command)
+    flag_index = command.index(missing_flag)
+    del command[flag_index : flag_index + 2]
+    broken_step = replace(plan.steps[step_index], command=tuple(command))
+    plan = replace(plan, steps=(*plan.steps[:step_index], broken_step, *plan.steps[step_index + 1 :]))
+
+    report = validate_v1_5_formal_flow_contract(plan, inventory_entries=_inventory_for_plan())
+
+    assert report.status == "blocked"
+    assert any(issue.code == "post_run_coefficient_executor_missing_fit_input_gate" for issue in report.issues)
+
+
 def test_formal_flow_contract_blocks_physical_stage_without_runtime_identity_bound_config(tmp_path):
     config = _config(tmp_path)
     plan = build_full_flow_plan(config_path=config, output_dir=tmp_path / "flow", run_id="demo")

@@ -1200,7 +1200,26 @@ def _component_status_for_device(
     return f"{component}_candidate_missing"
 
 
-def _execution_commands() -> list[dict[str, Any]]:
+def _candidate_fit_command(
+    component: str,
+    *,
+    fit_input_quality_summary_csv: Path,
+    fit_input_quality_devices_csv: Path,
+) -> str:
+    return (
+        "python -m gas_calibrator.tools.export_v1_5_candidate_coefficients "
+        f"--component {component} --fit-all-eligible-samples "
+        f'--fit-input-quality-summary-csv "{fit_input_quality_summary_csv}" '
+        f'--fit-input-quality-devices-csv "{fit_input_quality_devices_csv}" '
+        "--require-fit-input-quality"
+    )
+
+
+def _execution_commands(
+    *,
+    fit_input_quality_summary_csv: Path,
+    fit_input_quality_devices_csv: Path,
+) -> list[dict[str, Any]]:
     return [
         {
             "order": 10,
@@ -1224,9 +1243,23 @@ def _execution_commands() -> list[dict[str, Any]]:
             "physical_gate": "temperature input errors must not be absorbed into CO2 or H2O coefficients",
         },
         {
+            "order": 35,
+            "action": "fit_input_quality_review",
+            "tool": "python -m gas_calibrator.tools.export_v1_5_fit_input_quality",
+            "writes_senco": False,
+            "physical_gate": (
+                "candidate fits require route-continuity-aware A-grade inputs; "
+                "segmented or migration evidence stays blocked"
+            ),
+        },
+        {
             "order": 40,
             "action": "co2_candidate_coefficients",
-            "tool": "python -m gas_calibrator.tools.export_v1_5_candidate_coefficients --component co2 --fit-all-eligible-samples",
+            "tool": _candidate_fit_command(
+                "co2",
+                fit_input_quality_summary_csv=fit_input_quality_summary_csv,
+                fit_input_quality_devices_csv=fit_input_quality_devices_csv,
+            ),
             "writes_senco": False,
             "physical_gate": "open-flow CO2 fit uses eligible stable samples and freezes pressure terms under current-atmosphere contract",
         },
@@ -1240,7 +1273,11 @@ def _execution_commands() -> list[dict[str, Any]]:
         {
             "order": 50,
             "action": "h2o_candidate_coefficients",
-            "tool": "python -m gas_calibrator.tools.export_v1_5_candidate_coefficients --component h2o --fit-all-eligible-samples",
+            "tool": _candidate_fit_command(
+                "h2o",
+                fit_input_quality_summary_csv=fit_input_quality_summary_csv,
+                fit_input_quality_devices_csv=fit_input_quality_devices_csv,
+            ),
             "writes_senco": False,
             "physical_gate": "H2O fit uses dewpoint-backed water evidence and keeps dry-gas anchor distinct from CO2 zero gas",
         },
@@ -1252,16 +1289,6 @@ def _execution_commands() -> list[dict[str, Any]]:
             "physical_gate": (
                 "gas-route dry anchors may constrain the H2O low end only after "
                 "dewpoint, pressure, and temperature bridge review"
-            ),
-        },
-        {
-            "order": 58,
-            "action": "fit_input_quality_review",
-            "tool": "python -m gas_calibrator.tools.export_v1_5_fit_input_quality",
-            "writes_senco": False,
-            "physical_gate": (
-                "controlled writes require route-continuity-aware A-grade fit inputs; "
-                "segmented or migration evidence stays blocked"
             ),
         },
         {
@@ -1560,6 +1587,23 @@ def build_post_run_coefficient_executor_model(
         "fit_input_quality_devices_csv": fit_input_quality_devices_csv,
     }
     artifacts = _discover_artifacts(root, explicit)
+    fit_input_quality_paths = tuple(artifacts.get("fit_input_quality") or ())
+    fit_input_quality_summary_path = next(
+        (
+            path
+            for path in fit_input_quality_paths
+            if path.name.lower() == "v1_5_fit_input_quality_summary.csv"
+        ),
+        root / "v1_5_fit_input_quality_summary.csv",
+    )
+    fit_input_quality_devices_path = next(
+        (
+            path
+            for path in fit_input_quality_paths
+            if path.name.lower() == "v1_5_fit_input_quality_devices.csv"
+        ),
+        root / "v1_5_fit_input_quality_devices.csv",
+    )
     stages = (
         _stage_status(
             artifacts,
@@ -1697,7 +1741,10 @@ def build_post_run_coefficient_executor_model(
         "stages": [stage.to_json() for stage in stages],
         "devices": [device.to_json() for device in devices],
         "closure_gaps": [gap.to_json() for gap in gaps],
-        "execution_order": _execution_commands(),
+        "execution_order": _execution_commands(
+            fit_input_quality_summary_csv=fit_input_quality_summary_path,
+            fit_input_quality_devices_csv=fit_input_quality_devices_path,
+        ),
         "controlled_write_package": controlled_write_package,
         "post_write_reverification_plan": post_write_reverification_plan,
         "archive_gap_list": [gap.to_json() for gap in gaps],

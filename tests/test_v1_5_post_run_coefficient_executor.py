@@ -158,6 +158,16 @@ def test_post_run_executor_builds_ready_plan_without_touching_devices(tmp_path):
     assert devices["001"]["fit_input_quality_status"] == "ready"
     assert devices["002"]["co2_status"] == "candidate_ready_co2"
     assert devices["002"]["h2o_status"] == "candidate_ready_h2o"
+    execution_order = {row["action"]: row for row in model["execution_order"]}
+    assert execution_order["fit_input_quality_review"]["order"] < execution_order["co2_candidate_coefficients"]["order"]
+    assert execution_order["fit_input_quality_review"]["order"] < execution_order["h2o_candidate_coefficients"]["order"]
+    for action in ("co2_candidate_coefficients", "h2o_candidate_coefficients"):
+        tool = execution_order[action]["tool"]
+        assert "--require-fit-input-quality" in tool
+        assert "--fit-input-quality-summary-csv" in tool
+        assert str((run_dir / "v1_5_fit_input_quality_summary.csv").resolve()) in tool
+        assert "--fit-input-quality-devices-csv" in tool
+        assert str((run_dir / "v1_5_fit_input_quality_devices.csv").resolve()) in tool
 
 
 def test_post_run_executor_blocks_missing_pressure_and_temperature_inputs(tmp_path):
