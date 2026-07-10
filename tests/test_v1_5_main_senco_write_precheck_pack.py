@@ -25,7 +25,55 @@ def _read_csv(path):
         return list(csv.DictReader(handle))
 
 
-def _model_selection_dir(tmp_path, component):
+def _fit_input_quality_paths(tmp_path, name="fit_input_quality"):
+    root = tmp_path / name
+    summary_path = root / "v1_5_fit_input_quality_summary.csv"
+    devices_path = root / "v1_5_fit_input_quality_devices.csv"
+    _write_csv(
+        summary_path,
+        [
+            {
+                "run_status": "pass",
+                "fit_input_continuity_gate_status": "pass",
+                "opens_com_ports": "False",
+                "controls_water_or_gas_routes": "False",
+                "writes_coefficients": "False",
+            }
+        ],
+    )
+    _write_csv(
+        devices_path,
+        [
+            {
+                "component": component,
+                "analyzer_device_id": device_id,
+                "fit_input_grade": "A",
+                "fit_input_status": "usable_for_candidate_fit",
+                "reject_reasons": "",
+            }
+            for component in ("co2", "h2o")
+            for device_id in ("091", "079")
+        ],
+    )
+    return summary_path.resolve(), devices_path.resolve()
+
+
+def _traceability_fields(quality_paths):
+    if not quality_paths:
+        return {}
+    summary_path, devices_path = quality_paths
+    return {
+        "fit_input_quality_summary_source": str(summary_path),
+        "fit_input_quality_devices_source": str(devices_path),
+        "fit_input_quality_grade": "A",
+        "fit_input_quality_status": "usable_for_candidate_fit",
+    }
+
+
+def _model_selection_dir(tmp_path, component, *, quality_paths=None, traceable=True):
+    if traceable and quality_paths is None:
+        quality_paths = _fit_input_quality_paths(tmp_path)
+    traceability = _traceability_fields(quality_paths) if traceable else {}
     root = tmp_path / f"{component}_models"
     rows = [
         {
@@ -47,6 +95,9 @@ def _model_selection_dir(tmp_path, component):
             "coef_T": "5",
             "coef_T2": "6",
             "coef_RT": "7",
+            "fit_input_quality_gate_status": "pass" if traceable else "",
+            "fit_input_quality_block_reason": "",
+            **traceability,
         },
         {
             "component": component,
@@ -67,14 +118,32 @@ def _model_selection_dir(tmp_path, component):
             "coef_T": "5",
             "coef_T2": "6",
             "coef_RT": "7",
+            "fit_input_quality_gate_status": "pass" if traceable else "",
+            "fit_input_quality_block_reason": "",
+            **traceability,
         },
     ]
     _write_csv(root / "model_selection_summary.csv", rows)
     return root
 
 
-def _candidate_dir(tmp_path, component):
+def _candidate_dir(tmp_path, component, *, quality_paths=None, traceable=True):
+    if traceable and quality_paths is None:
+        quality_paths = _fit_input_quality_paths(tmp_path)
+    traceability = _traceability_fields(quality_paths) if traceable else {}
     root = tmp_path / f"{component}_candidate"
+    _write_csv(
+        root / "candidate_run_summary.csv",
+        [
+            {
+                "candidate_run_status": "fit_ready_requires_verification",
+                "fit_input_quality_required": "True" if traceable else "False",
+                "fit_input_quality_gate_status": "pass" if traceable else "not_configured",
+                "fit_input_quality_summary_source": traceability.get("fit_input_quality_summary_source", ""),
+                "fit_input_quality_devices_source": traceability.get("fit_input_quality_devices_source", ""),
+            }
+        ],
+    )
     _write_csv(
         root / "candidate_policy_summary.csv",
         [
@@ -87,6 +156,7 @@ def _candidate_dir(tmp_path, component):
                 "allowed_for_review": "False",
                 "blocked_reasons": "",
                 "warning_reasons": "",
+                **traceability,
             },
             {
                 "component": component,
@@ -97,6 +167,7 @@ def _candidate_dir(tmp_path, component):
                 "allowed_for_review": "False",
                 "blocked_reasons": "factory_signal_health_block",
                 "warning_reasons": "",
+                **traceability,
             },
         ],
     )
@@ -173,6 +244,7 @@ def test_precheck_pack_generates_component_specific_main_commands(tmp_path):
     assert any(row["command"].startswith("SENCO2,YGAS,FFF,1.00000e00,2.00000e00") for row in ready_commands)
     assert any(row["command"].startswith("SENCO4,YGAS,FFF,5.00000e00,6.00000e00,7.00000e00") for row in ready_commands)
     assert all(row["command"].endswith(",0.00000e00,0.00000e00,0.00000e00") for row in ready_commands if row["senco_channel"] in {"SENCO3", "SENCO4"})
+    assert all(row["fit_input_traceability_status"] == "pass" for row in ready_commands)
 
     summary = {row["analyzer_device_id"]: row for row in _read_csv(paths["summary"])}
     assert summary["091"]["overall_status"] == "model_ready_for_main_senco_review"
@@ -181,6 +253,16 @@ def test_precheck_pack_generates_component_specific_main_commands(tmp_path):
     neutral = _read_csv(paths["neutral"])
     assert any(row["analyzer_device_id"] == "091" and row["linear_senco_channel"] == "SENCO5" for row in neutral)
     assert any(row["analyzer_device_id"] == "091" and row["linear_senco_channel"] == "SENCO6" for row in neutral)
+    assert all(
+        row["fit_input_traceability_status"] == "pass"
+        and row["status"] == "prerequisite_only_not_executed"
+        for row in neutral
+        if row["analyzer_device_id"] == "091"
+    )
+    checks = {row["check"]: row for row in _read_csv(paths["write_checks"])}
+    assert checks["fit_input_traceability_required_before_final_senco_review"]["status"] == "pass"
+    assert checks["fit_input_traceability_bound:co2:091"]["status"] == "pass"
+    assert checks["fit_input_traceability_bound:h2o:091"]["status"] == "pass"
 
 
 def test_precheck_pack_blocks_actual_write_when_old_snapshot_missing(tmp_path):
@@ -202,6 +284,81 @@ def test_precheck_pack_blocks_actual_write_when_old_snapshot_missing(tmp_path):
     assert commands
     assert all(row["status"] == "pending_not_executed_requires_snapshot_or_prerequisite" for row in commands)
     assert all("old_getco_snapshot_not_bound" in row["write_gate_blockers"] for row in commands)
+
+
+def test_precheck_pack_rejects_historical_candidates_without_fit_input_traceability(tmp_path):
+    paths = build_precheck_pack(
+        co2_model_selection_dir=_model_selection_dir(tmp_path, "co2", traceable=False),
+        h2o_model_selection_dir=_model_selection_dir(tmp_path, "h2o", traceable=False),
+        co2_candidate_dir=_candidate_dir(tmp_path, "co2", traceable=False),
+        h2o_candidate_dir=_candidate_dir(tmp_path, "h2o", traceable=False),
+        output_dir=tmp_path / "out_historical",
+        plan_path=_plan_path(tmp_path),
+        old_coefficients_path=_snapshot_path(tmp_path),
+        include_devices=("091",),
+    )
+
+    summary = {row["analyzer_device_id"]: row for row in _read_csv(paths["summary"])}["091"]
+    assert summary["overall_status"] == "blocked_before_write_review"
+    assert summary["co2_fit_input_traceability_status"] == "blocked"
+    assert summary["h2o_fit_input_traceability_status"] == "blocked"
+    assert "fit_input_traceability_missing_or_invalid" in summary["co2_model_blockers"]
+    assert "fit_input_traceability_missing_or_invalid" in summary["h2o_model_blockers"]
+
+    commands = [row for row in _read_csv(paths["commands"]) if row["analyzer_device_id"] == "091"]
+    assert {row["senco_channel"] for row in commands} == {"SENCO1", "SENCO2", "SENCO3", "SENCO4"}
+    assert all(row["status"] == "blocked_not_executable" for row in commands)
+    assert all(row["command"] == "" for row in commands)
+    assert all("fit_input_traceability_missing_or_invalid" in row["write_gate_blockers"] for row in commands)
+
+    neutral = [row for row in _read_csv(paths["neutral"]) if row["analyzer_device_id"] == "091"]
+    assert {row["linear_senco_channel"] for row in neutral} == {"SENCO5", "SENCO6"}
+    assert all(row["status"] == "blocked_before_s5_s6_write_review" for row in neutral)
+    assert all(row["recommended_command_if_approved"] == "" for row in neutral)
+    assert all("fit_input_traceability_missing_or_invalid" in row["fit_input_traceability_blockers"] for row in neutral)
+
+    checks = {row["check"]: row for row in _read_csv(paths["write_checks"])}
+    assert checks["fit_input_traceability_required_before_final_senco_review"]["status"] == "block_write"
+    assert checks["fit_input_traceability_bound:co2:091"]["status"] == "block_write"
+    assert checks["fit_input_traceability_bound:h2o:091"]["status"] == "block_write"
+    meta = json.loads(paths["meta"].read_text(encoding="utf-8"))
+    assert meta["fit_input_traceability_required"] is True
+    assert meta["fit_input_traceability_status"] == "blocked"
+
+
+def test_precheck_pack_rejects_replaced_fit_input_sources(tmp_path):
+    original_quality = _fit_input_quality_paths(tmp_path, "original_fit_input_quality")
+    replacement_quality = _fit_input_quality_paths(tmp_path, "replacement_fit_input_quality")
+    paths = build_precheck_pack(
+        co2_model_selection_dir=_model_selection_dir(
+            tmp_path, "co2", quality_paths=original_quality
+        ),
+        h2o_model_selection_dir=_model_selection_dir(
+            tmp_path, "h2o", quality_paths=original_quality
+        ),
+        co2_candidate_dir=_candidate_dir(
+            tmp_path, "co2", quality_paths=replacement_quality
+        ),
+        h2o_candidate_dir=_candidate_dir(
+            tmp_path, "h2o", quality_paths=replacement_quality
+        ),
+        output_dir=tmp_path / "out_replaced_sources",
+        plan_path=_plan_path(tmp_path),
+        old_coefficients_path=_snapshot_path(tmp_path),
+        include_devices=("091",),
+    )
+
+    summary = {row["analyzer_device_id"]: row for row in _read_csv(paths["summary"])}["091"]
+    assert summary["overall_status"] == "blocked_before_write_review"
+    assert "fit_input_quality_summary_source_mismatch_across_candidate_and_model_selection" in summary[
+        "co2_fit_input_traceability_blockers"
+    ]
+    assert "fit_input_quality_devices_source_mismatch_across_candidate_and_model_selection" in summary[
+        "h2o_fit_input_traceability_blockers"
+    ]
+    commands = [row for row in _read_csv(paths["commands"]) if row["analyzer_device_id"] == "091"]
+    assert commands
+    assert all(row["command"] == "" for row in commands)
 
 
 def test_precheck_pack_cli_writes_meta_and_chinese_report(tmp_path):
@@ -232,5 +389,7 @@ def test_precheck_pack_cli_writes_meta_and_chinese_report(tmp_path):
     assert meta["no_write"] is True
     assert meta["opens_com"] is False
     assert meta["writes_senco"] is False
+    assert meta["fit_input_traceability_required"] is True
+    assert meta["fit_input_traceability_status"] == "pass"
     report = (output_dir / "main_senco_write_precheck_pack_zh.md").read_text(encoding="utf-8")
     assert "V1.5 主系数写入前评审包" in report
