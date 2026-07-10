@@ -16,7 +16,7 @@ def _write_json(path: Path, payload: dict) -> Path:
     return path
 
 
-def _seed_ready_run(root: Path) -> None:
+def _seed_ready_run(root: Path, *, include_mature_route_continuity_gate: bool = True) -> None:
     _write_json(
         root / "initialization" / "v1_5_initialization_readiness.json",
         {
@@ -77,6 +77,8 @@ def _seed_ready_run(root: Path) -> None:
             },
         },
     )
+    if include_mature_route_continuity_gate:
+        _seed_mature_route_continuity_gate(root)
 
 
 def _seed_pressure_s9_readiness_index(root: Path, *, ready: bool = True) -> Path:
@@ -201,6 +203,43 @@ def _seed_route_physical_recovery_readiness(
                 "database_import_allowed": False,
                 "not_real_acceptance_evidence": True,
             },
+        },
+    )
+
+
+def _seed_mature_route_continuity_gate(
+    root: Path,
+    *,
+    status: str = "pass",
+    blocker_count: int = 0,
+    review_required_count: int = 0,
+    fit_eligible: bool = True,
+    boundary_clean: bool = True,
+) -> Path:
+    return _write_json(
+        root / "mature_route_continuity_gate" / "v1_5_mature_route_continuity_gate.json",
+        {
+            "schema": "v1_5_mature_route_continuity_gate_v1",
+            "manifest": {
+                "status": status,
+                "route_kind": "co2",
+                "expected_point_count": 45,
+                "observed_point_count": 45,
+                "blocker_count": blocker_count,
+                "review_required_count": review_required_count,
+                "continuous_route_run_fit_eligible": fit_eligible,
+                "mature_physical_baseline": "0613 fitting + 0620/0621 clean-worktree route path",
+                "opens_com_ports": not boundary_clean,
+                "controls_pressure": False,
+                "controls_water_or_gas_routes": False,
+                "connects_postgresql": False,
+                "writes_coefficients": False,
+                "writes_sn_or_device_code": False,
+                "formal_release_allowed": False,
+                "database_import_allowed": False,
+                "not_real_acceptance_evidence": True,
+            },
+            "findings": [],
         },
     )
 
@@ -1077,6 +1116,52 @@ def test_formal_run_status_accepts_route_recovery_without_unlocking_import(tmp_p
         )
         == 0
     )
+
+
+def test_formal_run_status_requires_mature_route_continuity_gate_before_release(tmp_path: Path) -> None:
+    run_dir = tmp_path / "ready_run_missing_route_continuity"
+    _seed_ready_run(run_dir, include_mature_route_continuity_gate=False)
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gate = next(row for row in model["gates"] if row["gate_id"] == "mature_route_continuity_gate")
+
+    assert model["overall_status"] == "review_required"
+    assert model["current_stage"] == "mature_route_continuity_gate"
+    assert model["formal_release_allowed"] is False
+    assert model["database_import_allowed"] is False
+    assert model["can_continue_physical_flow"] is True
+    assert model["linked_inputs"]["mature_route_continuity_gate_json"] == ""
+    assert gate["status"] == "review_required"
+    assert gate["release_gate"] is True
+    assert gate["blocks_release"] is True
+    assert gate["blocks_physical_flow"] is False
+
+
+def test_formal_run_status_blocks_release_on_segmented_mature_route_continuity_gate(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "ready_run_with_segmented_route_manifest"
+    _seed_ready_run(run_dir)
+    continuity_path = _seed_mature_route_continuity_gate(
+        run_dir,
+        status="blocked",
+        blocker_count=2,
+        fit_eligible=False,
+    )
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gate = next(row for row in model["gates"] if row["gate_id"] == "mature_route_continuity_gate")
+
+    assert model["overall_status"] == "blocked"
+    assert model["current_stage"] == "mature_route_continuity_gate"
+    assert model["formal_release_allowed"] is False
+    assert model["database_import_allowed"] is False
+    assert model["can_continue_physical_flow"] is True
+    assert model["linked_inputs"]["mature_route_continuity_gate_json"] == str(continuity_path.resolve())
+    assert gate["status"] == "blocked"
+    assert gate["release_gate"] is True
+    assert gate["blocks_release"] is True
+    assert gate["blocks_physical_flow"] is False
 
 
 def test_formal_run_status_surfaces_initialization_controlled_executor_design_without_unlocking_live(
