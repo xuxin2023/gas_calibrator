@@ -20,8 +20,13 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 import numpy as np
 
 from ..validation.formal_candidate_coefficients import (
+    CandidateCoefficientPolicyConfig,
+    _fit_input_quality_block_reason,
+    _fit_input_quality_by_group,
+    _fit_input_quality_summary_state,
     _fit_candidate_coefficients,
     _fit_target_array,
+    _normalized_device_id,
     _prediction_array,
 )
 
@@ -109,6 +114,64 @@ def _policy_by_device(candidate_dir: Path) -> Dict[Tuple[str, str], Dict[str, st
         )
         out[key] = row
     return out
+
+
+def _truthy(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "pass", "ready"}
+
+
+def _same_resolved_path(recorded: Any, expected: Any) -> bool:
+    recorded_text = str(recorded or "").strip()
+    expected_text = str(expected or "").strip()
+    if not recorded_text or not expected_text:
+        return False
+    return Path(recorded_text).resolve() == Path(expected_text).resolve()
+
+
+def _fit_input_binding_reason(
+    *,
+    component: str,
+    device_id: str,
+    candidate_summary: Mapping[str, Any],
+    candidate_policy: Mapping[str, Any],
+    summary_state: Mapping[str, Any],
+    gate_row: Mapping[str, Any] | None,
+    gate_enabled: bool,
+) -> str:
+    if not gate_enabled:
+        return ""
+
+    reasons: List[str] = []
+    external_reason = _fit_input_quality_block_reason(
+        component=component,
+        device_id=device_id,
+        summary_state=summary_state,
+        group_row=gate_row,
+    )
+    if external_reason:
+        reasons.append(external_reason)
+    if not _truthy(candidate_summary.get("fit_input_quality_required")):
+        reasons.append("candidate_package_fit_input_quality_not_required")
+    if str(candidate_summary.get("fit_input_quality_gate_status") or "").strip().lower() != "pass":
+        reasons.append("candidate_package_fit_input_quality_gate_not_pass")
+
+    expected_sources = {
+        "fit_input_quality_summary_source": summary_state.get("summary_source", ""),
+        "fit_input_quality_devices_source": summary_state.get("devices_source", ""),
+    }
+    for field, expected in expected_sources.items():
+        if not _same_resolved_path(candidate_summary.get(field), expected):
+            reasons.append(f"candidate_summary_{field}_mismatch")
+        if not _same_resolved_path(candidate_policy.get(field), expected):
+            reasons.append(f"candidate_policy_{field}_mismatch")
+
+    grade = str(candidate_policy.get("fit_input_quality_grade") or "").strip().upper()
+    status = str(candidate_policy.get("fit_input_quality_status") or "").strip().lower()
+    if grade != "A":
+        reasons.append(f"candidate_policy_fit_input_quality_grade_not_a:{grade or 'missing'}")
+    if status not in {"usable_for_candidate_fit", "ready", "pass"}:
+        reasons.append(f"candidate_policy_fit_input_quality_status_not_ready:{status or 'missing'}")
+    return ";".join(dict.fromkeys(reasons))
 
 
 def _load_point_rows(candidate_dir: Path, component: str) -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
@@ -449,17 +512,74 @@ def build_review(
     candidate_dir: Path,
     output_dir: Path,
     component: str | None = None,
+    fit_input_quality_summary_csv: Path | None = None,
+    fit_input_quality_devices_csv: Path | None = None,
+    require_fit_input_quality: bool = False,
 ) -> Dict[str, Any]:
     component_key = _component_from_candidate_dir(candidate_dir, component)
     groups = _load_point_rows(candidate_dir, component_key)
     policies = _policy_by_device(candidate_dir)
+    candidate_summary_rows = _read_csv(candidate_dir / "candidate_run_summary.csv")
+    candidate_summary = candidate_summary_rows[0] if candidate_summary_rows else {}
+    fit_input_config = CandidateCoefficientPolicyConfig(
+        fit_input_quality_summary_csv=fit_input_quality_summary_csv,
+        fit_input_quality_devices_csv=fit_input_quality_devices_csv,
+        require_fit_input_quality=bool(require_fit_input_quality),
+    )
+    fit_input_summary_state = _fit_input_quality_summary_state(fit_input_config)
+    fit_input_by_group = _fit_input_quality_by_group(fit_input_config)
+    fit_input_gate_enabled = bool(require_fit_input_quality or fit_input_summary_state.get("configured"))
     model_rows: List[Dict[str, Any]] = []
     trim_review_rows: List[Dict[str, Any]] = []
     residual_rows: List[Dict[str, Any]] = []
+    blocked_groups: List[str] = []
+    eligible_group_count = 0
     for (prefix, device_id), rows in sorted(groups.items()):
         per_device_model_rows: List[Dict[str, Any]] = []
         predictions_by_model: Dict[str, np.ndarray] = {}
         policy = policies.get((prefix, device_id), {})
+        normalized_device_id = _normalized_device_id(device_id)
+        fit_input_row = fit_input_by_group.get((component_key, normalized_device_id))
+        fit_input_block_reason = _fit_input_binding_reason(
+            component=component_key,
+            device_id=normalized_device_id,
+            candidate_summary=candidate_summary,
+            candidate_policy=policy,
+            summary_state=fit_input_summary_state,
+            gate_row=fit_input_row,
+            gate_enabled=fit_input_gate_enabled,
+        )
+        fit_input_fields = {
+            "fit_input_quality_gate_status": (
+                "not_required"
+                if not fit_input_gate_enabled
+                else "blocked"
+                if fit_input_block_reason
+                else "pass"
+            ),
+            "fit_input_quality_grade": (fit_input_row or {}).get("fit_input_grade", ""),
+            "fit_input_quality_status": (fit_input_row or {}).get("fit_input_status", ""),
+            "fit_input_quality_block_reason": fit_input_block_reason,
+            "fit_input_quality_summary_source": fit_input_summary_state.get("summary_source", ""),
+            "fit_input_quality_devices_source": fit_input_summary_state.get("devices_source", ""),
+        }
+        if fit_input_block_reason:
+            blocked_groups.append(f"{component_key}:{normalized_device_id}:{fit_input_block_reason}")
+            model_rows.append(
+                {
+                    "component": component_key,
+                    "analyzer_prefix": prefix,
+                    "analyzer_device_id": device_id,
+                    "point_count": len(rows),
+                    "model_name": "",
+                    "fit_status": "blocked_fit_input_quality",
+                    "recommended_model": "false",
+                    "review_note": fit_input_block_reason,
+                    **fit_input_fields,
+                }
+            )
+            continue
+        eligible_group_count += 1
         for model_name, terms in MODEL_FAMILIES:
             summary, coefficients, prediction = _evaluate_model(
                 component=component_key,
@@ -478,6 +598,7 @@ def build_review(
                     "candidate_final_review_blockers": policy.get("final_review_blockers", ""),
                     "recommended_model": "false",
                     "review_note": "",
+                    **fit_input_fields,
                 }
             )
             per_device_model_rows.append(summary)
@@ -501,6 +622,7 @@ def build_review(
                             "prediction": float(pred),
                             "error": error,
                             "absolute_relative_error_pct": rel,
+                            **fit_input_fields,
                         }
                     )
         best = _best_model(rows, per_device_model_rows)
@@ -519,16 +641,17 @@ def build_review(
                     prediction = predictions_by_model.get(item["model_name"])
                     if prediction is not None:
                         truth = np.asarray([float(row["_target"]) for row in rows], dtype=float)
-                        trim_review_rows.extend(
-                            _trim_rows(
-                                component=component_key,
-                                prefix=prefix,
-                                device_id=device_id,
-                                model_summary=item,
-                                prediction=prediction,
-                                target=truth,
-                            )
+                        trim_rows = _trim_rows(
+                            component=component_key,
+                            prefix=prefix,
+                            device_id=device_id,
+                            model_summary=item,
+                            prediction=prediction,
+                            target=truth,
                         )
+                        for trim_row in trim_rows:
+                            trim_row.update(fit_input_fields)
+                        trim_review_rows.extend(trim_rows)
         model_rows.extend(per_device_model_rows)
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -536,6 +659,15 @@ def build_review(
     _write_csv(output_dir / "model_selection_residuals.csv", residual_rows)
     _write_csv(output_dir / "linear_trim_review.csv", trim_review_rows)
     meta = {
+        "overall_status": (
+            "partial"
+            if eligible_group_count and blocked_groups
+            else "pass"
+            if eligible_group_count
+            else "blocked"
+            if fit_input_gate_enabled
+            else "no_eligible_groups"
+        ),
         "component": component_key,
         "generated_at": _now(),
         "candidate_dir": str(candidate_dir.resolve()),
@@ -545,6 +677,16 @@ def build_review(
         "opens_com": False,
         "writes_senco": False,
         "physical_contract": "current_atmosphere_open_flow_no_pressure_terms",
+        "fit_input_quality_required": bool(require_fit_input_quality),
+        "fit_input_quality_gate_enabled": fit_input_gate_enabled,
+        "fit_input_quality_summary_source": fit_input_summary_state.get("summary_source", ""),
+        "fit_input_quality_devices_source": fit_input_summary_state.get("devices_source", ""),
+        "fit_input_quality_run_status": fit_input_summary_state.get("run_status", ""),
+        "fit_input_quality_continuity_gate_status": fit_input_summary_state.get("continuity_status", ""),
+        "fit_input_quality_gate_reason": fit_input_summary_state.get("reason", ""),
+        "eligible_group_count": eligible_group_count,
+        "blocked_group_count": len(blocked_groups),
+        "blocked_groups": blocked_groups,
     }
     (output_dir / "model_selection_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     report = _report_markdown(
@@ -564,12 +706,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--candidate-dir", required=True, help="Directory containing candidate_fit_residuals.csv.")
     parser.add_argument("--output-dir", required=True, help="Output directory for model-selection artifacts.")
     parser.add_argument("--component", choices=["co2", "h2o"], help="Component override. Defaults from candidate run.")
+    parser.add_argument("--fit-input-quality-summary-csv", default="")
+    parser.add_argument("--fit-input-quality-devices-csv", default="")
+    parser.add_argument("--require-fit-input-quality", action="store_true")
     args = parser.parse_args(argv)
     try:
         meta = build_review(
             candidate_dir=Path(args.candidate_dir),
             output_dir=Path(args.output_dir),
             component=args.component,
+            fit_input_quality_summary_csv=(
+                Path(args.fit_input_quality_summary_csv) if args.fit_input_quality_summary_csv else None
+            ),
+            fit_input_quality_devices_csv=(
+                Path(args.fit_input_quality_devices_csv) if args.fit_input_quality_devices_csv else None
+            ),
+            require_fit_input_quality=bool(args.require_fit_input_quality),
         )
     except Exception as exc:
         print(f"V1.5 candidate model selection review failed: {exc}", file=sys.stderr, flush=True)
