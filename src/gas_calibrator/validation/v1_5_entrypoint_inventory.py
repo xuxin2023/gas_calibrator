@@ -396,6 +396,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline V1.5 full-flow automation closure map; records mature baseline, remaining automation gaps, and forbidden formal surfaces without executing hardware")
     elif lower == "export_v1_5_full_flow_next_action_plan":
         notes.append("offline V1.5 full-flow next-action plan; ranks remaining automation handoffs without executing hardware, writes, routes, or database imports")
+    elif lower == "export_v1_5_batch_initialization_closeout_index":
+        notes.append("offline V1.5 batch initialization closeout index; binds SN/device_code, GETCO, S5-S8, S9, and route evidence without opening COM")
     elif lower == "export_v1_5_production_entrypoint_map":
         notes.append("offline V1.5 production entrypoint map; separates formal launchers, workers, diagnostics, controlled writes, and forbidden surfaces")
     elif lower == "export_v1_5_production_entrypoint_gate":
