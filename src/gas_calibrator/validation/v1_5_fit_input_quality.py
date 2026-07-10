@@ -62,6 +62,16 @@ def _read_csv(path: str | Path | None) -> List[Dict[str, Any]]:
         return [dict(row) for row in csv.DictReader(handle)]
 
 
+def _read_json(path: str | Path | None) -> Dict[str, Any]:
+    if not path:
+        return {}
+    source = Path(path)
+    if not source.exists():
+        return {}
+    payload = json.loads(source.read_text(encoding="utf-8-sig"))
+    return dict(payload) if isinstance(payload, Mapping) else {}
+
+
 def _write_csv(path: Path, rows: Sequence[Mapping[str, Any]]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     headers: List[str] = []
@@ -157,6 +167,82 @@ def _excluded_scope_placeholders(
             }
         )
     return out
+
+
+def _formal_status_continuity_ready(payload: Mapping[str, Any]) -> Tuple[bool, str]:
+    if not payload:
+        return False, "formal_run_status_missing"
+    for gate in payload.get("gates") or []:
+        if not isinstance(gate, Mapping):
+            continue
+        if str(gate.get("gate_id") or "") != "mature_route_continuity_gate":
+            continue
+        status = str(gate.get("status") or "").strip().lower()
+        if status == "ready":
+            return True, "formal_run_status_mature_route_continuity_ready"
+        return False, f"formal_run_status_mature_route_continuity_{status or 'missing'}"
+    return False, "formal_run_status_mature_route_continuity_gate_missing"
+
+
+def _direct_continuity_gate_ready(payload: Mapping[str, Any]) -> Tuple[bool, str]:
+    if not payload:
+        return False, "mature_route_continuity_gate_missing"
+    manifest = payload.get("manifest") if isinstance(payload.get("manifest"), Mapping) else payload
+    status = str(manifest.get("status") or "").strip().lower()
+    fit_eligible = manifest.get("continuous_route_run_fit_eligible") is True
+    blocker_count = _safe_int(manifest.get("blocker_count"))
+    review_count = _safe_int(manifest.get("review_required_count"))
+    if status == "pass" and fit_eligible and blocker_count == 0 and review_count == 0:
+        return True, "mature_route_continuity_gate_passed"
+    return (
+        False,
+        "mature_route_continuity_gate_not_ready:"
+        f"status={status or 'missing'};fit_eligible={fit_eligible};"
+        f"blocker_count={blocker_count};review_required_count={review_count}",
+    )
+
+
+def _continuity_consumer_state(
+    *,
+    formal_run_status_json: str | Path | None,
+    mature_route_continuity_gate_json: str | Path | None,
+) -> Dict[str, Any]:
+    formal_payload = _read_json(formal_run_status_json)
+    continuity_payload = _read_json(mature_route_continuity_gate_json)
+    reasons: List[str] = []
+    ready = False
+    formal_ready = False
+    direct_ready = False
+    if formal_run_status_json:
+        formal_ready, reason = _formal_status_continuity_ready(formal_payload)
+        reasons.append(reason)
+        ready = ready or formal_ready
+    if mature_route_continuity_gate_json:
+        direct_ready, reason = _direct_continuity_gate_ready(continuity_payload)
+        reasons.append(reason)
+        ready = ready or direct_ready
+    if not formal_run_status_json and not mature_route_continuity_gate_json:
+        reasons.append("fit_input_continuity_evidence_missing")
+    return {
+        "ready": ready,
+        "formal_run_status_ready": formal_ready,
+        "direct_continuity_gate_ready": direct_ready,
+        "reason": ";".join(dict.fromkeys(reasons)),
+        "formal_run_status_json": str(Path(formal_run_status_json).resolve()) if formal_run_status_json else "",
+        "mature_route_continuity_gate_json": (
+            str(Path(mature_route_continuity_gate_json).resolve()) if mature_route_continuity_gate_json else ""
+        ),
+    }
+
+
+def _apply_continuity_block(device_rows: List[Dict[str, Any]], reason: str) -> None:
+    for row in device_rows:
+        row["fit_input_grade"] = "REJECT"
+        row["fit_input_status"] = "excluded_from_candidate_fit"
+        existing = str(row.get("reject_reasons") or "").strip()
+        parts = [part for part in existing.split(";") if part]
+        parts.append(f"fit_input_continuity_gate_not_ready:{reason}")
+        row["reject_reasons"] = ";".join(dict.fromkeys(parts))
 
 
 def _co2_device_quality(
@@ -270,6 +356,8 @@ def build_fit_input_quality_tables(
     h2o_policy_csv: str | Path,
     h2o_residuals_csv: str | Path,
     h2o_point_inputs_csv: str | Path | None = None,
+    formal_run_status_json: str | Path | None = None,
+    mature_route_continuity_gate_json: str | Path | None = None,
     cfg: FitInputQualityConfig = FitInputQualityConfig(),
 ) -> Dict[str, List[Dict[str, Any]]]:
     target_devices = {_device_id(item) for item in cfg.target_device_ids}
@@ -279,6 +367,10 @@ def build_fit_input_quality_tables(
     h2o_policies = _single_by_device(_read_csv(h2o_policy_csv))
     h2o_residuals = _read_csv(h2o_residuals_csv)
     h2o_point_inputs = _read_csv(h2o_point_inputs_csv)
+    continuity_state = _continuity_consumer_state(
+        formal_run_status_json=formal_run_status_json,
+        mature_route_continuity_gate_json=mature_route_continuity_gate_json,
+    )
 
     co2_residuals_by_device = _rows_by_device(co2_residuals)
     h2o_residuals_by_device = _rows_by_device(h2o_residuals)
@@ -301,6 +393,9 @@ def build_fit_input_quality_tables(
                 cfg=cfg,
             )
         )
+
+    if not continuity_state["ready"]:
+        _apply_continuity_block(device_rows, str(continuity_state["reason"]))
 
     point_rows: List[Dict[str, Any]] = []
     quality_by_component_device = {
@@ -364,7 +459,11 @@ def build_fit_input_quality_tables(
     summary = [
         {
             "created_at": _now(),
-            "run_status": "pass" if a_count == target_component_count else "blocked",
+            "run_status": "pass" if continuity_state["ready"] and a_count == target_component_count else "blocked",
+            "fit_input_continuity_gate_status": "pass" if continuity_state["ready"] else "blocked",
+            "fit_input_continuity_gate_reason": continuity_state["reason"],
+            "formal_run_status_json": continuity_state["formal_run_status_json"],
+            "mature_route_continuity_gate_json": continuity_state["mature_route_continuity_gate_json"],
             "target_device_ids": ";".join(sorted(target_devices)),
             "excluded_device_ids": ";".join(sorted(excluded_devices)),
             "target_component_count": target_component_count,
@@ -397,6 +496,8 @@ def write_fit_input_quality_report(
     h2o_residuals_csv: str | Path,
     output_dir: str | Path,
     h2o_point_inputs_csv: str | Path | None = None,
+    formal_run_status_json: str | Path | None = None,
+    mature_route_continuity_gate_json: str | Path | None = None,
     cfg: FitInputQualityConfig = FitInputQualityConfig(),
 ) -> Dict[str, Path]:
     output = Path(output_dir).resolve()
@@ -407,6 +508,8 @@ def write_fit_input_quality_report(
         h2o_policy_csv=h2o_policy_csv,
         h2o_residuals_csv=h2o_residuals_csv,
         h2o_point_inputs_csv=h2o_point_inputs_csv,
+        formal_run_status_json=formal_run_status_json,
+        mature_route_continuity_gate_json=mature_route_continuity_gate_json,
         cfg=cfg,
     )
     paths = {
@@ -430,6 +533,14 @@ def write_fit_input_quality_report(
                 "h2o_policy_csv": str(Path(h2o_policy_csv).resolve()),
                 "h2o_residuals_csv": str(Path(h2o_residuals_csv).resolve()),
                 "h2o_point_inputs_csv": str(Path(h2o_point_inputs_csv).resolve()) if h2o_point_inputs_csv else "",
+                "formal_run_status_json": (
+                    str(Path(formal_run_status_json).resolve()) if formal_run_status_json else ""
+                ),
+                "mature_route_continuity_gate_json": (
+                    str(Path(mature_route_continuity_gate_json).resolve())
+                    if mature_route_continuity_gate_json
+                    else ""
+                ),
             },
             "config": {
                 "target_device_ids": list(cfg.target_device_ids),
@@ -454,6 +565,8 @@ def _write_markdown(path: Path, tables: Mapping[str, Sequence[Mapping[str, Any]]
         "",
         "- Boundary: offline/no-write; no COM, no route control, no SENCO write.",
         f"- Run status: `{summary.get('run_status', '')}`.",
+        f"- Mature route continuity gate: `{summary.get('fit_input_continuity_gate_status', '')}`.",
+        f"- Continuity reason: `{summary.get('fit_input_continuity_gate_reason', '')}`.",
         f"- Target devices: `{summary.get('target_device_ids', '')}`.",
         f"- Excluded devices: `{summary.get('excluded_device_ids', '')}`.",
         "",
