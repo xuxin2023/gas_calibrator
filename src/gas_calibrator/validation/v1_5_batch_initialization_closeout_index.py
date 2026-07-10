@@ -242,7 +242,6 @@ def _pressure_rows_by_device(
         )
         if device:
             by_device[device] = row
-    payload_ready = _status_ready(payload.get("overall_status") or payload.get("status")) if payload else False
     if not payload and not csv_rows:
         return False, {}, "pressure_s9_evidence_missing"
     if by_device:
@@ -257,7 +256,7 @@ def _pressure_rows_by_device(
             for row in by_device.values()
         )
         return all_rows_ready, by_device, "" if all_rows_ready else "one_or_more_pressure_s9_rows_not_ready"
-    return payload_ready, {}, "" if payload_ready else "pressure_s9_payload_not_ready"
+    return False, {}, "pressure_s9_per_device_rows_missing"
 
 
 def _route_ready(route_readiness_json: str | Path | None) -> tuple[bool, str]:
@@ -441,7 +440,7 @@ def build_v1_5_batch_initialization_closeout_index(
     identity_payload = _load_json(readonly_identity_getco_snapshot_json)
     snapshots = _snapshots_from_payload(readonly_payload) or _snapshots_from_payload(identity_payload)
     readonly_ready, readonly_reason = _readonly_payload_ready(readonly_payload)
-    pressure_ready, pressure_by_device, pressure_reason = _pressure_rows_by_device(
+    pressure_payload_ready, pressure_by_device, pressure_reason = _pressure_rows_by_device(
         pressure_readiness_json=pressure_readiness_json,
         pressure_device_readiness_csv=pressure_device_readiness_csv,
     )
@@ -449,7 +448,12 @@ def build_v1_5_batch_initialization_closeout_index(
     pre_gas_payload = _load_json(pre_gas_readiness_json)
     pre_gas_ready = _status_ready(pre_gas_payload.get("overall_status")) if pre_gas_payload else False
 
-    device_rows = _build_device_rows(snapshots, pressure_by_device, pressure_ready)
+    device_rows = _build_device_rows(snapshots, pressure_by_device, pressure_payload_ready)
+    active_protocols = {row.protocol_device_id for row in device_rows if row.protocol_device_id}
+    pressure_covers_active_devices = bool(active_protocols) and active_protocols.issubset(set(pressure_by_device))
+    pressure_ready = pressure_payload_ready and pressure_covers_active_devices
+    if pressure_payload_ready and not pressure_covers_active_devices:
+        pressure_reason = "pressure_s9_per_device_rows_missing_for_active_batch"
     device_count_ready = 1 <= len(device_rows) <= 6
     if not device_count_ready:
         device_count_reason = f"active_device_count={len(device_rows)}_outside_1_to_6"

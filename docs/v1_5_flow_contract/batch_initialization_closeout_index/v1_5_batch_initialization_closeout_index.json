@@ -1,6 +1,6 @@
 {
   "schema": "v1_5_batch_initialization_closeout_index_v1",
-  "generated_at": "2026-07-10T05:59:17Z",
+  "generated_at": "2026-07-10T06:31:09Z",
   "overall_status": "review_required",
   "batch_initialization_closeout_ready": false,
   "ready_for_mature_open_flow_from_initialization_index": false,

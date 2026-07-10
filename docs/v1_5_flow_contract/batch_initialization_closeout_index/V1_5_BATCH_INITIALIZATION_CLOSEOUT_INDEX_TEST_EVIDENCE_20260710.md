@@ -13,7 +13,7 @@ python -m pytest tests\test_v1_5_batch_initialization_closeout_index.py tests\te
 ## Result
 
 ```text
-35 passed, 1 warning in 26.72s
+36 passed, 1 warning in 14.85s
 ```
 
 The warning is the existing `v1_5_formal_gate` pytest marker registration

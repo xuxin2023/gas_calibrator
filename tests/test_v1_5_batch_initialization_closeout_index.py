@@ -141,6 +141,30 @@ def test_batch_initialization_closeout_waits_for_route_readiness(tmp_path: Path)
     assert "route_readiness_evidence_missing" in model["review_reasons"]
 
 
+def test_batch_initialization_closeout_requires_per_device_pressure_rows(tmp_path: Path) -> None:
+    readonly_path = _write_json(tmp_path / "readonly.json", _readonly_payload())
+    pressure_path = _write_json(
+        tmp_path / "pressure.json",
+        {"overall_status": "ready_for_open_flow_main_calibration"},
+    )
+    route_path = _write_json(tmp_path / "route.json", _route_payload())
+
+    model = build_v1_5_batch_initialization_closeout_index(
+        readonly_com_executor_json=readonly_path,
+        pressure_readiness_json=pressure_path,
+        route_readiness_json=route_path,
+    )
+
+    assert model["overall_status"] == REVIEW_STATUS
+    assert model["batch_initialization_closeout_ready"] is False
+    assert model["ready_for_mature_open_flow_from_initialization_index"] is False
+    assert "pressure_s9_per_device_rows_missing" in model["review_reasons"]
+    assert any(
+        "s9_pressure_readiness_missing_or_not_ready" in reason
+        for reason in model["review_reasons"]
+    )
+
+
 def test_batch_initialization_closeout_blocks_duplicate_sn_and_non_neutral_auxiliary(tmp_path: Path) -> None:
     readonly = _readonly_payload()
     readonly["identity_getco_snapshots"][1]["sn_code_read"] = "01260701"
