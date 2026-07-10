@@ -1,5 +1,6 @@
 ﻿gate_id,status,reason,next_action,blocks_release,blocks_physical_flow
 initialization_readiness,missing,initialization readiness sidecar missing,Generate or refresh initialization readiness before any open-flow step.,True,True
+route_physical_recovery_readiness,blocked,"route physical blockers remain: blocker_count=4; PACE vent, pressure gauge, dry-gas dewpoint, or fresh queue policy is not recovered","Recover PACE vent, pressure-gauge readback, and dry-gas dewpoint stability; then bind the next run to a fresh 0613/0620/0621 canonical queue before starting continuous CO2/H2O.",False,True
 identity_getco_sn_traceability,missing,identity/GETCO readiness sidecar missing,Refresh read-only GETCO/SN identity evidence or resolve traceability review before release.,True,True
 pre_gas_readiness,missing,pre-gas readiness sidecar missing,Close pre-gas gaps before starting mature CO2/H2O open-flow queues.,True,True
 pressure_senco9_pre_open_flow,review_required,pressure_quick_check=missing,Complete pressure/SENCO9 no-write review or controlled pressure write package before gas flow.,True,True
