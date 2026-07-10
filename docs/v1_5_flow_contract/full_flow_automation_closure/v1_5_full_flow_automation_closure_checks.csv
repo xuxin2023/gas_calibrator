@@ -1,0 +1,8 @@
+check_id,status,severity,topic,requirement,evidence_rule
+AUTO-CLOSURE-001,pass,blocker,baseline,Mature gas/water execution baseline is 0613 fitting plus 0620/0621 clean-worktree route behavior.,"Do not treat root migration, 0624, or segmented diagnostics as the formal mature baseline."
+AUTO-CLOSURE-002,pass,blocker,forbidden_surfaces,"Formal automation plans must not reference _handoff, root migration, 0624, diagnostic, worker, V1, or V2 surfaces.",Use production entrypoint gate before starting or accepting a formal plan.
+AUTO-CLOSURE-003,pass,blocker,route_core,"This package must not edit mature route queue/worker, runner, analyzer protocol, default config, or app entry.",Protected files remain review hotspots and must stay unchanged in this automation-map package.
+AUTO-CLOSURE-004,pass,blocker,legacy_vs_new_algorithm,Legacy remains CO2 45 and H2O 13; new algorithm 47/14 remains profile/dry-run unless separately live-reviewed.,New-algorithm runlists must not contaminate legacy mature queues.
+AUTO-CLOSURE-005,pass,blocker,fit_and_write,"Fit review is no-write; controlled write requires live old-value snapshot, write, readback, and short reverify.",Do not use no-write math or diagnostic smoke data as release evidence.
+AUTO-CLOSURE-006,pass,blocker,full_auto_state,Current V1.5 is structurally organized but still not one-click full production automation.,Every stage with blocks_full_auto=true remains a deliberate handoff/authorization/review point.
+AUTO-CLOSURE-007,pass,blocker,database,PostgreSQL 18 import remains after archive/release and controlled import gates.,"No database import is allowed from route, fit, smoke, or no-write evidence alone."

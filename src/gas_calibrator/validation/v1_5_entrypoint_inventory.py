@@ -392,6 +392,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline algorithm queue handoff preflight; requires dry-run/no-prompt evidence before any future live queue wiring")
     elif lower == "export_v1_5_automation_control_contract":
         notes.append("offline V1.5 automation control contract; keeps automation as a shell around the 0613/0620/0621 mature core")
+    elif lower == "export_v1_5_full_flow_automation_closure":
+        notes.append("offline V1.5 full-flow automation closure map; records mature baseline, remaining automation gaps, and forbidden formal surfaces without executing hardware")
     elif lower == "export_v1_5_production_entrypoint_map":
         notes.append("offline V1.5 production entrypoint map; separates formal launchers, workers, diagnostics, controlled writes, and forbidden surfaces")
     elif lower == "export_v1_5_production_entrypoint_gate":
@@ -530,6 +532,7 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             "export_v1_5_formal_readonly_com_minimal_executor_review",
             "run_v1_5_formal_readonly_com_minimal_executor_stub",
             "export_v1_5_automation_control_contract",
+            "export_v1_5_full_flow_automation_closure",
             "export_v1_5_production_entrypoint_gate",
             "export_v1_5_route_physical_recovery_evidence_packet",
             "export_v1_5_route_physical_recovery_evidence_packet_template",

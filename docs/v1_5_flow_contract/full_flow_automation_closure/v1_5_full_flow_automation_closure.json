@@ -1,0 +1,205 @@
+{
+  "schema": "v1_5_full_flow_automation_closure_v1",
+  "generated_at": "2026-07-10T04:06:40Z",
+  "overall_status": "review_ready",
+  "automation_closure_status": "structure_closed_live_full_auto_still_gated",
+  "mature_fitting_baseline": "0613 V1.5 fitting path",
+  "mature_route_baseline": "0620/0621 clean-worktree mature physical route path",
+  "legacy_point_counts": {
+    "co2": 45,
+    "h2o": 13
+  },
+  "new_algorithm_profile_point_counts": {
+    "co2": 47,
+    "h2o": 14
+  },
+  "blocker_count": 0,
+  "remaining_full_auto_gap_count": 9,
+  "controlled_or_live_capable_stage_count": 4,
+  "full_production_auto_allowed": false,
+  "formal_release_allowed": false,
+  "database_import_allowed": false,
+  "opens_com_ports": false,
+  "controls_water_or_gas_routes": false,
+  "connects_postgresql": false,
+  "writes_coefficients": false,
+  "not_real_acceptance_evidence": true,
+  "protected_core_files": [
+    "src/gas_calibrator/tools/run_v1_5_formal_co2_open_flow_queue.py",
+    "src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_queue.py",
+    "src/gas_calibrator/tools/run_v1_5_formal_open_flow_sampling.py",
+    "src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_sampling.py",
+    "src/gas_calibrator/workflow/runner.py",
+    "src/gas_calibrator/devices/gas_analyzer.py",
+    "configs/default_config.json",
+    "run_app.py"
+  ],
+  "prohibited_formal_surfaces": [
+    "_handoff",
+    "D:/gas_calibrator root dirty/migration surface",
+    "0624 migrated route path",
+    "diagnostic-only tools",
+    "sampling workers as top-level launchers",
+    "legacy V1 launchers",
+    "V2 launchers"
+  ],
+  "stages": [
+    {
+      "stage_id": "01_initialization_identity_runtime_closeout",
+      "title": "Initialization identity, runtime, and auxiliary neutralization",
+      "mature_baseline": "V1.5 initialization owner plus controlled read-only COM closeout",
+      "canonical_entrypoint": "run_v1_5_formal_initialization_runner.py",
+      "automation_state": "controlled_real_readonly_available_with_authorization",
+      "live_boundary": "Read-only COM can collect SN/GETCO/runtime evidence with explicit authorization; SN/device_code and S5/S6/S7/S8/S9 writes remain separate controlled actions.",
+      "production_rule": "Do not enter CO2/H2O routes until SN/device_code, protocol ID, GETCO1-9, S5-S8, and S9 are closed.",
+      "next_gap": "Package the per-batch initialization closeout into the pre-gas evidence index automatically.",
+      "blocks_full_auto": true
+    },
+    {
+      "stage_id": "02_pressure_s9_readiness",
+      "title": "Pressure and SENCO9 readiness",
+      "mature_baseline": "PACE INL absolute pressure and V1.5 pressure/S9 review path",
+      "canonical_entrypoint": "validate_pressure_only.py",
+      "automation_state": "controlled_live_pressure_when_authorized",
+      "live_boundary": "Pressure control is allowed only in the pressure stage; SENCO9 write/readback/reverify remains controlled.",
+      "production_rule": "Use PACE INL absolute pressure. Do not let CO2/H2O fitting absorb pressure error.",
+      "next_gap": "Keep offset-only default and linear S9 exceptions explicitly tagged with readback and pressure-only reverify.",
+      "blocks_full_auto": true
+    },
+    {
+      "stage_id": "03_route_physical_readiness_guard",
+      "title": "Route physical readiness and recovery evidence",
+      "mature_baseline": "0620/0621 clean-worktree mature physical route path",
+      "canonical_entrypoint": "export_v1_5_route_physical_recovery_readiness.py",
+      "automation_state": "offline_guard_only",
+      "live_boundary": "The recovery binder consumes reviewed traces only; it does not collect dewpoint, vent, pressure, or route data.",
+      "production_rule": "Route recovery evidence can unblock a fresh run, but diagnostic/smoke data cannot become formal fit data.",
+      "next_gap": "For future continuous runs, gather live physical recovery evidence through reviewed mature-path smoke, then bind it offline.",
+      "blocks_full_auto": true
+    },
+    {
+      "stage_id": "04_mature_legacy_co2_45_route",
+      "title": "CO2 mature open-flow route",
+      "mature_baseline": "0620/0621 clean-worktree mature physical route path",
+      "canonical_entrypoint": "run_v1_5_formal_co2_open_flow_queue.py",
+      "automation_state": "mature_runner_real_route_when_authorized",
+      "live_boundary": "Uses mature queue/worker only; do not use root migration or 0624 route kernel.",
+      "production_rule": "Legacy analyzers run CO2 45 points. Single-analyzer ratio instability downgrades that analyzer/point; public physical gates block the point.",
+      "next_gap": "Add a pre-run continuity guard that refuses segmented carry-over as a formal continuous run.",
+      "blocks_full_auto": true
+    },
+    {
+      "stage_id": "05_mature_legacy_h2o_13_route",
+      "title": "H2O mature open-flow route",
+      "mature_baseline": "0620/0621 clean-worktree mature physical route path",
+      "canonical_entrypoint": "run_v1_5_formal_h2o_open_flow_queue.py",
+      "automation_state": "mature_runner_real_route_when_authorized",
+      "live_boundary": "Uses mature water-route queue/worker only; do not use 0624 handoff queues as the mature baseline.",
+      "production_rule": "Legacy analyzers run H2O 13 wet points; new algorithm 14-point plans stay profile/dry-run until reviewed live wiring.",
+      "next_gap": "Require run manifests before declaring a water route segment formal; empty queue attempts remain rejected diagnostics.",
+      "blocks_full_auto": true
+    },
+    {
+      "stage_id": "06_fit_strategy_review",
+      "title": "No-write fitting strategy review",
+      "mature_baseline": "0613 V1.5 fitting path",
+      "canonical_entrypoint": "export_v1_5_fit_input_quality.py",
+      "automation_state": "offline_no_write_review",
+      "live_boundary": "No coefficient write is implied by a fit candidate.",
+      "production_rule": "Use physical fit roles, current GETCO state, dry/low-water anchors with dewpoint/pressure evidence, and explicit reject/supersede reasoning.",
+      "next_gap": "Codify the 0613 multi-strategy fit review into one canonical no-write strategy matrix for CO2 and H2O.",
+      "blocks_full_auto": true
+    },
+    {
+      "stage_id": "07_controlled_write_readback",
+      "title": "Controlled coefficient write and readback",
+      "mature_baseline": "V1.5 controlled SENCO write tools with live GETCO snapshots",
+      "canonical_entrypoint": "run_v1_5_*_controlled_write.py",
+      "automation_state": "manual_authorized_controlled_write",
+      "live_boundary": "Writes require explicit authorization, old-value snapshot, write, GETCO readback, and rollback/reverify plan.",
+      "production_rule": "S5/S6 are final linear layers; S5 composition must use current GETCO5 and clear-before-write where required.",
+      "next_gap": "Unify per-coefficient write summaries into one post-fit write package without hiding per-device exceptions.",
+      "blocks_full_auto": true
+    },
+    {
+      "stage_id": "08_short_reverify",
+      "title": "Post-write short reverification",
+      "mature_baseline": "0613/0620/0621 mature short-reverify practice",
+      "canonical_entrypoint": "export_v1_5_post_write_reverification.py",
+      "automation_state": "offline_review_from_real_samples",
+      "live_boundary": "Reverify samples are collected by reviewed mature route/reverify commands; exporter only reviews evidence.",
+      "production_rule": "Write success and validation success must be reported separately.",
+      "next_gap": "Bind short reverify points to the exact coefficient write package and reject stale reverify evidence.",
+      "blocks_full_auto": true
+    },
+    {
+      "stage_id": "09_archive_report_database",
+      "title": "Archive, reports, and PostgreSQL 18 import gate",
+      "mature_baseline": "V1.5 archive closure plus PostgreSQL 18 dry-run/import lock chain",
+      "canonical_entrypoint": "run_v1_5_formal_archive_closure.py",
+      "automation_state": "archive_offline_ready_database_import_locked",
+      "live_boundary": "Archive/report is offline; PostgreSQL import remains blocked unless the controlled import chain is explicitly completed.",
+      "production_rule": "SN/device_code traceability, readback, reverify, archive release, and DB dry-run must all pass before import.",
+      "next_gap": "Implement real PostgreSQL import only after archive release and controlled executor review are complete.",
+      "blocks_full_auto": true
+    }
+  ],
+  "checks": [
+    {
+      "check_id": "AUTO-CLOSURE-001",
+      "status": "pass",
+      "severity": "blocker",
+      "topic": "baseline",
+      "requirement": "Mature gas/water execution baseline is 0613 fitting plus 0620/0621 clean-worktree route behavior.",
+      "evidence_rule": "Do not treat root migration, 0624, or segmented diagnostics as the formal mature baseline."
+    },
+    {
+      "check_id": "AUTO-CLOSURE-002",
+      "status": "pass",
+      "severity": "blocker",
+      "topic": "forbidden_surfaces",
+      "requirement": "Formal automation plans must not reference _handoff, root migration, 0624, diagnostic, worker, V1, or V2 surfaces.",
+      "evidence_rule": "Use production entrypoint gate before starting or accepting a formal plan."
+    },
+    {
+      "check_id": "AUTO-CLOSURE-003",
+      "status": "pass",
+      "severity": "blocker",
+      "topic": "route_core",
+      "requirement": "This package must not edit mature route queue/worker, runner, analyzer protocol, default config, or app entry.",
+      "evidence_rule": "Protected files remain review hotspots and must stay unchanged in this automation-map package."
+    },
+    {
+      "check_id": "AUTO-CLOSURE-004",
+      "status": "pass",
+      "severity": "blocker",
+      "topic": "legacy_vs_new_algorithm",
+      "requirement": "Legacy remains CO2 45 and H2O 13; new algorithm 47/14 remains profile/dry-run unless separately live-reviewed.",
+      "evidence_rule": "New-algorithm runlists must not contaminate legacy mature queues."
+    },
+    {
+      "check_id": "AUTO-CLOSURE-005",
+      "status": "pass",
+      "severity": "blocker",
+      "topic": "fit_and_write",
+      "requirement": "Fit review is no-write; controlled write requires live old-value snapshot, write, readback, and short reverify.",
+      "evidence_rule": "Do not use no-write math or diagnostic smoke data as release evidence."
+    },
+    {
+      "check_id": "AUTO-CLOSURE-006",
+      "status": "pass",
+      "severity": "blocker",
+      "topic": "full_auto_state",
+      "requirement": "Current V1.5 is structurally organized but still not one-click full production automation.",
+      "evidence_rule": "Every stage with blocks_full_auto=true remains a deliberate handoff/authorization/review point."
+    },
+    {
+      "check_id": "AUTO-CLOSURE-007",
+      "status": "pass",
+      "severity": "blocker",
+      "topic": "database",
+      "requirement": "PostgreSQL 18 import remains after archive/release and controlled import gates.",
+      "evidence_rule": "No database import is allowed from route, fit, smoke, or no-write evidence alone."
+    }
+  ]
+}
