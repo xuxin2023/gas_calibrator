@@ -102,6 +102,38 @@ def _seed_algorithm_profile_runner_dry_run(root: Path, *, blocker_count: int = 0
     )
 
 
+def _seed_full_flow_automation_closure(
+    root: Path,
+    *,
+    blocker_count: int = 0,
+    remaining_gap_count: int = 9,
+    boundary_clean: bool = True,
+) -> Path:
+    status = "review_ready" if blocker_count == 0 else "blocked"
+    return _write_json(
+        root / "full_flow_automation_closure" / "v1_5_full_flow_automation_closure.json",
+        {
+            "schema": "v1_5_full_flow_automation_closure_v1",
+            "overall_status": status,
+            "automation_closure_status": "structure_closed_live_full_auto_still_gated",
+            "mature_fitting_baseline": "0613 V1.5 fitting path",
+            "mature_route_baseline": "0620/0621 clean-worktree mature physical route path",
+            "legacy_point_counts": {"co2": 45, "h2o": 13},
+            "new_algorithm_profile_point_counts": {"co2": 47, "h2o": 14},
+            "blocker_count": blocker_count,
+            "remaining_full_auto_gap_count": remaining_gap_count,
+            "full_production_auto_allowed": False,
+            "formal_release_allowed": False,
+            "database_import_allowed": False,
+            "opens_com_ports": not boundary_clean,
+            "connects_postgresql": False,
+            "controls_water_or_gas_routes": False,
+            "writes_coefficients": False,
+            "not_real_acceptance_evidence": True,
+        },
+    )
+
+
 def _seed_route_physical_recovery_readiness(
     root: Path,
     *,
@@ -1483,6 +1515,53 @@ def test_formal_run_status_surfaces_optional_algorithm_profile_runner_bundle(tmp
     assert "without executing queues" in gate["physical_meaning"]
 
 
+def test_formal_run_status_surfaces_full_flow_automation_closure_without_unlocking_full_auto(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "ready_run_with_automation_closure"
+    _seed_ready_run(run_dir)
+    closure_path = _seed_full_flow_automation_closure(run_dir)
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gates = {row["gate_id"]: row for row in model["gates"]}
+    gate = gates["full_flow_automation_closure"]
+
+    assert model["overall_status"] == "formal_release_ready"
+    assert model["formal_release_allowed"] is True
+    assert model["database_import_allowed"] is False
+    assert model["full_production_auto_allowed"] is False
+    assert model["can_continue_physical_flow"] is True
+    assert model["linked_inputs"]["full_flow_automation_closure_json"] == str(closure_path.resolve())
+    assert gate["status"] == "ready"
+    assert gate["release_gate"] is False
+    assert gate["blocks_release"] is False
+    assert gate["blocks_physical_flow"] is False
+    assert "full production automation still has 9 gated handoff" in gate["reason"]
+    assert "0613 fitting and 0620/0621 mature physical routes" in gate["physical_meaning"]
+
+
+def test_formal_run_status_marks_dirty_full_flow_automation_closure_review_only(tmp_path: Path) -> None:
+    run_dir = tmp_path / "ready_run_with_dirty_automation_closure"
+    _seed_ready_run(run_dir)
+    _seed_full_flow_automation_closure(run_dir, boundary_clean=False)
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gates = {row["gate_id"]: row for row in model["gates"]}
+    gate = gates["full_flow_automation_closure"]
+
+    assert model["overall_status"] == "review_required"
+    assert model["current_stage"] == "full_flow_automation_closure"
+    assert model["formal_release_allowed"] is True
+    assert model["database_import_allowed"] is False
+    assert model["full_production_auto_allowed"] is False
+    assert model["can_continue_physical_flow"] is True
+    assert gate["status"] == "review_required"
+    assert gate["release_gate"] is False
+    assert gate["blocks_release"] is False
+    assert gate["blocks_physical_flow"] is False
+    assert "offline_boundary_not_clean" in gate["reason"]
+
+
 def test_formal_run_status_surfaces_database_dry_run_without_authorizing_import(tmp_path: Path) -> None:
     run_dir = tmp_path / "ready_run_with_database_dry_run"
     _seed_ready_run(run_dir)
@@ -1909,6 +1988,7 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
         _seed_formal_initialization_readonly_com_preflight_controlled_executor_design(run_dir)
     )
     bundle_path = _seed_algorithm_profile_runner_dry_run(run_dir)
+    automation_closure_path = _seed_full_flow_automation_closure(run_dir)
     database_path = _seed_formal_database_dry_run(run_dir)
     import_preflight_path = _seed_formal_database_import_preflight(run_dir)
     import_authorization_path = _seed_formal_database_import_authorization(run_dir)
@@ -1929,6 +2009,8 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
             str(readonly_com_controlled_executor_design_path),
             "--algorithm-profile-runner-dry-run-json",
             str(bundle_path),
+            "--full-flow-automation-closure-json",
+            str(automation_closure_path),
             "--formal-database-dry-run-json",
             str(database_path),
             "--formal-database-import-preflight-json",
@@ -1961,6 +2043,7 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
         == "ready"
     )
     assert gates["algorithm_profile_runner_dry_run"]["status"] == "ready"
+    assert gates["full_flow_automation_closure"]["status"] == "ready"
     assert gates["formal_database_dry_run"]["status"] == "ready"
     assert gates["formal_database_import_preflight"]["status"] == "ready"
     assert gates["formal_database_import_authorization"]["status"] == "ready"
@@ -1971,4 +2054,8 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
     assert exported["linked_inputs"]["formal_readonly_com_minimal_executor_stub_json"] == str(
         minimal_executor_stub_path.resolve()
     )
+    assert exported["linked_inputs"]["full_flow_automation_closure_json"] == str(
+        automation_closure_path.resolve()
+    )
     assert exported["database_import_allowed"] is False
+    assert exported["full_production_auto_allowed"] is False

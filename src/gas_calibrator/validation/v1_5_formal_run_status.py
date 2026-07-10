@@ -1149,6 +1149,84 @@ def _algorithm_profile_runner_dry_run_gate(path: Path, payload: Mapping[str, Any
     )
 
 
+def _full_flow_automation_closure_gate(path: Path, payload: Mapping[str, Any]) -> FormalRunGate:
+    source_status = _source_status(payload)
+    automation_status = str(payload.get("automation_closure_status") or "")
+    blocker_count = int(payload.get("blocker_count") or 0)
+    remaining_gap_count = int(payload.get("remaining_full_auto_gap_count") or 0)
+    legacy_counts_ok = payload.get("legacy_point_counts") == {"co2": 45, "h2o": 13}
+    new_algorithm_counts_ok = payload.get("new_algorithm_profile_point_counts") == {"co2": 47, "h2o": 14}
+    baseline_ok = (
+        "0613" in str(payload.get("mature_fitting_baseline") or "")
+        and "0620/0621" in str(payload.get("mature_route_baseline") or "")
+    )
+    boundary_ok = (
+        payload.get("full_production_auto_allowed") is False
+        and payload.get("formal_release_allowed") is False
+        and payload.get("database_import_allowed") is False
+        and payload.get("opens_com_ports") is False
+        and payload.get("connects_postgresql") is False
+        and payload.get("controls_water_or_gas_routes") is False
+        and payload.get("writes_coefficients") is False
+        and payload.get("not_real_acceptance_evidence") is True
+    )
+    if (
+        source_status == "review_ready"
+        and automation_status == "structure_closed_live_full_auto_still_gated"
+        and blocker_count == 0
+        and remaining_gap_count > 0
+        and baseline_ok
+        and legacy_counts_ok
+        and new_algorithm_counts_ok
+        and boundary_ok
+    ):
+        status = READY
+        reason = (
+            "V1.5 structure is organized and mature baselines are locked; "
+            f"full production automation still has {remaining_gap_count} gated handoff(s)"
+        )
+    else:
+        status = REVIEW_REQUIRED
+        reasons: list[str] = []
+        if source_status != "review_ready":
+            reasons.append(f"source_status={source_status or 'missing'}")
+        if automation_status != "structure_closed_live_full_auto_still_gated":
+            reasons.append(f"automation_closure_status={automation_status or 'missing'}")
+        if blocker_count:
+            reasons.append(f"blocker_count={blocker_count}")
+        if remaining_gap_count <= 0:
+            reasons.append(f"remaining_full_auto_gap_count={remaining_gap_count}")
+        if not baseline_ok:
+            reasons.append("mature_baseline_not_0613_0620_0621")
+        if not legacy_counts_ok:
+            reasons.append(f"legacy_point_counts={payload.get('legacy_point_counts')!r}")
+        if not new_algorithm_counts_ok:
+            reasons.append(f"new_algorithm_profile_point_counts={payload.get('new_algorithm_profile_point_counts')!r}")
+        if not boundary_ok:
+            reasons.append("offline_boundary_not_clean")
+        reason = "; ".join(reasons) or "V1.5 full-flow automation closure map requires review"
+    return _gate(
+        gate_id="full_flow_automation_closure",
+        title="Full-flow automation closure map",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action=(
+            "Use this closure map to decide the next automation PR. Do not interpret it as live-route, "
+            "coefficient-write, PostgreSQL import, or formal release evidence."
+        ),
+        physical_meaning=(
+            "Summarizes the current V1.5 production automation boundary: the formal structure is organized "
+            "around 0613 fitting and 0620/0621 mature physical routes, while live execution, writes, reverify, "
+            "archive, and database import remain explicit gates."
+        ),
+        release_gate=False,
+        blocks_release=False,
+        blocks_physical_flow=False,
+    )
+
+
 def _formal_database_dry_run_gate(path: Path, payload: Mapping[str, Any]) -> FormalRunGate:
     source_status = _source_status(payload)
     blocker_count = int(payload.get("blocker_count") or 0)
@@ -1647,6 +1725,7 @@ def build_v1_5_formal_run_status(
     full_flow_closure_readiness_json: str | Path | None = None,
     archive_closure_json: str | Path | None = None,
     algorithm_profile_runner_dry_run_json: str | Path | None = None,
+    full_flow_automation_closure_json: str | Path | None = None,
     formal_database_dry_run_json: str | Path | None = None,
     formal_database_import_preflight_json: str | Path | None = None,
     formal_database_import_authorization_json: str | Path | None = None,
@@ -1733,6 +1812,11 @@ def build_v1_5_formal_run_status(
         algorithm_profile_runner_dry_run_json,
         "v1_5_algorithm_profile_runner_dry_run.json",
     )
+    full_flow_automation_closure_path = _explicit_or_latest(
+        root,
+        full_flow_automation_closure_json,
+        "v1_5_full_flow_automation_closure.json",
+    )
     formal_database_dry_run_path = _explicit_or_latest(
         root,
         formal_database_dry_run_json,
@@ -1806,6 +1890,7 @@ def build_v1_5_formal_run_status(
     closure_payload = _load_json(closure_path)
     archive_payload = _load_json(archive_path)
     algorithm_profile_runner_payload = _load_json(algorithm_profile_runner_path)
+    full_flow_automation_closure_payload = _load_json(full_flow_automation_closure_path)
     formal_database_dry_run_payload = _load_json(formal_database_dry_run_path)
     formal_database_import_preflight_payload = _load_json(formal_database_import_preflight_path)
     formal_database_import_authorization_payload = _load_json(formal_database_import_authorization_path)
@@ -1964,6 +2049,13 @@ def build_v1_5_formal_run_status(
                 algorithm_profile_runner_payload,
             )
         )
+    if full_flow_automation_closure_path and full_flow_automation_closure_payload:
+        gates.append(
+            _full_flow_automation_closure_gate(
+                full_flow_automation_closure_path,
+                full_flow_automation_closure_payload,
+            )
+        )
     if formal_database_dry_run_path and formal_database_dry_run_payload:
         gates.append(
             _formal_database_dry_run_gate(
@@ -2118,6 +2210,7 @@ def build_v1_5_formal_run_status(
         "formal_release_allowed": formal_release_allowed,
         "database_import_allowed": database_import_allowed,
         "can_continue_physical_flow": not physical_blockers,
+        "full_production_auto_allowed": False,
         "physical_boundaries": {
             "offline_status_only": True,
             "opens_com_ports": False,
@@ -2200,6 +2293,9 @@ def build_v1_5_formal_run_status(
             "archive_closure_json": str(archive_path) if archive_path else "",
             "algorithm_profile_runner_dry_run_json": str(algorithm_profile_runner_path)
             if algorithm_profile_runner_path
+            else "",
+            "full_flow_automation_closure_json": str(full_flow_automation_closure_path)
+            if full_flow_automation_closure_path
             else "",
             "formal_database_dry_run_json": str(formal_database_dry_run_path)
             if formal_database_dry_run_path
