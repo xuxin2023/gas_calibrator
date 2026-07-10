@@ -374,6 +374,81 @@ def _route_physical_recovery_gate(path: Path, payload: Mapping[str, Any]) -> For
     )
 
 
+def _run_stage_is_pass(run_status: Mapping[str, Any], stage_id: str) -> bool:
+    return _stage_status(run_status, stage_id).strip().lower() == "pass"
+
+
+def _needs_mature_route_continuity_gate(run_status: Mapping[str, Any]) -> bool:
+    return all(
+        _run_stage_is_pass(run_status, stage_id)
+        for stage_id in ("co2_open_flow", "h2o_open_flow", "candidate_review")
+    )
+
+
+def _mature_route_continuity_gate(
+    path: Path | None,
+    payload: Mapping[str, Any],
+) -> FormalRunGate:
+    manifest = _manifest_payload(payload)
+    source_status = _source_status(manifest)
+    blocker_count = int(manifest.get("blocker_count") or 0)
+    review_required_count = int(manifest.get("review_required_count") or 0)
+    fit_eligible = manifest.get("continuous_route_run_fit_eligible") is True
+    no_write_boundary = (
+        manifest.get("opens_com_ports") is False
+        and manifest.get("connects_postgresql") is False
+        and manifest.get("controls_pressure") is False
+        and manifest.get("controls_water_or_gas_routes") is False
+        and manifest.get("writes_coefficients") is False
+        and manifest.get("writes_sn_or_device_code") is False
+        and manifest.get("formal_release_allowed") is False
+        and manifest.get("database_import_allowed") is False
+        and manifest.get("not_real_acceptance_evidence") is True
+    )
+    route_kind = str(manifest.get("route_kind") or "co2/h2o").upper()
+    if not payload:
+        status = REVIEW_REQUIRED
+        reason = "mature route continuity gate missing after CO2/H2O/candidate evidence reached pass"
+    elif not no_write_boundary:
+        status = BLOCKED
+        reason = "mature route continuity gate sidecar boundary is not clean"
+    elif source_status == "pass" and blocker_count == 0 and review_required_count == 0 and fit_eligible:
+        status = READY
+        reason = f"{route_kind} mature route continuity gate passed and fit eligibility is explicit"
+    elif blocker_count or source_status == "blocked":
+        status = BLOCKED
+        reason = (
+            f"{route_kind} mature route continuity blockers remain: "
+            f"source_status={source_status or 'missing'}, blocker_count={blocker_count}"
+        )
+    else:
+        status = REVIEW_REQUIRED
+        reason = (
+            f"{route_kind} mature route continuity requires review: "
+            f"source_status={source_status or 'missing'}, review_required_count={review_required_count}, "
+            f"fit_eligible={fit_eligible}"
+        )
+    return _gate(
+        gate_id="mature_route_continuity_gate",
+        title="Mature route continuity gate",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action=(
+            "Attach a passing mature route continuity gate before using CO2/H2O route evidence for "
+            "formal fit-input review, coefficient writes, archive release, or database import."
+        ),
+        physical_meaning=(
+            "Only a fresh, complete, continuous 0613/0620/0621 mature route manifest may feed formal "
+            "fitting. Segmented, retry, direct-recovery, 0624/migration, diagnostic, worker, empty, "
+            "running, or failed evidence remains diagnostic/recovery evidence."
+        ),
+        release_gate=True,
+        blocks_physical_flow=False,
+    )
+
+
 def _formal_initialization_controlled_executor_design_gate(
     path: Path,
     payload: Mapping[str, Any],
@@ -1779,6 +1854,7 @@ def build_v1_5_formal_run_status(
     formal_readonly_com_minimal_executor_stub_json: str | Path | None = None,
     formal_readonly_com_minimal_executor_json: str | Path | None = None,
     route_physical_recovery_readiness_json: str | Path | None = None,
+    mature_route_continuity_gate_json: str | Path | None = None,
     pressure_s9_readiness_index_json: str | Path | None = None,
     pre_gas_readiness_json: str | Path | None = None,
     getco_readiness_json: str | Path | None = None,
@@ -1862,6 +1938,11 @@ def build_v1_5_formal_run_status(
         root,
         route_physical_recovery_readiness_json,
         "v1_5_route_physical_recovery_readiness.json",
+    )
+    mature_route_continuity_gate_path = _explicit_or_latest(
+        root,
+        mature_route_continuity_gate_json,
+        "v1_5_mature_route_continuity_gate.json",
     )
     pressure_s9_readiness_index_path = _explicit_or_latest(
         root,
@@ -1950,6 +2031,7 @@ def build_v1_5_formal_run_status(
         formal_readonly_com_minimal_executor_path
     )
     route_physical_recovery_payload = _load_json(route_physical_recovery_path)
+    mature_route_continuity_gate_payload = _load_json(mature_route_continuity_gate_path)
     pressure_s9_readiness_index_payload = _load_json(pressure_s9_readiness_index_path)
     pre_gas_payload = _load_json(pre_gas_path)
     getco_payload = _load_json(getco_path)
@@ -2090,6 +2172,13 @@ def build_v1_5_formal_run_status(
             _route_physical_recovery_gate(
                 route_physical_recovery_path,
                 route_physical_recovery_payload,
+            )
+        )
+    if mature_route_continuity_gate_path or _needs_mature_route_continuity_gate(run_payload):
+        gates.append(
+            _mature_route_continuity_gate(
+                mature_route_continuity_gate_path,
+                mature_route_continuity_gate_payload,
             )
         )
     gates.extend(
@@ -2362,6 +2451,9 @@ def build_v1_5_formal_run_status(
             else "",
             "route_physical_recovery_readiness_json": str(route_physical_recovery_path)
             if route_physical_recovery_path
+            else "",
+            "mature_route_continuity_gate_json": str(mature_route_continuity_gate_path)
+            if mature_route_continuity_gate_path
             else "",
             "pressure_s9_readiness_index_json": str(pressure_s9_readiness_index_path)
             if pressure_s9_readiness_index_path
