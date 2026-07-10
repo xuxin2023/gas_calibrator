@@ -28,7 +28,7 @@ def _read_csv(path):
         return list(csv.DictReader(handle))
 
 
-def _precheck_dir(tmp_path):
+def _precheck_dir(tmp_path, candidate_path):
     root = tmp_path / "main_senco_precheck"
     root.mkdir(exist_ok=True)
     _write_csv(
@@ -68,6 +68,7 @@ def _precheck_dir(tmp_path):
         "precheck_summary": root / "main_senco_write_precheck_summary.csv",
         "precheck_checks": root / "candidate_write_review_checks.csv",
         "precheck_co2_mapping": mapping_path,
+        "co2_senco5_candidate_coefficients": candidate_path,
     }
     for role in (
         "co2_fit_input_quality_summary",
@@ -200,7 +201,7 @@ def test_senco5_linear_writer_writes_decimal_payload_and_readback(monkeypatch, t
     out = tmp_path / "out"
     _write_json(cfg, _config(tmp_path))
     _candidates(candidates)
-    precheck = _precheck_dir(tmp_path)
+    precheck = _precheck_dir(tmp_path, candidates)
 
     rc = writer.main(
         [
@@ -250,6 +251,44 @@ def test_senco5_linear_writer_writes_decimal_payload_and_readback(monkeypatch, t
     assert int(meta["artifact_hash_count"]) >= 8
 
 
+def test_senco5_linear_writer_refuses_replaced_candidate_before_open(monkeypatch, tmp_path):
+    _FakeGasAnalyzer.instances = {}
+    monkeypatch.setattr(writer, "GasAnalyzer", _FakeGasAnalyzer)
+    cfg = tmp_path / "cfg.json"
+    candidates = tmp_path / "candidates.csv"
+    _write_json(cfg, _config(tmp_path))
+    _candidates(candidates)
+    precheck = _precheck_dir(tmp_path, candidates)
+    rows = _read_csv(candidates)
+    rows[0]["C0"] = "999.0"
+    _write_csv(candidates, rows)
+
+    rc = writer.main(
+        [
+            "--config",
+            str(cfg),
+            "--candidate-coefficients-csv",
+            str(candidates),
+            "--main-senco-precheck-dir",
+            str(precheck),
+            "--output-dir",
+            str(tmp_path / "out_replaced"),
+            "--device-id",
+            "022",
+            "--enable-senco5-write",
+            "--operator-confirmation",
+            writer.CONFIRMATION_TEXT,
+            "--reviewer",
+            "reviewer-a",
+            "--approver",
+            "approver-b",
+        ]
+    )
+
+    assert rc == 2
+    assert _FakeGasAnalyzer.instances == {}
+
+
 def test_senco5_linear_writer_rejects_more_than_three_decimals():
     with pytest.raises(ValueError, match="at most 3 decimal"):
         writer._format_c0("-0.1234", decimals=4)
@@ -269,7 +308,7 @@ def test_senco5_linear_writer_accepts_missing_ack_when_readback_matches(monkeypa
     out = tmp_path / "out"
     _write_json(cfg, _config(tmp_path))
     _candidates(candidates)
-    precheck = _precheck_dir(tmp_path)
+    precheck = _precheck_dir(tmp_path, candidates)
 
     rc = writer.main(
         [

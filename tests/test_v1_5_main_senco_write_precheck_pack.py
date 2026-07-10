@@ -224,6 +224,10 @@ def _snapshot_path(tmp_path):
 
 def test_precheck_pack_generates_component_specific_main_commands(tmp_path):
     out = tmp_path / "out"
+    co2_senco5_candidate = tmp_path / "co2_senco5_candidates.csv"
+    h2o_senco6_candidate = tmp_path / "h2o_senco6_candidates.csv"
+    co2_senco5_candidate.write_text("device_id,C0,C1\n091,0,1\n", encoding="utf-8")
+    h2o_senco6_candidate.write_text("device_id,C0,C1\n091,0,1\n", encoding="utf-8")
 
     paths = build_precheck_pack(
         co2_model_selection_dir=_model_selection_dir(tmp_path, "co2"),
@@ -233,6 +237,8 @@ def test_precheck_pack_generates_component_specific_main_commands(tmp_path):
         output_dir=out,
         plan_path=_plan_path(tmp_path),
         old_coefficients_path=_snapshot_path(tmp_path),
+        co2_senco5_candidate_path=co2_senco5_candidate,
+        h2o_senco6_candidate_path=h2o_senco6_candidate,
         include_devices=("091",),
     )
 
@@ -283,6 +289,8 @@ def test_precheck_pack_generates_component_specific_main_commands(tmp_path):
         "precheck_h2o_payload",
         "precheck_h2o_policy",
         "precheck_h2o_diagnostics",
+        "co2_senco5_candidate_coefficients",
+        "h2o_senco6_candidate_coefficients",
     } <= roles
     meta = json.loads(paths["meta"].read_text(encoding="utf-8"))
     assert meta["artifact_hash_manifest_required"] is True

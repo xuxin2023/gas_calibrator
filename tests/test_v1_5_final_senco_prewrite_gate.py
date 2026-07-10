@@ -147,3 +147,19 @@ def test_final_senco_prewrite_gate_rejects_same_path_content_replacement(tmp_pat
 
     assert ok is False
     assert "artifact_hash_manifest_sha256_mismatch:co2_model_selection_summary" in reasons
+
+
+def test_final_senco_prewrite_gate_requires_writer_specific_candidate_binding(tmp_path):
+    root = _pack(tmp_path)
+    candidate = root / "senco5_candidates.csv"
+    candidate.write_text("device_id,C0,C1\n091,0,1\n", encoding="utf-8")
+
+    ok, reasons, _ = validate_final_senco_prewrite_gate(
+        root,
+        component="co2",
+        device_ids=["091"],
+        required_artifact_paths={"co2_senco5_candidate_coefficients": candidate},
+    )
+
+    assert ok is False
+    assert "artifact_hash_manifest_required_role_missing:co2_senco5_candidate_coefficients" in reasons

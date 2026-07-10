@@ -413,6 +413,8 @@ def build_precheck_pack(
     output_dir: Path,
     plan_path: Optional[Path] = None,
     old_coefficients_path: Optional[Path] = None,
+    co2_senco5_candidate_path: Optional[Path] = None,
+    h2o_senco6_candidate_path: Optional[Path] = None,
     include_devices: Sequence[str] = DEFAULT_INCLUDE_DEVICES,
     max_relative_error_pct: float = DEFAULT_RELATIVE_LIMIT_PCT,
 ) -> Dict[str, Path]:
@@ -877,6 +879,10 @@ def build_precheck_pack(
         hash_artifacts["runtime_plan"] = plan_path
     if old_coefficients_path:
         hash_artifacts["old_coefficients_snapshot"] = old_coefficients_path
+    if co2_senco5_candidate_path:
+        hash_artifacts["co2_senco5_candidate_coefficients"] = co2_senco5_candidate_path
+    if h2o_senco6_candidate_path:
+        hash_artifacts["h2o_senco6_candidate_coefficients"] = h2o_senco6_candidate_path
     write_artifact_hash_manifest(paths["hash_manifest"], artifacts=hash_artifacts)
 
     meta = {
@@ -911,6 +917,8 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--plan-json", default=None)
     parser.add_argument("--old-coefficients-json", default=None)
+    parser.add_argument("--co2-senco5-candidate-coefficients-csv", default=None)
+    parser.add_argument("--h2o-senco6-candidate-coefficients-csv", default=None)
     parser.add_argument("--include-device-id", action="append", default=None)
     parser.add_argument("--max-relative-error-pct", type=float, default=DEFAULT_RELATIVE_LIMIT_PCT)
     return parser.parse_args(list(argv) if argv is not None else None)
@@ -927,6 +935,16 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             output_dir=Path(args.output_dir),
             plan_path=Path(args.plan_json) if args.plan_json else None,
             old_coefficients_path=Path(args.old_coefficients_json) if args.old_coefficients_json else None,
+            co2_senco5_candidate_path=(
+                Path(args.co2_senco5_candidate_coefficients_csv)
+                if args.co2_senco5_candidate_coefficients_csv
+                else None
+            ),
+            h2o_senco6_candidate_path=(
+                Path(args.h2o_senco6_candidate_coefficients_csv)
+                if args.h2o_senco6_candidate_coefficients_csv
+                else None
+            ),
             include_devices=tuple(args.include_device_id or DEFAULT_INCLUDE_DEVICES),
             max_relative_error_pct=float(args.max_relative_error_pct),
         )

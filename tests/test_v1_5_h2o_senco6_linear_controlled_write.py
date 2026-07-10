@@ -28,7 +28,7 @@ def _read_csv(path):
         return list(csv.DictReader(handle))
 
 
-def _precheck_dir(tmp_path):
+def _precheck_dir(tmp_path, candidate_path):
     root = tmp_path / "main_senco_precheck"
     root.mkdir(exist_ok=True)
     _write_csv(
@@ -73,6 +73,7 @@ def _precheck_dir(tmp_path):
         "precheck_h2o_payload": h2o_payload,
         "precheck_h2o_policy": h2o_policy,
         "precheck_h2o_diagnostics": h2o_diagnostics,
+        "h2o_senco6_candidate_coefficients": candidate_path,
     }
     for role in (
         "h2o_fit_input_quality_summary",
@@ -207,7 +208,7 @@ def test_senco6_linear_writer_writes_decimal_payload_and_readback(monkeypatch, t
     out = tmp_path / "out"
     _write_json(cfg, _config(tmp_path))
     _candidates(candidates)
-    precheck = _precheck_dir(tmp_path)
+    precheck = _precheck_dir(tmp_path, candidates)
 
     rc = writer.main(
         [
@@ -254,6 +255,44 @@ def test_senco6_linear_writer_writes_decimal_payload_and_readback(monkeypatch, t
     assert int(meta["artifact_hash_count"]) >= 10
 
 
+def test_senco6_linear_writer_refuses_replaced_candidate_before_open(monkeypatch, tmp_path):
+    _FakeGasAnalyzer.instances = {}
+    monkeypatch.setattr(writer, "GasAnalyzer", _FakeGasAnalyzer)
+    cfg = tmp_path / "cfg.json"
+    candidates = tmp_path / "candidates.csv"
+    _write_json(cfg, _config(tmp_path))
+    _candidates(candidates)
+    precheck = _precheck_dir(tmp_path, candidates)
+    rows = _read_csv(candidates)
+    rows[0]["C0"] = "999.0"
+    _write_csv(candidates, rows)
+
+    rc = writer.main(
+        [
+            "--config",
+            str(cfg),
+            "--candidate-coefficients-csv",
+            str(candidates),
+            "--main-senco-precheck-dir",
+            str(precheck),
+            "--output-dir",
+            str(tmp_path / "out_replaced"),
+            "--device-id",
+            "022",
+            "--enable-senco6-write",
+            "--operator-confirmation",
+            writer.CONFIRMATION_TEXT,
+            "--reviewer",
+            "reviewer-a",
+            "--approver",
+            "approver-b",
+        ]
+    )
+
+    assert rc == 2
+    assert _FakeGasAnalyzer.instances == {}
+
+
 def test_senco6_linear_writer_keeps_fractional_leading_zero_for_firmware_parser():
     assert writer._format_c0("-0.390", decimals=3) == "-0.390"
     assert writer._format_c1("0.947", decimals=3) == "0.947"
@@ -280,7 +319,7 @@ def test_senco6_linear_writer_accepts_missing_ack_when_readback_matches(monkeypa
     out = tmp_path / "out"
     _write_json(cfg, _config(tmp_path))
     _candidates(candidates)
-    precheck = _precheck_dir(tmp_path)
+    precheck = _precheck_dir(tmp_path, candidates)
 
     rc = writer.main(
         [

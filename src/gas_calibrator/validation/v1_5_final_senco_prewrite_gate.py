@@ -36,6 +36,7 @@ def validate_final_senco_prewrite_gate(
     *,
     component: str,
     device_ids: Sequence[str],
+    required_artifact_paths: Mapping[str, str | Path] | None = None,
 ) -> Tuple[bool, List[str], Mapping[str, Any]]:
     component_key = str(component or "").strip().lower()
     reasons: List[str] = []
@@ -150,6 +151,13 @@ def validate_final_senco_prewrite_gate(
                 "precheck_h2o_diagnostics": root / "h2o_senco24_output_diagnostics.csv",
             }
         )
+    for role, source in (required_artifact_paths or {}).items():
+        normalized_role = str(role).strip()
+        if not normalized_role:
+            reasons.append("artifact_hash_required_role_name_missing")
+            continue
+        required_hash_roles.append(normalized_role)
+        expected_hash_paths[normalized_role] = Path(source).resolve()
     hash_ok, hash_reasons, hash_detail = validate_artifact_hash_manifest(
         hash_manifest_path,
         required_roles=required_hash_roles,

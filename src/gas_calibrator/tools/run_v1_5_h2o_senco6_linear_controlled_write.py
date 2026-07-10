@@ -272,6 +272,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         args.main_senco_precheck_dir,
         component="h2o",
         device_ids=[base._device_id(row.get("device_id")) for row in candidates],
+        required_artifact_paths={"h2o_senco6_candidate_coefficients": candidate_path},
     )
     if not prewrite_ok:
         print(
