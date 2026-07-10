@@ -506,6 +506,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         review_dir,
         component="co2",
         device_ids=[base._device_id(row.get("analyzer_device_id")) for row in targets],
+        reviewer=args.reviewer,
+        approver=args.approver,
+        writer_scope="co2_senco13_pair",
     )
     if not prewrite_ok:
         base._log(
@@ -735,6 +738,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             "writes_senco3": True,
             "artifact_hash_status": str(prewrite_detail.get("artifact_hash_status") or "blocked"),
             "artifact_hash_count": int(prewrite_detail.get("artifact_hash_count") or 0),
+            "artifact_authorization_status": str(prewrite_detail.get("artifact_authorization_status") or "blocked"),
+            "artifact_authorization_id": str(prewrite_detail.get("artifact_authorization_id") or ""),
             "clears_senco": False,
         }
     ]
@@ -747,6 +752,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             str(mapping_path),
             str(prewrite_detail.get("meta_path") or ""),
             str(prewrite_detail.get("hash_manifest_path") or ""),
+            str(prewrite_detail.get("artifact_authorization_path") or ""),
         ],
         output_dir=str(destination),
         config_path=str(cfg_path),
@@ -762,6 +768,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             "fit_input_traceability_status": str(prewrite_detail.get("fit_input_traceability_status") or "blocked"),
             "artifact_hash_status": str(prewrite_detail.get("artifact_hash_status") or "blocked"),
             "artifact_hash_count": int(prewrite_detail.get("artifact_hash_count") or 0),
+            "artifact_authorization_status": str(prewrite_detail.get("artifact_authorization_status") or "blocked"),
+            "artifact_authorization_id": str(prewrite_detail.get("artifact_authorization_id") or ""),
             "clears_senco": False,
             "pre_device_cooldown_s": float(args.pre_device_cooldown_s),
             "inter_device_delay_s": float(args.inter_device_delay_s),

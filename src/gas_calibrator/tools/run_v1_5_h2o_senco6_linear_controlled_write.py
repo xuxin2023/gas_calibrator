@@ -272,6 +272,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         args.main_senco_precheck_dir,
         component="h2o",
         device_ids=[base._device_id(row.get("device_id")) for row in candidates],
+        reviewer=args.reviewer,
+        approver=args.approver,
+        writer_scope="h2o_senco6_linear",
         required_artifact_paths={"h2o_senco6_candidate_coefficients": candidate_path},
     )
     if not prewrite_ok:
@@ -484,6 +487,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 "artifact_hash_manifest_path": str(prewrite_detail.get("hash_manifest_path") or ""),
                 "artifact_hash_status": str(prewrite_detail.get("artifact_hash_status") or "blocked"),
                 "artifact_hash_count": int(prewrite_detail.get("artifact_hash_count") or 0),
+                "artifact_authorization_status": str(prewrite_detail.get("artifact_authorization_status") or "blocked"),
+                "artifact_authorization_id": str(prewrite_detail.get("artifact_authorization_id") or ""),
                 "confirmation_text": CONFIRMATION_TEXT,
                 "reviewer": args.reviewer,
                 "approver": args.approver,
@@ -513,6 +518,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             str(candidate_path),
             str(prewrite_detail.get("meta_path") or ""),
             str(prewrite_detail.get("hash_manifest_path") or ""),
+            str(prewrite_detail.get("artifact_authorization_path") or ""),
         ],
         output_dir=str(output_dir),
         config_path=str(cfg_path),

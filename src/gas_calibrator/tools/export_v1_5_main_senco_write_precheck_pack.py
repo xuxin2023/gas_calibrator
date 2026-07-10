@@ -18,6 +18,10 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from ..validation.v1_5_artifact_hash_binding import write_artifact_hash_manifest
+from ..validation.v1_5_senco_artifact_authorization import (
+    SCHEMA as ARTIFACT_AUTHORIZATION_SCHEMA,
+    write_senco_artifact_authorization,
+)
 
 from ..senco_format import format_senco_values
 
@@ -415,6 +419,11 @@ def build_precheck_pack(
     old_coefficients_path: Optional[Path] = None,
     co2_senco5_candidate_path: Optional[Path] = None,
     h2o_senco6_candidate_path: Optional[Path] = None,
+    artifact_reviewer: str = "",
+    artifact_approver: str = "",
+    artifact_authorization_id: str = "",
+    authorized_writer_scopes: Sequence[str] = (),
+    authorized_device_ids: Sequence[str] = (),
     include_devices: Sequence[str] = DEFAULT_INCLUDE_DEVICES,
     max_relative_error_pct: float = DEFAULT_RELATIVE_LIMIT_PCT,
 ) -> Dict[str, Path]:
@@ -761,6 +770,7 @@ def build_precheck_pack(
         "h2o_diagnostics": output_dir / "h2o_senco24_output_diagnostics.csv",
         "report": output_dir / "main_senco_write_precheck_pack_zh.md",
         "hash_manifest": output_dir / "main_senco_artifact_hash_manifest.json",
+        "artifact_authorization": output_dir / "main_senco_artifact_authorization.json",
         "meta": output_dir / "main_senco_write_precheck_meta.json",
     }
     _write_csv(paths["summary"], summary_rows)
@@ -884,6 +894,32 @@ def build_precheck_pack(
     if h2o_senco6_candidate_path:
         hash_artifacts["h2o_senco6_candidate_coefficients"] = h2o_senco6_candidate_path
     write_artifact_hash_manifest(paths["hash_manifest"], artifacts=hash_artifacts)
+    write_senco_artifact_authorization(
+        paths["artifact_authorization"],
+        manifest_path=paths["hash_manifest"],
+        reviewer=artifact_reviewer,
+        approver=artifact_approver,
+        authorization_id=artifact_authorization_id,
+        authorized_writer_scopes=authorized_writer_scopes,
+        authorized_device_ids=authorized_device_ids,
+    )
+    artifact_authorization = json.loads(paths["artifact_authorization"].read_text(encoding="utf-8"))
+    with paths["report"].open("a", encoding="utf-8") as handle:
+        handle.write("\n## 工件授权绑定\n\n")
+        handle.write(f"- 状态：`{artifact_authorization.get('overall_status')}`\n")
+        handle.write(f"- 授权编号：`{artifact_authorization.get('authorization_id')}`\n")
+        handle.write(f"- 审核人：`{artifact_authorization.get('reviewer')}`\n")
+        handle.write(f"- 批准人：`{artifact_authorization.get('approver')}`\n")
+        handle.write(
+            "- 授权 writer scope：`"
+            + ",".join(artifact_authorization.get("authorized_writer_scopes") or ())
+            + "`\n"
+        )
+        handle.write(
+            "- 授权设备 ID：`"
+            + ",".join(artifact_authorization.get("authorized_device_ids") or ())
+            + "`\n"
+        )
 
     meta = {
         "generated_at": _now(),
@@ -902,6 +938,13 @@ def build_precheck_pack(
         "artifact_hash_manifest_required": True,
         "artifact_hash_manifest_path": str(paths["hash_manifest"].resolve()),
         "artifact_hash_algorithm": "sha256",
+        "artifact_authorization_required": True,
+        "artifact_authorization_path": str(paths["artifact_authorization"].resolve()),
+        "artifact_authorization_schema": ARTIFACT_AUTHORIZATION_SCHEMA,
+        "artifact_authorization_status": artifact_authorization.get("overall_status", "blocked"),
+        "artifact_authorization_id": artifact_authorization.get("authorization_id", ""),
+        "artifact_authorized_writer_scopes": artifact_authorization.get("authorized_writer_scopes", []),
+        "artifact_authorized_device_ids": artifact_authorization.get("authorized_device_ids", []),
         "outputs": {key: str(value) for key, value in paths.items()},
     }
     paths["meta"].write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -919,6 +962,11 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--old-coefficients-json", default=None)
     parser.add_argument("--co2-senco5-candidate-coefficients-csv", default=None)
     parser.add_argument("--h2o-senco6-candidate-coefficients-csv", default=None)
+    parser.add_argument("--artifact-reviewer", default="")
+    parser.add_argument("--artifact-approver", default="")
+    parser.add_argument("--artifact-authorization-id", default="")
+    parser.add_argument("--authorized-writer-scope", action="append", default=None)
+    parser.add_argument("--authorized-device-id", action="append", default=None)
     parser.add_argument("--include-device-id", action="append", default=None)
     parser.add_argument("--max-relative-error-pct", type=float, default=DEFAULT_RELATIVE_LIMIT_PCT)
     return parser.parse_args(list(argv) if argv is not None else None)
@@ -945,6 +993,11 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 if args.h2o_senco6_candidate_coefficients_csv
                 else None
             ),
+            artifact_reviewer=args.artifact_reviewer,
+            artifact_approver=args.artifact_approver,
+            artifact_authorization_id=args.artifact_authorization_id,
+            authorized_writer_scopes=tuple(args.authorized_writer_scope or ()),
+            authorized_device_ids=tuple(args.authorized_device_id or ()),
             include_devices=tuple(args.include_device_id or DEFAULT_INCLUDE_DEVICES),
             max_relative_error_pct=float(args.max_relative_error_pct),
         )
