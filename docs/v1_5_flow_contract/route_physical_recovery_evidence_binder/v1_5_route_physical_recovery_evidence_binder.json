@@ -1,0 +1,107 @@
+{
+  "schema": "v1_5_route_physical_recovery_evidence_binder_v1",
+  "generated_at": "2026-07-10T03:19:33Z",
+  "manifest": {
+    "status": "packet_ready_for_validator",
+    "blocker_count": 0,
+    "packet_validator_required": true,
+    "ready_for_validator": true,
+    "dewpoint_trace_path": "docs\\v1_5_flow_contract\\route_physical_recovery_evidence_binder\\sample_inputs\\dry_gas_dewpoint_trace.csv",
+    "pace_vent_trace_path": "docs\\v1_5_flow_contract\\route_physical_recovery_evidence_binder\\sample_inputs\\pace_vent_roundtrip.csv",
+    "pressure_gauge_trace_path": "docs\\v1_5_flow_contract\\route_physical_recovery_evidence_binder\\sample_inputs\\com22_inl_readback.csv",
+    "opens_com_ports": false,
+    "controls_pressure": false,
+    "controls_water_or_gas_routes": false,
+    "connects_postgresql": false,
+    "writes_coefficients": false,
+    "writes_sn_or_device_code": false,
+    "formal_release_allowed": false,
+    "database_import_allowed": false,
+    "not_real_acceptance_evidence": true
+  },
+  "findings": [
+    {
+      "severity": "info",
+      "requirement": "dry_gas_dewpoint_recovery",
+      "status": "pass",
+      "reason": "Dry-gas dewpoint tail worst value is -29.9 C with stable span/slope.",
+      "required_action": "Feed this packet to the route physical recovery packet validator."
+    },
+    {
+      "severity": "info",
+      "requirement": "pace_vent_recovery",
+      "status": "pass",
+      "reason": "PACE vent trace proves ON/OFF roundtrip with no NO_RESPONSE.",
+      "required_action": "Feed this packet to the route physical recovery packet validator."
+    },
+    {
+      "severity": "info",
+      "requirement": "pressure_gauge_recovery",
+      "status": "pass",
+      "reason": "Pressure gauge trace proves INL absolute-pressure readback with valid numeric samples and no NO_RESPONSE.",
+      "required_action": "Feed this packet to the route physical recovery packet validator."
+    }
+  ],
+  "recovery_evidence_packet": {
+    "schema": "v1_5_route_physical_recovery_evidence_packet_v1",
+    "dry_gas_dewpoint_recovery": {
+      "status": "pass",
+      "dewpoint_c": -29.9,
+      "dry_enough_threshold_c": -28.0,
+      "tail_span_c": 0.40000000000000213,
+      "max_tail_span_c": 0.5,
+      "tail_slope_abs_c_per_s": 0.003333333333333351,
+      "max_tail_slope_abs_c_per_s": 0.01,
+      "route_or_dryer_checked": true,
+      "evidence": {
+        "dewpoint_trace": "docs\\v1_5_flow_contract\\route_physical_recovery_evidence_binder\\sample_inputs\\dry_gas_dewpoint_trace.csv",
+        "route_or_dryer_check": "docs\\v1_5_flow_contract\\route_physical_recovery_evidence_binder\\sample_inputs\\route_or_dryer_check.json",
+        "operator_note": ""
+      }
+    },
+    "pace_vent_recovery": {
+      "status": "pass",
+      "vent_on_off_roundtrip_pass": true,
+      "no_response_absent": true,
+      "evidence": {
+        "pace_vent_roundtrip_trace": "docs\\v1_5_flow_contract\\route_physical_recovery_evidence_binder\\sample_inputs\\pace_vent_roundtrip.csv",
+        "operator_note": ""
+      }
+    },
+    "pressure_gauge_recovery": {
+      "status": "pass",
+      "readback_status": "pass",
+      "absolute_pressure_source": "inl",
+      "no_response_absent": true,
+      "sample_count": 2,
+      "min_pressure_hpa": 1000.5,
+      "max_pressure_hpa": 1000.6,
+      "evidence": {
+        "pressure_gauge_inl_trace": "docs\\v1_5_flow_contract\\route_physical_recovery_evidence_binder\\sample_inputs\\com22_inl_readback.csv",
+        "operator_note": ""
+      }
+    },
+    "accepted_manifest_review": {
+      "status": "pass",
+      "accepted_manifest_path": "docs\\v1_5_flow_contract\\route_physical_recovery_evidence_binder\\sample_inputs\\accepted_manifest.csv",
+      "supersedence_review_id": "sample_review_only_20260710"
+    },
+    "next_run_policy": {
+      "fresh_canonical_queue": true,
+      "mature_physical_baseline": "0613/0620/0621",
+      "forbidden_surfaces_absent": true,
+      "co2_entrypoint": "src/gas_calibrator/tools/run_v1_5_formal_co2_open_flow_queue.py",
+      "h2o_entrypoint": "src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_queue.py",
+      "note": "Open the next continuous run from mature queue entrypoints only; forbidden surfaces have been reviewed absent."
+    },
+    "opens_com_ports": false,
+    "controls_pressure": false,
+    "controls_water_or_gas_routes": false,
+    "connects_postgresql": false,
+    "writes_coefficients": false,
+    "writes_sn_or_device_code": false,
+    "formal_release_allowed": false,
+    "database_import_allowed": false,
+    "not_real_acceptance_evidence": true
+  }
+}

@@ -400,6 +400,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline V1.5 route physical recovery evidence packet validator; checks dry-gas, PACE vent, pressure INL, fresh queue, and no-write boundaries before recovery readiness")
     elif lower == "export_v1_5_route_physical_recovery_evidence_packet_template":
         notes.append("offline V1.5 route physical recovery evidence packet template; prepares dry-gas, PACE vent, pressure INL, and fresh queue evidence fields without collecting live data")
+    elif lower == "export_v1_5_route_physical_recovery_evidence_binder":
+        notes.append("offline V1.5 route physical recovery evidence binder; converts reviewed trace files into a recovery packet without collecting live data")
     elif "formal_evidence_sidecar" in lower or "formal_offline_review_chain" in lower:
         notes.append("offline review/evidence sidecar; no COM or route control")
     elif "diagnostic" in lower or "probe" in lower or "tune" in lower:
@@ -531,6 +533,7 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             "export_v1_5_production_entrypoint_gate",
             "export_v1_5_route_physical_recovery_evidence_packet",
             "export_v1_5_route_physical_recovery_evidence_packet_template",
+            "export_v1_5_route_physical_recovery_evidence_binder",
         }:
             category = "formal_review_evidence"
             formal_status = "formal_support"

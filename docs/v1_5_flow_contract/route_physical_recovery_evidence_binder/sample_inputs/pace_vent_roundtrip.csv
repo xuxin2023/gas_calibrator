@@ -1,0 +1,3 @@
+elapsed_s,command,response,vent_state
+0,VENT 1,OK,on
+2,VENT 0,OK,off
