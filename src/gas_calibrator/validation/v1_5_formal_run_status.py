@@ -250,6 +250,66 @@ def _pre_gas_gate(path: Path | None, payload: Mapping[str, Any]) -> FormalRunGat
     )
 
 
+def _pressure_s9_readiness_index_gate(path: Path | None, payload: Mapping[str, Any]) -> FormalRunGate:
+    source_status = _source_status(payload)
+    boundary_ok = (
+        payload.get("opens_com_ports") is False
+        and payload.get("read_only_real_com_execution_allowed") is False
+        and payload.get("controls_pressure") is False
+        and payload.get("controls_water_or_gas_routes") is False
+        and payload.get("connects_postgresql") is False
+        and payload.get("writes_sn") is False
+        and payload.get("writes_device_id") is False
+        and payload.get("writes_coefficients") is False
+        and payload.get("writes_senco9") is False
+        and payload.get("formal_release_allowed") is False
+        and payload.get("database_import_allowed") is False
+        and payload.get("database_written") is False
+        and payload.get("not_real_acceptance_evidence") is True
+    )
+    ready = (
+        payload.get("ready_for_mature_open_flow_pressure_s9_index") is True
+        and source_status == "ready_for_mature_open_flow_pressure_s9_index"
+    )
+    if not payload:
+        status = MISSING
+        reason = "pressure/S9 readiness index sidecar missing"
+    elif not boundary_ok:
+        status = BLOCKED
+        reason = "pressure/S9 readiness index boundary is not clean"
+    elif ready:
+        status = READY
+        reason = "pressure/S9 readiness index is ready for mature open-flow"
+    elif "blocked" in source_status:
+        status = BLOCKED
+        reason = f"source_status={source_status}"
+    else:
+        status = REVIEW_REQUIRED
+        review_reasons = payload.get("review_reasons")
+        if isinstance(review_reasons, list) and review_reasons:
+            reason = "; ".join(str(item) for item in review_reasons[:3])
+        else:
+            reason = f"source_status={source_status or 'unknown'}"
+    return _gate(
+        gate_id="pressure_senco9_pre_open_flow",
+        title="Pressure/SENCO9 pre-open-flow check",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action=(
+            "Complete the pressure/S9 readiness index with per-device no-write fit basis, "
+            "SENCO9 readback, and post-write pressure-only reverify before gas flow."
+        ),
+        physical_meaning=(
+            "Pressure P must be traceable before CO2/H2O fitting so gas coefficients do not "
+            "absorb pressure bias. The index separates default offset-only S9 from explicit "
+            "linear-S9 controlled exceptions."
+        ),
+        blocks_physical_flow=status in {MISSING, REVIEW_REQUIRED, BLOCKED},
+    )
+
+
 def _route_physical_recovery_gate(path: Path, payload: Mapping[str, Any]) -> FormalRunGate:
     manifest = _manifest_payload(payload)
     source_status = _source_status(manifest)
@@ -1719,6 +1779,7 @@ def build_v1_5_formal_run_status(
     formal_readonly_com_minimal_executor_stub_json: str | Path | None = None,
     formal_readonly_com_minimal_executor_json: str | Path | None = None,
     route_physical_recovery_readiness_json: str | Path | None = None,
+    pressure_s9_readiness_index_json: str | Path | None = None,
     pre_gas_readiness_json: str | Path | None = None,
     getco_readiness_json: str | Path | None = None,
     run_evidence_status_json: str | Path | None = None,
@@ -1802,6 +1863,11 @@ def build_v1_5_formal_run_status(
         route_physical_recovery_readiness_json,
         "v1_5_route_physical_recovery_readiness.json",
     )
+    pressure_s9_readiness_index_path = _explicit_or_latest(
+        root,
+        pressure_s9_readiness_index_json,
+        "v1_5_pressure_s9_readiness_index.json",
+    )
     pre_gas_path = _explicit_or_latest(root, pre_gas_readiness_json, "v1_5_pre_gas_readiness.json")
     getco_path = _explicit_or_latest(root, getco_readiness_json, "v1_5_getco_identity_readiness.json")
     run_status_path = _explicit_or_latest(root, run_evidence_status_json, "v1_5_run_evidence_status.json")
@@ -1884,6 +1950,7 @@ def build_v1_5_formal_run_status(
         formal_readonly_com_minimal_executor_path
     )
     route_physical_recovery_payload = _load_json(route_physical_recovery_path)
+    pressure_s9_readiness_index_payload = _load_json(pressure_s9_readiness_index_path)
     pre_gas_payload = _load_json(pre_gas_path)
     getco_payload = _load_json(getco_path)
     run_payload = _load_json(run_status_path)
@@ -2029,6 +2096,17 @@ def build_v1_5_formal_run_status(
         [
             _getco_gate(getco_path, getco_payload),
             _pre_gas_gate(pre_gas_path, pre_gas_payload),
+        ]
+    )
+    if pressure_s9_readiness_index_path:
+        gates.append(
+            _pressure_s9_readiness_index_gate(
+                pressure_s9_readiness_index_path,
+                pressure_s9_readiness_index_payload,
+            )
+        )
+    else:
+        gates.append(
             _run_stage_gate(
                 gate_id="pressure_senco9_pre_open_flow",
                 title="Pressure/SENCO9 pre-open-flow check",
@@ -2039,9 +2117,8 @@ def build_v1_5_formal_run_status(
                 next_action="Complete pressure/SENCO9 no-write review or controlled pressure write package before gas flow.",
                 physical_meaning="Pressure P must be traceable before CO2/H2O fitting so gas coefficients do not absorb pressure bias.",
                 physical_flow_gate=True,
-            ),
-        ]
-    )
+            )
+        )
     if algorithm_profile_runner_path and algorithm_profile_runner_payload:
         gates.append(
             _algorithm_profile_runner_dry_run_gate(
@@ -2285,6 +2362,9 @@ def build_v1_5_formal_run_status(
             else "",
             "route_physical_recovery_readiness_json": str(route_physical_recovery_path)
             if route_physical_recovery_path
+            else "",
+            "pressure_s9_readiness_index_json": str(pressure_s9_readiness_index_path)
+            if pressure_s9_readiness_index_path
             else "",
             "pre_gas_readiness_json": str(pre_gas_path) if pre_gas_path else "",
             "getco_readiness_json": str(getco_path) if getco_path else "",

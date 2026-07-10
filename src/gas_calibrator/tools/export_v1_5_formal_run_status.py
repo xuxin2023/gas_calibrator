@@ -86,6 +86,11 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default="",
         help="Optional explicit route physical recovery readiness JSON.",
     )
+    parser.add_argument(
+        "--pressure-s9-readiness-index-json",
+        default="",
+        help="Optional explicit pressure/SENCO9 readiness index JSON.",
+    )
     parser.add_argument("--pre-gas-readiness-json", default="", help="Optional explicit pre-gas readiness JSON.")
     parser.add_argument("--getco-readiness-json", default="", help="Optional explicit identity/GETCO readiness JSON.")
     parser.add_argument("--run-evidence-status-json", default="", help="Optional explicit run evidence status JSON.")
@@ -191,6 +196,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             route_physical_recovery_readiness_json=(
                 args.route_physical_recovery_readiness_json or None
             ),
+            pressure_s9_readiness_index_json=args.pressure_s9_readiness_index_json or None,
             pre_gas_readiness_json=args.pre_gas_readiness_json or None,
             getco_readiness_json=args.getco_readiness_json or None,
             run_evidence_status_json=args.run_evidence_status_json or None,
