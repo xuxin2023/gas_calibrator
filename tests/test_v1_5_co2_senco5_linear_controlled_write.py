@@ -4,6 +4,7 @@ import json
 import pytest
 
 from gas_calibrator.tools import run_v1_5_co2_senco5_linear_controlled_write as writer
+from gas_calibrator.validation.v1_5_artifact_hash_binding import write_artifact_hash_manifest
 
 
 def _write_json(path, payload):
@@ -56,8 +57,29 @@ def _precheck_dir(tmp_path):
             "controls_routes": False,
             "fit_input_traceability_required": True,
             "fit_input_traceability_status": "pass",
+            "artifact_hash_manifest_required": True,
+            "artifact_hash_manifest_path": str((root / "main_senco_artifact_hash_manifest.json").resolve()),
+            "artifact_hash_algorithm": "sha256",
         },
     )
+    mapping_path = root / "candidate_senco_mapping_review.csv"
+    mapping_path.write_text("component,analyzer_device_id\nco2,022\n", encoding="utf-8")
+    artifacts = {
+        "precheck_summary": root / "main_senco_write_precheck_summary.csv",
+        "precheck_checks": root / "candidate_write_review_checks.csv",
+        "precheck_co2_mapping": mapping_path,
+    }
+    for role in (
+        "co2_fit_input_quality_summary",
+        "co2_fit_input_quality_devices",
+        "co2_candidate_run_summary",
+        "co2_candidate_policy_summary",
+        "co2_model_selection_summary",
+    ):
+        source = root / f"{role}.csv"
+        source.write_text("status\npass\n", encoding="utf-8")
+        artifacts[role] = source
+    write_artifact_hash_manifest(root / "main_senco_artifact_hash_manifest.json", artifacts=artifacts)
     return root
 
 
@@ -223,6 +245,9 @@ def test_senco5_linear_writer_writes_decimal_payload_and_readback(monkeypatch, t
         "send",
         "SENCO5,YGAS,FFF,-30.339,1.003",
     ) in ga.calls
+    meta = json.loads((out / "senco5_linear_write_meta.json").read_text(encoding="utf-8"))
+    assert meta["artifact_hash_status"] == "pass"
+    assert int(meta["artifact_hash_count"]) >= 8
 
 
 def test_senco5_linear_writer_rejects_more_than_three_decimals():

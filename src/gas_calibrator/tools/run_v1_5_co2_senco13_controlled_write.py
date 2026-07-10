@@ -733,6 +733,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             "writes_device_id": False,
             "writes_senco1": True,
             "writes_senco3": True,
+            "artifact_hash_status": str(prewrite_detail.get("artifact_hash_status") or "blocked"),
+            "artifact_hash_count": int(prewrite_detail.get("artifact_hash_count") or 0),
             "clears_senco": False,
         }
     ]
@@ -740,7 +742,12 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         tool_name="run_v1_5_co2_senco13_controlled_write",
         created_at=end_ts,
         analyzers=[f"{row.get('analyzer_prefix')}:{row.get('analyzer_device_id')}" for row in summary_rows],
-        input_paths=[str(cfg_path), str(mapping_path), str(prewrite_detail.get("meta_path") or "")],
+        input_paths=[
+            str(cfg_path),
+            str(mapping_path),
+            str(prewrite_detail.get("meta_path") or ""),
+            str(prewrite_detail.get("hash_manifest_path") or ""),
+        ],
         output_dir=str(destination),
         config_path=str(cfg_path),
         config_summary={
@@ -753,6 +760,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             "writes_senco1": True,
             "writes_senco3": True,
             "fit_input_traceability_status": str(prewrite_detail.get("fit_input_traceability_status") or "blocked"),
+            "artifact_hash_status": str(prewrite_detail.get("artifact_hash_status") or "blocked"),
+            "artifact_hash_count": int(prewrite_detail.get("artifact_hash_count") or 0),
             "clears_senco": False,
             "pre_device_cooldown_s": float(args.pre_device_cooldown_s),
             "inter_device_delay_s": float(args.inter_device_delay_s),

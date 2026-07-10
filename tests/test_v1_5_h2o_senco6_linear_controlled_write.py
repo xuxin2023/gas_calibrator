@@ -4,6 +4,7 @@ import json
 import pytest
 
 from gas_calibrator.tools import run_v1_5_h2o_senco6_linear_controlled_write as writer
+from gas_calibrator.validation.v1_5_artifact_hash_binding import write_artifact_hash_manifest
 
 
 def _write_json(path, payload):
@@ -56,8 +57,34 @@ def _precheck_dir(tmp_path):
             "controls_routes": False,
             "fit_input_traceability_required": True,
             "fit_input_traceability_status": "pass",
+            "artifact_hash_manifest_required": True,
+            "artifact_hash_manifest_path": str((root / "main_senco_artifact_hash_manifest.json").resolve()),
+            "artifact_hash_algorithm": "sha256",
         },
     )
+    h2o_payload = root / "h2o_senco24_payload_preview.csv"
+    h2o_policy = root / "h2o_senco24_device_policy.csv"
+    h2o_diagnostics = root / "h2o_senco24_output_diagnostics.csv"
+    for path in (h2o_payload, h2o_policy, h2o_diagnostics):
+        path.write_text("component,analyzer_device_id\nh2o,022\n", encoding="utf-8")
+    artifacts = {
+        "precheck_summary": root / "main_senco_write_precheck_summary.csv",
+        "precheck_checks": root / "candidate_write_review_checks.csv",
+        "precheck_h2o_payload": h2o_payload,
+        "precheck_h2o_policy": h2o_policy,
+        "precheck_h2o_diagnostics": h2o_diagnostics,
+    }
+    for role in (
+        "h2o_fit_input_quality_summary",
+        "h2o_fit_input_quality_devices",
+        "h2o_candidate_run_summary",
+        "h2o_candidate_policy_summary",
+        "h2o_model_selection_summary",
+    ):
+        source = root / f"{role}.csv"
+        source.write_text("status\npass\n", encoding="utf-8")
+        artifacts[role] = source
+    write_artifact_hash_manifest(root / "main_senco_artifact_hash_manifest.json", artifacts=artifacts)
     return root
 
 
@@ -222,6 +249,9 @@ def test_senco6_linear_writer_writes_decimal_payload_and_readback(monkeypatch, t
     ga = _FakeGasAnalyzer.instances["COM37"]
     assert ga.coeff6 == [0.491, 1.021]
     assert ("send", "SENCO6,YGAS,FFF,0.491,1.021") in ga.calls
+    meta = json.loads((out / "senco6_linear_write_meta.json").read_text(encoding="utf-8"))
+    assert meta["artifact_hash_status"] == "pass"
+    assert int(meta["artifact_hash_count"]) >= 10
 
 
 def test_senco6_linear_writer_keeps_fractional_leading_zero_for_firmware_parser():

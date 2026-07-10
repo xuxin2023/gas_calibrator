@@ -2,6 +2,7 @@ import csv
 import json
 
 from gas_calibrator.validation.v1_5_final_senco_prewrite_gate import validate_final_senco_prewrite_gate
+from gas_calibrator.validation.v1_5_artifact_hash_binding import write_artifact_hash_manifest
 
 
 def _write_csv(path, rows):
@@ -35,6 +36,9 @@ def _pack(
                 "controls_routes": False,
                 "fit_input_traceability_required": True,
                 "fit_input_traceability_status": package_meta_status,
+                "artifact_hash_manifest_required": True,
+                "artifact_hash_manifest_path": str((root / "main_senco_artifact_hash_manifest.json").resolve()),
+                "artifact_hash_algorithm": "sha256",
             }
         ),
         encoding="utf-8",
@@ -59,6 +63,24 @@ def _pack(
             }
         ],
     )
+    mapping_path = root / "candidate_senco_mapping_review.csv"
+    mapping_path.write_text("component,analyzer_device_id\nco2,091\n", encoding="utf-8")
+    artifacts = {
+        "precheck_summary": root / "main_senco_write_precheck_summary.csv",
+        "precheck_checks": root / "candidate_write_review_checks.csv",
+        "precheck_co2_mapping": mapping_path,
+    }
+    for role in (
+        "co2_fit_input_quality_summary",
+        "co2_fit_input_quality_devices",
+        "co2_candidate_run_summary",
+        "co2_candidate_policy_summary",
+        "co2_model_selection_summary",
+    ):
+        source = root / f"{role}.csv"
+        source.write_text("status\npass\n", encoding="utf-8")
+        artifacts[role] = source
+    write_artifact_hash_manifest(root / "main_senco_artifact_hash_manifest.json", artifacts=artifacts)
     return root
 
 
@@ -114,3 +136,14 @@ def test_final_senco_prewrite_gate_rejects_missing_safety_boundary_field(tmp_pat
 
     assert ok is False
     assert "main_senco_precheck_boundary_missing:writes_senco" in reasons
+
+
+def test_final_senco_prewrite_gate_rejects_same_path_content_replacement(tmp_path):
+    root = _pack(tmp_path)
+    source = root / "co2_model_selection_summary.csv"
+    source.write_text("status\nreplaced_after_review\n", encoding="utf-8")
+
+    ok, reasons, _ = validate_final_senco_prewrite_gate(root, component="co2", device_ids=["091"])
+
+    assert ok is False
+    assert "artifact_hash_manifest_sha256_mismatch:co2_model_selection_summary" in reasons

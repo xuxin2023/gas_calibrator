@@ -4,6 +4,7 @@ import json
 from gas_calibrator.storage.v1_5_evidence.bundle import _build_sidecar_write_events, _load_database_sidecar_rows
 from gas_calibrator.senco_format import rounded_senco_values
 from gas_calibrator.tools import run_v1_5_h2o_senco24_controlled_write as writer
+from gas_calibrator.validation.v1_5_artifact_hash_binding import write_artifact_hash_manifest
 
 
 def _write_json(path, payload):
@@ -63,8 +64,29 @@ def _write_fit_input_precheck(review_dir, device_ids=("051", "100")):
             "controls_routes": False,
             "fit_input_traceability_required": True,
             "fit_input_traceability_status": "pass",
+            "artifact_hash_manifest_required": True,
+            "artifact_hash_manifest_path": str((review_dir / "main_senco_artifact_hash_manifest.json").resolve()),
+            "artifact_hash_algorithm": "sha256",
         },
     )
+    artifacts = {
+        "precheck_summary": review_dir / "main_senco_write_precheck_summary.csv",
+        "precheck_checks": review_dir / "candidate_write_review_checks.csv",
+        "precheck_h2o_payload": review_dir / "h2o_senco24_payload_preview.csv",
+        "precheck_h2o_policy": review_dir / "h2o_senco24_device_policy.csv",
+        "precheck_h2o_diagnostics": review_dir / "h2o_senco24_output_diagnostics.csv",
+    }
+    for role in (
+        "h2o_fit_input_quality_summary",
+        "h2o_fit_input_quality_devices",
+        "h2o_candidate_run_summary",
+        "h2o_candidate_policy_summary",
+        "h2o_model_selection_summary",
+    ):
+        source = review_dir / f"{role}.csv"
+        source.write_text("status\npass\n", encoding="utf-8")
+        artifacts[role] = source
+    write_artifact_hash_manifest(review_dir / "main_senco_artifact_hash_manifest.json", artifacts=artifacts)
 
 
 def _config(tmp_path):
@@ -412,6 +434,9 @@ def test_h2o_senco24_writer_writes_051_only_and_preserves_senco6(monkeypatch, tm
     assert rows[0]["writes_senco4"] == "True"
     assert rows[0]["writes_senco6"] == "False"
     assert rows[0]["clears_senco"] == "False"
+    conclusion = _read_csv(out_dir / "h2o_senco24_pair_write_conclusion.csv")[0]
+    assert conclusion["artifact_hash_status"] == "pass"
+    assert int(conclusion["artifact_hash_count"]) >= 10
     ga = _FakeGasAnalyzer.instances["COM42"]
     assert ga.coeff2 == [1839.29, -7124.86, 8654.83, -3470.68, 0.0, 0.0]
     assert ga.coeff4 == [1.29711, -0.00152365, -0.683155, 0.0, 0.0, 0.0]
@@ -595,6 +620,7 @@ def test_h2o_senco24_writer_allows_review_required_only_with_explicit_override(m
     policies[0]["candidate_status"] = "candidate_fit_review_required"
     policies[0]["warning_reasons"] = "manual_review_required"
     _write_csv(review_dir / "h2o_senco24_device_policy.csv", policies)
+    _write_fit_input_precheck(review_dir)
     _write_snapshot(snapshot_path)
 
     rc_locked = writer.main(
@@ -729,6 +755,7 @@ def test_h2o_senco24_writer_allows_non_neutral_senco6_after_separate_layer_revie
     diagnostics[0]["diagnosis"] = "ratio_temperature_candidate_fit_valid_with_separate_senco6_review_required"
     diagnostics[0]["GETCO6_neutral"] = "False"
     _write_csv(review_dir / "h2o_senco24_output_diagnostics.csv", diagnostics)
+    _write_fit_input_precheck(review_dir)
     _write_snapshot(snapshot_path, getco6=[0.8, 1.04])
 
     rc = writer.main(

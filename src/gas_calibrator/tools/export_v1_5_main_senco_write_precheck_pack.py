@@ -17,6 +17,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
+from ..validation.v1_5_artifact_hash_binding import write_artifact_hash_manifest
+
 from ..senco_format import format_senco_values
 
 
@@ -756,6 +758,7 @@ def build_precheck_pack(
         "h2o_policy": output_dir / "h2o_senco24_device_policy.csv",
         "h2o_diagnostics": output_dir / "h2o_senco24_output_diagnostics.csv",
         "report": output_dir / "main_senco_write_precheck_pack_zh.md",
+        "hash_manifest": output_dir / "main_senco_artifact_hash_manifest.json",
         "meta": output_dir / "main_senco_write_precheck_meta.json",
     }
     _write_csv(paths["summary"], summary_rows)
@@ -844,6 +847,38 @@ def build_precheck_pack(
     )
     paths["report"].write_text("\n".join(report_lines) + "\n", encoding="utf-8")
 
+    hash_artifacts: Dict[str, Path] = {
+        "co2_candidate_run_summary": co2_candidate_dir / "candidate_run_summary.csv",
+        "co2_candidate_policy_summary": co2_candidate_dir / "candidate_policy_summary.csv",
+        "co2_model_selection_summary": co2_model_selection_dir / "model_selection_summary.csv",
+        "h2o_candidate_run_summary": h2o_candidate_dir / "candidate_run_summary.csv",
+        "h2o_candidate_policy_summary": h2o_candidate_dir / "candidate_policy_summary.csv",
+        "h2o_model_selection_summary": h2o_model_selection_dir / "model_selection_summary.csv",
+        "precheck_summary": paths["summary"],
+        "precheck_commands": paths["commands"],
+        "precheck_blocked": paths["blocked"],
+        "precheck_neutral_prerequisites": paths["neutral"],
+        "precheck_verification_plan": paths["verification"],
+        "precheck_co2_mapping": paths["co2_mapping"],
+        "precheck_checks": paths["write_checks"],
+        "precheck_h2o_payload": paths["h2o_payload"],
+        "precheck_h2o_policy": paths["h2o_policy"],
+        "precheck_h2o_diagnostics": paths["h2o_diagnostics"],
+    }
+    for component, summary in candidate_summaries.items():
+        for field, suffix in (
+            ("fit_input_quality_summary_source", "fit_input_quality_summary"),
+            ("fit_input_quality_devices_source", "fit_input_quality_devices"),
+        ):
+            source = str(summary.get(field) or "").strip()
+            if source:
+                hash_artifacts[f"{component}_{suffix}"] = Path(source)
+    if plan_path:
+        hash_artifacts["runtime_plan"] = plan_path
+    if old_coefficients_path:
+        hash_artifacts["old_coefficients_snapshot"] = old_coefficients_path
+    write_artifact_hash_manifest(paths["hash_manifest"], artifacts=hash_artifacts)
+
     meta = {
         "generated_at": _now(),
         "no_write": True,
@@ -858,6 +893,9 @@ def build_precheck_pack(
         "blocked_device_count": len(blocked),
         "fit_input_traceability_required": True,
         "fit_input_traceability_status": fit_input_traceability_status,
+        "artifact_hash_manifest_required": True,
+        "artifact_hash_manifest_path": str(paths["hash_manifest"].resolve()),
+        "artifact_hash_algorithm": "sha256",
         "outputs": {key: str(value) for key, value in paths.items()},
     }
     paths["meta"].write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")

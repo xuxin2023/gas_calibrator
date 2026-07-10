@@ -498,6 +498,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 "candidate_coefficients_csv": str(candidate_path),
                 "main_senco_precheck_dir": str(prewrite_detail.get("precheck_dir") or ""),
                 "fit_input_traceability_status": str(prewrite_detail.get("fit_input_traceability_status") or "blocked"),
+                "artifact_hash_manifest_path": str(prewrite_detail.get("hash_manifest_path") or ""),
+                "artifact_hash_status": str(prewrite_detail.get("artifact_hash_status") or "blocked"),
+                "artifact_hash_count": int(prewrite_detail.get("artifact_hash_count") or 0),
                 "confirmation_text": CONFIRMATION_TEXT,
                 "reviewer": args.reviewer,
                 "approver": args.approver,
@@ -526,7 +529,12 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         tool_name="run_v1_5_co2_senco5_linear_controlled_write",
         created_at=end_ts,
         analyzers=[str(row.get("device_id") or "") for row in rows],
-        input_paths=[str(cfg_path), str(candidate_path), str(prewrite_detail.get("meta_path") or "")],
+        input_paths=[
+            str(cfg_path),
+            str(candidate_path),
+            str(prewrite_detail.get("meta_path") or ""),
+            str(prewrite_detail.get("hash_manifest_path") or ""),
+        ],
         output_dir=str(output_dir),
         config_path=str(cfg_path),
         config_summary={

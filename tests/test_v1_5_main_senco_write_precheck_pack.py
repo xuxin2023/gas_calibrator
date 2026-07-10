@@ -263,6 +263,30 @@ def test_precheck_pack_generates_component_specific_main_commands(tmp_path):
     assert checks["fit_input_traceability_required_before_final_senco_review"]["status"] == "pass"
     assert checks["fit_input_traceability_bound:co2:091"]["status"] == "pass"
     assert checks["fit_input_traceability_bound:h2o:091"]["status"] == "pass"
+    manifest = json.loads(paths["hash_manifest"].read_text(encoding="utf-8"))
+    roles = {row["role"] for row in manifest["artifacts"]}
+    assert manifest["algorithm"] == "sha256"
+    assert {
+        "co2_fit_input_quality_summary",
+        "co2_fit_input_quality_devices",
+        "co2_candidate_run_summary",
+        "co2_candidate_policy_summary",
+        "co2_model_selection_summary",
+        "h2o_fit_input_quality_summary",
+        "h2o_fit_input_quality_devices",
+        "h2o_candidate_run_summary",
+        "h2o_candidate_policy_summary",
+        "h2o_model_selection_summary",
+        "precheck_summary",
+        "precheck_checks",
+        "precheck_co2_mapping",
+        "precheck_h2o_payload",
+        "precheck_h2o_policy",
+        "precheck_h2o_diagnostics",
+    } <= roles
+    meta = json.loads(paths["meta"].read_text(encoding="utf-8"))
+    assert meta["artifact_hash_manifest_required"] is True
+    assert meta["artifact_hash_algorithm"] == "sha256"
 
 
 def test_precheck_pack_blocks_actual_write_when_old_snapshot_missing(tmp_path):

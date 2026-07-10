@@ -7,11 +7,14 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
+from .v1_5_artifact_hash_binding import validate_artifact_hash_manifest
+
 
 GLOBAL_CHECK = "fit_input_traceability_required_before_final_senco_review"
 META_FILENAME = "main_senco_write_precheck_meta.json"
 CHECKS_FILENAME = "candidate_write_review_checks.csv"
 SUMMARY_FILENAME = "main_senco_write_precheck_summary.csv"
+HASH_MANIFEST_FILENAME = "main_senco_artifact_hash_manifest.json"
 
 
 def _device_id(value: Any) -> str:
@@ -45,10 +48,12 @@ def validate_final_senco_prewrite_gate(
     meta_path = root / META_FILENAME
     checks_path = root / CHECKS_FILENAME
     summary_path = root / SUMMARY_FILENAME
+    hash_manifest_path = root / HASH_MANIFEST_FILENAME
     for path, label in (
         (meta_path, "main_senco_precheck_meta_missing"),
         (checks_path, "candidate_write_review_checks_missing"),
         (summary_path, "main_senco_precheck_summary_missing"),
+        (hash_manifest_path, "main_senco_artifact_hash_manifest_missing"),
     ):
         if not path.is_file():
             reasons.append(label)
@@ -77,6 +82,13 @@ def validate_final_senco_prewrite_gate(
             reasons.append(f"main_senco_precheck_boundary_mismatch:{field}")
     if not _truthy(meta.get("fit_input_traceability_required")):
         reasons.append("fit_input_traceability_not_required_by_precheck")
+    if not _truthy(meta.get("artifact_hash_manifest_required")):
+        reasons.append("artifact_hash_manifest_not_required_by_precheck")
+    declared_manifest = str(meta.get("artifact_hash_manifest_path") or "").strip()
+    if not declared_manifest or Path(declared_manifest).resolve() != hash_manifest_path:
+        reasons.append("artifact_hash_manifest_path_mismatch_with_precheck_meta")
+    if str(meta.get("artifact_hash_algorithm") or "").strip().lower() != "sha256":
+        reasons.append("artifact_hash_algorithm_not_sha256")
     package_traceability_status = str(meta.get("fit_input_traceability_status") or "").strip().lower()
     if package_traceability_status not in {"pass", "blocked"}:
         reasons.append(f"fit_input_traceability_package_status_invalid:{package_traceability_status or 'missing'}")
@@ -111,11 +123,49 @@ def validate_final_senco_prewrite_gate(
         if blockers:
             reasons.append(f"{component_key}_fit_input_traceability_blockers:{device_id}:{blockers}")
 
+    required_hash_roles = [
+        f"{component_key}_fit_input_quality_summary",
+        f"{component_key}_fit_input_quality_devices",
+        f"{component_key}_candidate_run_summary",
+        f"{component_key}_candidate_policy_summary",
+        f"{component_key}_model_selection_summary",
+        "precheck_summary",
+        "precheck_checks",
+    ]
+    expected_hash_paths: Dict[str, Path] = {
+        "precheck_summary": summary_path,
+        "precheck_checks": checks_path,
+    }
+    if component_key == "co2":
+        required_hash_roles.append("precheck_co2_mapping")
+        expected_hash_paths["precheck_co2_mapping"] = root / "candidate_senco_mapping_review.csv"
+    else:
+        required_hash_roles.extend(
+            ["precheck_h2o_payload", "precheck_h2o_policy", "precheck_h2o_diagnostics"]
+        )
+        expected_hash_paths.update(
+            {
+                "precheck_h2o_payload": root / "h2o_senco24_payload_preview.csv",
+                "precheck_h2o_policy": root / "h2o_senco24_device_policy.csv",
+                "precheck_h2o_diagnostics": root / "h2o_senco24_output_diagnostics.csv",
+            }
+        )
+    hash_ok, hash_reasons, hash_detail = validate_artifact_hash_manifest(
+        hash_manifest_path,
+        required_roles=required_hash_roles,
+        expected_paths=expected_hash_paths,
+    )
+    if not hash_ok:
+        reasons.extend(hash_reasons)
+
     detail = {
         "precheck_dir": str(root),
         "meta_path": str(meta_path),
         "checks_path": str(checks_path),
         "summary_path": str(summary_path),
+        "hash_manifest_path": str(hash_manifest_path),
+        "artifact_hash_status": str(hash_detail.get("status") or "blocked"),
+        "artifact_hash_count": int(hash_detail.get("artifact_count") or 0),
         "component": component_key,
         "device_ids": normalized_devices,
         "package_fit_input_traceability_status": package_traceability_status,
