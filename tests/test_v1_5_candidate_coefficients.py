@@ -184,6 +184,54 @@ def _make_run(tmp_path, rows):
     return run_dir, plan_path, pressure_reference_path
 
 
+def _write_fit_input_quality(
+    root,
+    *,
+    devices=("023",),
+    components=("co2", "h2o"),
+    rejected=(),
+    summary_status="pass",
+):
+    summary_path = root / "v1_5_fit_input_quality_summary.csv"
+    devices_path = root / "v1_5_fit_input_quality_devices.csv"
+    _write_csv(
+        summary_path,
+        [
+            {
+                "run_status": summary_status,
+                "fit_input_continuity_gate_status": "pass" if summary_status == "pass" else "blocked",
+                "opens_com_ports": "False",
+                "controls_water_or_gas_routes": "False",
+                "writes_coefficients": "False",
+            }
+        ],
+    )
+    rejected_set = {(str(component), str(device)) for component, device in rejected}
+    _write_csv(
+        devices_path,
+        [
+            {
+                "component": component,
+                "device_id": device,
+                "fit_input_grade": "REJECT" if (component, device) in rejected_set else "A",
+                "fit_input_status": (
+                    "excluded_from_candidate_fit"
+                    if (component, device) in rejected_set
+                    else "usable_for_candidate_fit"
+                ),
+                "reject_reasons": (
+                    "fit_input_continuity_gate_not_ready:segmented_route_evidence"
+                    if (component, device) in rejected_set
+                    else ""
+                ),
+            }
+            for device in devices
+            for component in components
+        ],
+    )
+    return summary_path, devices_path
+
+
 def _co2_wide_row(index: int, target: float) -> dict:
     row = {
         "sample_index": index,
@@ -445,6 +493,67 @@ def test_candidate_export_fits_all_a_grade_open_flow_rows_and_requires_independe
     assert "sealed_controlled" in ";".join(row.get("formal_reject_reasons", "") for row in formal_tables["rejected_samples"])
     assert all(row["target_value"] != 700.0 for row in candidate_tables["candidate_fit_residuals"])
     assert any(row["target_value"] == 450.0 for row in candidate_tables["candidate_fit_residuals"])
+
+
+def test_candidate_export_blocks_when_required_fit_input_quality_missing(tmp_path):
+    rows = []
+    rows.extend(_co2_row(index, 0.0, point_tag="co2_0") for index in range(1, 11))
+    rows.extend(_co2_row(index, 900.0, point_tag="co2_900") for index in range(11, 21))
+    rows.extend(_co2_row(index, 450.0, role="verification", point_tag="co2_450_verify") for index in range(21, 31))
+    run_dir, _, _ = _make_run(tmp_path, rows)
+
+    tables, context = build_candidate_coefficient_tables(
+        run_dir=run_dir,
+        plan=_plan(),
+        pressure_reference=_pressure_reference(),
+        component="co2",
+        analyzer_prefix="ga01",
+        cfg=CandidateCoefficientPolicyConfig(require_fit_input_quality=True),
+        today="2026-05-25",
+    )
+
+    policy = tables["candidate_policy_summary"][0]
+    assert context["candidate_run_status"] == "blocked"
+    assert context["fit_input_quality_gate_status"] == "blocked"
+    assert policy["candidate_status"] == "blocked"
+    assert policy["allowed_to_fit"] is False
+    assert policy["allowed_for_review"] is False
+    assert "fit_input_quality_summary_csv_missing" in policy["blocked_reasons"]
+    assert tables["candidate_coefficients"] == []
+
+
+def test_candidate_export_blocks_only_rejected_fit_input_device_component(tmp_path):
+    rows = []
+    rows.extend(_co2_row(index, 0.0, point_tag="co2_0") for index in range(1, 11))
+    rows.extend(_co2_row(index, 900.0, point_tag="co2_900") for index in range(11, 21))
+    rows.extend(_co2_row(index, 450.0, role="verification", point_tag="co2_450_verify") for index in range(21, 31))
+    run_dir, _, _ = _make_run(tmp_path, rows)
+    summary_path, devices_path = _write_fit_input_quality(
+        tmp_path,
+        components=("co2",),
+        rejected=(("co2", "023"),),
+    )
+
+    tables, context = build_candidate_coefficient_tables(
+        run_dir=run_dir,
+        plan=_plan(),
+        pressure_reference=_pressure_reference(),
+        component="co2",
+        analyzer_prefix="ga01",
+        cfg=CandidateCoefficientPolicyConfig(
+            fit_input_quality_summary_csv=summary_path,
+            fit_input_quality_devices_csv=devices_path,
+            require_fit_input_quality=True,
+        ),
+        today="2026-05-25",
+    )
+
+    policy = tables["candidate_policy_summary"][0]
+    assert context["fit_input_quality_gate_status"] == "pass"
+    assert policy["candidate_status"] == "blocked"
+    assert policy["fit_input_quality_grade"] == "REJECT"
+    assert "fit_input_quality_rejected:co2:" in policy["blocked_reasons"]
+    assert tables["candidate_coefficients"] == []
 
 
 def test_candidate_export_blocks_write_candidate_when_factory_signal_health_blocks_device(tmp_path):
@@ -917,6 +1026,49 @@ def test_candidate_export_cli_writes_no_write_artifacts(tmp_path):
     assert policy[0]["evidence_reuse_class"] == "fit_ready_requires_independent_verification"
     assert {row["term"] for row in coefficients} == {"intercept", "R", "R2"}
     assert (output_dir / "candidate_coefficients_report.md").exists()
+
+
+def test_candidate_export_cli_can_require_passing_fit_input_quality(tmp_path):
+    rows = []
+    rows.extend(_co2_row(index, 0.0, point_tag="co2_0") for index in range(1, 11))
+    rows.extend(_co2_row(index, 900.0, point_tag="co2_900") for index in range(11, 21))
+    rows.extend(_co2_row(index, 450.0, role="verification", point_tag="co2_450_verify") for index in range(21, 31))
+    run_dir, plan_path, pressure_reference_path = _make_run(tmp_path, rows)
+    summary_path, devices_path = _write_fit_input_quality(tmp_path, components=("co2",))
+    output_dir = tmp_path / "candidate_fit_input_gated"
+
+    rc = candidate_cli(
+        [
+            "--run-dir",
+            str(run_dir),
+            "--plan-json",
+            str(plan_path),
+            "--pressure-reference-json",
+            str(pressure_reference_path),
+            "--fit-input-quality-summary-csv",
+            str(summary_path),
+            "--fit-input-quality-devices-csv",
+            str(devices_path),
+            "--require-fit-input-quality",
+            "--output-dir",
+            str(output_dir),
+            "--component",
+            "co2",
+            "--today",
+            "2026-05-25",
+        ]
+    )
+
+    assert rc == 0
+    summary = _read_csv(output_dir / "candidate_run_summary.csv")
+    policy = _read_csv(output_dir / "candidate_policy_summary.csv")
+    coefficients = _read_csv(output_dir / "candidate_coefficients.csv")
+    assert summary[0]["fit_input_quality_required"] == "True"
+    assert summary[0]["fit_input_quality_gate_status"] == "pass"
+    assert policy[0]["fit_input_quality_grade"] == "A"
+    assert policy[0]["fit_input_quality_status"] == "usable_for_candidate_fit"
+    assert coefficients
+    assert all(row["fit_input_quality_grade"] == "A" for row in coefficients)
 
 
 def test_candidate_export_cli_can_fit_all_eligible_samples_flag(tmp_path):

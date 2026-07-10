@@ -109,6 +109,30 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--fit-input-quality-summary-csv",
+        default=None,
+        help=(
+            "Optional v1_5_fit_input_quality_summary.csv. When provided, candidate coefficients are "
+            "blocked unless the fit-input quality run and mature-route continuity gate passed."
+        ),
+    )
+    parser.add_argument(
+        "--fit-input-quality-devices-csv",
+        default=None,
+        help=(
+            "Optional v1_5_fit_input_quality_devices.csv. Device/component candidates are blocked "
+            "unless their fit_input_grade is A."
+        ),
+    )
+    parser.add_argument(
+        "--require-fit-input-quality",
+        action="store_true",
+        help=(
+            "Require fit-input quality summary and device CSV before a candidate can be reviewed as "
+            "writeable evidence. Missing or blocked fit-input evidence leaves the export no-write/blocked."
+        ),
+    )
+    parser.add_argument(
         "--review-only-wide-sample-fallback",
         action="store_true",
         help=(
@@ -142,6 +166,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             preserved_secondary_coefficients_source=preserved_secondary_source,
             co2_dry_correction_h2o_source=args.co2_dry_correction_h2o_source,
             factory_signal_health_summary_csv=args.factory_signal_health_summary_csv,
+            fit_input_quality_summary_csv=args.fit_input_quality_summary_csv,
+            fit_input_quality_devices_csv=args.fit_input_quality_devices_csv,
+            require_fit_input_quality=bool(args.require_fit_input_quality),
             review_only_wide_sample_fallback=bool(args.review_only_wide_sample_fallback),
         )
         outputs = write_candidate_coefficient_report(
