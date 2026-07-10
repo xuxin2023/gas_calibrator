@@ -398,6 +398,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline V1.5 full-flow next-action plan; ranks remaining automation handoffs without executing hardware, writes, routes, or database imports")
     elif lower == "export_v1_5_batch_initialization_closeout_index":
         notes.append("offline V1.5 batch initialization closeout index; binds SN/device_code, GETCO, S5-S8, S9, and route evidence without opening COM")
+    elif lower == "export_v1_5_pressure_s9_readiness_index":
+        notes.append("offline V1.5 pressure/SENCO9 readiness index; separates offset-only S9 and linear controlled exceptions without opening COM or writing coefficients")
     elif lower == "export_v1_5_production_entrypoint_map":
         notes.append("offline V1.5 production entrypoint map; separates formal launchers, workers, diagnostics, controlled writes, and forbidden surfaces")
     elif lower == "export_v1_5_production_entrypoint_gate":
