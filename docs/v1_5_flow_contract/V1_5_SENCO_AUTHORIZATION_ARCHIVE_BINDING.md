@@ -19,6 +19,7 @@ When controlled-write evidence exists, every evidence set must contain:
 
 - writer metadata;
 - device-level write rows;
+- archive-indexed SHA-256 fingerprints for the authorization, manifest, writer metadata, and readback rows;
 - successful post-write readback status for every row;
 - `artifact_hash_status=pass`;
 - `artifact_authorization_status=pass`;

@@ -142,6 +142,26 @@ def _artifact_records(paths: Mapping[str, Path]) -> list[Dict[str, Any]]:
     return rows
 
 
+def _senco_binding_source_paths(binding: Mapping[str, Any]) -> Dict[str, Path]:
+    paths: Dict[str, Path] = {}
+    for role, key in (
+        ("senco_artifact_authorization", "authorization_path"),
+        ("senco_artifact_hash_manifest", "manifest_path"),
+    ):
+        value = str(binding.get(key) or "").strip()
+        if value and Path(value).is_file():
+            paths[role] = Path(value).resolve()
+    for index, row in enumerate(binding.get("writer_evidence") or [], start=1):
+        if not isinstance(row, Mapping):
+            continue
+        scope = str(row.get("writer_scope") or "writer").replace("-", "_")
+        for suffix, key in (("metadata", "metadata_path"), ("readback_rows", "write_rows_path")):
+            value = str(row.get(key) or "").strip()
+            if value and Path(value).is_file():
+                paths[f"senco_write_{index:03d}_{scope}_{suffix}"] = Path(value).resolve()
+    return paths
+
+
 def _load_reviewed_standard_gases(path: str | Path) -> list[Dict[str, Any]]:
     source = Path(path).resolve()
     payload = json.loads(source.read_text(encoding="utf-8-sig"))
@@ -532,6 +552,7 @@ def build_v1_5_formal_archive_closure(
         "senco_authorization_write_traceability_csv": senco_binding_paths["csv"],
         "senco_authorization_write_traceability_markdown": senco_binding_paths["markdown"],
     }
+    output_paths.update(_senco_binding_source_paths(senco_authorization_binding))
     identity_getco_path = identity_getco_traceability.get("evidence_path")
     if identity_getco_path:
         output_paths["identity_getco_readiness"] = Path(str(identity_getco_path)).resolve()

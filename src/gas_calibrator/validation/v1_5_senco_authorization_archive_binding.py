@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Mapping, Sequence
 
+from .v1_5_artifact_hash_binding import sha256_file
 from .v1_5_senco_artifact_authorization import validate_senco_artifact_authorization
 
 
@@ -206,7 +207,9 @@ def build_v1_5_senco_authorization_archive_binding(
                     "writer_scope": spec.writer_scope,
                     "evidence_dir": str(evidence_dir),
                     "metadata_path": str(metadata_path) if metadata_exists else "",
+                    "metadata_sha256": sha256_file(metadata_path) if metadata_exists else "",
                     "write_rows_path": str(rows_path) if rows_exists else "",
+                    "write_rows_sha256": sha256_file(rows_path) if rows_exists else "",
                     "authorization_id": metadata_authorization_id,
                     "device_ids": device_ids,
                     "row_count": len(rows),
@@ -252,10 +255,18 @@ def build_v1_5_senco_authorization_archive_binding(
         "ready_for_archive_release": not blockers,
         "write_evidence_present": write_evidence_present,
         "authorization_path": str(authorization_path) if authorization_path else "",
+        "authorization_sha256": (
+            sha256_file(authorization_path)
+            if authorization_path is not None and authorization_path.is_file()
+            else ""
+        ),
         "authorization_id": authorization_id,
         "authorized_writer_scopes": authorized_scopes,
         "authorized_device_ids": authorized_device_ids,
         "manifest_path": str(manifest_path) if manifest_path else "",
+        "manifest_sha256": (
+            sha256_file(manifest_path) if manifest_path is not None and manifest_path.is_file() else ""
+        ),
         "writer_scope_count": len({row["writer_scope"] for row in writer_evidence}),
         "write_evidence_set_count": len(writer_evidence),
         "device_count": len(all_device_ids),
@@ -326,7 +337,9 @@ def write_v1_5_senco_authorization_archive_binding_outputs(
         "verified_row_count",
         "evidence_dir",
         "metadata_path",
+        "metadata_sha256",
         "write_rows_path",
+        "write_rows_sha256",
         "reasons",
     ]
     with csv_path.open("w", encoding="utf-8-sig", newline="") as handle:

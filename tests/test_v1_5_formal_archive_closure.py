@@ -6,6 +6,9 @@ import pytest
 from gas_calibrator.tools.run_v1_5_formal_archive_closure import main as closure_main
 from gas_calibrator.validation.v1_5_canonical_evidence import write_canonical_v1_5_evidence_package
 from gas_calibrator.validation.v1_5_formal_archive_closure import build_v1_5_formal_archive_closure
+from gas_calibrator.validation.v1_5_senco_artifact_authorization import (
+    write_senco_artifact_authorization,
+)
 
 
 def _write_contract(path):
@@ -71,6 +74,24 @@ def _write_s13_controlled_write_evidence(run_dir, *, authorization_id="AUTH-MISS
         writer = csv.DictWriter(handle, fieldnames=["analyzer_device_id", "status"])
         writer.writeheader()
         writer.writerow({"analyzer_device_id": "001", "status": "written_readback_verified"})
+
+
+def _write_s13_authorization(run_dir, *, authorization_id="AUTH-ARCHIVE-001"):
+    precheck = run_dir / "main_senco_write_precheck"
+    precheck.mkdir(parents=True, exist_ok=True)
+    manifest = precheck / "main_senco_artifact_hash_manifest.json"
+    manifest.write_text(json.dumps({"files": []}, ensure_ascii=False), encoding="utf-8")
+    authorization = precheck / "main_senco_artifact_authorization.json"
+    write_senco_artifact_authorization(
+        authorization,
+        manifest_path=manifest,
+        reviewer="reviewer-a",
+        approver="approver-b",
+        authorization_id=authorization_id,
+        authorized_writer_scopes=["co2_senco13_pair"],
+        authorized_device_ids=["001"],
+    )
+    return authorization, manifest
 
 
 def _reviewed_standard_gases():
@@ -234,6 +255,43 @@ def test_formal_archive_closure_blocks_release_when_write_evidence_lacks_authori
     assert archive_gate["status"] == "blocked"
     assert formal_status["formal_release_allowed"] is False
     assert formal_status["database_import_allowed"] is False
+
+
+def test_formal_archive_closure_indexes_authorization_manifest_and_write_readback_sources(tmp_path):
+    canonical = write_canonical_v1_5_evidence_package(
+        tmp_path / "canonical_senco_binding_ready",
+        include_reports=False,
+    )
+    run_dir = canonical["root"] / "run"
+    contract_path = _write_contract(run_dir / "v1_5_formal_flow_contract.json")
+    _write_identity_getco_readiness(run_dir)
+    authorization, manifest = _write_s13_authorization(run_dir)
+    _write_s13_controlled_write_evidence(run_dir, authorization_id="AUTH-ARCHIVE-001")
+
+    result = build_v1_5_formal_archive_closure(
+        run_dir=run_dir,
+        plan_json=canonical["plan"],
+        pressure_reference_json=canonical["pressure_reference"],
+        contract_json=contract_path,
+        output_dir=run_dir / "formal_archive_closure_senco_binding_ready",
+        senco_artifact_authorization_json=authorization,
+        today="2026-05-24",
+        report_no="RPT-CLOSURE-SENCO-READY",
+        db_mode="dry_run",
+    )
+
+    index = result["index"]
+    binding = index["senco_authorization_write_traceability"]
+    assert binding["overall_status"] == "ready_for_archive_release"
+    assert binding["authorization_path"] == str(authorization.resolve())
+    assert binding["manifest_path"] == str(manifest.resolve())
+    assert len(binding["authorization_sha256"]) == 64
+    assert len(binding["manifest_sha256"]) == 64
+    artifact_roles = {row["role"] for row in index["artifacts"]}
+    assert "senco_artifact_authorization" in artifact_roles
+    assert "senco_artifact_hash_manifest" in artifact_roles
+    assert "senco_write_001_co2_senco13_pair_metadata" in artifact_roles
+    assert "senco_write_001_co2_senco13_pair_readback_rows" in artifact_roles
 
 
 def test_formal_archive_closure_refuses_database_import_when_senco_binding_is_blocked(tmp_path):

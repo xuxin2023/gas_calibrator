@@ -97,6 +97,10 @@ def test_archive_binding_accepts_exact_authorization_scope_devices_and_readback(
     assert model["ready_for_archive_release"] is True
     assert model["device_ids"] == ["001"]
     assert model["writer_evidence"][0]["status"] == "pass"
+    assert len(model["authorization_sha256"]) == 64
+    assert len(model["manifest_sha256"]) == 64
+    assert len(model["writer_evidence"][0]["metadata_sha256"]) == 64
+    assert len(model["writer_evidence"][0]["write_rows_sha256"]) == 64
     assert all(path.exists() for path in paths.values())
 
 
