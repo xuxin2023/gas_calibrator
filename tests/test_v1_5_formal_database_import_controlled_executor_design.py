@@ -39,7 +39,15 @@ def _blocked_executor_json(tmp_path: Path) -> Path:
             "database_import_attempted": False,
             "database_written": False,
             "database_import_allowed": False,
+            "database_import_authorization_binding_ready": True,
+            "formal_database_import_authorization_json": str(
+                (tmp_path / "authorization" / "authorization.json").resolve()
+            ),
+            "formal_database_import_authorization_sha256": "c" * 64,
             "senco_authorization_archive_binding_ready": True,
+            "archive_closure_index_binding_ready": True,
+            "archive_closure_json": str((tmp_path / "archive" / "closure.json").resolve()),
+            "archive_closure_sha256": "b" * 64,
             "senco_authorization_archive_binding_json": str(
                 (tmp_path / "archive" / "binding.json").resolve()
             ),
@@ -66,6 +74,8 @@ def test_controlled_executor_design_is_offline_and_execution_blocked(tmp_path: P
     assert manifest["database_written"] is False
     assert manifest["required_future_execute_flag"] == "--execute-controlled-import"
     assert manifest["senco_authorization_archive_binding_ready"] is True
+    assert manifest["archive_closure_index_binding_ready"] is True
+    assert manifest["database_import_authorization_binding_ready"] is True
     assert gates["design_only_no_connect"]["status"] == "pass"
     assert gates["future_execute_still_blocked"]["status"] == "pass"
 
@@ -154,5 +164,39 @@ def test_controlled_executor_design_reviews_unbound_senco_archive_evidence(tmp_p
     assert tables["manifest"]["overall_status"] == "review_required"
     gates = {row["gate"]: row for row in tables["boundary_gates"]}
     assert "blocked_executor_senco_authorization_archive_binding_not_ready" in gates[
+        "blocked_executor_consumed"
+    ]["evidence"]
+
+
+def test_controlled_executor_design_reviews_unbound_archive_index(tmp_path: Path) -> None:
+    blocked_executor = _blocked_executor_json(tmp_path)
+    payload = json.loads(blocked_executor.read_text(encoding="utf-8"))
+    payload["archive_closure_index_binding_ready"] = False
+    blocked_executor.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    tables = build_v1_5_formal_database_import_controlled_executor_design(
+        formal_database_import_blocked_executor_json=blocked_executor,
+    )
+
+    assert tables["manifest"]["overall_status"] == "review_required"
+    gates = {row["gate"]: row for row in tables["boundary_gates"]}
+    assert "blocked_executor_archive_closure_index_binding_not_ready" in gates[
+        "blocked_executor_consumed"
+    ]["evidence"]
+
+
+def test_controlled_executor_design_reviews_unbound_database_import_authorization(tmp_path: Path) -> None:
+    blocked_executor = _blocked_executor_json(tmp_path)
+    payload = json.loads(blocked_executor.read_text(encoding="utf-8"))
+    payload["database_import_authorization_binding_ready"] = False
+    blocked_executor.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    tables = build_v1_5_formal_database_import_controlled_executor_design(
+        formal_database_import_blocked_executor_json=blocked_executor,
+    )
+
+    assert tables["manifest"]["overall_status"] == "review_required"
+    gates = {row["gate"]: row for row in tables["boundary_gates"]}
+    assert "blocked_executor_database_import_authorization_binding_not_ready" in gates[
         "blocked_executor_consumed"
     ]["evidence"]

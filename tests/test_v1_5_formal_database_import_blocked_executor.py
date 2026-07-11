@@ -95,7 +95,7 @@ def _ready_command_contract(tmp_path: Path) -> tuple[Path, Path, Path, Path, Pat
         archive_closure_json=archive_path,
         operator="operator-a",
         reviewer="reviewer-a",
-        approver="approver-a",
+        approver="approver-b",
         authorization_id="db-import-001",
     )
     authorization_paths = write_v1_5_formal_database_import_authorization_outputs(
@@ -133,7 +133,11 @@ def test_blocked_executor_consumes_ready_contract_without_connecting(tmp_path: P
     assert model["schema"] == "v1_5_formal_database_import_blocked_executor_v1"
     assert model["overall_status"] == "blocked_pending_controlled_executor_implementation"
     assert model["blocked_executor_ready"] is True
+    assert model["database_import_authorization_binding_ready"] is True
+    assert model["formal_database_import_authorization_sha256"] == sha256_file(authorization_json)
     assert model["senco_authorization_archive_binding_ready"] is True
+    assert model["archive_closure_index_binding_ready"] is True
+    assert model["archive_closure_sha256"] == sha256_file(archive_json)
     assert model["execution_supported"] is False
     assert model["real_import_execution_allowed"] is False
     assert model["connects_postgresql"] is False
@@ -142,7 +146,9 @@ def test_blocked_executor_consumes_ready_contract_without_connecting(tmp_path: P
     assert model["database_written"] is False
     assert model["database_import_allowed"] is False
     assert _checks(model)["formal_database_import_command_contract_consumed"]["status"] == "ready"
+    assert _checks(model)["formal_database_import_authorization_hash_bound"]["status"] == "ready"
     assert _checks(model)["senco_authorization_archive_binding_bound"]["status"] == "ready"
+    assert _checks(model)["formal_archive_index_hash_bound"]["status"] == "ready"
     assert _checks(model)["postgresql_side_effect_lock"]["status"] == "ready"
 
 
@@ -190,6 +196,56 @@ def test_blocked_executor_rehashes_binding_and_holds_after_tamper(tmp_path: Path
     binding_check = _checks(model)["senco_authorization_archive_binding_bound"]
     assert binding_check["status"] == "review_required"
     assert "senco_authorization_archive_binding_sha256_mismatch" in binding_check["reasons"]
+
+
+def test_blocked_executor_rehashes_archive_index_and_holds_after_tamper(tmp_path: Path) -> None:
+    contract_json, authorization_json, preflight_json, archive_json, bundle_json = _ready_command_contract(
+        tmp_path
+    )
+    archive = json.loads(archive_json.read_text(encoding="utf-8"))
+    archive["changed_after_contract"] = True
+    archive_json.write_text(json.dumps(archive, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    model = build_v1_5_formal_database_import_blocked_executor(
+        formal_database_import_command_contract_json=contract_json,
+        formal_database_import_authorization_json=authorization_json,
+        formal_database_import_preflight_json=preflight_json,
+        archive_closure_json=archive_json,
+        evidence_bundle_json=bundle_json,
+    )
+
+    assert model["overall_status"] == "review_required"
+    assert model["blocked_executor_ready"] is False
+    assert model["archive_closure_index_binding_ready"] is False
+    index_check = _checks(model)["formal_archive_index_hash_bound"]
+    assert index_check["status"] == "review_required"
+    assert "command_contract_archive_closure_sha256_mismatch" in index_check["reasons"]
+
+
+def test_blocked_executor_holds_when_authorization_changes_after_command_contract(tmp_path: Path) -> None:
+    contract_json, authorization_json, preflight_json, archive_json, bundle_json = _ready_command_contract(
+        tmp_path
+    )
+    authorization = json.loads(authorization_json.read_text(encoding="utf-8-sig"))
+    authorization["approver"] = authorization["reviewer"]
+    authorization_json.write_text(
+        json.dumps(authorization, ensure_ascii=False, indent=2),
+        encoding="utf-8-sig",
+    )
+
+    model = build_v1_5_formal_database_import_blocked_executor(
+        formal_database_import_command_contract_json=contract_json,
+        formal_database_import_authorization_json=authorization_json,
+        formal_database_import_preflight_json=preflight_json,
+        archive_closure_json=archive_json,
+        evidence_bundle_json=bundle_json,
+    )
+
+    assert model["overall_status"] == "review_required"
+    assert model["blocked_executor_ready"] is False
+    assert model["database_import_authorization_binding_ready"] is False
+    authorization_check = _checks(model)["formal_database_import_authorization_hash_bound"]
+    assert "command_contract_authorization_sha256_mismatch" in authorization_check["reasons"]
 
 
 def test_blocked_executor_writer_and_cli_refuse_execution(tmp_path: Path, capsys) -> None:
@@ -274,7 +330,7 @@ def test_real_import_options_are_locked(tmp_path: Path, capsys) -> None:
             "--reviewer",
             "reviewer-a",
             "--approver",
-            "approver-a",
+            "approver-b",
             "--authorization-id",
             "auth-001",
         ]

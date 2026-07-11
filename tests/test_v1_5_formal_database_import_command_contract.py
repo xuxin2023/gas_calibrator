@@ -95,7 +95,7 @@ def _authorization_json(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
         archive_closure_json=archive_json,
         operator="operator-a",
         reviewer="reviewer-a",
-        approver="approver-a",
+        approver="approver-b",
         authorization_id="db-import-001",
     )
     outputs = write_v1_5_formal_database_import_authorization_outputs(model, tmp_path / "authorization")
@@ -121,8 +121,12 @@ def test_formal_database_import_command_contract_ready_without_connecting(tmp_pa
     assert model["blocker_count"] == 0
     assert model["review_required_count"] == 0
     assert model["authorization_ready"] is True
+    assert model["database_import_authorization_binding_ready"] is True
+    assert model["formal_database_import_authorization_sha256"] == sha256_file(authorization_json)
     assert model["preflight_ready"] is True
     assert model["archive_release_ready"] is True
+    assert model["archive_closure_index_binding_ready"] is True
+    assert model["archive_closure_sha256"] == sha256_file(archive_json)
     assert model["senco_authorization_archive_binding_ready"] is True
     assert model["evidence_bundle_ready"] is True
     assert model["command_contract_ready"] is True
@@ -133,8 +137,10 @@ def test_formal_database_import_command_contract_ready_without_connecting(tmp_pa
     assert model["database_import_attempted"] is False
     assert model["database_written"] is False
     assert _check(model, "formal_database_import_authorization_ready")["status"] == "ready"
+    assert _check(model, "formal_database_import_authorization_hash_bound")["status"] == "ready"
     assert _check(model, "formal_database_import_preflight_ready")["status"] == "ready"
     assert _check(model, "formal_archive_closure_ready")["status"] == "ready"
+    assert _check(model, "formal_archive_index_bound_to_authorization")["status"] == "ready"
     assert _check(model, "senco_authorization_archive_binding_ready")["status"] == "ready"
     assert _check(model, "formal_evidence_bundle_ready")["status"] == "ready"
 
@@ -148,7 +154,7 @@ def test_formal_database_import_command_contract_blocks_missing_archive_binding(
     )
 
     assert model["overall_status"] == "blocked"
-    assert model["blocker_count"] == 1
+    assert model["blocker_count"] == 2
     assert model["review_required_count"] == 2
     assert model["authorization_ready"] is True
     assert model["preflight_ready"] is True
@@ -177,7 +183,7 @@ def test_formal_database_import_command_contract_blocks_missing_authorization(tm
     )
 
     assert model["overall_status"] == "blocked"
-    assert model["blocker_count"] == 1
+    assert model["blocker_count"] == 3
     assert model["command_contract_ready"] is False
     assert model["real_import_execution_allowed"] is False
     assert _check(model, "formal_database_import_authorization_ready")["status"] == "blocker"
@@ -207,6 +213,74 @@ def test_formal_database_import_command_contract_blocks_binding_changed_after_au
     binding_check = _check(model, "senco_authorization_archive_binding_ready")
     assert binding_check["status"] == "blocker"
     assert "senco_authorization_archive_binding_sha256_mismatch" in binding_check["reasons"]
+
+
+def test_formal_database_import_command_contract_blocks_archive_index_changed_after_authorization(
+    tmp_path: Path,
+) -> None:
+    authorization_json, preflight_json, archive_json, bundle_json = _authorization_json(tmp_path)
+    archive = json.loads(archive_json.read_text(encoding="utf-8"))
+    archive["post_authorization_change"] = True
+    archive_json.write_text(json.dumps(archive, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    model = build_v1_5_formal_database_import_command_contract(
+        formal_database_import_authorization_json=authorization_json,
+        formal_database_import_preflight_json=preflight_json,
+        archive_closure_json=archive_json,
+        evidence_bundle_json=bundle_json,
+    )
+
+    assert model["overall_status"] == "blocked"
+    assert model["archive_closure_index_binding_ready"] is False
+    assert model["command_contract_ready"] is False
+    index_check = _check(model, "formal_archive_index_bound_to_authorization")
+    assert index_check["status"] == "blocker"
+    assert "authorization_archive_closure_sha256_mismatch" in index_check["reasons"]
+
+
+def test_formal_database_import_command_contract_rechecks_distinct_authorizers(tmp_path: Path) -> None:
+    authorization_json, preflight_json, archive_json, bundle_json = _authorization_json(tmp_path)
+    authorization = json.loads(authorization_json.read_text(encoding="utf-8-sig"))
+    authorization["approver"] = authorization["reviewer"]
+    authorization_json.write_text(
+        json.dumps(authorization, ensure_ascii=False, indent=2),
+        encoding="utf-8-sig",
+    )
+
+    model = build_v1_5_formal_database_import_command_contract(
+        formal_database_import_authorization_json=authorization_json,
+        formal_database_import_preflight_json=preflight_json,
+        archive_closure_json=archive_json,
+        evidence_bundle_json=bundle_json,
+    )
+
+    assert model["overall_status"] == "blocked"
+    assert model["authorization_ready"] is False
+    assert model["database_import_authorization_binding_ready"] is False
+    authorization_check = _check(model, "formal_database_import_authorization_ready")
+    assert authorization_check["status"] == "blocker"
+    assert "authorization_reviewer_approver_must_be_distinct" in authorization_check["reasons"]
+
+
+def test_formal_database_import_command_contract_blocks_archive_index_path_replacement(
+    tmp_path: Path,
+) -> None:
+    authorization_json, preflight_json, archive_json, bundle_json = _authorization_json(tmp_path)
+    replacement = tmp_path / "replacement" / archive_json.name
+    replacement.parent.mkdir(parents=True, exist_ok=True)
+    replacement.write_bytes(archive_json.read_bytes())
+
+    model = build_v1_5_formal_database_import_command_contract(
+        formal_database_import_authorization_json=authorization_json,
+        formal_database_import_preflight_json=preflight_json,
+        archive_closure_json=replacement,
+        evidence_bundle_json=bundle_json,
+    )
+
+    assert model["overall_status"] == "blocked"
+    assert model["archive_closure_index_binding_ready"] is False
+    index_check = _check(model, "formal_archive_index_bound_to_authorization")
+    assert "authorization_archive_closure_json_mismatch" in index_check["reasons"]
 
 
 def test_formal_database_import_command_contract_writer_and_cli(tmp_path: Path) -> None:
