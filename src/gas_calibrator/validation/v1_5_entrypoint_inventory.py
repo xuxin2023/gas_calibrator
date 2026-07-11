@@ -356,6 +356,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline authoritative resume-state writer blocked executor; refuses state target, expected-state hash, authorization, execute, and replace inputs without creating or replacing state")
     elif lower == "export_v1_5_authoritative_resume_state_controlled_write_preflight":
         notes.append("offline authoritative resume-state controlled-write preflight; generates a deterministic candidate state preview and validates target SHA256 plus distinct authorization without writing state")
+    elif lower == "run_v1_5_authoritative_resume_state_atomic_writer":
+        notes.append("manual-authorized atomic authoritative resume-state writer; consumes only the exact ready preflight and performs lock, current-SHA check, snapshot, fsync, atomic replace, readback, and rollback without opening COM")
     elif lower == "run_v1_5_formal_readonly_com_minimal_executor":
         notes.append("manual-authorized minimal read-only COM executor; reads SN/GETCO/runtime/CHECK evidence only, never writes analyzer state, database, pressure, or routes")
     elif "formal_archive_closure" in lower:
@@ -538,6 +540,13 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             category = "full_flow_orchestration"
             formal_status = "canonical_initialization_planner"
             risk_level = "offline"
+            opens_com_ports = False
+            controls_routes = False
+            writes_coefficients = False
+        elif lower == "run_v1_5_authoritative_resume_state_atomic_writer":
+            category = "controlled_state_writer"
+            formal_status = "manual_authorized_only"
+            risk_level = "state_file_write_risk"
             opens_com_ports = False
             controls_routes = False
             writes_coefficients = False
