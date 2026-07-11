@@ -9,6 +9,7 @@ pressure, or write analyzer coefficients.
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -97,6 +98,17 @@ def _safe_int(value: Any) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 0
+
+
+def _artifact_sha256(path_value: Any) -> str:
+    path = Path(str(path_value or ""))
+    if not path.is_file():
+        return ""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _manifest_payload(payload: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -323,6 +335,95 @@ def _batch_initialization_closeout_gate(
         physical_meaning=(
             "This is the final offline pre-route gate for the active 1-6 device batch. It prevents an early "
             "contract-only pre-gas sidecar from being mistaken for completed live initialization evidence."
+        ),
+        blocks_physical_flow=status in {MISSING, REVIEW_REQUIRED, BLOCKED},
+    )
+
+
+def _post_closeout_resume_gate(
+    path: Path | None,
+    payload: Mapping[str, Any],
+    expected_batch_closeout_path: Path | None,
+) -> FormalRunGate:
+    source_status = _source_status(payload)
+    boundary_ok = (
+        payload.get("does_not_execute_commands") is True
+        and payload.get("applies_completed_steps") is False
+        and payload.get("live_resume_execution_allowed") is False
+        and payload.get("route_authorization_still_required") is True
+        and payload.get("opens_com_ports") is False
+        and payload.get("controls_pressure") is False
+        and payload.get("controls_water_or_gas_routes") is False
+        and payload.get("connects_postgresql") is False
+        and payload.get("writes_sn") is False
+        and payload.get("writes_device_id") is False
+        and payload.get("writes_coefficients") is False
+        and payload.get("database_written") is False
+        and payload.get("formal_release_allowed") is False
+        and payload.get("database_import_allowed") is False
+        and payload.get("not_real_acceptance_evidence") is True
+    )
+    prefix = [str(item) for item in payload.get("resume_completed_step_ids") or []]
+    plan_hash_ok = bool(payload.get("full_flow_plan_sha256")) and _artifact_sha256(
+        payload.get("full_flow_plan_json")
+    ) == str(payload.get("full_flow_plan_sha256") or "")
+    closeout_hash_ok = bool(payload.get("batch_initialization_closeout_sha256")) and _artifact_sha256(
+        payload.get("batch_initialization_closeout_json")
+    ) == str(payload.get("batch_initialization_closeout_sha256") or "")
+    try:
+        closeout_path_bound = expected_batch_closeout_path is not None and Path(
+            str(payload.get("batch_initialization_closeout_json") or "")
+        ).resolve() == expected_batch_closeout_path.resolve()
+    except (OSError, RuntimeError):
+        closeout_path_bound = False
+    ready = (
+        source_status == "ready_for_post_closeout_resume_review"
+        and payload.get("resume_gate_ready") is True
+        and payload.get("ready_for_resume_state_application_review") is True
+        and payload.get("next_step_id") == "temperature_channel_fast_review"
+        and "batch_initialization_closeout_index" in prefix
+        and "post_closeout_resume_gate_snapshot" in prefix
+        and plan_hash_ok
+        and closeout_hash_ok
+        and closeout_path_bound
+    )
+    if not payload:
+        status = MISSING
+        reason = "post-closeout resume gate missing"
+    elif not boundary_ok:
+        status = BLOCKED
+        reason = "post-closeout resume gate boundary is not clean"
+    elif ready:
+        status = READY
+        reason = "evidence-bound resume prefix is ready for state-application review"
+    elif not plan_hash_ok or not closeout_hash_ok or not closeout_path_bound:
+        status = BLOCKED
+        reason = "post-closeout resume source hash or batch-closeout path missing or mismatched"
+    elif "blocked" in source_status:
+        status = BLOCKED
+        reason = f"source_status={source_status}"
+    else:
+        status = REVIEW_REQUIRED
+        review_reasons = payload.get("review_reasons")
+        reason = (
+            "; ".join(str(item) for item in review_reasons[:3])
+            if isinstance(review_reasons, list) and review_reasons
+            else f"source_status={source_status or 'unknown'}"
+        )
+    return _gate(
+        gate_id="post_closeout_resume_gate",
+        title="Post-closeout evidence-bound resume gate",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action=(
+            "Regenerate the resume gate from the exact current full-flow plan and ready batch closeout index. "
+            "Route authorization remains separate."
+        ),
+        physical_meaning=(
+            "Prevents arbitrary --completed-step lists from being mistaken for evidence-backed initialization "
+            "completion. This artifact still does not apply state or execute a route."
         ),
         blocks_physical_flow=status in {MISSING, REVIEW_REQUIRED, BLOCKED},
     )
@@ -2053,6 +2154,7 @@ def build_v1_5_formal_run_status(
     pressure_s9_readiness_index_json: str | Path | None = None,
     pre_gas_readiness_json: str | Path | None = None,
     batch_initialization_closeout_json: str | Path | None = None,
+    post_closeout_resume_gate_json: str | Path | None = None,
     getco_readiness_json: str | Path | None = None,
     run_evidence_status_json: str | Path | None = None,
     full_flow_closure_readiness_json: str | Path | None = None,
@@ -2152,6 +2254,11 @@ def build_v1_5_formal_run_status(
         batch_initialization_closeout_json,
         "v1_5_batch_initialization_closeout_index.json",
     )
+    post_closeout_resume_gate_path = _explicit_or_latest(
+        root,
+        post_closeout_resume_gate_json,
+        "v1_5_post_closeout_resume_gate.json",
+    )
     getco_path = _explicit_or_latest(root, getco_readiness_json, "v1_5_getco_identity_readiness.json")
     run_status_path = _explicit_or_latest(root, run_evidence_status_json, "v1_5_run_evidence_status.json")
     closure_path = _explicit_or_latest(root, full_flow_closure_readiness_json, "v1_5_full_flow_closure_readiness.json")
@@ -2242,6 +2349,7 @@ def build_v1_5_formal_run_status(
     pressure_s9_readiness_index_payload = _load_json(pressure_s9_readiness_index_path)
     pre_gas_payload = _load_json(pre_gas_path)
     batch_initialization_closeout_payload = _load_json(batch_initialization_closeout_path)
+    post_closeout_resume_gate_payload = _load_json(post_closeout_resume_gate_path)
     getco_payload = _load_json(getco_path)
     run_payload = _load_json(run_status_path)
     closure_payload = _load_json(closure_path)
@@ -2405,6 +2513,14 @@ def build_v1_5_formal_run_status(
             _batch_initialization_closeout_gate(
                 batch_initialization_closeout_path,
                 batch_initialization_closeout_payload,
+            )
+        )
+    if post_closeout_resume_gate_path or batch_initialization_closeout_path:
+        gates.append(
+            _post_closeout_resume_gate(
+                post_closeout_resume_gate_path,
+                post_closeout_resume_gate_payload,
+                batch_initialization_closeout_path,
             )
         )
     if pressure_s9_readiness_index_path:
@@ -2698,6 +2814,9 @@ def build_v1_5_formal_run_status(
             "pre_gas_readiness_json": str(pre_gas_path) if pre_gas_path else "",
             "batch_initialization_closeout_json": str(batch_initialization_closeout_path)
             if batch_initialization_closeout_path
+            else "",
+            "post_closeout_resume_gate_json": str(post_closeout_resume_gate_path)
+            if post_closeout_resume_gate_path
             else "",
             "getco_readiness_json": str(getco_path) if getco_path else "",
             "run_evidence_status_json": str(run_status_path) if run_status_path else "",
