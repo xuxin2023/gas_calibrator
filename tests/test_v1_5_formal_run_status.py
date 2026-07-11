@@ -376,6 +376,7 @@ def _seed_formal_database_import_authorization(
             "production_postgresql_major": 18,
             "preflight_ready": preflight_ready,
             "archive_release_ready": archive_release_ready,
+            "archive_closure_index_binding_ready": archive_release_ready,
             "senco_authorization_archive_binding_ready": archive_release_ready,
             "manual_authorization_ready": manual_authorization_ready,
             "connects_postgresql": False,
@@ -421,8 +422,10 @@ def _seed_formal_database_import_command_contract(
             "production_backend": "postgresql",
             "production_postgresql_major": 18,
             "authorization_ready": authorization_ready,
+            "database_import_authorization_binding_ready": authorization_ready,
             "preflight_ready": preflight_ready,
             "archive_release_ready": archive_release_ready,
+            "archive_closure_index_binding_ready": archive_release_ready,
             "senco_authorization_archive_binding_ready": archive_release_ready,
             "evidence_bundle_ready": evidence_bundle_ready,
             "command_contract_ready": command_contract_ready,
@@ -464,6 +467,12 @@ def _seed_formal_database_import_blocked_executor(
             "review_required_count": review_required_count,
             "blocked_executor_ready": blocked_executor_ready,
             "execution_supported": False,
+            "database_import_authorization_binding_ready": (
+                blocked_executor_ready and side_effect_lock_clean
+            ),
+            "archive_closure_index_binding_ready": (
+                blocked_executor_ready and side_effect_lock_clean
+            ),
             "senco_authorization_archive_binding_ready": (
                 blocked_executor_ready and side_effect_lock_clean
             ),
@@ -508,6 +517,8 @@ def _seed_formal_database_import_controlled_executor_design(
             "review_required_count": review_required_count,
             "production_state": "blocked_design_only",
             "execution_supported": False,
+            "database_import_authorization_binding_ready": side_effect_lock_clean,
+            "archive_closure_index_binding_ready": side_effect_lock_clean,
             "senco_authorization_archive_binding_ready": side_effect_lock_clean,
             "real_import_execution_allowed": False,
             "production_backend": "postgresql",

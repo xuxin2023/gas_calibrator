@@ -15,6 +15,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .v1_5_artifact_hash_binding import sha256_file
+from .v1_5_formal_database_import_archive_index_binding import (
+    validate_v1_5_formal_archive_index_binding,
+)
 from .v1_5_formal_database_import_archive_binding import (
     validate_v1_5_database_import_archive_binding,
 )
@@ -119,8 +123,10 @@ def _contract_reasons(payload: Mapping[str, Any]) -> list[str]:
         reasons.append(f"production_postgresql_major={payload.get('production_postgresql_major') or 'missing'}")
     for field in (
         "authorization_ready",
+        "database_import_authorization_binding_ready",
         "preflight_ready",
         "archive_release_ready",
+        "archive_closure_index_binding_ready",
         "senco_authorization_archive_binding_ready",
         "evidence_bundle_ready",
     ):
@@ -235,6 +241,60 @@ def build_v1_5_formal_database_import_blocked_executor(
             )
         )
 
+    contract_authorization_sha = str(
+        contract.get("formal_database_import_authorization_sha256") or ""
+    ).strip().lower()
+    authorization_current_sha = (
+        sha256_file(authorization_path) if authorization_path and authorization_path.is_file() else ""
+    )
+    authorization_hash_reasons: list[str] = []
+    if len(contract_authorization_sha) != 64 or any(
+        char not in "0123456789abcdef" for char in contract_authorization_sha
+    ):
+        authorization_hash_reasons.append("command_contract_authorization_sha256_invalid")
+    elif authorization_current_sha != contract_authorization_sha:
+        authorization_hash_reasons.append("command_contract_authorization_sha256_mismatch")
+    authorization_hash_ready = not authorization_hash_reasons and bool(authorization_current_sha)
+    checks.append(
+        _check(
+            check="formal_database_import_authorization_hash_bound",
+            status="ready" if authorization_hash_ready else "review_required",
+            evidence_role="required_frozen_manual_authorization",
+            reasons=authorization_hash_reasons,
+            physical_meaning=(
+                "The blocked executor must consume the unchanged manual authorization JSON reviewed by the command contract."
+            ),
+            next_action="Regenerate the command contract after any authorization-record change.",
+            details={
+                "authorization_json": str(authorization_path) if authorization_path else "",
+                "authorization_current_sha256": authorization_current_sha,
+                "authorization_expected_sha256": contract_authorization_sha,
+            },
+        )
+    )
+
+    archive_index_ok, archive_index_reasons, archive_index_detail = (
+        validate_v1_5_formal_archive_index_binding(
+            archive_path,
+            expected_path=contract.get("archive_closure_json"),
+            expected_sha256=str(contract.get("archive_closure_sha256") or ""),
+            source_label="command_contract",
+        )
+    )
+    checks.append(
+        _check(
+            check="formal_archive_index_hash_bound",
+            status="ready" if archive_index_ok else "review_required",
+            evidence_role="required_frozen_archive_index",
+            reasons=archive_index_reasons,
+            physical_meaning=(
+                "Even the blocked executor must re-hash the exact archive closure index reviewed by the command contract."
+            ),
+            next_action="Regenerate authorization and command-contract evidence from the final archive index.",
+            details=archive_index_detail,
+        )
+    )
+
     binding_ok, binding_reasons, binding_detail = validate_v1_5_database_import_archive_binding(
         archive_payload
     )
@@ -343,8 +403,12 @@ def build_v1_5_formal_database_import_blocked_executor(
         "production_postgresql_major": 18,
         "formal_database_import_command_contract_json": str(contract_path) if contract_path else "",
         "formal_database_import_authorization_json": str(authorization_path) if authorization_path else "",
+        "formal_database_import_authorization_sha256": authorization_current_sha,
+        "database_import_authorization_binding_ready": authorization_hash_ready,
         "formal_database_import_preflight_json": str(preflight_path) if preflight_path else "",
         "archive_closure_json": str(archive_path) if archive_path else "",
+        "archive_closure_sha256": archive_index_detail.get("archive_closure_sha256", ""),
+        "archive_closure_index_binding_ready": archive_index_ok,
         "evidence_bundle_json": str(evidence_bundle_path) if evidence_bundle_path else "",
         "senco_authorization_archive_binding_ready": binding_ok,
         "senco_authorization_archive_binding_json": binding_detail.get("binding_path", ""),
@@ -393,6 +457,16 @@ def write_v1_5_formal_database_import_blocked_executor_outputs(
                 "blocker_count": model.get("blocker_count"),
                 "review_required_count": model.get("review_required_count"),
                 "blocked_executor_ready": model.get("blocked_executor_ready"),
+                "database_import_authorization_binding_ready": model.get(
+                    "database_import_authorization_binding_ready"
+                ),
+                "formal_database_import_authorization_sha256": model.get(
+                    "formal_database_import_authorization_sha256"
+                ),
+                "archive_closure_index_binding_ready": model.get(
+                    "archive_closure_index_binding_ready"
+                ),
+                "archive_closure_sha256": model.get("archive_closure_sha256"),
                 "senco_authorization_archive_binding_ready": model.get(
                     "senco_authorization_archive_binding_ready"
                 ),
@@ -413,6 +487,10 @@ def write_v1_5_formal_database_import_blocked_executor_outputs(
         "",
         f"- overall_status: `{model.get('overall_status')}`",
         f"- blocked_executor_ready: `{model.get('blocked_executor_ready')}`",
+        f"- database_import_authorization_binding_ready: `{model.get('database_import_authorization_binding_ready')}`",
+        f"- formal_database_import_authorization_sha256: `{model.get('formal_database_import_authorization_sha256')}`",
+        f"- archive_closure_index_binding_ready: `{model.get('archive_closure_index_binding_ready')}`",
+        f"- archive_closure_sha256: `{model.get('archive_closure_sha256')}`",
         f"- senco_authorization_archive_binding_ready: `{model.get('senco_authorization_archive_binding_ready')}`",
         f"- execution_supported: `{model.get('execution_supported')}`",
         f"- real_import_execution_allowed: `{model.get('real_import_execution_allowed')}`",

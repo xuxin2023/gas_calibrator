@@ -14,6 +14,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .v1_5_artifact_hash_binding import sha256_file
+from .v1_5_formal_database_import_archive_index_binding import (
+    validate_v1_5_formal_archive_index_binding,
+)
 from .v1_5_formal_database_import_archive_binding import (
     validate_v1_5_database_import_archive_binding,
 )
@@ -110,9 +114,24 @@ def _authorization_ready(payload: Mapping[str, Any]) -> tuple[bool, list[str], s
         reasons.append(f"production_backend={payload.get('production_backend') or 'missing'}")
     if payload.get("production_postgresql_major") != 18:
         reasons.append(f"production_postgresql_major={payload.get('production_postgresql_major') or 'missing'}")
+    operator = str(payload.get("operator") or "").strip()
+    reviewer = str(payload.get("reviewer") or "").strip()
+    approver = str(payload.get("approver") or "").strip()
+    authorization_id = str(payload.get("authorization_id") or "").strip()
+    if not operator:
+        reasons.append("authorization_operator_missing")
+    if not reviewer:
+        reasons.append("authorization_reviewer_missing")
+    if not approver:
+        reasons.append("authorization_approver_missing")
+    if reviewer and approver and reviewer.casefold() == approver.casefold():
+        reasons.append("authorization_reviewer_approver_must_be_distinct")
+    if not authorization_id:
+        reasons.append("authorization_id_missing")
     for field in (
         "preflight_ready",
         "archive_release_ready",
+        "archive_closure_index_binding_ready",
         "senco_authorization_archive_binding_ready",
         "manual_authorization_ready",
         "database_import_allowed",
@@ -134,6 +153,8 @@ def _authorization_ready(payload: Mapping[str, Any]) -> tuple[bool, list[str], s
             reasons.append(f"authorization_boundary_{field}={payload.get(field)!r}")
     if not reasons:
         return True, reasons, "ready"
+    if "authorization_reviewer_approver_must_be_distinct" in reasons:
+        return False, reasons, "blocker"
     if payload.get("overall_status") == "blocked" or int(payload.get("blocker_count") or 0):
         return False, reasons, "blocker"
     return False, reasons, "review_required"
@@ -238,6 +259,10 @@ def build_v1_5_formal_database_import_command_contract(
     checks: list[FormalDatabaseImportCommandContractCheck] = []
 
     authorization_ok, authorization_reasons, authorization_status = _authorization_ready(authorization_payload)
+    authorization_current_sha = (
+        sha256_file(authorization_path) if authorization_path and authorization_path.is_file() else ""
+    )
+    authorization_hash_ready = bool(authorization_current_sha)
     checks.append(
         _check(
             check="formal_database_import_authorization_ready",
@@ -291,6 +316,46 @@ def build_v1_5_formal_database_import_command_contract(
                 "archive_status": archive_payload.get("overall_status", ""),
                 "package_status": archive_payload.get("package_status", ""),
             },
+        )
+    )
+    checks.append(
+        _check(
+            check="formal_database_import_authorization_hash_bound",
+            status="ready" if authorization_hash_ready else "blocker",
+            evidence_role="required_frozen_manual_authorization",
+            reasons=() if authorization_hash_ready else ("authorization_json_hash_unavailable",),
+            physical_meaning=(
+                "The command contract freezes the complete manual authorization JSON, including independent "
+                "reviewer and approver identities, before any later executor review."
+            ),
+            next_action="Generate a complete database-import authorization JSON before command-contract review.",
+            details={
+                "authorization_json": str(authorization_path) if authorization_path else "",
+                "authorization_sha256": authorization_current_sha,
+            },
+        )
+    )
+
+    archive_index_ok, archive_index_reasons, archive_index_detail = (
+        validate_v1_5_formal_archive_index_binding(
+            archive_path,
+            expected_path=authorization_payload.get("archive_closure_json"),
+            expected_sha256=str(authorization_payload.get("archive_closure_sha256") or ""),
+            source_label="authorization",
+        )
+    )
+    checks.append(
+        _check(
+            check="formal_archive_index_bound_to_authorization",
+            status="ready" if archive_index_ok else "blocker",
+            evidence_role="required_frozen_archive_index",
+            reasons=archive_index_reasons,
+            physical_meaning=(
+                "The command contract must consume the exact archive closure index path and SHA-256 that manual "
+                "database-import authorization reviewed."
+            ),
+            next_action="Regenerate database-import authorization after freezing the final archive closure index.",
+            details=archive_index_detail,
         )
     )
 
@@ -404,6 +469,8 @@ def build_v1_5_formal_database_import_command_contract(
         "production_backend": "postgresql",
         "production_postgresql_major": 18,
         "formal_database_import_authorization_json": str(authorization_path) if authorization_path else "",
+        "formal_database_import_authorization_sha256": authorization_current_sha,
+        "database_import_authorization_binding_ready": authorization_hash_ready and authorization_ok,
         "formal_database_import_preflight_json": str(preflight_path) if preflight_path else "",
         "archive_closure_json": str(archive_path) if archive_path else "",
         "evidence_bundle_json": str(evidence_bundle_path) if evidence_bundle_path else "",
@@ -411,7 +478,9 @@ def build_v1_5_formal_database_import_command_contract(
         "requested_command_module": command_module,
         "authorization_ready": authorization_ok,
         "preflight_ready": preflight_ok,
-        "archive_release_ready": archive_ok and binding_ok,
+        "archive_release_ready": archive_ok and binding_ok and archive_index_ok,
+        "archive_closure_index_binding_ready": archive_index_ok,
+        "archive_closure_sha256": archive_index_detail.get("archive_closure_sha256", ""),
         "senco_authorization_archive_binding_ready": binding_ok,
         "senco_authorization_archive_binding_json": binding_detail.get("binding_path", ""),
         "senco_authorization_archive_binding_sha256": binding_detail.get("binding_sha256", ""),
@@ -428,7 +497,7 @@ def build_v1_5_formal_database_import_command_contract(
         "database_written": False,
         "database_import_allowed": False,
         "real_import_execution_allowed": False,
-        "formal_release_allowed": archive_ok and binding_ok,
+        "formal_release_allowed": archive_ok and binding_ok and archive_index_ok,
         "not_real_acceptance_evidence": True,
         "required_command_inputs": [
             "formal_database_import_authorization_json",
@@ -467,8 +536,18 @@ def write_v1_5_formal_database_import_command_contract_outputs(
                 "blocker_count": model.get("blocker_count"),
                 "review_required_count": model.get("review_required_count"),
                 "authorization_ready": model.get("authorization_ready"),
+                "database_import_authorization_binding_ready": model.get(
+                    "database_import_authorization_binding_ready"
+                ),
+                "formal_database_import_authorization_sha256": model.get(
+                    "formal_database_import_authorization_sha256"
+                ),
                 "preflight_ready": model.get("preflight_ready"),
                 "archive_release_ready": model.get("archive_release_ready"),
+                "archive_closure_index_binding_ready": model.get(
+                    "archive_closure_index_binding_ready"
+                ),
+                "archive_closure_sha256": model.get("archive_closure_sha256"),
                 "senco_authorization_archive_binding_ready": model.get(
                     "senco_authorization_archive_binding_ready"
                 ),
@@ -492,6 +571,10 @@ def write_v1_5_formal_database_import_command_contract_outputs(
         f"- blocker_count: `{model.get('blocker_count')}`",
         f"- review_required_count: `{model.get('review_required_count')}`",
         f"- command_contract_ready: `{model.get('command_contract_ready')}`",
+        f"- database_import_authorization_binding_ready: `{model.get('database_import_authorization_binding_ready')}`",
+        f"- formal_database_import_authorization_sha256: `{model.get('formal_database_import_authorization_sha256')}`",
+        f"- archive_closure_index_binding_ready: `{model.get('archive_closure_index_binding_ready')}`",
+        f"- archive_closure_sha256: `{model.get('archive_closure_sha256')}`",
         f"- senco_authorization_archive_binding_ready: `{model.get('senco_authorization_archive_binding_ready')}`",
         f"- real_import_execution_allowed: `{model.get('real_import_execution_allowed')}`",
         f"- database_import_allowed: `{model.get('database_import_allowed')}`",

@@ -1614,6 +1614,7 @@ def _formal_database_import_authorization_gate(path: Path, payload: Mapping[str,
     prereqs_ok = (
         payload.get("preflight_ready") is True
         and payload.get("archive_release_ready") is True
+        and payload.get("archive_closure_index_binding_ready") is True
         and payload.get("senco_authorization_archive_binding_ready") is True
         and payload.get("manual_authorization_ready") is True
         and payload.get("database_import_allowed") is True
@@ -1668,6 +1669,8 @@ def _formal_database_import_authorization_gate(path: Path, payload: Mapping[str,
             reasons.append("preflight_ready=False")
         if payload.get("archive_release_ready") is not True:
             reasons.append("archive_release_ready=False")
+        if payload.get("archive_closure_index_binding_ready") is not True:
+            reasons.append("archive_closure_index_binding_ready=False")
         if payload.get("senco_authorization_archive_binding_ready") is not True:
             reasons.append("senco_authorization_archive_binding_ready=False")
         if payload.get("manual_authorization_ready") is not True:
@@ -1708,8 +1711,10 @@ def _formal_database_import_command_contract_gate(path: Path, payload: Mapping[s
     )
     prereqs_ok = (
         payload.get("authorization_ready") is True
+        and payload.get("database_import_authorization_binding_ready") is True
         and payload.get("preflight_ready") is True
         and payload.get("archive_release_ready") is True
+        and payload.get("archive_closure_index_binding_ready") is True
         and payload.get("senco_authorization_archive_binding_ready") is True
         and payload.get("evidence_bundle_ready") is True
         and payload.get("command_contract_ready") is True
@@ -1764,8 +1769,10 @@ def _formal_database_import_command_contract_gate(path: Path, payload: Mapping[s
             )
         for field in (
             "authorization_ready",
+            "database_import_authorization_binding_ready",
             "preflight_ready",
             "archive_release_ready",
+            "archive_closure_index_binding_ready",
             "senco_authorization_archive_binding_ready",
             "evidence_bundle_ready",
             "command_contract_ready",
@@ -1819,6 +1826,8 @@ def _formal_database_import_blocked_executor_gate(path: Path, payload: Mapping[s
         source_status == "blocked_pending_controlled_executor_implementation"
         and payload.get("blocked_executor_ready") is True
         and payload.get("execution_supported") is False
+        and payload.get("database_import_authorization_binding_ready") is True
+        and payload.get("archive_closure_index_binding_ready") is True
         and payload.get("senco_authorization_archive_binding_ready") is True
         and side_effect_lock_clean
     )
@@ -1875,6 +1884,8 @@ def _formal_database_import_controlled_executor_design_gate(path: Path, payload:
         and payload.get("database_import_allowed") is False
         and payload.get("real_import_execution_allowed") is False
         and payload.get("execution_supported") is False
+        and payload.get("database_import_authorization_binding_ready") is True
+        and payload.get("archive_closure_index_binding_ready") is True
         and payload.get("senco_authorization_archive_binding_ready") is True
     )
     if source_status == "ready_for_controlled_import_executor_design_review" and boundary_ok:

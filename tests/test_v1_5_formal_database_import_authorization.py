@@ -83,7 +83,7 @@ def test_formal_database_import_authorization_ready_without_connecting(tmp_path:
         archive_closure_json=archive_json,
         operator="operator-a",
         reviewer="reviewer-a",
-        approver="approver-a",
+        approver="approver-b",
         authorization_id="db-import-001",
     )
 
@@ -93,6 +93,8 @@ def test_formal_database_import_authorization_ready_without_connecting(tmp_path:
     assert model["review_required_count"] == 0
     assert model["preflight_ready"] is True
     assert model["archive_release_ready"] is True
+    assert model["archive_closure_index_binding_ready"] is True
+    assert model["archive_closure_sha256"] == sha256_file(archive_json)
     assert model["senco_authorization_archive_binding_ready"] is True
     assert model["manual_authorization_ready"] is True
     assert model["database_import_allowed"] is True
@@ -103,6 +105,7 @@ def test_formal_database_import_authorization_ready_without_connecting(tmp_path:
     assert model["not_real_acceptance_evidence"] is True
     assert _check(model, "formal_database_import_preflight_ready")["status"] == "ready"
     assert _check(model, "formal_archive_release_ready")["status"] == "ready"
+    assert _check(model, "formal_archive_index_hash_bound")["status"] == "ready"
     assert _check(model, "senco_authorization_archive_binding_ready")["status"] == "ready"
     assert _check(model, "manual_database_import_authorization_record")["status"] == "ready"
 
@@ -119,7 +122,7 @@ def test_formal_database_import_authorization_blocks_when_archive_binding_is_mis
     )
 
     assert model["overall_status"] == "blocked"
-    assert model["blocker_count"] == 1
+    assert model["blocker_count"] == 2
     assert model["review_required_count"] == 2
     assert model["preflight_ready"] is True
     assert model["archive_release_ready"] is False
@@ -144,7 +147,7 @@ def test_formal_database_import_authorization_blocks_bad_preflight(tmp_path: Pat
         archive_closure_json=archive_json,
         operator="operator-a",
         reviewer="reviewer-a",
-        approver="approver-a",
+        approver="approver-b",
         authorization_id="db-import-001",
     )
 
@@ -170,7 +173,7 @@ def test_formal_database_import_authorization_blocks_tampered_archive_binding(tm
         archive_closure_json=archive_json,
         operator="operator-a",
         reviewer="reviewer-a",
-        approver="approver-a",
+        approver="approver-b",
         authorization_id="db-import-tampered",
     )
 
@@ -181,6 +184,25 @@ def test_formal_database_import_authorization_blocks_tampered_archive_binding(tm
     assert "senco_authorization_archive_binding_sha256_mismatch" in binding_check["reasons"]
 
 
+def test_formal_database_import_authorization_blocks_same_reviewer_and_approver(tmp_path: Path) -> None:
+    model = build_v1_5_formal_database_import_authorization(
+        formal_database_import_preflight_json=_preflight_json(tmp_path),
+        archive_closure_json=_archive_json(tmp_path),
+        operator="operator-a",
+        reviewer="Reviewer-A",
+        approver=" reviewer-a ",
+        authorization_id="db-import-same-reviewer",
+    )
+
+    assert model["overall_status"] == "blocked"
+    assert model["blocker_count"] == 1
+    assert model["manual_authorization_ready"] is False
+    assert model["database_import_allowed"] is False
+    authorization_check = _check(model, "manual_database_import_authorization_record")
+    assert authorization_check["status"] == "blocker"
+    assert "reviewer_approver_must_be_distinct" in authorization_check["reasons"]
+
+
 def test_formal_database_import_authorization_writer_and_cli(tmp_path: Path) -> None:
     preflight_json = _preflight_json(tmp_path)
     archive_json = _archive_json(tmp_path)
@@ -189,7 +211,7 @@ def test_formal_database_import_authorization_writer_and_cli(tmp_path: Path) -> 
         archive_closure_json=archive_json,
         operator="operator-a",
         reviewer="reviewer-a",
-        approver="approver-a",
+        approver="approver-b",
         authorization_id="db-import-001",
     )
     outputs = write_v1_5_formal_database_import_authorization_outputs(model, tmp_path / "authorization")
@@ -214,7 +236,7 @@ def test_formal_database_import_authorization_writer_and_cli(tmp_path: Path) -> 
             "--reviewer",
             "reviewer-a",
             "--approver",
-            "approver-a",
+            "approver-b",
             "--authorization-id",
             "db-import-001",
             "--output-dir",
