@@ -124,11 +124,15 @@ def test_formal_database_import_command_contract_ready_without_connecting(tmp_pa
     assert model["database_import_authorization_binding_ready"] is True
     assert model["formal_database_import_authorization_sha256"] == sha256_file(authorization_json)
     assert model["preflight_ready"] is True
+    assert model["database_import_preflight_binding_ready"] is True
+    assert model["formal_database_import_preflight_sha256"] == sha256_file(preflight_json)
     assert model["archive_release_ready"] is True
     assert model["archive_closure_index_binding_ready"] is True
     assert model["archive_closure_sha256"] == sha256_file(archive_json)
     assert model["senco_authorization_archive_binding_ready"] is True
     assert model["evidence_bundle_ready"] is True
+    assert model["evidence_bundle_binding_ready"] is True
+    assert model["evidence_bundle_sha256"] == sha256_file(bundle_json)
     assert model["command_contract_ready"] is True
     assert model["real_import_execution_allowed"] is False
     assert model["database_import_allowed"] is False
@@ -139,10 +143,35 @@ def test_formal_database_import_command_contract_ready_without_connecting(tmp_pa
     assert _check(model, "formal_database_import_authorization_ready")["status"] == "ready"
     assert _check(model, "formal_database_import_authorization_hash_bound")["status"] == "ready"
     assert _check(model, "formal_database_import_preflight_ready")["status"] == "ready"
+    assert _check(model, "formal_database_import_preflight_hash_bound")["status"] == "ready"
     assert _check(model, "formal_archive_closure_ready")["status"] == "ready"
     assert _check(model, "formal_archive_index_bound_to_authorization")["status"] == "ready"
     assert _check(model, "senco_authorization_archive_binding_ready")["status"] == "ready"
     assert _check(model, "formal_evidence_bundle_ready")["status"] == "ready"
+    assert _check(model, "formal_evidence_bundle_hash_bound")["status"] == "ready"
+
+
+def test_formal_database_import_command_contract_blocks_preflight_changed_after_authorization(
+    tmp_path: Path,
+) -> None:
+    authorization_json, preflight_json, archive_json, bundle_json = _authorization_json(tmp_path)
+    preflight = json.loads(preflight_json.read_text(encoding="utf-8-sig"))
+    preflight["changed_after_authorization"] = True
+    preflight_json.write_text(json.dumps(preflight, ensure_ascii=False, indent=2), encoding="utf-8-sig")
+
+    model = build_v1_5_formal_database_import_command_contract(
+        formal_database_import_authorization_json=authorization_json,
+        formal_database_import_preflight_json=preflight_json,
+        archive_closure_json=archive_json,
+        evidence_bundle_json=bundle_json,
+    )
+
+    assert model["overall_status"] == "blocked"
+    assert model["database_import_preflight_binding_ready"] is False
+    assert model["command_contract_ready"] is False
+    binding_check = _check(model, "formal_database_import_preflight_hash_bound")
+    assert binding_check["status"] == "blocker"
+    assert "authorization_formal_database_import_preflight_sha256_mismatch" in binding_check["reasons"]
 
 
 def test_formal_database_import_command_contract_blocks_missing_archive_binding(tmp_path: Path) -> None:
@@ -154,7 +183,7 @@ def test_formal_database_import_command_contract_blocks_missing_archive_binding(
     )
 
     assert model["overall_status"] == "blocked"
-    assert model["blocker_count"] == 2
+    assert model["blocker_count"] == 3
     assert model["review_required_count"] == 2
     assert model["authorization_ready"] is True
     assert model["preflight_ready"] is True
@@ -183,7 +212,7 @@ def test_formal_database_import_command_contract_blocks_missing_authorization(tm
     )
 
     assert model["overall_status"] == "blocked"
-    assert model["blocker_count"] == 3
+    assert model["blocker_count"] == 4
     assert model["command_contract_ready"] is False
     assert model["real_import_execution_allowed"] is False
     assert _check(model, "formal_database_import_authorization_ready")["status"] == "blocker"

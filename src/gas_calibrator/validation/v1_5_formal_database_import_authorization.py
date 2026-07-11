@@ -20,6 +20,7 @@ from .v1_5_formal_database_import_archive_index_binding import (
 from .v1_5_formal_database_import_archive_binding import (
     validate_v1_5_database_import_archive_binding,
 )
+from .v1_5_formal_database_import_input_binding import snapshot_v1_5_database_import_input
 
 
 SCHEMA = "v1_5_formal_database_import_authorization_v1"
@@ -213,6 +214,26 @@ def build_v1_5_formal_database_import_authorization(
         )
     )
 
+    preflight_binding_ok, preflight_binding_reasons, preflight_binding_detail = (
+        snapshot_v1_5_database_import_input(
+            preflight_path,
+            input_label="formal_database_import_preflight",
+        )
+    )
+    checks.append(
+        _check(
+            check="formal_database_import_preflight_hash_bound",
+            status="ready" if preflight_binding_ok else "blocker",
+            evidence_role="required_frozen_database_preflight",
+            reasons=preflight_binding_reasons,
+            physical_meaning=(
+                "Manual import authorization must freeze the exact PostgreSQL 18 preflight JSON path and SHA-256."
+            ),
+            next_action="Generate the final import preflight before recording manual database authorization.",
+            details=preflight_binding_detail,
+        )
+    )
+
     archive_index_ok, archive_index_reasons, archive_index_detail = snapshot_v1_5_formal_archive_index(
         archive_path
     )
@@ -349,6 +370,8 @@ def build_v1_5_formal_database_import_authorization(
         "production_backend": "postgresql",
         "production_postgresql_major": 18,
         "formal_database_import_preflight_json": str(preflight_path) if preflight_path else "",
+        "formal_database_import_preflight_sha256": preflight_binding_detail.get("current_sha256", ""),
+        "database_import_preflight_binding_ready": preflight_binding_ok,
         "archive_closure_json": str(archive_path) if archive_path else "",
         "archive_closure_sha256": archive_index_detail.get("archive_closure_sha256", ""),
         "preflight_ready": preflight_ok,
@@ -411,6 +434,12 @@ def write_v1_5_formal_database_import_authorization_outputs(
                 "blocker_count": model.get("blocker_count"),
                 "review_required_count": model.get("review_required_count"),
                 "preflight_ready": model.get("preflight_ready"),
+                "database_import_preflight_binding_ready": model.get(
+                    "database_import_preflight_binding_ready"
+                ),
+                "formal_database_import_preflight_sha256": model.get(
+                    "formal_database_import_preflight_sha256"
+                ),
                 "archive_release_ready": model.get("archive_release_ready"),
                 "archive_closure_index_binding_ready": model.get(
                     "archive_closure_index_binding_ready"
@@ -437,6 +466,8 @@ def write_v1_5_formal_database_import_authorization_outputs(
         f"- blocker_count: `{model.get('blocker_count')}`",
         f"- review_required_count: `{model.get('review_required_count')}`",
         f"- preflight_ready: `{model.get('preflight_ready')}`",
+        f"- database_import_preflight_binding_ready: `{model.get('database_import_preflight_binding_ready')}`",
+        f"- formal_database_import_preflight_sha256: `{model.get('formal_database_import_preflight_sha256')}`",
         f"- archive_release_ready: `{model.get('archive_release_ready')}`",
         f"- archive_closure_index_binding_ready: `{model.get('archive_closure_index_binding_ready')}`",
         f"- archive_closure_sha256: `{model.get('archive_closure_sha256')}`",
