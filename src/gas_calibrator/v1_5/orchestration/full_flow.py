@@ -1022,6 +1022,7 @@ def build_full_flow_plan(
     fit_quality_dir = root / "fit_input_quality"
     post_run_executor_dir = root / "post_run_coefficient_executor"
     closure_readiness_dir = root / "full_flow_closure_readiness"
+    main_senco_write_precheck_dir = root / "main_senco_write_precheck"
     post_write_verify_dir = root / "post_write_reverification"
     reports_dir = root / "reports"
     formal_status_dir = root / "formal_run_status"
@@ -2321,11 +2322,75 @@ def build_full_flow_plan(
 
     steps.append(
         FullFlowStep(
+            step_id="main_senco_write_precheck_authorization_gate",
+            title="Review final SENCO artifacts and bind explicit write authorization",
+            phase="CONTROLLED_WRITE_AUTHORIZATION",
+            tool_module="gas_calibrator.tools.export_v1_5_main_senco_write_precheck_pack",
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_main_senco_write_precheck_pack",
+                "--co2-model-selection-dir",
+                "<co2_model_selection_dir>",
+                "--h2o-model-selection-dir",
+                "<h2o_model_selection_dir>",
+                "--co2-candidate-dir",
+                "<co2_candidate_dir>",
+                "--h2o-candidate-dir",
+                "<h2o_candidate_dir>",
+                "--output-dir",
+                main_senco_write_precheck_dir,
+                "--plan-json",
+                formal_pkg / "formal_plan_snapshot.json",
+                "--old-coefficients-json",
+                "<old_coefficients_json>",
+                "--artifact-reviewer",
+                "<artifact_reviewer>",
+                "--artifact-approver",
+                "<artifact_approver>",
+                "--artifact-authorization-id",
+                "<artifact_authorization_id>",
+                "--authorized-writer-scope",
+                "<authorized_writer_scope>",
+                "--authorized-device-id",
+                "<authorized_device_id>",
+            ),
+            required_inputs=(
+                "fit-input-traceable CO2/H2O candidate packages",
+                "old GETCO coefficient snapshot",
+                "explicit reviewer and distinct approver",
+                "authorization id, writer scopes, and authorized device IDs",
+            ),
+            expected_outputs=(
+                "main_senco_write_precheck/main_senco_artifact_hash_manifest.json",
+                "main_senco_write_precheck/main_senco_artifact_authorization.json",
+                "main_senco_write_precheck/main_senco_write_precheck_meta.json",
+            ),
+            physical_meaning=(
+                "The final candidate files, their manifest hash, writer scopes, and exact analyzer device set "
+                "must be bound to a distinct reviewer/approver record before any main SENCO writer can open COM."
+            ),
+            execution_mode="blocked_pending_explicit_artifact_authorization",
+            gate="required_before_any_main_senco_controlled_writer",
+            notes=(
+                "The full-flow planner records placeholders only and never invents reviewer, approver, authorization ID, or device IDs.",
+                "Repeat --authorized-writer-scope and --authorized-device-id only for the scopes and analyzers approved for this run.",
+                "This stage is offline and no-write; controlled writers remain separate explicit commands with readback and rollback.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
             step_id="controlled_component_write_placeholder",
             title="Controlled component writes create new coefficient epochs",
             phase="CONTROLLED_WRITE",
             tool_module=None,
-            required_inputs=("approved CO2/H2O/S5/S6 write packages", "old GETCO1-9 snapshot", "reviewer", "approver"),
+            required_inputs=(
+                "approved CO2/H2O/S5/S6 write packages",
+                "old GETCO1-9 snapshot",
+                "main_senco_artifact_authorization.json",
+                "reviewer",
+                "approver",
+            ),
             expected_outputs=("write events", "readback verification", "coefficient_epoch_n snapshots"),
             physical_meaning=(
                 "SENCO1/3, SENCO2/4, and optional SENCO5/6 writes are high-risk model changes. "
@@ -2900,6 +2965,8 @@ def build_full_flow_plan(
                 "--formal-database-import-controlled-executor-design-json",
                 formal_database_import_controlled_executor_design_dir
                 / "v1_5_formal_database_import_controlled_executor_design.json",
+                "--senco-artifact-authorization-json",
+                main_senco_write_precheck_dir / "main_senco_artifact_authorization.json",
             ),
             required_inputs=(
                 "initialization readiness sidecar",
@@ -2924,6 +2991,7 @@ def build_full_flow_plan(
                 "formal database import command contract sidecar",
                 "blocked database import executor sidecar",
                 "controlled database import executor design sidecar",
+                "main SENCO artifact authorization sidecar",
             ),
             expected_outputs=(
                 "formal_run_status/v1_5_formal_run_status.json",

@@ -15,6 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from .v1_5_senco_artifact_authorization import validate_senco_artifact_authorization
+
 
 SCHEMA = "v1_5_formal_run_status_v1"
 
@@ -1177,6 +1179,71 @@ def _run_stage_gate(
     )
 
 
+def _senco_artifact_authorization_gate(
+    path: Path | None,
+    payload: Mapping[str, Any],
+) -> FormalRunGate:
+    source_status = _source_status(payload)
+    reasons: list[str] = []
+    if not payload or path is None:
+        status = MISSING
+        reason = "main SENCO artifact authorization is missing"
+    else:
+        manifest_path = str(payload.get("manifest_path") or "").strip()
+        reviewer = str(payload.get("reviewer") or "").strip()
+        approver = str(payload.get("approver") or "").strip()
+        scopes = [
+            str(item).strip()
+            for item in payload.get("authorized_writer_scopes") or []
+            if str(item).strip()
+        ]
+        device_ids = [
+            str(item).strip()
+            for item in payload.get("authorized_device_ids") or []
+            if str(item).strip()
+        ]
+        if not manifest_path:
+            reasons.append("senco_artifact_authorization_manifest_path_missing")
+        else:
+            for scope in scopes or [""]:
+                valid, validation_reasons, _ = validate_senco_artifact_authorization(
+                    path,
+                    manifest_path=manifest_path,
+                    reviewer=reviewer,
+                    approver=approver,
+                    writer_scope=scope,
+                    device_ids=device_ids,
+                )
+                if not valid:
+                    reasons.extend(validation_reasons)
+        reasons = list(dict.fromkeys(reasons))
+        if reasons:
+            status = BLOCKED
+            reason = "; ".join(reasons[:4])
+        else:
+            status = READY
+            reason = (
+                "final SENCO manifest hash, writer scopes, device IDs, reviewer, and approver are bound"
+            )
+    return _gate(
+        gate_id="senco_artifact_authorization",
+        title="Main SENCO artifact authorization",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action=(
+            "Generate or refresh the main SENCO precheck pack with explicit reviewer, distinct approver, "
+            "authorization ID, writer scopes, and exact authorized device IDs before controlled writes."
+        ),
+        physical_meaning=(
+            "Binds the exact final coefficient artifact hash and analyzer set to reviewed write intent. "
+            "Missing authorization blocks controlled writes and formal release, but does not block mature sampling."
+        ),
+        blocks_physical_flow=False,
+    )
+
+
 def _archive_gate(
     *,
     closure_path: Path | None,
@@ -1863,6 +1930,7 @@ def build_v1_5_formal_run_status(
     archive_closure_json: str | Path | None = None,
     algorithm_profile_runner_dry_run_json: str | Path | None = None,
     full_flow_automation_closure_json: str | Path | None = None,
+    senco_artifact_authorization_json: str | Path | None = None,
     formal_database_dry_run_json: str | Path | None = None,
     formal_database_import_preflight_json: str | Path | None = None,
     formal_database_import_authorization_json: str | Path | None = None,
@@ -1964,6 +2032,11 @@ def build_v1_5_formal_run_status(
         full_flow_automation_closure_json,
         "v1_5_full_flow_automation_closure.json",
     )
+    senco_artifact_authorization_path = _explicit_or_latest(
+        root,
+        senco_artifact_authorization_json,
+        "main_senco_artifact_authorization.json",
+    )
     formal_database_dry_run_path = _explicit_or_latest(
         root,
         formal_database_dry_run_json,
@@ -2040,6 +2113,7 @@ def build_v1_5_formal_run_status(
     archive_payload = _load_json(archive_path)
     algorithm_profile_runner_payload = _load_json(algorithm_profile_runner_path)
     full_flow_automation_closure_payload = _load_json(full_flow_automation_closure_path)
+    senco_artifact_authorization_payload = _load_json(senco_artifact_authorization_path)
     formal_database_dry_run_payload = _load_json(formal_database_dry_run_path)
     formal_database_import_preflight_payload = _load_json(formal_database_import_preflight_path)
     formal_database_import_authorization_payload = _load_json(formal_database_import_authorization_path)
@@ -2181,6 +2255,10 @@ def build_v1_5_formal_run_status(
                 mature_route_continuity_gate_payload,
             )
         )
+    senco_artifact_authorization_gate = _senco_artifact_authorization_gate(
+        senco_artifact_authorization_path,
+        senco_artifact_authorization_payload,
+    )
     gates.extend(
         [
             _getco_gate(getco_path, getco_payload),
@@ -2309,6 +2387,7 @@ def build_v1_5_formal_run_status(
                 next_action="Generate the post-run executor package with eligibility, write plan, and reverify plan.",
                 physical_meaning="The write package separates no-write review from manual authorized controlled SENCO writes.",
             ),
+            senco_artifact_authorization_gate,
             _run_stage_gate(
                 gate_id="controlled_write_and_reverification",
                 title="Controlled write and post-write reverification",
@@ -2377,6 +2456,22 @@ def build_v1_5_formal_run_status(
         "database_import_allowed": database_import_allowed,
         "can_continue_physical_flow": not physical_blockers,
         "full_production_auto_allowed": False,
+        "senco_artifact_authorization": {
+            "status": senco_artifact_authorization_gate.status,
+            "controlled_write_authorization_ready": senco_artifact_authorization_gate.status == READY,
+            "source_path": senco_artifact_authorization_gate.source_path,
+            "source_status": senco_artifact_authorization_gate.source_status,
+            "reason": senco_artifact_authorization_gate.reason,
+            "authorization_id": str(senco_artifact_authorization_payload.get("authorization_id") or ""),
+            "reviewer": str(senco_artifact_authorization_payload.get("reviewer") or ""),
+            "approver": str(senco_artifact_authorization_payload.get("approver") or ""),
+            "authorized_writer_scopes": list(
+                senco_artifact_authorization_payload.get("authorized_writer_scopes") or []
+            ),
+            "authorized_device_ids": list(
+                senco_artifact_authorization_payload.get("authorized_device_ids") or []
+            ),
+        },
         "physical_boundaries": {
             "offline_status_only": True,
             "opens_com_ports": False,
@@ -2468,6 +2563,9 @@ def build_v1_5_formal_run_status(
             else "",
             "full_flow_automation_closure_json": str(full_flow_automation_closure_path)
             if full_flow_automation_closure_path
+            else "",
+            "senco_artifact_authorization_json": str(senco_artifact_authorization_path)
+            if senco_artifact_authorization_path
             else "",
             "formal_database_dry_run_json": str(formal_database_dry_run_path)
             if formal_database_dry_run_path

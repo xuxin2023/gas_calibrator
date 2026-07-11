@@ -249,6 +249,7 @@ STAGE_TO_PAGE: dict[str, str] = {
     "h2o_open_flow_sampling": "open_flow_sampling",
     "qc_classification": "qc_review",
     "post_run_coefficient_executor": "report_review",
+    "main_senco_write_precheck_authorization_gate": "approval",
     "reports": "report_review",
     "formal_report": "report_review",
     "database_import": "approval",
@@ -459,6 +460,8 @@ def _formal_run_status_panel(formal_run_status: Mapping[str, Any]) -> dict[str, 
             "formal_release_allowed": False,
             "database_import_allowed": False,
             "can_continue_physical_flow": False,
+            "controlled_write_authorization_ready": False,
+            "senco_artifact_authorization": {},
             "detail": "formal_run_status_missing",
         }
 
@@ -468,6 +471,12 @@ def _formal_run_status_panel(formal_run_status: Mapping[str, Any]) -> dict[str, 
     formal_release_allowed = bool(formal_run_status.get("formal_release_allowed"))
     database_import_allowed = bool(formal_run_status.get("database_import_allowed"))
     can_continue_physical_flow = bool(formal_run_status.get("can_continue_physical_flow"))
+    senco_artifact_authorization = formal_run_status.get("senco_artifact_authorization")
+    if not isinstance(senco_artifact_authorization, Mapping):
+        senco_artifact_authorization = {}
+    controlled_write_authorization_ready = bool(
+        senco_artifact_authorization.get("controlled_write_authorization_ready")
+    )
     detail = (
         f"当前阶段={current_stage or 'unknown'}; "
         f"下一步={next_action or 'none'}; "
@@ -488,6 +497,8 @@ def _formal_run_status_panel(formal_run_status: Mapping[str, Any]) -> dict[str, 
         "formal_release_allowed": formal_release_allowed,
         "database_import_allowed": database_import_allowed,
         "can_continue_physical_flow": can_continue_physical_flow,
+        "controlled_write_authorization_ready": controlled_write_authorization_ready,
+        "senco_artifact_authorization": dict(senco_artifact_authorization),
         "detail": detail,
         "physical_boundaries": dict(formal_run_status.get("physical_boundaries") or {}),
     }
@@ -526,6 +537,18 @@ def _summary_cards(
         verification_detail = "未发现复验证据"
 
     formal_status_panel = _formal_run_status_panel(formal_run_status)
+    senco_authorization = formal_status_panel.get("senco_artifact_authorization") or {}
+    senco_authorization_status = str(senco_authorization.get("status") or "missing")
+    senco_authorization_id = str(senco_authorization.get("authorization_id") or "")
+    senco_devices = ",".join(str(item) for item in senco_authorization.get("authorized_device_ids") or [])
+    senco_scopes = ",".join(
+        str(item) for item in senco_authorization.get("authorized_writer_scopes") or []
+    )
+    senco_authorization_detail = (
+        f"授权编号={senco_authorization_id or 'missing'}; "
+        f"设备={senco_devices or 'missing'}; 范围={senco_scopes or 'missing'}; "
+        f"受控写入授权就绪={formal_status_panel.get('controlled_write_authorization_ready', False)}"
+    )
     if formal_status_panel["available"]:
         formal_release_status = (
             "formal_release_ready"
@@ -556,6 +579,15 @@ def _summary_cards(
             "status_label": formal_status_panel["status_label"],
             "tone": formal_status_panel["tone"],
             "detail": formal_status_panel["detail"],
+        },
+        {
+            "key": "senco_artifact_authorization",
+            "title": "SENCO 工件授权",
+            "status": senco_authorization_status,
+            "label": _status_label(senco_authorization_status),
+            "status_label": _status_label(senco_authorization_status),
+            "tone": _tone(senco_authorization_status),
+            "detail": senco_authorization_detail,
         },
         {
             "key": "method_backbone",

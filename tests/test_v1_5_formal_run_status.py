@@ -8,6 +8,10 @@ from gas_calibrator.validation.v1_5_formal_run_status import (
     render_v1_5_formal_run_status_markdown,
     write_v1_5_formal_run_status_outputs,
 )
+from gas_calibrator.validation.v1_5_senco_artifact_authorization import (
+    WRITER_SCOPES,
+    write_senco_artifact_authorization,
+)
 
 
 def _write_json(path: Path, payload: dict) -> Path:
@@ -16,7 +20,30 @@ def _write_json(path: Path, payload: dict) -> Path:
     return path
 
 
-def _seed_ready_run(root: Path, *, include_mature_route_continuity_gate: bool = True) -> None:
+def _seed_senco_artifact_authorization(root: Path) -> Path:
+    output_dir = root / "main_senco_write_precheck"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    manifest = _write_json(
+        output_dir / "main_senco_artifact_hash_manifest.json",
+        {"schema": "v1_5_final_senco_artifact_hash_manifest_v1", "artifacts": []},
+    )
+    return write_senco_artifact_authorization(
+        output_dir / "main_senco_artifact_authorization.json",
+        manifest_path=manifest,
+        reviewer="reviewer-a",
+        approver="approver-b",
+        authorization_id="AUTH-READY-001",
+        authorized_writer_scopes=WRITER_SCOPES,
+        authorized_device_ids=("001", "002", "003", "004", "005", "006"),
+    )
+
+
+def _seed_ready_run(
+    root: Path,
+    *,
+    include_mature_route_continuity_gate: bool = True,
+    include_senco_artifact_authorization: bool = True,
+) -> None:
     _write_json(
         root / "initialization" / "v1_5_initialization_readiness.json",
         {
@@ -79,6 +106,8 @@ def _seed_ready_run(root: Path, *, include_mature_route_continuity_gate: bool = 
     )
     if include_mature_route_continuity_gate:
         _seed_mature_route_continuity_gate(root)
+    if include_senco_artifact_authorization:
+        _seed_senco_artifact_authorization(root)
 
 
 def _seed_pressure_s9_readiness_index(root: Path, *, ready: bool = True) -> Path:
@@ -995,6 +1024,16 @@ def test_formal_run_status_reports_ready_release_without_touching_devices(tmp_pa
     assert gate_statuses["pressure_senco9_pre_open_flow"] == "ready"
     assert gate_statuses["co2_open_flow_mature_queue"] == "ready"
     assert gate_statuses["h2o_open_flow_mature_queue"] == "ready"
+    assert gate_statuses["senco_artifact_authorization"] == "ready"
+    assert model["senco_artifact_authorization"]["controlled_write_authorization_ready"] is True
+    assert model["senco_artifact_authorization"]["authorized_device_ids"] == [
+        "001",
+        "002",
+        "003",
+        "004",
+        "005",
+        "006",
+    ]
     assert "algorithm_profile_runner_dry_run" not in gate_statuses
     assert "formal_database_dry_run" not in gate_statuses
     assert "formal_database_import_preflight" not in gate_statuses
@@ -1011,6 +1050,41 @@ def test_formal_run_status_reports_ready_release_without_touching_devices(tmp_pa
         "writes_device_id": False,
         "not_real_acceptance_evidence": True,
     }
+
+
+def test_formal_run_status_blocks_release_but_not_sampling_when_senco_authorization_is_missing(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "missing_senco_authorization"
+    _seed_ready_run(run_dir, include_senco_artifact_authorization=False)
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gates = {row["gate_id"]: row for row in model["gates"]}
+
+    assert model["overall_status"] == "in_progress"
+    assert model["current_stage"] == "senco_artifact_authorization"
+    assert model["formal_release_allowed"] is False
+    assert model["can_continue_physical_flow"] is True
+    assert model["senco_artifact_authorization"]["controlled_write_authorization_ready"] is False
+    assert gates["senco_artifact_authorization"]["status"] == "missing"
+    assert gates["senco_artifact_authorization"]["blocks_release"] is True
+    assert gates["senco_artifact_authorization"]["blocks_physical_flow"] is False
+
+
+def test_formal_run_status_blocks_tampered_senco_authorization_before_release(tmp_path: Path) -> None:
+    run_dir = tmp_path / "tampered_senco_authorization"
+    _seed_ready_run(run_dir)
+    manifest = run_dir / "main_senco_write_precheck" / "main_senco_artifact_hash_manifest.json"
+    manifest.write_text("tampered", encoding="utf-8")
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gate = next(row for row in model["gates"] if row["gate_id"] == "senco_artifact_authorization")
+
+    assert model["overall_status"] == "blocked"
+    assert model["formal_release_allowed"] is False
+    assert model["can_continue_physical_flow"] is True
+    assert gate["status"] == "blocked"
+    assert "manifest_sha256_mismatch" in gate["reason"]
 
 
 def test_formal_run_status_accepts_pressure_s9_readiness_index(tmp_path: Path) -> None:

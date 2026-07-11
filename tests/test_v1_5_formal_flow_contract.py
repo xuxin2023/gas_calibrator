@@ -139,6 +139,12 @@ def test_formal_flow_contract_passes_for_generated_plan(tmp_path):
     assert report.step_sequence.index("pressure_channel_completion_audit") < report.step_sequence.index(
         "temperature_channel_fast_review"
     )
+    assert report.step_sequence.index("co2_candidate_write_review") < report.step_sequence.index(
+        "main_senco_write_precheck_authorization_gate"
+    )
+    assert report.step_sequence.index("main_senco_write_precheck_authorization_gate") < report.step_sequence.index(
+        "controlled_component_write_placeholder"
+    )
     assert report.step_sequence.index("controlled_component_write_placeholder") < report.step_sequence.index(
         "post_write_reverification_placeholder"
     )
@@ -185,6 +191,7 @@ def test_formal_flow_contract_passes_for_generated_plan(tmp_path):
     assert "FORMAL_DATABASE_IMPORT_BLOCKED_EXECUTOR" in "\n".join(report.physical_flow)
     assert "FORMAL_DATABASE_IMPORT_CONTROLLED_EXECUTOR_DESIGN" in "\n".join(report.physical_flow)
     assert "AUTOMATION_CONTROL_CONTRACT" in "\n".join(report.physical_flow)
+    assert "SENCO_ARTIFACT_AUTHORIZATION" in "\n".join(report.physical_flow)
     assert "FORMAL_RUN_STATUS" in "\n".join(report.physical_flow)
 
 

@@ -142,6 +142,12 @@ def test_full_flow_plan_keeps_pressure_and_temperature_before_components(tmp_pat
     assert step_ids.index("full_flow_closure_readiness") < step_ids.index("co2_candidate_write_review")
     assert step_ids.index("post_run_coefficient_executor") < step_ids.index("co2_candidate_write_review")
     assert step_ids.index("factory_signal_health_review") < step_ids.index("co2_candidate_write_review")
+    assert step_ids.index("co2_candidate_write_review") < step_ids.index(
+        "main_senco_write_precheck_authorization_gate"
+    )
+    assert step_ids.index("main_senco_write_precheck_authorization_gate") < step_ids.index(
+        "controlled_component_write_placeholder"
+    )
     assert step_ids.index("controlled_component_write_placeholder") < step_ids.index(
         "post_write_reverification_placeholder"
     )
@@ -738,6 +744,23 @@ def test_full_flow_stage_manifest_makes_automation_boundaries_explicit(tmp_path)
     assert pressure_completion.authorization_required["real_com"] is False
     assert pressure_completion.authorization_required["coefficient_write"] is False
     assert "pressure_channel_completion_summary.csv" in " ".join(pressure_completion.expected_outputs)
+
+    artifact_authorization = by_step["main_senco_write_precheck_authorization_gate"]
+    authorization_command = list(artifact_authorization.command)
+    assert artifact_authorization.automation_state == "offline_review_waiting_for_run_artifacts"
+    assert artifact_authorization.authorization_required["coefficient_write"] is False
+    assert artifact_authorization.safety_boundaries["opens_com_ports"] is False
+    assert artifact_authorization.safety_boundaries["writes_coefficients"] is False
+    assert "--execute" not in authorization_command
+    assert "--authorized-writer-scope" in authorization_command
+    assert "<authorized_writer_scope>" in authorization_command
+    assert "co2_senco5_linear" not in authorization_command
+    assert "h2o_senco6_linear" not in authorization_command
+    assert "--authorized-device-id" in authorization_command
+    assert "<authorized_device_id>" in authorization_command
+    assert "main_senco_artifact_authorization.json" in " ".join(
+        artifact_authorization.expected_outputs
+    )
 
     write = by_step["controlled_component_write_placeholder"]
     assert write.automation_state == "blocked_controlled_write"
@@ -1480,6 +1503,9 @@ def test_empty_reviewer_and_approver_are_not_rendered_as_bare_flags(tmp_path):
     )
     assert _flag_value(status_command, "--formal-database-import-controlled-executor-design-json").endswith(
         "formal_database_import_controlled_executor_design\\v1_5_formal_database_import_controlled_executor_design.json"
+    )
+    assert _flag_value(status_command, "--senco-artifact-authorization-json").endswith(
+        "main_senco_write_precheck\\main_senco_artifact_authorization.json"
     )
     assert "v1_5_formal_run_status_gates.csv" in " ".join(status_step.expected_outputs)
 
