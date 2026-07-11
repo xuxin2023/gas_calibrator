@@ -154,6 +154,38 @@ def _seed_pressure_s9_readiness_index(root: Path, *, ready: bool = True) -> Path
     )
 
 
+def _seed_batch_initialization_closeout(root: Path, *, ready: bool = True) -> Path:
+    status = "ready_for_mature_open_flow_from_initialization_index" if ready else "review_required"
+    return _write_json(
+        root
+        / "batch_initialization_closeout_index"
+        / "v1_5_batch_initialization_closeout_index.json",
+        {
+            "schema": "v1_5_batch_initialization_closeout_index_v1",
+            "overall_status": status,
+            "batch_initialization_closeout_ready": ready,
+            "ready_for_mature_open_flow_from_initialization_index": ready,
+            "device_count": 6,
+            "device_ready_count": 6 if ready else 5,
+            "review_reasons": [] if ready else ["one_or_more_devices_not_ready_for_pre_gas_index"],
+            "mature_route_baseline": "0620/0621 clean worktree mature physical route",
+            "mature_fitting_baseline": "0613 V1.5 fitting path",
+            "opens_com_ports": False,
+            "read_only_real_com_execution_allowed": False,
+            "controls_pressure": False,
+            "controls_water_or_gas_routes": False,
+            "connects_postgresql": False,
+            "writes_sn": False,
+            "writes_device_id": False,
+            "writes_coefficients": False,
+            "database_written": False,
+            "formal_release_allowed": False,
+            "database_import_allowed": False,
+            "not_real_acceptance_evidence": True,
+        },
+    )
+
+
 def _seed_algorithm_profile_runner_dry_run(root: Path, *, blocker_count: int = 0) -> Path:
     status = "ready_for_profile_driven_runner_dry_run_review" if blocker_count == 0 else "blocked"
     return _write_json(
@@ -1166,6 +1198,44 @@ def test_formal_run_status_pressure_s9_index_overrides_legacy_stage_pass(tmp_pat
     assert model["current_stage"] == "pressure_senco9_pre_open_flow"
     assert model["formal_release_allowed"] is False
     assert model["can_continue_physical_flow"] is False
+
+
+def test_formal_run_status_accepts_ready_batch_initialization_closeout(tmp_path: Path) -> None:
+    run_dir = tmp_path / "ready_run_with_batch_closeout"
+    _seed_ready_run(run_dir)
+    closeout_path = _seed_batch_initialization_closeout(run_dir, ready=True)
+
+    model = build_v1_5_formal_run_status(
+        run_dir=run_dir,
+        batch_initialization_closeout_json=closeout_path,
+    )
+    gate = next(row for row in model["gates"] if row["gate_id"] == "batch_initialization_closeout")
+
+    assert gate["status"] == "ready"
+    assert gate["source_path"] == str(closeout_path.resolve())
+    assert "6 active device" in gate["reason"]
+    assert gate["blocks_physical_flow"] is False
+    assert model["can_continue_physical_flow"] is True
+    assert model["linked_inputs"]["batch_initialization_closeout_json"] == str(closeout_path.resolve())
+
+
+def test_formal_run_status_blocks_physical_flow_on_incomplete_batch_closeout(tmp_path: Path) -> None:
+    run_dir = tmp_path / "ready_run_with_incomplete_batch_closeout"
+    _seed_ready_run(run_dir)
+    closeout_path = _seed_batch_initialization_closeout(run_dir, ready=False)
+
+    model = build_v1_5_formal_run_status(
+        run_dir=run_dir,
+        batch_initialization_closeout_json=closeout_path,
+    )
+    gate = next(row for row in model["gates"] if row["gate_id"] == "batch_initialization_closeout")
+
+    assert gate["status"] == "review_required"
+    assert gate["blocks_physical_flow"] is True
+    assert "one_or_more_devices_not_ready" in gate["reason"]
+    assert model["current_stage"] == "batch_initialization_closeout"
+    assert model["can_continue_physical_flow"] is False
+    assert model["formal_release_allowed"] is False
 
 
 def test_formal_run_status_blocks_physical_flow_on_route_recovery_blockers(tmp_path: Path) -> None:
@@ -2276,6 +2346,7 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
     import_controlled_executor_design_path = _seed_formal_database_import_controlled_executor_design(run_dir)
     minimal_executor_stub_path = _seed_formal_readonly_com_minimal_executor_stub(run_dir)
     pressure_s9_index_path = _seed_pressure_s9_readiness_index(run_dir)
+    batch_closeout_path = _seed_batch_initialization_closeout(run_dir)
 
     rc = export_status_main(
         [
@@ -2307,6 +2378,8 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
             str(minimal_executor_stub_path),
             "--pressure-s9-readiness-index-json",
             str(pressure_s9_index_path),
+            "--batch-initialization-closeout-json",
+            str(batch_closeout_path),
         ]
     )
     captured = capsys.readouterr()
@@ -2333,6 +2406,7 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
     assert gates["formal_database_import_blocked_executor"]["status"] == "review_required"
     assert gates["formal_database_import_controlled_executor_design"]["status"] == "ready"
     assert gates["formal_readonly_com_minimal_executor_stub"]["status"] == "ready"
+    assert gates["batch_initialization_closeout"]["status"] == "ready"
     assert gates["pressure_senco9_pre_open_flow"]["status"] == "ready"
     assert exported["linked_inputs"]["formal_readonly_com_minimal_executor_stub_json"] == str(
         minimal_executor_stub_path.resolve()

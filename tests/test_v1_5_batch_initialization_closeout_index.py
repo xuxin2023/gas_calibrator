@@ -225,6 +225,7 @@ def test_batch_initialization_closeout_writer_cli_and_entrypoint(tmp_path: Path)
                 str(pressure_path),
                 "--route-readiness-json",
                 str(route_path),
+                "--fail-on-review-required",
             ]
         )
         == 0
@@ -242,3 +243,29 @@ def test_batch_initialization_closeout_writer_cli_and_entrypoint(tmp_path: Path)
     assert entry.controls_routes is False
     assert entry.writes_coefficients is False
     assert any("batch initialization closeout index" in note for note in entry.notes)
+
+
+def test_batch_initialization_closeout_cli_fails_closed_before_route_readiness(tmp_path: Path) -> None:
+    readonly_path = _write_json(tmp_path / "readonly.json", _readonly_payload())
+    pressure_path = _write_json(tmp_path / "pressure.json", _pressure_payload())
+    output_dir = tmp_path / "blocked_index"
+
+    assert (
+        cli_main(
+            [
+                "--output-dir",
+                str(output_dir),
+                "--readonly-com-executor-json",
+                str(readonly_path),
+                "--pressure-readiness-json",
+                str(pressure_path),
+                "--fail-on-review-required",
+            ]
+        )
+        == 2
+    )
+    payload = json.loads(
+        (output_dir / "v1_5_batch_initialization_closeout_index.json").read_text(encoding="utf-8")
+    )
+    assert payload["overall_status"] == ROUTE_PENDING_STATUS
+    assert payload["ready_for_mature_open_flow_from_initialization_index"] is False

@@ -252,6 +252,75 @@ def _pre_gas_gate(path: Path | None, payload: Mapping[str, Any]) -> FormalRunGat
     )
 
 
+def _batch_initialization_closeout_gate(
+    path: Path | None,
+    payload: Mapping[str, Any],
+) -> FormalRunGate:
+    source_status = _source_status(payload)
+    boundary_ok = (
+        payload.get("opens_com_ports") is False
+        and payload.get("read_only_real_com_execution_allowed") is False
+        and payload.get("controls_pressure") is False
+        and payload.get("controls_water_or_gas_routes") is False
+        and payload.get("connects_postgresql") is False
+        and payload.get("writes_sn") is False
+        and payload.get("writes_device_id") is False
+        and payload.get("writes_coefficients") is False
+        and payload.get("database_written") is False
+        and payload.get("formal_release_allowed") is False
+        and payload.get("database_import_allowed") is False
+        and payload.get("not_real_acceptance_evidence") is True
+    )
+    device_count = int(payload.get("device_count") or 0)
+    device_ready_count = int(payload.get("device_ready_count") or 0)
+    ready = (
+        source_status == "ready_for_mature_open_flow_from_initialization_index"
+        and payload.get("batch_initialization_closeout_ready") is True
+        and payload.get("ready_for_mature_open_flow_from_initialization_index") is True
+        and 1 <= device_count <= 6
+        and device_ready_count == device_count
+        and payload.get("mature_route_baseline")
+        == "0620/0621 clean worktree mature physical route"
+        and payload.get("mature_fitting_baseline") == "0613 V1.5 fitting path"
+    )
+    if not payload:
+        status = MISSING
+        reason = "batch initialization closeout index missing"
+    elif not boundary_ok:
+        status = BLOCKED
+        reason = "batch initialization closeout index boundary is not clean"
+    elif ready:
+        status = READY
+        reason = f"batch initialization closeout ready for {device_count} active device(s)"
+    elif "blocked" in source_status:
+        status = BLOCKED
+        reason = f"source_status={source_status}"
+    else:
+        status = REVIEW_REQUIRED
+        review_reasons = payload.get("review_reasons")
+        if isinstance(review_reasons, list) and review_reasons:
+            reason = "; ".join(str(item) for item in review_reasons[:3])
+        else:
+            reason = f"source_status={source_status or 'unknown'}"
+    return _gate(
+        gate_id="batch_initialization_closeout",
+        title="Batch initialization closeout before mature open flow",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action=(
+            "Bind the authorized read-only COM identity/GETCO/runtime evidence, per-device S5-S8 neutral state, "
+            "pressure/S9 readiness, and formal route readiness into one batch closeout index."
+        ),
+        physical_meaning=(
+            "This is the final offline pre-route gate for the active 1-6 device batch. It prevents an early "
+            "contract-only pre-gas sidecar from being mistaken for completed live initialization evidence."
+        ),
+        blocks_physical_flow=status in {MISSING, REVIEW_REQUIRED, BLOCKED},
+    )
+
+
 def _pressure_s9_readiness_index_gate(path: Path | None, payload: Mapping[str, Any]) -> FormalRunGate:
     source_status = _source_status(payload)
     boundary_ok = (
@@ -1976,6 +2045,7 @@ def build_v1_5_formal_run_status(
     mature_route_continuity_gate_json: str | Path | None = None,
     pressure_s9_readiness_index_json: str | Path | None = None,
     pre_gas_readiness_json: str | Path | None = None,
+    batch_initialization_closeout_json: str | Path | None = None,
     getco_readiness_json: str | Path | None = None,
     run_evidence_status_json: str | Path | None = None,
     full_flow_closure_readiness_json: str | Path | None = None,
@@ -2070,6 +2140,11 @@ def build_v1_5_formal_run_status(
         "v1_5_pressure_s9_readiness_index.json",
     )
     pre_gas_path = _explicit_or_latest(root, pre_gas_readiness_json, "v1_5_pre_gas_readiness.json")
+    batch_initialization_closeout_path = _explicit_or_latest(
+        root,
+        batch_initialization_closeout_json,
+        "v1_5_batch_initialization_closeout_index.json",
+    )
     getco_path = _explicit_or_latest(root, getco_readiness_json, "v1_5_getco_identity_readiness.json")
     run_status_path = _explicit_or_latest(root, run_evidence_status_json, "v1_5_run_evidence_status.json")
     closure_path = _explicit_or_latest(root, full_flow_closure_readiness_json, "v1_5_full_flow_closure_readiness.json")
@@ -2159,6 +2234,7 @@ def build_v1_5_formal_run_status(
     mature_route_continuity_gate_payload = _load_json(mature_route_continuity_gate_path)
     pressure_s9_readiness_index_payload = _load_json(pressure_s9_readiness_index_path)
     pre_gas_payload = _load_json(pre_gas_path)
+    batch_initialization_closeout_payload = _load_json(batch_initialization_closeout_path)
     getco_payload = _load_json(getco_path)
     run_payload = _load_json(run_status_path)
     closure_payload = _load_json(closure_path)
@@ -2317,6 +2393,13 @@ def build_v1_5_formal_run_status(
             _pre_gas_gate(pre_gas_path, pre_gas_payload),
         ]
     )
+    if batch_initialization_closeout_path or formal_readonly_com_minimal_executor_path:
+        gates.append(
+            _batch_initialization_closeout_gate(
+                batch_initialization_closeout_path,
+                batch_initialization_closeout_payload,
+            )
+        )
     if pressure_s9_readiness_index_path:
         gates.append(
             _pressure_s9_readiness_index_gate(
@@ -2606,6 +2689,9 @@ def build_v1_5_formal_run_status(
             if pressure_s9_readiness_index_path
             else "",
             "pre_gas_readiness_json": str(pre_gas_path) if pre_gas_path else "",
+            "batch_initialization_closeout_json": str(batch_initialization_closeout_path)
+            if batch_initialization_closeout_path
+            else "",
             "getco_readiness_json": str(getco_path) if getco_path else "",
             "run_evidence_status_json": str(run_status_path) if run_status_path else "",
             "full_flow_closure_readiness_json": str(closure_path) if closure_path else "",
