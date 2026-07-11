@@ -40,6 +40,14 @@ def _blocked_executor_json(tmp_path: Path) -> Path:
             "database_written": False,
             "database_import_allowed": False,
             "database_import_authorization_binding_ready": True,
+            "database_import_preflight_binding_ready": True,
+            "formal_database_import_preflight_json": str(
+                (tmp_path / "preflight" / "preflight.json").resolve()
+            ),
+            "formal_database_import_preflight_sha256": "d" * 64,
+            "evidence_bundle_binding_ready": True,
+            "evidence_bundle_json": str((tmp_path / "archive" / "evidence_bundle.json").resolve()),
+            "evidence_bundle_sha256": "e" * 64,
             "formal_database_import_authorization_json": str(
                 (tmp_path / "authorization" / "authorization.json").resolve()
             ),
@@ -76,6 +84,8 @@ def test_controlled_executor_design_is_offline_and_execution_blocked(tmp_path: P
     assert manifest["senco_authorization_archive_binding_ready"] is True
     assert manifest["archive_closure_index_binding_ready"] is True
     assert manifest["database_import_authorization_binding_ready"] is True
+    assert manifest["database_import_preflight_binding_ready"] is True
+    assert manifest["evidence_bundle_binding_ready"] is True
     assert gates["design_only_no_connect"]["status"] == "pass"
     assert gates["future_execute_still_blocked"]["status"] == "pass"
 
@@ -200,3 +210,21 @@ def test_controlled_executor_design_reviews_unbound_database_import_authorizatio
     assert "blocked_executor_database_import_authorization_binding_not_ready" in gates[
         "blocked_executor_consumed"
     ]["evidence"]
+
+
+def test_controlled_executor_design_reviews_unbound_preflight_or_evidence_bundle(tmp_path: Path) -> None:
+    blocked_executor = _blocked_executor_json(tmp_path)
+    payload = json.loads(blocked_executor.read_text(encoding="utf-8"))
+    payload["database_import_preflight_binding_ready"] = False
+    payload["evidence_bundle_binding_ready"] = False
+    blocked_executor.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    tables = build_v1_5_formal_database_import_controlled_executor_design(
+        formal_database_import_blocked_executor_json=blocked_executor,
+    )
+
+    assert tables["manifest"]["overall_status"] == "review_required"
+    gates = {row["gate"]: row for row in tables["boundary_gates"]}
+    evidence = gates["blocked_executor_consumed"]["evidence"]
+    assert "blocked_executor_database_import_preflight_binding_not_ready" in evidence
+    assert "blocked_executor_evidence_bundle_binding_not_ready" in evidence

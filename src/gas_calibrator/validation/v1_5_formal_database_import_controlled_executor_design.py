@@ -82,6 +82,10 @@ def build_v1_5_formal_database_import_controlled_executor_design(
         review_reasons.append("blocked_executor_archive_closure_index_binding_not_ready")
     if blocked_payload and blocked_payload.get("database_import_authorization_binding_ready") is not True:
         review_reasons.append("blocked_executor_database_import_authorization_binding_not_ready")
+    if blocked_payload and blocked_payload.get("database_import_preflight_binding_ready") is not True:
+        review_reasons.append("blocked_executor_database_import_preflight_binding_not_ready")
+    if blocked_payload and blocked_payload.get("evidence_bundle_binding_ready") is not True:
+        review_reasons.append("blocked_executor_evidence_bundle_binding_not_ready")
 
     authorization_contract = [
         {
@@ -276,6 +280,18 @@ def build_v1_5_formal_database_import_controlled_executor_design(
         "formal_database_import_authorization_sha256": str(
             blocked_payload.get("formal_database_import_authorization_sha256") or ""
         ),
+        "database_import_preflight_binding_ready": bool(
+            blocked_payload.get("database_import_preflight_binding_ready")
+        ),
+        "formal_database_import_preflight_json": str(
+            blocked_payload.get("formal_database_import_preflight_json") or ""
+        ),
+        "formal_database_import_preflight_sha256": str(
+            blocked_payload.get("formal_database_import_preflight_sha256") or ""
+        ),
+        "evidence_bundle_binding_ready": bool(blocked_payload.get("evidence_bundle_binding_ready")),
+        "evidence_bundle_json": str(blocked_payload.get("evidence_bundle_json") or ""),
+        "evidence_bundle_sha256": str(blocked_payload.get("evidence_bundle_sha256") or ""),
         "required_future_execute_flag": "--execute-controlled-import",
         "not_real_acceptance_evidence": True,
         "next_action": (
@@ -332,6 +348,10 @@ def write_v1_5_formal_database_import_controlled_executor_design(
         f"- archive_closure_sha256: `{tables['manifest'].get('archive_closure_sha256')}`",
         f"- database_import_authorization_binding_ready: `{tables['manifest'].get('database_import_authorization_binding_ready')}`",
         f"- formal_database_import_authorization_sha256: `{tables['manifest'].get('formal_database_import_authorization_sha256')}`",
+        f"- database_import_preflight_binding_ready: `{tables['manifest'].get('database_import_preflight_binding_ready')}`",
+        f"- formal_database_import_preflight_sha256: `{tables['manifest'].get('formal_database_import_preflight_sha256')}`",
+        f"- evidence_bundle_binding_ready: `{tables['manifest'].get('evidence_bundle_binding_ready')}`",
+        f"- evidence_bundle_sha256: `{tables['manifest'].get('evidence_bundle_sha256')}`",
         f"- database_import_allowed: `{tables['manifest'].get('database_import_allowed')}`",
         f"- connects_postgresql: `{tables['manifest'].get('connects_postgresql')}`",
         f"- database_written: `{tables['manifest'].get('database_written')}`",

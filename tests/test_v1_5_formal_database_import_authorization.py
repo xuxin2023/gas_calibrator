@@ -92,6 +92,8 @@ def test_formal_database_import_authorization_ready_without_connecting(tmp_path:
     assert model["blocker_count"] == 0
     assert model["review_required_count"] == 0
     assert model["preflight_ready"] is True
+    assert model["database_import_preflight_binding_ready"] is True
+    assert model["formal_database_import_preflight_sha256"] == sha256_file(preflight_json)
     assert model["archive_release_ready"] is True
     assert model["archive_closure_index_binding_ready"] is True
     assert model["archive_closure_sha256"] == sha256_file(archive_json)
@@ -104,6 +106,7 @@ def test_formal_database_import_authorization_ready_without_connecting(tmp_path:
     assert model["database_written"] is False
     assert model["not_real_acceptance_evidence"] is True
     assert _check(model, "formal_database_import_preflight_ready")["status"] == "ready"
+    assert _check(model, "formal_database_import_preflight_hash_bound")["status"] == "ready"
     assert _check(model, "formal_archive_release_ready")["status"] == "ready"
     assert _check(model, "formal_archive_index_hash_bound")["status"] == "ready"
     assert _check(model, "senco_authorization_archive_binding_ready")["status"] == "ready"
@@ -152,7 +155,8 @@ def test_formal_database_import_authorization_blocks_bad_preflight(tmp_path: Pat
     )
 
     assert model["overall_status"] == "blocked"
-    assert model["blocker_count"] == 1
+    assert model["blocker_count"] == 2
+    assert model["database_import_preflight_binding_ready"] is False
     assert model["database_import_allowed"] is False
     assert _check(model, "formal_database_import_preflight_ready")["status"] == "blocker"
     assert "formal_database_import_preflight_missing" in _check(
