@@ -25,6 +25,11 @@ from .v1_5_authoritative_resume_state_writer_blocked_executor import (
 from .v1_5_authoritative_resume_state_controlled_write_preflight import (
     build_v1_5_authoritative_resume_state_controlled_write_preflight,
 )
+from .v1_5_authoritative_resume_state_post_write_verification import (
+    READY_STATUS as RESUME_STATE_POST_WRITE_READY_STATUS,
+    SCHEMA as RESUME_STATE_POST_WRITE_SCHEMA,
+    build_v1_5_authoritative_resume_state_post_write_verification,
+)
 from .v1_5_senco_artifact_authorization import validate_senco_artifact_authorization
 
 
@@ -1037,6 +1042,94 @@ def _authoritative_resume_state_controlled_write_preflight_gate(
             "Binds exact candidate bytes, current target SHA256, and distinct authorization without creating, replacing, or snapshotting the authoritative state."
         ),
         blocks_physical_flow=status in {MISSING, REVIEW_REQUIRED, BLOCKED},
+    )
+
+
+def _authoritative_resume_state_post_write_verification_gate(
+    path: Path | None,
+    payload: Mapping[str, Any],
+    atomic_write_path: Path | None,
+) -> FormalRunGate:
+    source_status = _source_status(payload)
+    boundary_ok = all(
+        payload.get(field) is False
+        for field in (
+            "opens_com_ports",
+            "controls_pressure",
+            "controls_water_or_gas_routes",
+            "writes_authoritative_state",
+            "writes_sn",
+            "writes_device_id",
+            "writes_coefficients",
+            "connects_postgresql",
+            "database_written",
+            "formal_release_allowed",
+            "database_import_allowed",
+        )
+    ) and payload.get("not_real_acceptance_evidence") is True
+    declared_atomic = Path(str(payload.get("atomic_write_json") or "")).resolve()
+    atomic_bound = atomic_write_path is not None and declared_atomic == atomic_write_path.resolve()
+    recomputed: dict[str, Any] = {}
+    if atomic_bound:
+        try:
+            recomputed = build_v1_5_authoritative_resume_state_post_write_verification(
+                atomic_write_json=atomic_write_path
+            )
+        except (OSError, ValueError, json.JSONDecodeError):
+            recomputed = {}
+    exact = bool(recomputed) and all(
+        payload.get(key) == recomputed.get(key)
+        for key in (
+            "schema",
+            "overall_status",
+            "post_write_verification_ready",
+            "blocker_count",
+            "blocker_reasons",
+            "atomic_write_json",
+            "atomic_write_sha256",
+            "preflight_json",
+            "preflight_sha256",
+            "writer_authorization_json",
+            "writer_authorization_sha256",
+            "authoritative_state_json",
+            "authoritative_state_sha256",
+            "candidate_state_preview_json",
+            "candidate_state_sha256",
+        )
+    )
+    ready = (
+        payload.get("schema") == RESUME_STATE_POST_WRITE_SCHEMA
+        and source_status == RESUME_STATE_POST_WRITE_READY_STATUS
+        and payload.get("post_write_verification_ready") is True
+        and int(payload.get("blocker_count") or 0) == 0
+        and boundary_ok
+        and atomic_bound
+        and exact
+    )
+    if not payload:
+        status, reason = MISSING, "authoritative resume-state post-write verification missing"
+    elif not boundary_ok:
+        status, reason = BLOCKED, "resume-state post-write verification boundary is not clean"
+    elif not atomic_bound:
+        status, reason = BLOCKED, "post-write verification is not bound to the detected atomic write evidence"
+    elif not exact:
+        status, reason = BLOCKED, "post-write verification differs from independently recomputed evidence"
+    elif ready:
+        status, reason = READY, "authoritative resume state exactly matches the authorized candidate and readback evidence"
+    else:
+        status, reason = BLOCKED, f"source_status={source_status or 'unknown'}"
+    return _gate(
+        gate_id="authoritative_resume_state_post_write_verification",
+        title="Authoritative resume-state post-write verification",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action="Regenerate offline post-write verification from the exact atomic-write evidence before resuming physical flow.",
+        physical_meaning="A resumed run must consume the exact state bytes that were authorized, atomically written, and read back.",
+        release_gate=False,
+        blocks_release=False,
+        blocks_physical_flow=status != READY,
     )
 
 
@@ -2770,6 +2863,8 @@ def build_v1_5_formal_run_status(
     authoritative_resume_state_writer_design_json: str | Path | None = None,
     authoritative_resume_state_writer_blocked_executor_json: str | Path | None = None,
     authoritative_resume_state_controlled_write_preflight_json: str | Path | None = None,
+    authoritative_resume_state_atomic_write_json: str | Path | None = None,
+    authoritative_resume_state_post_write_verification_json: str | Path | None = None,
     getco_readiness_json: str | Path | None = None,
     run_evidence_status_json: str | Path | None = None,
     full_flow_closure_readiness_json: str | Path | None = None,
@@ -2894,6 +2989,16 @@ def build_v1_5_formal_run_status(
         authoritative_resume_state_controlled_write_preflight_json,
         "v1_5_resume_state_write_preflight.json",
     )
+    authoritative_resume_state_atomic_write_path = _explicit_or_latest(
+        root,
+        authoritative_resume_state_atomic_write_json,
+        "v1_5_resume_state_atomic_write.json",
+    )
+    authoritative_resume_state_post_write_verification_path = _explicit_or_latest(
+        root,
+        authoritative_resume_state_post_write_verification_json,
+        "v1_5_resume_state_post_write_verification.json",
+    )
     getco_path = _explicit_or_latest(root, getco_readiness_json, "v1_5_getco_identity_readiness.json")
     run_status_path = _explicit_or_latest(root, run_evidence_status_json, "v1_5_run_evidence_status.json")
     closure_path = _explicit_or_latest(root, full_flow_closure_readiness_json, "v1_5_full_flow_closure_readiness.json")
@@ -2994,6 +3099,9 @@ def build_v1_5_formal_run_status(
     )
     authoritative_resume_state_controlled_write_preflight_payload = _load_json(
         authoritative_resume_state_controlled_write_preflight_path
+    )
+    authoritative_resume_state_post_write_verification_payload = _load_json(
+        authoritative_resume_state_post_write_verification_path
     )
     getco_payload = _load_json(getco_path)
     run_payload = _load_json(run_status_path)
@@ -3204,6 +3312,17 @@ def build_v1_5_formal_run_status(
                 authoritative_resume_state_controlled_write_preflight_path,
                 authoritative_resume_state_controlled_write_preflight_payload,
                 authoritative_resume_state_writer_blocked_executor_path,
+            )
+        )
+    if (
+        authoritative_resume_state_atomic_write_path
+        or authoritative_resume_state_post_write_verification_path
+    ):
+        gates.append(
+            _authoritative_resume_state_post_write_verification_gate(
+                authoritative_resume_state_post_write_verification_path,
+                authoritative_resume_state_post_write_verification_payload,
+                authoritative_resume_state_atomic_write_path,
             )
         )
     if pressure_s9_readiness_index_path:
@@ -3518,6 +3637,16 @@ def build_v1_5_formal_run_status(
                 authoritative_resume_state_controlled_write_preflight_path
             )
             if authoritative_resume_state_controlled_write_preflight_path
+            else "",
+            "authoritative_resume_state_atomic_write_json": str(
+                authoritative_resume_state_atomic_write_path
+            )
+            if authoritative_resume_state_atomic_write_path
+            else "",
+            "authoritative_resume_state_post_write_verification_json": str(
+                authoritative_resume_state_post_write_verification_path
+            )
+            if authoritative_resume_state_post_write_verification_path
             else "",
             "getco_readiness_json": str(getco_path) if getco_path else "",
             "run_evidence_status_json": str(run_status_path) if run_status_path else "",
