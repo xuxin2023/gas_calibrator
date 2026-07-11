@@ -14,6 +14,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .v1_5_formal_database_import_archive_binding import (
+    validate_v1_5_database_import_archive_binding,
+)
+
 
 SCHEMA = "v1_5_formal_database_import_command_contract_v1"
 READY_STATUS = "ready_for_controlled_postgresql18_import_command_review"
@@ -109,6 +113,7 @@ def _authorization_ready(payload: Mapping[str, Any]) -> tuple[bool, list[str], s
     for field in (
         "preflight_ready",
         "archive_release_ready",
+        "senco_authorization_archive_binding_ready",
         "manual_authorization_ready",
         "database_import_allowed",
     ):
@@ -289,6 +294,42 @@ def build_v1_5_formal_database_import_command_contract(
         )
     )
 
+    binding_ok, binding_reasons, binding_detail = validate_v1_5_database_import_archive_binding(
+        archive_payload
+    )
+    authorization_binding_path = str(
+        authorization_payload.get("senco_authorization_archive_binding_json") or ""
+    ).strip()
+    authorization_binding_sha = str(
+        authorization_payload.get("senco_authorization_archive_binding_sha256") or ""
+    ).strip().lower()
+    if binding_ok and authorization_payload:
+        if not authorization_binding_path or Path(authorization_binding_path).resolve() != Path(
+            str(binding_detail.get("binding_path") or "")
+        ).resolve():
+            binding_reasons.append("authorization_archive_binding_path_mismatch")
+        if authorization_binding_sha != str(binding_detail.get("binding_sha256") or "").lower():
+            binding_reasons.append("authorization_archive_binding_sha256_mismatch")
+    binding_ok = binding_ok and not binding_reasons
+    checks.append(
+        _check(
+            check="senco_authorization_archive_binding_ready",
+            status="ready" if binding_ok else "blocker",
+            evidence_role="required_senco_write_traceability",
+            reasons=binding_reasons,
+            physical_meaning=(
+                "The import command must re-hash the exact SENCO authorization/write/readback binding that was "
+                "present when manual database-import authorization was created."
+            ),
+            next_action="Regenerate archive closure and database-import authorization from the same frozen binding.",
+            details={
+                **binding_detail,
+                "authorization_binding_path": authorization_binding_path,
+                "authorization_binding_sha256": authorization_binding_sha,
+            },
+        )
+    )
+
     evidence_bundle_ok, evidence_reasons, evidence_status = _evidence_bundle_ready(evidence_bundle_payload)
     checks.append(
         _check(
@@ -325,6 +366,7 @@ def build_v1_5_formal_database_import_command_contract(
                     "formal_database_import_authorization_json",
                     "formal_database_import_preflight_json",
                     "formal_archive_closure_index_json",
+                    "senco_authorization_archive_binding_json",
                     "evidence_bundle_json",
                     "dsn_env",
                 ],
@@ -369,7 +411,10 @@ def build_v1_5_formal_database_import_command_contract(
         "requested_command_module": command_module,
         "authorization_ready": authorization_ok,
         "preflight_ready": preflight_ok,
-        "archive_release_ready": archive_ok,
+        "archive_release_ready": archive_ok and binding_ok,
+        "senco_authorization_archive_binding_ready": binding_ok,
+        "senco_authorization_archive_binding_json": binding_detail.get("binding_path", ""),
+        "senco_authorization_archive_binding_sha256": binding_detail.get("binding_sha256", ""),
         "evidence_bundle_ready": evidence_bundle_ok,
         "command_contract_ready": command_contract_ready,
         "connects_postgresql": False,
@@ -383,12 +428,13 @@ def build_v1_5_formal_database_import_command_contract(
         "database_written": False,
         "database_import_allowed": False,
         "real_import_execution_allowed": False,
-        "formal_release_allowed": archive_ok,
+        "formal_release_allowed": archive_ok and binding_ok,
         "not_real_acceptance_evidence": True,
         "required_command_inputs": [
             "formal_database_import_authorization_json",
             "formal_database_import_preflight_json",
             "formal_archive_closure_index_json",
+            "senco_authorization_archive_binding_json",
             "evidence_bundle_json",
             "dsn_env",
         ],
@@ -423,6 +469,9 @@ def write_v1_5_formal_database_import_command_contract_outputs(
                 "authorization_ready": model.get("authorization_ready"),
                 "preflight_ready": model.get("preflight_ready"),
                 "archive_release_ready": model.get("archive_release_ready"),
+                "senco_authorization_archive_binding_ready": model.get(
+                    "senco_authorization_archive_binding_ready"
+                ),
                 "evidence_bundle_ready": model.get("evidence_bundle_ready"),
                 "command_contract_ready": model.get("command_contract_ready"),
                 "real_import_execution_allowed": model.get("real_import_execution_allowed"),
@@ -443,6 +492,7 @@ def write_v1_5_formal_database_import_command_contract_outputs(
         f"- blocker_count: `{model.get('blocker_count')}`",
         f"- review_required_count: `{model.get('review_required_count')}`",
         f"- command_contract_ready: `{model.get('command_contract_ready')}`",
+        f"- senco_authorization_archive_binding_ready: `{model.get('senco_authorization_archive_binding_ready')}`",
         f"- real_import_execution_allowed: `{model.get('real_import_execution_allowed')}`",
         f"- database_import_allowed: `{model.get('database_import_allowed')}`",
         f"- requested_command_module: `{model.get('requested_command_module')}`",

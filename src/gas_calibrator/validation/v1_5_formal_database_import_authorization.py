@@ -14,6 +14,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .v1_5_formal_database_import_archive_binding import (
+    validate_v1_5_database_import_archive_binding,
+)
+
 
 SCHEMA = "v1_5_formal_database_import_authorization_v1"
 READY_STATUS = "ready_for_manual_postgresql18_import_authorization"
@@ -223,6 +227,24 @@ def build_v1_5_formal_database_import_authorization(
         )
     )
 
+    binding_ok, binding_reasons, binding_detail = validate_v1_5_database_import_archive_binding(
+        archive_payload
+    )
+    checks.append(
+        _check(
+            check="senco_authorization_archive_binding_ready",
+            status="ready" if binding_ok else "blocker",
+            evidence_role="required_senco_write_traceability",
+            reasons=binding_reasons,
+            physical_meaning=(
+                "Database import must consume the exact archive-bound SENCO authorization/write/readback evidence, "
+                "with current files still matching their archived SHA-256 values."
+            ),
+            next_action="Regenerate formal archive closure after resolving missing or changed SENCO binding evidence.",
+            details=binding_detail,
+        )
+    )
+
     auth_ok, auth_reasons = _authorization_ready(
         operator=operator,
         reviewer=reviewer,
@@ -275,6 +297,7 @@ def build_v1_5_formal_database_import_authorization(
                     "formal_database_import_authorization_json",
                     "formal_database_import_preflight_json",
                     "formal_archive_closure_index_json",
+                    "senco_authorization_archive_binding_json",
                     "evidence_bundle_json",
                 ],
             },
@@ -302,7 +325,10 @@ def build_v1_5_formal_database_import_authorization(
         "formal_database_import_preflight_json": str(preflight_path) if preflight_path else "",
         "archive_closure_json": str(archive_path) if archive_path else "",
         "preflight_ready": preflight_ok,
-        "archive_release_ready": archive_ok,
+        "archive_release_ready": archive_ok and binding_ok,
+        "senco_authorization_archive_binding_ready": binding_ok,
+        "senco_authorization_archive_binding_json": binding_detail.get("binding_path", ""),
+        "senco_authorization_archive_binding_sha256": binding_detail.get("binding_sha256", ""),
         "manual_authorization_ready": manual_authorization_ready,
         "operator": operator,
         "reviewer": reviewer,
@@ -318,10 +344,11 @@ def build_v1_5_formal_database_import_authorization(
         "database_import_attempted": False,
         "database_written": False,
         "database_import_allowed": manual_authorization_ready,
-        "formal_release_allowed": archive_ok,
+        "formal_release_allowed": archive_ok and binding_ok,
         "not_real_acceptance_evidence": True,
         "required_authorizations": [
             "formal_archive_release",
+            "senco_authorization_archive_binding",
             "database_import_authorization",
             "operator_confirmation",
             "reviewer_approval",
@@ -357,6 +384,9 @@ def write_v1_5_formal_database_import_authorization_outputs(
                 "review_required_count": model.get("review_required_count"),
                 "preflight_ready": model.get("preflight_ready"),
                 "archive_release_ready": model.get("archive_release_ready"),
+                "senco_authorization_archive_binding_ready": model.get(
+                    "senco_authorization_archive_binding_ready"
+                ),
                 "manual_authorization_ready": model.get("manual_authorization_ready"),
                 "connects_postgresql": model.get("connects_postgresql"),
                 "applies_migrations": model.get("applies_migrations"),
@@ -376,6 +406,7 @@ def write_v1_5_formal_database_import_authorization_outputs(
         f"- review_required_count: `{model.get('review_required_count')}`",
         f"- preflight_ready: `{model.get('preflight_ready')}`",
         f"- archive_release_ready: `{model.get('archive_release_ready')}`",
+        f"- senco_authorization_archive_binding_ready: `{model.get('senco_authorization_archive_binding_ready')}`",
         f"- manual_authorization_ready: `{model.get('manual_authorization_ready')}`",
         f"- database_import_allowed: `{model.get('database_import_allowed')}`",
         "- This artifact does not connect PostgreSQL, apply migrations, import data, open COM, control routes, or write analyzer state.",

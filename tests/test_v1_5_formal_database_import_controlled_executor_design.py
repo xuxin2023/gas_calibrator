@@ -39,6 +39,11 @@ def _blocked_executor_json(tmp_path: Path) -> Path:
             "database_import_attempted": False,
             "database_written": False,
             "database_import_allowed": False,
+            "senco_authorization_archive_binding_ready": True,
+            "senco_authorization_archive_binding_json": str(
+                (tmp_path / "archive" / "binding.json").resolve()
+            ),
+            "senco_authorization_archive_binding_sha256": "a" * 64,
         },
     )
 
@@ -60,6 +65,7 @@ def test_controlled_executor_design_is_offline_and_execution_blocked(tmp_path: P
     assert manifest["applies_migrations"] is False
     assert manifest["database_written"] is False
     assert manifest["required_future_execute_flag"] == "--execute-controlled-import"
+    assert manifest["senco_authorization_archive_binding_ready"] is True
     assert gates["design_only_no_connect"]["status"] == "pass"
     assert gates["future_execute_still_blocked"]["status"] == "pass"
 
@@ -133,3 +139,20 @@ def test_controlled_executor_design_reviews_missing_blocked_executor(tmp_path: P
     gates = {row["gate"]: row for row in tables["boundary_gates"]}
     assert gates["blocked_executor_consumed"]["status"] == "review_required"
     assert gates["blocked_executor_consumed"]["evidence"] == "blocked_executor_evidence_missing"
+
+
+def test_controlled_executor_design_reviews_unbound_senco_archive_evidence(tmp_path: Path) -> None:
+    blocked_executor = _blocked_executor_json(tmp_path)
+    payload = json.loads(blocked_executor.read_text(encoding="utf-8"))
+    payload["senco_authorization_archive_binding_ready"] = False
+    blocked_executor.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    tables = build_v1_5_formal_database_import_controlled_executor_design(
+        formal_database_import_blocked_executor_json=blocked_executor,
+    )
+
+    assert tables["manifest"]["overall_status"] == "review_required"
+    gates = {row["gate"]: row for row in tables["boundary_gates"]}
+    assert "blocked_executor_senco_authorization_archive_binding_not_ready" in gates[
+        "blocked_executor_consumed"
+    ]["evidence"]
