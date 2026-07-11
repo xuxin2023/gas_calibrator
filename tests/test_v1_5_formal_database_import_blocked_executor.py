@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from gas_calibrator.tools.import_v1_5_evidence_package import main as cli_main
+from gas_calibrator.validation.v1_5_artifact_hash_binding import sha256_file
 from gas_calibrator.validation.v1_5_formal_database_dry_run import (
     build_v1_5_formal_database_dry_run_contract,
     write_v1_5_formal_database_dry_run_outputs,
@@ -31,6 +32,21 @@ def _write_json(path: Path, payload: dict) -> Path:
 
 
 def _archive_json(tmp_path: Path) -> Path:
+    binding = {
+        "schema": "v1_5_senco_authorization_archive_binding_v1",
+        "overall_status": "not_applicable_no_main_senco_write_evidence",
+        "ready_for_archive_release": True,
+        "write_evidence_present": False,
+        "authorization_path": "",
+        "authorization_sha256": "",
+        "manifest_path": "",
+        "manifest_sha256": "",
+        "writer_evidence": [],
+    }
+    binding_path = _write_json(
+        tmp_path / "archive" / "binding" / "v1_5_senco_authorization_archive_binding.json",
+        binding,
+    )
     return _write_json(
         tmp_path / "archive" / "v1_5_formal_archive_closure_index.json",
         {
@@ -42,6 +58,14 @@ def _archive_json(tmp_path: Path) -> Path:
                 "ready_for_archive_release": True,
                 "traceability_review_required": False,
             },
+            "senco_authorization_write_traceability": binding,
+            "artifacts": [
+                {
+                    "role": "senco_authorization_write_traceability_json",
+                    "path": str(binding_path.resolve()),
+                    "sha256": sha256_file(binding_path),
+                }
+            ],
         },
     )
 
@@ -109,6 +133,7 @@ def test_blocked_executor_consumes_ready_contract_without_connecting(tmp_path: P
     assert model["schema"] == "v1_5_formal_database_import_blocked_executor_v1"
     assert model["overall_status"] == "blocked_pending_controlled_executor_implementation"
     assert model["blocked_executor_ready"] is True
+    assert model["senco_authorization_archive_binding_ready"] is True
     assert model["execution_supported"] is False
     assert model["real_import_execution_allowed"] is False
     assert model["connects_postgresql"] is False
@@ -117,6 +142,7 @@ def test_blocked_executor_consumes_ready_contract_without_connecting(tmp_path: P
     assert model["database_written"] is False
     assert model["database_import_allowed"] is False
     assert _checks(model)["formal_database_import_command_contract_consumed"]["status"] == "ready"
+    assert _checks(model)["senco_authorization_archive_binding_bound"]["status"] == "ready"
     assert _checks(model)["postgresql_side_effect_lock"]["status"] == "ready"
 
 
@@ -140,6 +166,30 @@ def test_blocked_executor_reviews_missing_contract_or_input_paths(tmp_path: Path
     assert "formal_database_import_authorization_json_path_missing" in checks[
         "formal_database_import_authorization_bound"
     ]["reasons"]
+
+
+def test_blocked_executor_rehashes_binding_and_holds_after_tamper(tmp_path: Path) -> None:
+    contract_json, authorization_json, preflight_json, archive_json, bundle_json = _ready_command_contract(
+        tmp_path
+    )
+    archive = json.loads(archive_json.read_text(encoding="utf-8"))
+    binding_path = Path(archive["artifacts"][0]["path"])
+    binding_path.write_text("{}", encoding="utf-8")
+
+    model = build_v1_5_formal_database_import_blocked_executor(
+        formal_database_import_command_contract_json=contract_json,
+        formal_database_import_authorization_json=authorization_json,
+        formal_database_import_preflight_json=preflight_json,
+        archive_closure_json=archive_json,
+        evidence_bundle_json=bundle_json,
+    )
+
+    assert model["overall_status"] == "review_required"
+    assert model["blocked_executor_ready"] is False
+    assert model["senco_authorization_archive_binding_ready"] is False
+    binding_check = _checks(model)["senco_authorization_archive_binding_bound"]
+    assert binding_check["status"] == "review_required"
+    assert "senco_authorization_archive_binding_sha256_mismatch" in binding_check["reasons"]
 
 
 def test_blocked_executor_writer_and_cli_refuse_execution(tmp_path: Path, capsys) -> None:

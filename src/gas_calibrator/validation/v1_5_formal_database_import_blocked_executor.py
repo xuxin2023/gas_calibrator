@@ -15,6 +15,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .v1_5_formal_database_import_archive_binding import (
+    validate_v1_5_database_import_archive_binding,
+)
+
 
 SCHEMA = "v1_5_formal_database_import_blocked_executor_v1"
 CONTRACT_SCHEMA = "v1_5_formal_database_import_command_contract_v1"
@@ -117,6 +121,7 @@ def _contract_reasons(payload: Mapping[str, Any]) -> list[str]:
         "authorization_ready",
         "preflight_ready",
         "archive_release_ready",
+        "senco_authorization_archive_binding_ready",
         "evidence_bundle_ready",
     ):
         if payload.get(field) is not True:
@@ -178,6 +183,7 @@ def build_v1_5_formal_database_import_blocked_executor(
     archive_path = Path(archive_closure_json).resolve() if archive_closure_json else None
     evidence_bundle_path = Path(evidence_bundle_json).resolve() if evidence_bundle_json else None
     contract = _load_json(contract_path)
+    archive_payload = _load_json(archive_path)
     dsn_env_name = str(dsn_env or DEFAULT_DSN_ENV).strip() or DEFAULT_DSN_ENV
 
     checks: list[FormalDatabaseImportBlockedExecutorCheck] = []
@@ -228,6 +234,40 @@ def build_v1_5_formal_database_import_blocked_executor(
                 },
             )
         )
+
+    binding_ok, binding_reasons, binding_detail = validate_v1_5_database_import_archive_binding(
+        archive_payload
+    )
+    contract_binding_path = str(contract.get("senco_authorization_archive_binding_json") or "").strip()
+    contract_binding_sha = str(
+        contract.get("senco_authorization_archive_binding_sha256") or ""
+    ).strip().lower()
+    if binding_ok:
+        if not contract_binding_path or Path(contract_binding_path).resolve() != Path(
+            str(binding_detail.get("binding_path") or "")
+        ).resolve():
+            binding_reasons.append("command_contract_archive_binding_path_mismatch")
+        if contract_binding_sha != str(binding_detail.get("binding_sha256") or "").lower():
+            binding_reasons.append("command_contract_archive_binding_sha256_mismatch")
+    binding_ok = binding_ok and not binding_reasons
+    checks.append(
+        _check(
+            check="senco_authorization_archive_binding_bound",
+            status="ready" if binding_ok else "review_required",
+            evidence_role="required_senco_write_traceability",
+            reasons=binding_reasons,
+            physical_meaning=(
+                "Even the blocked executor must re-hash the archive-bound SENCO authorization/write/readback "
+                "evidence before a future real PostgreSQL connection can be reviewed."
+            ),
+            next_action="Regenerate the command contract from the current frozen archive binding.",
+            details={
+                **binding_detail,
+                "command_contract_binding_path": contract_binding_path,
+                "command_contract_binding_sha256": contract_binding_sha,
+            },
+        )
+    )
 
     if dsn_env_name != str(contract.get("dsn_env") or dsn_env_name):
         dsn_reasons = [f"dsn_env_differs_from_contract={contract.get('dsn_env') or 'missing'}"]
@@ -306,6 +346,9 @@ def build_v1_5_formal_database_import_blocked_executor(
         "formal_database_import_preflight_json": str(preflight_path) if preflight_path else "",
         "archive_closure_json": str(archive_path) if archive_path else "",
         "evidence_bundle_json": str(evidence_bundle_path) if evidence_bundle_path else "",
+        "senco_authorization_archive_binding_ready": binding_ok,
+        "senco_authorization_archive_binding_json": binding_detail.get("binding_path", ""),
+        "senco_authorization_archive_binding_sha256": binding_detail.get("binding_sha256", ""),
         "dsn_env": dsn_env_name,
         "dsn_value_read": False,
         "connects_postgresql": False,
@@ -350,6 +393,9 @@ def write_v1_5_formal_database_import_blocked_executor_outputs(
                 "blocker_count": model.get("blocker_count"),
                 "review_required_count": model.get("review_required_count"),
                 "blocked_executor_ready": model.get("blocked_executor_ready"),
+                "senco_authorization_archive_binding_ready": model.get(
+                    "senco_authorization_archive_binding_ready"
+                ),
                 "execution_supported": model.get("execution_supported"),
                 "real_import_execution_allowed": model.get("real_import_execution_allowed"),
                 "connects_postgresql": model.get("connects_postgresql"),
@@ -367,6 +413,7 @@ def write_v1_5_formal_database_import_blocked_executor_outputs(
         "",
         f"- overall_status: `{model.get('overall_status')}`",
         f"- blocked_executor_ready: `{model.get('blocked_executor_ready')}`",
+        f"- senco_authorization_archive_binding_ready: `{model.get('senco_authorization_archive_binding_ready')}`",
         f"- execution_supported: `{model.get('execution_supported')}`",
         f"- real_import_execution_allowed: `{model.get('real_import_execution_allowed')}`",
         f"- database_import_allowed: `{model.get('database_import_allowed')}`",

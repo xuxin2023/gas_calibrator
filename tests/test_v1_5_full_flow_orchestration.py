@@ -1166,10 +1166,10 @@ def test_full_flow_cli_writes_json_markdown_and_command_list(tmp_path):
     assert formal_gates["formal_database_import_preflight"]["status"] == "review_required"
     assert formal_gates["formal_database_import_preflight"]["blocks_release"] is False
     assert formal_gates["formal_database_import_preflight"]["blocks_physical_flow"] is False
-    assert formal_gates["formal_database_import_authorization"]["status"] == "review_required"
+    assert formal_gates["formal_database_import_authorization"]["status"] == "blocked"
     assert formal_gates["formal_database_import_authorization"]["blocks_release"] is False
     assert formal_gates["formal_database_import_authorization"]["blocks_physical_flow"] is False
-    assert formal_gates["formal_database_import_command_contract"]["status"] == "review_required"
+    assert formal_gates["formal_database_import_command_contract"]["status"] == "blocked"
     assert formal_gates["formal_database_import_command_contract"]["blocks_release"] is False
     assert formal_gates["formal_database_import_command_contract"]["blocks_physical_flow"] is False
     database_dry_run = json.loads(
@@ -1193,9 +1193,10 @@ def test_full_flow_cli_writes_json_markdown_and_command_list(tmp_path):
             out / "formal_database_import_authorization" / "v1_5_formal_database_import_authorization.json"
         ).read_text(encoding="utf-8-sig")
     )
-    assert database_import_authorization["overall_status"] == "review_required"
+    assert database_import_authorization["overall_status"] == "blocked"
     assert database_import_authorization["preflight_ready"] is False
     assert database_import_authorization["archive_release_ready"] is False
+    assert database_import_authorization["senco_authorization_archive_binding_ready"] is False
     assert database_import_authorization["manual_authorization_ready"] is False
     assert database_import_authorization["connects_postgresql"] is False
     assert database_import_authorization["database_import_allowed"] is False
@@ -1206,9 +1207,10 @@ def test_full_flow_cli_writes_json_markdown_and_command_list(tmp_path):
             / "v1_5_formal_database_import_command_contract.json"
         ).read_text(encoding="utf-8-sig")
     )
-    assert database_import_command_contract["overall_status"] == "review_required"
+    assert database_import_command_contract["overall_status"] == "blocked"
     assert database_import_command_contract["authorization_ready"] is False
     assert database_import_command_contract["preflight_ready"] is False
+    assert database_import_command_contract["senco_authorization_archive_binding_ready"] is False
     assert database_import_command_contract["connects_postgresql"] is False
     assert database_import_command_contract["real_import_execution_allowed"] is False
     assert database_import_command_contract["database_import_allowed"] is False

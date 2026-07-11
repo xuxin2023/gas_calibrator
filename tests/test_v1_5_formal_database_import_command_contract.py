@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from gas_calibrator.tools.export_v1_5_formal_database_import_command_contract import main as cli_main
+from gas_calibrator.validation.v1_5_artifact_hash_binding import sha256_file
 from gas_calibrator.validation.v1_5_formal_database_dry_run import (
     build_v1_5_formal_database_dry_run_contract,
     write_v1_5_formal_database_dry_run_outputs,
@@ -41,6 +42,21 @@ def _preflight_json(tmp_path: Path, *, dsn: str = "postgresql://user:secret@loca
 
 
 def _archive_json(tmp_path: Path, *, ready: bool = True) -> Path:
+    binding = {
+        "schema": "v1_5_senco_authorization_archive_binding_v1",
+        "overall_status": "not_applicable_no_main_senco_write_evidence",
+        "ready_for_archive_release": True,
+        "write_evidence_present": False,
+        "authorization_path": "",
+        "authorization_sha256": "",
+        "manifest_path": "",
+        "manifest_sha256": "",
+        "writer_evidence": [],
+    }
+    binding_path = _write_json(
+        tmp_path / "archive" / "binding" / "v1_5_senco_authorization_archive_binding.json",
+        binding,
+    )
     payload = {
         "schema": "v1_5_formal_archive_closure_v1",
         "overall_status": "ready" if ready else "review_required",
@@ -50,6 +66,14 @@ def _archive_json(tmp_path: Path, *, ready: bool = True) -> Path:
             "ready_for_archive_release": ready,
             "traceability_review_required": not ready,
         },
+        "senco_authorization_write_traceability": binding,
+        "artifacts": [
+            {
+                "role": "senco_authorization_write_traceability_json",
+                "path": str(binding_path.resolve()),
+                "sha256": sha256_file(binding_path),
+            }
+        ],
     }
     return _write_json(tmp_path / "archive" / "v1_5_formal_archive_closure_index.json", payload)
 
@@ -99,6 +123,7 @@ def test_formal_database_import_command_contract_ready_without_connecting(tmp_pa
     assert model["authorization_ready"] is True
     assert model["preflight_ready"] is True
     assert model["archive_release_ready"] is True
+    assert model["senco_authorization_archive_binding_ready"] is True
     assert model["evidence_bundle_ready"] is True
     assert model["command_contract_ready"] is True
     assert model["real_import_execution_allowed"] is False
@@ -110,10 +135,11 @@ def test_formal_database_import_command_contract_ready_without_connecting(tmp_pa
     assert _check(model, "formal_database_import_authorization_ready")["status"] == "ready"
     assert _check(model, "formal_database_import_preflight_ready")["status"] == "ready"
     assert _check(model, "formal_archive_closure_ready")["status"] == "ready"
+    assert _check(model, "senco_authorization_archive_binding_ready")["status"] == "ready"
     assert _check(model, "formal_evidence_bundle_ready")["status"] == "ready"
 
 
-def test_formal_database_import_command_contract_reviews_missing_archive_or_bundle(tmp_path: Path) -> None:
+def test_formal_database_import_command_contract_blocks_missing_archive_binding(tmp_path: Path) -> None:
     authorization_json, preflight_json, _archive_json_path, _bundle_json_path = _authorization_json(tmp_path)
 
     model = build_v1_5_formal_database_import_command_contract(
@@ -121,16 +147,19 @@ def test_formal_database_import_command_contract_reviews_missing_archive_or_bund
         formal_database_import_preflight_json=preflight_json,
     )
 
-    assert model["overall_status"] == "review_required"
-    assert model["blocker_count"] == 0
+    assert model["overall_status"] == "blocked"
+    assert model["blocker_count"] == 1
     assert model["review_required_count"] == 2
     assert model["authorization_ready"] is True
     assert model["preflight_ready"] is True
     assert model["archive_release_ready"] is False
+    assert model["senco_authorization_archive_binding_ready"] is False
+    assert model["senco_authorization_archive_binding_ready"] is False
     assert model["evidence_bundle_ready"] is False
     assert model["command_contract_ready"] is False
     assert _check(model, "formal_archive_closure_ready")["status"] == "review_required"
     assert "archive_closure_missing" in _check(model, "formal_archive_closure_ready")["reasons"]
+    assert _check(model, "senco_authorization_archive_binding_ready")["status"] == "blocker"
     assert _check(model, "formal_evidence_bundle_ready")["status"] == "review_required"
     assert "evidence_bundle_missing" in _check(model, "formal_evidence_bundle_ready")["reasons"]
 
@@ -156,6 +185,28 @@ def test_formal_database_import_command_contract_blocks_missing_authorization(tm
         model,
         "formal_database_import_authorization_ready",
     )["reasons"]
+
+
+def test_formal_database_import_command_contract_blocks_binding_changed_after_authorization(
+    tmp_path: Path,
+) -> None:
+    authorization_json, preflight_json, archive_json, bundle_json = _authorization_json(tmp_path)
+    archive = json.loads(archive_json.read_text(encoding="utf-8"))
+    binding_path = Path(archive["artifacts"][0]["path"])
+    binding_path.write_text("{}", encoding="utf-8")
+
+    model = build_v1_5_formal_database_import_command_contract(
+        formal_database_import_authorization_json=authorization_json,
+        formal_database_import_preflight_json=preflight_json,
+        archive_closure_json=archive_json,
+        evidence_bundle_json=bundle_json,
+    )
+
+    assert model["overall_status"] == "blocked"
+    assert model["command_contract_ready"] is False
+    binding_check = _check(model, "senco_authorization_archive_binding_ready")
+    assert binding_check["status"] == "blocker"
+    assert "senco_authorization_archive_binding_sha256_mismatch" in binding_check["reasons"]
 
 
 def test_formal_database_import_command_contract_writer_and_cli(tmp_path: Path) -> None:

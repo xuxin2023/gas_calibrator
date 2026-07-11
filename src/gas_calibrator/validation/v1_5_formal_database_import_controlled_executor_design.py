@@ -76,6 +76,8 @@ def build_v1_5_formal_database_import_controlled_executor_design(
         review_reasons.append("blocked_executor_boundary_connects_postgresql_not_false")
     if blocked_payload and blocked_payload.get("database_written") is not False:
         review_reasons.append("blocked_executor_boundary_database_written_not_false")
+    if blocked_payload and blocked_payload.get("senco_authorization_archive_binding_ready") is not True:
+        review_reasons.append("blocked_executor_senco_authorization_archive_binding_not_ready")
 
     authorization_contract = [
         {
@@ -107,7 +109,7 @@ def build_v1_5_formal_database_import_controlled_executor_design(
             "required": True,
             "future_inputs": (
                 "command_contract_json;blocked_executor_json;authorization_json;preflight_json;"
-                "archive_closure_json;evidence_bundle_json"
+                "archive_closure_json;senco_authorization_archive_binding_json;evidence_bundle_json"
             ),
             "contract": "The real executor must consume reviewed artifacts by explicit path and reject mutable run-folder discovery.",
         },
@@ -247,6 +249,15 @@ def build_v1_5_formal_database_import_controlled_executor_design(
         "dsn_env": dsn_env_name,
         "dsn_value_read": False,
         "formal_database_import_blocked_executor_json": str(blocked_path) if blocked_path else "",
+        "senco_authorization_archive_binding_ready": bool(
+            blocked_payload.get("senco_authorization_archive_binding_ready")
+        ),
+        "senco_authorization_archive_binding_json": str(
+            blocked_payload.get("senco_authorization_archive_binding_json") or ""
+        ),
+        "senco_authorization_archive_binding_sha256": str(
+            blocked_payload.get("senco_authorization_archive_binding_sha256") or ""
+        ),
         "required_future_execute_flag": "--execute-controlled-import",
         "not_real_acceptance_evidence": True,
         "next_action": (
