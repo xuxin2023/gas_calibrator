@@ -19,6 +19,9 @@ from typing import Any, Iterable, Mapping
 from .v1_5_authoritative_resume_state_writer_design import (
     build_v1_5_authoritative_resume_state_writer_design,
 )
+from .v1_5_authoritative_resume_state_writer_blocked_executor import (
+    build_v1_5_authoritative_resume_state_writer_blocked_executor,
+)
 from .v1_5_senco_artifact_authorization import validate_senco_artifact_authorization
 
 
@@ -601,8 +604,8 @@ def _resume_prefix_application_review_gate(
             "A separate package is still required before authoritative state is written."
         ),
         physical_meaning=(
-            "Consumes the evidence-bound completed-step prefix for validation and previews temperature review "
-            "as the next stage without changing state or executing pressure, gas, or water actions."
+            "Consumes the evidence-bound completed-step prefix for validation and previews the writer-design "
+            "review as the next stage without changing state or executing pressure, gas, or water actions."
         ),
         blocks_physical_flow=status in {MISSING, REVIEW_REQUIRED, BLOCKED},
     )
@@ -730,7 +733,137 @@ def _authoritative_resume_state_writer_design_gate(
         ),
         physical_meaning=(
             "Defines compare-and-swap, snapshot, atomic replacement, readback, and rollback requirements "
-            "without writing state or executing temperature, pressure, gas, or water stages."
+            "and hands them to a blocked executor without writing state or executing temperature, pressure, gas, or water stages."
+        ),
+        blocks_physical_flow=status in {MISSING, REVIEW_REQUIRED, BLOCKED},
+    )
+
+
+def _authoritative_resume_state_writer_blocked_executor_gate(
+    path: Path | None,
+    payload: Mapping[str, Any],
+    expected_design_path: Path | None,
+) -> FormalRunGate:
+    source_status = _source_status(payload)
+    boundary_ok = (
+        payload.get("production_state") == "blocked_executor_only"
+        and payload.get("execution_supported") is False
+        and payload.get("execution_requested") is False
+        and payload.get("authoritative_state_write_allowed") is False
+        and payload.get("write_state_flag_allowed") is False
+        and payload.get("state_target_argument_allowed") is False
+        and payload.get("expected_state_sha_argument_allowed") is False
+        and payload.get("authorization_inputs_allowed") is False
+        and payload.get("does_not_execute_commands") is True
+        and payload.get("applies_completed_steps") is False
+        and payload.get("writes_authoritative_state") is False
+        and payload.get("state_file_created") is False
+        and payload.get("state_file_replaced") is False
+        and payload.get("state_snapshot_created") is False
+        and payload.get("rollback_executed") is False
+        and payload.get("would_execute") is False
+        and payload.get("live_resume_execution_allowed") is False
+        and payload.get("route_authorization_still_required") is True
+        and payload.get("opens_com_ports") is False
+        and payload.get("controls_pressure") is False
+        and payload.get("controls_water_or_gas_routes") is False
+        and payload.get("connects_postgresql") is False
+        and payload.get("writes_sn") is False
+        and payload.get("writes_device_id") is False
+        and payload.get("writes_coefficients") is False
+        and payload.get("database_written") is False
+        and payload.get("formal_release_allowed") is False
+        and payload.get("database_import_allowed") is False
+        and payload.get("not_real_acceptance_evidence") is True
+    )
+    try:
+        design_path_bound = expected_design_path is not None and Path(
+            str(payload.get("authoritative_resume_state_writer_design_json") or "")
+        ).resolve() == expected_design_path.resolve()
+    except (OSError, RuntimeError):
+        design_path_bound = False
+    plan_hash_ok = bool(payload.get("full_flow_plan_sha256")) and _artifact_sha256(
+        payload.get("full_flow_plan_json")
+    ) == str(payload.get("full_flow_plan_sha256") or "")
+    application_hash_ok = bool(
+        payload.get("resume_prefix_application_review_sha256")
+    ) and _artifact_sha256(payload.get("resume_prefix_application_review_json")) == str(
+        payload.get("resume_prefix_application_review_sha256") or ""
+    )
+    design_hash_ok = bool(
+        payload.get("authoritative_resume_state_writer_design_sha256")
+    ) and _artifact_sha256(payload.get("authoritative_resume_state_writer_design_json")) == str(
+        payload.get("authoritative_resume_state_writer_design_sha256") or ""
+    )
+    recomputed: dict[str, Any] = {}
+    if plan_hash_ok and application_hash_ok and design_hash_ok and design_path_bound:
+        try:
+            recomputed = build_v1_5_authoritative_resume_state_writer_blocked_executor(
+                full_flow_plan_json=payload.get("full_flow_plan_json"),
+                resume_prefix_application_review_json=payload.get(
+                    "resume_prefix_application_review_json"
+                ),
+                authoritative_resume_state_writer_design_json=expected_design_path,
+            )
+        except (OSError, ValueError, json.JSONDecodeError):
+            recomputed = {}
+    exact_stub_ok = bool(recomputed) and all(
+        payload.get(key) == recomputed.get(key)
+        for key in (
+            "run_id",
+            "full_flow_plan_json",
+            "full_flow_plan_sha256",
+            "resume_prefix_application_review_json",
+            "resume_prefix_application_review_sha256",
+            "authoritative_resume_state_writer_design_json",
+            "authoritative_resume_state_writer_design_sha256",
+            "proposed_authoritative_state_json_recorded_only",
+            "next_step_id_after_blocked_executor_review",
+        )
+    ) and payload.get("checks") == json.loads(json.dumps(recomputed.get("checks") or []))
+    ready = (
+        source_status
+        == "blocked_pending_authoritative_resume_state_writer_implementation"
+        and payload.get("blocked_executor_ready") is True
+        and int(payload.get("review_required_count") or 0) == 0
+        and recomputed.get("blocked_executor_ready") is True
+        and boundary_ok
+        and design_path_bound
+        and plan_hash_ok
+        and application_hash_ok
+        and design_hash_ok
+        and exact_stub_ok
+    )
+    if not payload:
+        status = MISSING
+        reason = "authoritative resume-state writer blocked executor evidence missing"
+    elif not boundary_ok:
+        status = BLOCKED
+        reason = "authoritative resume-state writer blocked executor boundary is not clean"
+    elif ready:
+        status = READY
+        reason = "authoritative resume-state writer remains blocked and no state target was mutated"
+    elif not design_path_bound or not plan_hash_ok or not application_hash_ok or not design_hash_ok:
+        status = BLOCKED
+        reason = "blocked executor source path or hash missing or mismatched"
+    elif not exact_stub_ok:
+        status = BLOCKED
+        reason = "blocked executor differs from independently recomputed lock evidence"
+    else:
+        status = REVIEW_REQUIRED
+        reason = f"source_status={source_status or 'unknown'}"
+    return _gate(
+        gate_id="authoritative_resume_state_writer_blocked_executor",
+        title="Authoritative resume-state writer blocked executor",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action=(
+            "Keep state writing locked. A later separately reviewed controlled writer must implement #91 atomic transaction and authorization requirements."
+        ),
+        physical_meaning=(
+            "Proves that resume-state review cannot create or replace state, open devices, control routes, write coefficients, or import a database."
         ),
         blocks_physical_flow=status in {MISSING, REVIEW_REQUIRED, BLOCKED},
     )
@@ -2464,6 +2597,7 @@ def build_v1_5_formal_run_status(
     post_closeout_resume_gate_json: str | Path | None = None,
     resume_prefix_application_review_json: str | Path | None = None,
     authoritative_resume_state_writer_design_json: str | Path | None = None,
+    authoritative_resume_state_writer_blocked_executor_json: str | Path | None = None,
     getco_readiness_json: str | Path | None = None,
     run_evidence_status_json: str | Path | None = None,
     full_flow_closure_readiness_json: str | Path | None = None,
@@ -2578,6 +2712,11 @@ def build_v1_5_formal_run_status(
         authoritative_resume_state_writer_design_json,
         "v1_5_authoritative_resume_state_writer_design.json",
     )
+    authoritative_resume_state_writer_blocked_executor_path = _explicit_or_latest(
+        root,
+        authoritative_resume_state_writer_blocked_executor_json,
+        "v1_5_authoritative_resume_state_writer_blocked_executor.json",
+    )
     getco_path = _explicit_or_latest(root, getco_readiness_json, "v1_5_getco_identity_readiness.json")
     run_status_path = _explicit_or_latest(root, run_evidence_status_json, "v1_5_run_evidence_status.json")
     closure_path = _explicit_or_latest(root, full_flow_closure_readiness_json, "v1_5_full_flow_closure_readiness.json")
@@ -2672,6 +2811,9 @@ def build_v1_5_formal_run_status(
     resume_prefix_application_review_payload = _load_json(resume_prefix_application_review_path)
     authoritative_resume_state_writer_design_payload = _load_json(
         authoritative_resume_state_writer_design_path
+    )
+    authoritative_resume_state_writer_blocked_executor_payload = _load_json(
+        authoritative_resume_state_writer_blocked_executor_path
     )
     getco_payload = _load_json(getco_path)
     run_payload = _load_json(run_status_path)
@@ -2860,6 +3002,17 @@ def build_v1_5_formal_run_status(
                 authoritative_resume_state_writer_design_path,
                 authoritative_resume_state_writer_design_payload,
                 resume_prefix_application_review_path,
+            )
+        )
+    if (
+        authoritative_resume_state_writer_blocked_executor_path
+        or authoritative_resume_state_writer_design_path
+    ):
+        gates.append(
+            _authoritative_resume_state_writer_blocked_executor_gate(
+                authoritative_resume_state_writer_blocked_executor_path,
+                authoritative_resume_state_writer_blocked_executor_payload,
+                authoritative_resume_state_writer_design_path,
             )
         )
     if pressure_s9_readiness_index_path:
@@ -3164,6 +3317,11 @@ def build_v1_5_formal_run_status(
                 authoritative_resume_state_writer_design_path
             )
             if authoritative_resume_state_writer_design_path
+            else "",
+            "authoritative_resume_state_writer_blocked_executor_json": str(
+                authoritative_resume_state_writer_blocked_executor_path
+            )
+            if authoritative_resume_state_writer_blocked_executor_path
             else "",
             "getco_readiness_json": str(getco_path) if getco_path else "",
             "run_evidence_status_json": str(run_status_path) if run_status_path else "",

@@ -1092,6 +1092,41 @@ def test_full_flow_plan_binds_final_batch_closeout_before_mature_open_flow(tmp_p
         in writer_design.expected_outputs
     )
 
+    blocked_writer = next(
+        item
+        for item in plan.steps
+        if item.step_id == "authoritative_resume_state_writer_blocked_executor"
+    )
+    blocked_command = list(blocked_writer.command)
+    assert blocked_writer.tool_module == (
+        "gas_calibrator.tools.run_v1_5_authoritative_resume_state_writer_blocked_executor"
+    )
+    assert blocked_writer.execution_mode == "offline_blocked_stub"
+    assert blocked_writer.opens_com_ports is False
+    assert blocked_writer.controls_pressure is False
+    assert blocked_writer.controls_gas_route is False
+    assert blocked_writer.controls_water_route is False
+    assert blocked_writer.writes_device_id is False
+    assert blocked_writer.writes_coefficients is False
+    assert _flag_value(blocked_command, "--full-flow-plan-json") == str(
+        (tmp_path / "plan" / "v1_5_full_flow_plan.json").resolve()
+    )
+    assert _flag_value(
+        blocked_command, "--authoritative-resume-state-writer-design-json"
+    ) == str(
+        (
+            tmp_path
+            / "plan"
+            / "authoritative_resume_state_writer_design"
+            / "v1_5_authoritative_resume_state_writer_design.json"
+        ).resolve()
+    )
+    assert "--fail-on-blocked" in blocked_command
+    assert (
+        "authoritative_resume_state_writer_blocked_executor/v1_5_authoritative_resume_state_writer_blocked_executor.json"
+        in blocked_writer.expected_outputs
+    )
+
 
 def test_full_flow_plan_adds_no_write_post_run_coefficient_executor(tmp_path):
     config = tmp_path / "config.json"
@@ -1758,6 +1793,7 @@ def test_route_stage_remains_blocked_without_route_authorization(tmp_path):
             "post_closeout_resume_gate_snapshot",
             "post_closeout_resume_prefix_application_review",
             "authoritative_resume_state_writer_design",
+            "authoritative_resume_state_writer_blocked_executor",
             "temperature_channel_fast_review",
         ],
         allow_real_com=True,

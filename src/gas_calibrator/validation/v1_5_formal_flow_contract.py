@@ -45,6 +45,7 @@ REQUIRED_STEP_IDS = (
     "post_closeout_resume_gate_snapshot",
     "post_closeout_resume_prefix_application_review",
     "authoritative_resume_state_writer_design",
+    "authoritative_resume_state_writer_blocked_executor",
     "temperature_channel_fast_review",
     "co2_open_flow_sampling",
     "h2o_open_flow_sampling",
@@ -97,6 +98,7 @@ REQUIRED_ORDER = (
     "post_closeout_resume_gate_snapshot",
     "post_closeout_resume_prefix_application_review",
     "authoritative_resume_state_writer_design",
+    "authoritative_resume_state_writer_blocked_executor",
     "temperature_channel_fast_review",
     "co2_open_flow_sampling",
     "h2o_open_flow_sampling",
@@ -135,6 +137,9 @@ RESUME_PREFIX_APPLICATION_REVIEW_MODULE = (
 )
 AUTHORITATIVE_RESUME_STATE_WRITER_DESIGN_MODULE = (
     "gas_calibrator.tools.export_v1_5_authoritative_resume_state_writer_design"
+)
+AUTHORITATIVE_RESUME_STATE_WRITER_BLOCKED_EXECUTOR_MODULE = (
+    "gas_calibrator.tools.run_v1_5_authoritative_resume_state_writer_blocked_executor"
 )
 RESUME_PREFIX_APPLICATION_REVIEW_FORBIDDEN_FLAGS = (
     "--completed-step",
@@ -196,6 +201,7 @@ FORMAL_PHYSICAL_FLOW = (
     "PRESSURE_COMPLETION: after SENCO9 write and reverification, freeze traceable pressure-channel completion evidence",
     "POST_CLOSEOUT_RESUME_GATE: bind an evidence-backed completed prefix and next step without applying or executing it",
     "AUTHORITATIVE_RESUME_STATE_WRITER_DESIGN: freeze atomic replace, compare-and-swap, snapshot, readback, and rollback requirements without writing state",
+    "AUTHORITATIVE_RESUME_STATE_WRITER_BLOCKED_EXECUTOR: prove state target, hash, authorization, execute, and replace inputs remain locked",
     "TEMPERATURE: review chamber/case temperature evidence before final approval",
     "CO2_OPEN_FLOW: sample clean dry gas under continuous open flow",
     "H2O_OPEN_FLOW: sample water route under dewpoint/reference evidence",
@@ -569,6 +575,12 @@ def validate_v1_5_formal_flow_contract(
     _require_before(
         step_ids,
         "authoritative_resume_state_writer_design",
+        "authoritative_resume_state_writer_blocked_executor",
+        issues,
+    )
+    _require_before(
+        step_ids,
+        "authoritative_resume_state_writer_blocked_executor",
         "temperature_channel_fast_review",
         issues,
     )
@@ -595,6 +607,18 @@ def validate_v1_5_formal_flow_contract(
     _require_before(
         step_ids,
         "authoritative_resume_state_writer_design",
+        "h2o_open_flow_sampling",
+        issues,
+    )
+    _require_before(
+        step_ids,
+        "authoritative_resume_state_writer_blocked_executor",
+        "co2_open_flow_sampling",
+        issues,
+    )
+    _require_before(
+        step_ids,
+        "authoritative_resume_state_writer_blocked_executor",
         "h2o_open_flow_sampling",
         issues,
     )
@@ -2247,6 +2271,84 @@ def validate_v1_5_formal_flow_contract(
                             "error",
                             "authoritative_resume_state_writer_design_forbidden_execution_flag",
                             f"Authoritative resume-state writer design must not include {flag}",
+                            step_id,
+                        )
+                    )
+
+        if step_id == "authoritative_resume_state_writer_blocked_executor":
+            if module != AUTHORITATIVE_RESUME_STATE_WRITER_BLOCKED_EXECUTOR_MODULE:
+                issues.append(
+                    _issue(
+                        "error",
+                        "authoritative_resume_state_writer_blocked_executor_wrong_tool",
+                        "Authoritative resume-state writer blocked executor must use the canonical offline stub",
+                        step_id,
+                    )
+                )
+            if bool(step.get("opens_com_ports")) or bool(step.get("controls_pressure")) or controls_route or writes:
+                issues.append(
+                    _issue(
+                        "error",
+                        "authoritative_resume_state_writer_blocked_executor_must_be_offline_no_write",
+                        "Authoritative resume-state writer blocked executor must not open COM, control routes/pressure, or write state/coefficients",
+                        step_id,
+                    )
+                )
+            if bool(step.get("writes_device_id")):
+                issues.append(
+                    _issue(
+                        "error",
+                        "authoritative_resume_state_writer_blocked_executor_must_not_write_identity",
+                        "Authoritative resume-state writer blocked executor must not write SN/device_code or protocol ID",
+                        step_id,
+                    )
+                )
+            if not str(step.get("execution_mode") or "").startswith("offline"):
+                issues.append(
+                    _issue(
+                        "error",
+                        "authoritative_resume_state_writer_blocked_executor_must_be_offline",
+                        "Authoritative resume-state writer blocked executor execution_mode must be offline",
+                        step_id,
+                    )
+                )
+            for flag in (
+                "--full-flow-plan-json",
+                "--resume-prefix-application-review-json",
+                "--authoritative-resume-state-writer-design-json",
+                "--output-dir",
+                "--fail-on-blocked",
+            ):
+                _require_flag(
+                    command,
+                    flag,
+                    step_id=step_id,
+                    issues=issues,
+                    code="authoritative_resume_state_writer_blocked_executor_missing_required_flag",
+                    message=f"Authoritative resume-state writer blocked executor command must include {flag}",
+                )
+            for flag in (
+                "--execute",
+                "--write-state",
+                "--replace-state",
+                "--authoritative-state-json",
+                "--expected-existing-state-sha256",
+                "--authorization-id",
+                "--operator-confirmation-text",
+                "--reviewer",
+                "--approver",
+                "--allow-real-com",
+                "--allow-pressure-control",
+                "--allow-route-control",
+                "--allow-writes",
+                "--allow-database-import",
+            ):
+                if _command_has_flag(command, flag):
+                    issues.append(
+                        _issue(
+                            "error",
+                            "authoritative_resume_state_writer_blocked_executor_forbidden_unlock_flag",
+                            f"Authoritative resume-state writer blocked executor must not include {flag}",
                             step_id,
                         )
                     )

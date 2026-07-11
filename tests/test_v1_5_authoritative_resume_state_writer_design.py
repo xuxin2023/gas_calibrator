@@ -93,7 +93,9 @@ def test_writer_design_binds_exact_prefix_and_keeps_state_locked(tmp_path: Path)
     assert model["proposed_completed_step_ids"][-1] == (
         "authoritative_resume_state_writer_design"
     )
-    assert model["proposed_current_step_id"] == "temperature_channel_fast_review"
+    assert model["proposed_current_step_id"] == (
+        "authoritative_resume_state_writer_blocked_executor"
+    )
     assert model["proposed_authorization_state"] == {
         "allow_real_com": False,
         "allow_pressure_control": False,
