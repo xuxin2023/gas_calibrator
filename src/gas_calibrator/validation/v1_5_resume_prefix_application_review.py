@@ -150,6 +150,11 @@ def build_v1_5_resume_prefix_application_review(
         indexes = [step_ids.index(step_id) for step_id in required_order]
         if indexes != sorted(indexes):
             reasons.append("resume_prefix_application_order_invalid")
+        gate_index = step_ids.index(RESUME_GATE_STEP_ID)
+        application_index = step_ids.index(APPLICATION_REVIEW_STEP_ID)
+        next_index = step_ids.index(NEXT_STEP_ID)
+        if application_index != gate_index + 1 or next_index != application_index + 1:
+            reasons.append("resume_prefix_application_steps_not_adjacent")
 
     by_id = {str(row.get("step_id") or ""): row for row in steps}
     application_step = by_id.get(APPLICATION_REVIEW_STEP_ID) or {}
@@ -255,6 +260,9 @@ def build_v1_5_resume_prefix_application_review(
         "reviewed_resume_completed_step_ids": expected_prefix if ready else [],
         "reviewed_completed_step_ids_after_application": reviewed_after_application if ready else [],
         "reviewed_resume_cli_arguments": _flatten_completed_steps(expected_prefix) if ready else [],
+        "reviewed_state_application_cli_arguments": (
+            _flatten_completed_steps(reviewed_after_application) if ready else []
+        ),
         "state_preview_current_step_id": NEXT_STEP_ID if ready else "",
         "state_preview_current_status": "ready_for_offline_review" if ready else "blocked",
         "downstream_route_step_ids": [CO2_STEP_ID, H2O_STEP_ID],

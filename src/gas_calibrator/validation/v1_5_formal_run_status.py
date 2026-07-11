@@ -100,6 +100,18 @@ def _safe_int(value: Any) -> int:
         return 0
 
 
+def _flatten_completed_steps(step_ids: Iterable[str]) -> list[str]:
+    return [item for step_id in step_ids for item in ("--completed-step", str(step_id))]
+
+
+def _plan_step_ids(payload: Mapping[str, Any]) -> list[str]:
+    return [
+        str(row.get("step_id") or "")
+        for row in payload.get("steps") or []
+        if isinstance(row, Mapping)
+    ]
+
+
 def _artifact_sha256(path_value: Any) -> str:
     path = Path(str(path_value or ""))
     if not path.is_file():
@@ -460,23 +472,93 @@ def _resume_prefix_application_review_gate(
     resume_gate_hash_ok = bool(payload.get("post_closeout_resume_gate_sha256")) and _artifact_sha256(
         payload.get("post_closeout_resume_gate_json")
     ) == str(payload.get("post_closeout_resume_gate_sha256") or "")
+    batch_closeout_hash_ok = bool(payload.get("batch_initialization_closeout_sha256")) and _artifact_sha256(
+        payload.get("batch_initialization_closeout_json")
+    ) == str(payload.get("batch_initialization_closeout_sha256") or "")
     try:
         resume_gate_path_bound = expected_resume_gate_path is not None and Path(
             str(payload.get("post_closeout_resume_gate_json") or "")
         ).resolve() == expected_resume_gate_path.resolve()
     except (OSError, RuntimeError):
         resume_gate_path_bound = False
-    reviewed = [str(item) for item in payload.get("reviewed_completed_step_ids_after_application") or []]
+    plan_payload = _load_json(payload.get("full_flow_plan_json"))
+    resume_gate_payload = _load_json(payload.get("post_closeout_resume_gate_json"))
+    step_ids = _plan_step_ids(plan_payload)
+    expected_prefix: list[str] = []
+    if "post_closeout_resume_gate_snapshot" in step_ids:
+        expected_prefix = step_ids[: step_ids.index("post_closeout_resume_gate_snapshot") + 1]
+    application_index = (
+        step_ids.index("post_closeout_resume_prefix_application_review")
+        if "post_closeout_resume_prefix_application_review" in step_ids
+        else -1
+    )
+    gate_index = (
+        step_ids.index("post_closeout_resume_gate_snapshot")
+        if "post_closeout_resume_gate_snapshot" in step_ids
+        else -1
+    )
+    next_index = (
+        step_ids.index("temperature_channel_fast_review")
+        if "temperature_channel_fast_review" in step_ids
+        else -1
+    )
+    adjacent_application_steps = (
+        application_index == gate_index + 1
+        and next_index == application_index + 1
+    )
+    expected_after_application = (
+        step_ids[: application_index + 1] if adjacent_application_steps else []
+    )
+    reviewed_prefix = [str(item) for item in payload.get("reviewed_resume_completed_step_ids") or []]
+    reviewed_after = [
+        str(item) for item in payload.get("reviewed_completed_step_ids_after_application") or []
+    ]
+    exact_prefix_ok = (
+        bool(expected_prefix)
+        and len(step_ids) == len(set(step_ids))
+        and adjacent_application_steps
+        and reviewed_prefix == expected_prefix
+        and reviewed_after == expected_after_application
+        and [str(item) for item in payload.get("reviewed_resume_cli_arguments") or []]
+        == _flatten_completed_steps(expected_prefix)
+        and [str(item) for item in payload.get("reviewed_state_application_cli_arguments") or []]
+        == _flatten_completed_steps(expected_after_application)
+        and resume_gate_payload.get("resume_completed_step_ids") == expected_prefix
+        and resume_gate_payload.get("resume_cli_arguments") == _flatten_completed_steps(expected_prefix)
+    )
+    try:
+        plan_path_bound_to_resume_gate = Path(
+            str(payload.get("full_flow_plan_json") or "")
+        ).resolve() == Path(str(resume_gate_payload.get("full_flow_plan_json") or "")).resolve()
+        batch_path_bound_to_resume_gate = Path(
+            str(payload.get("batch_initialization_closeout_json") or "")
+        ).resolve() == Path(
+            str(resume_gate_payload.get("batch_initialization_closeout_json") or "")
+        ).resolve()
+    except (OSError, RuntimeError):
+        plan_path_bound_to_resume_gate = False
+        batch_path_bound_to_resume_gate = False
+    source_binding_ok = (
+        str(payload.get("run_id") or "") == str(plan_payload.get("run_id") or "")
+        and str(resume_gate_payload.get("run_id") or "") == str(plan_payload.get("run_id") or "")
+        and plan_path_bound_to_resume_gate
+        and batch_path_bound_to_resume_gate
+        and str(resume_gate_payload.get("full_flow_plan_sha256") or "")
+        == str(payload.get("full_flow_plan_sha256") or "")
+        and str(resume_gate_payload.get("batch_initialization_closeout_sha256") or "")
+        == str(payload.get("batch_initialization_closeout_sha256") or "")
+    )
     ready = (
         source_status == "ready_for_resume_prefix_state_application_review"
         and payload.get("resume_prefix_application_review_ready") is True
         and payload.get("resume_prefix_consumed_for_review") is True
         and payload.get("state_preview_current_step_id") == "temperature_channel_fast_review"
-        and "post_closeout_resume_gate_snapshot" in reviewed
-        and "post_closeout_resume_prefix_application_review" in reviewed
         and plan_hash_ok
         and resume_gate_hash_ok
+        and batch_closeout_hash_ok
         and resume_gate_path_bound
+        and exact_prefix_ok
+        and source_binding_ok
     )
     if not payload:
         status = MISSING
@@ -487,9 +569,12 @@ def _resume_prefix_application_review_gate(
     elif ready:
         status = READY
         reason = "resume prefix is hash-bound and ready for a later authoritative state-application step"
-    elif not plan_hash_ok or not resume_gate_hash_ok or not resume_gate_path_bound:
+    elif not plan_hash_ok or not resume_gate_hash_ok or not batch_closeout_hash_ok or not resume_gate_path_bound:
         status = BLOCKED
-        reason = "resume-prefix application source hash or resume-gate path missing or mismatched"
+        reason = "resume-prefix application source hash or bound path missing or mismatched"
+    elif not exact_prefix_ok or not source_binding_ok:
+        status = BLOCKED
+        reason = "resume-prefix application exact-prefix or source binding is invalid"
     elif "blocked" in source_status:
         status = BLOCKED
         reason = f"source_status={source_status}"

@@ -83,6 +83,10 @@ def test_resume_prefix_application_review_consumes_exact_prefix_without_applying
     assert model["reviewed_completed_step_ids_after_application"][-1] == (
         "post_closeout_resume_prefix_application_review"
     )
+    assert model["reviewed_state_application_cli_arguments"][-2:] == [
+        "--completed-step",
+        "post_closeout_resume_prefix_application_review",
+    ]
     assert model["state_preview_current_step_id"] == "temperature_channel_fast_review"
     assert model["route_authorization_still_required"] is True
     assert model["does_not_execute_commands"] is True
@@ -174,6 +178,42 @@ def test_resume_prefix_application_review_rejects_state_or_execution_flags(tmp_p
         "resume_prefix_application_review_forbidden_flag:--completed-step"
         in model["review_reasons"]
     )
+
+
+def test_resume_prefix_application_review_blocks_unreviewed_step_inserted_before_application(
+    tmp_path: Path,
+) -> None:
+    plan_path, gate_path, batch_path = _plan_gate_and_batch(tmp_path)
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    application_index = next(
+        index
+        for index, row in enumerate(plan["steps"])
+        if row["step_id"] == "post_closeout_resume_prefix_application_review"
+    )
+    plan["steps"].insert(
+        application_index,
+        {
+            "step_id": "unreviewed_inserted_step",
+            "tool_module": "gas_calibrator.tools.export_v1_5_formal_run_status",
+            "command": [],
+            "execution_mode": "offline_sidecar",
+        },
+    )
+    _write_json(plan_path, plan)
+    gate_path = write_v1_5_post_closeout_resume_gate(
+        output_dir=gate_path.parent,
+        full_flow_plan_json=plan_path,
+        batch_initialization_closeout_json=batch_path,
+    )["manifest"]
+
+    model = build_v1_5_resume_prefix_application_review(
+        full_flow_plan_json=plan_path,
+        post_closeout_resume_gate_json=gate_path,
+    )
+
+    assert model["overall_status"] == BLOCKED_STATUS
+    assert "resume_prefix_application_steps_not_adjacent" in model["review_reasons"]
+    assert model["reviewed_completed_step_ids_after_application"] == []
 
 
 def test_resume_prefix_application_review_cli_is_offline_and_fails_closed(tmp_path: Path) -> None:

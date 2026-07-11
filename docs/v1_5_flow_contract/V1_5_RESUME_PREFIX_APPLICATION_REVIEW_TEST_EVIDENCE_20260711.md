@@ -12,7 +12,7 @@ python -m pytest tests\test_v1_5_resume_prefix_application_review.py tests\test_
 Result:
 
 ```text
-143 passed, 1 warning in 171.95s
+146 passed, 1 warning in 171.40s
 ```
 
 ## Compatibility Regression
@@ -25,7 +25,7 @@ python -m pytest tests\test_v1_5_algorithm_route_profiles.py tests\test_v1_5_ent
 Result:
 
 ```text
-84 passed, 1 warning in 54.87s
+84 passed, 1 warning in 36.40s
 ```
 
 Both warnings are the existing unregistered `v1_5_formal_gate` pytest marker.
@@ -34,12 +34,15 @@ Both warnings are the existing unregistered `v1_5_formal_gate` pytest marker.
 
 - the reviewed completed-step prefix is exact and contiguous
 - arbitrary, missing, reordered, or extra completed steps are blocked
+- inserted steps between the resume gate, application review, and temperature review are blocked
 - plan, batch closeout, and resume-gate hashes are rebound and rechecked
 - an alternate resume-gate path is blocked
+- a same-hash batch copy at a different path is blocked
 - state and execution flags are forbidden
 - the state preview stops at temperature review
 - no authoritative state is written
 - route authorization remains separate
 - formal status fails closed when the review is missing, blocked, or stale
+- formal status independently recomputes the exact prefix and rejects a forged ready sidecar
 - legacy 45/13 and new-algorithm 47/14 contracts remain unchanged
 - mature CO2/H2O queue, sampling, protocol, runner, default configuration, and `run_app.py` protected files have no diff

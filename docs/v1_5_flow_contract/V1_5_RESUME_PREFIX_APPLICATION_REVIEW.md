@@ -14,10 +14,13 @@ It consumes the resume-gate artifact for validation only. It does not write the 
 - the exact post-closeout resume-gate path and SHA256 declared by that plan
 - the batch initialization closeout path and SHA256 already bound by the resume gate
 - the exact contiguous plan prefix through `post_closeout_resume_gate_snapshot`
+- the resume gate, application review, and temperature review are adjacent with no skipped step
 - the exact flattened `--completed-step` preview generated from that prefix
 - the next reviewed stage remains `temperature_channel_fast_review`
 
 Any changed plan, changed closeout artifact, changed resume gate, alternate gate path, missing step, noncontiguous prefix, or extra completed step blocks the review.
+
+The formal-run-status rollup independently reloads the bound plan, resume gate, and batch closeout. It recomputes both reviewed step lists and both CLI argument lists instead of trusting a sidecar that merely reports `ready=true`.
 
 ## Forbidden Inputs
 
