@@ -116,6 +116,11 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         help="Optional explicit V1.5 full-flow automation closure map JSON.",
     )
     parser.add_argument(
+        "--senco-artifact-authorization-json",
+        default="",
+        help="Optional explicit main SENCO artifact authorization JSON.",
+    )
+    parser.add_argument(
         "--formal-database-dry-run-json",
         default="",
         help="Optional explicit PostgreSQL 18 formal database dry-run contract JSON.",
@@ -210,6 +215,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             archive_closure_json=args.archive_closure_json or None,
             algorithm_profile_runner_dry_run_json=args.algorithm_profile_runner_dry_run_json or None,
             full_flow_automation_closure_json=args.full_flow_automation_closure_json or None,
+            senco_artifact_authorization_json=args.senco_artifact_authorization_json or None,
             formal_database_dry_run_json=args.formal_database_dry_run_json or None,
             formal_database_import_preflight_json=args.formal_database_import_preflight_json or None,
             formal_database_import_authorization_json=args.formal_database_import_authorization_json or None,

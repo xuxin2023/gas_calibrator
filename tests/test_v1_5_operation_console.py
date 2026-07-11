@@ -183,6 +183,15 @@ def _formal_run_status():
         "formal_release_allowed": False,
         "database_import_allowed": False,
         "can_continue_physical_flow": True,
+        "senco_artifact_authorization": {
+            "status": "ready",
+            "controlled_write_authorization_ready": True,
+            "authorization_id": "AUTH-UI-001",
+            "reviewer": "reviewer-a",
+            "approver": "approver-b",
+            "authorized_writer_scopes": ["co2_senco13_pair", "h2o_senco24_pair"],
+            "authorized_device_ids": ["001", "002"],
+        },
         "physical_boundaries": {
             "offline_status_only": True,
             "opens_com_ports": False,
@@ -295,6 +304,8 @@ def test_operation_console_surfaces_formal_run_status_without_device_controls():
     assert panel["can_continue_physical_flow"] is True
     assert panel["formal_release_allowed"] is False
     assert panel["database_import_allowed"] is False
+    assert panel["controlled_write_authorization_ready"] is True
+    assert panel["senco_artifact_authorization"]["authorization_id"] == "AUTH-UI-001"
     assert model["source_evidence"]["has_formal_run_status"] is True
     assert model["opens_com_ports"] is False
     assert model["controls_water_or_gas_routes"] is False
@@ -302,6 +313,9 @@ def test_operation_console_surfaces_formal_run_status_without_device_controls():
 
     summary = {row["key"]: row for row in model["summary_cards"]}
     assert summary["formal_run_status"]["status"] == "in_progress"
+    assert summary["senco_artifact_authorization"]["status"] == "ready"
+    assert "AUTH-UI-001" in summary["senco_artifact_authorization"]["detail"]
+    assert "001,002" in summary["senco_artifact_authorization"]["detail"]
     assert summary["formal_release"]["status"] == "in_progress"
     assert "可继续物理流程=True" in summary["formal_run_status"]["detail"]
 
