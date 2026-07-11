@@ -44,6 +44,7 @@ REQUIRED_STEP_IDS = (
     "batch_initialization_closeout_index",
     "post_closeout_resume_gate_snapshot",
     "post_closeout_resume_prefix_application_review",
+    "authoritative_resume_state_writer_design",
     "temperature_channel_fast_review",
     "co2_open_flow_sampling",
     "h2o_open_flow_sampling",
@@ -95,6 +96,7 @@ REQUIRED_ORDER = (
     "batch_initialization_closeout_index",
     "post_closeout_resume_gate_snapshot",
     "post_closeout_resume_prefix_application_review",
+    "authoritative_resume_state_writer_design",
     "temperature_channel_fast_review",
     "co2_open_flow_sampling",
     "h2o_open_flow_sampling",
@@ -131,6 +133,9 @@ POST_CLOSEOUT_RESUME_GATE_MODULE = "gas_calibrator.tools.export_v1_5_post_closeo
 RESUME_PREFIX_APPLICATION_REVIEW_MODULE = (
     "gas_calibrator.tools.export_v1_5_resume_prefix_application_review"
 )
+AUTHORITATIVE_RESUME_STATE_WRITER_DESIGN_MODULE = (
+    "gas_calibrator.tools.export_v1_5_authoritative_resume_state_writer_design"
+)
 RESUME_PREFIX_APPLICATION_REVIEW_FORBIDDEN_FLAGS = (
     "--completed-step",
     "--failed-step",
@@ -142,6 +147,11 @@ RESUME_PREFIX_APPLICATION_REVIEW_FORBIDDEN_FLAGS = (
     "--allow-route-control",
     "--allow-writes",
     "--allow-database-import",
+)
+AUTHORITATIVE_RESUME_STATE_WRITER_DESIGN_FORBIDDEN_FLAGS = (
+    *RESUME_PREFIX_APPLICATION_REVIEW_FORBIDDEN_FLAGS,
+    "--write-state",
+    "--replace-state",
 )
 POST_WRITE_REVERIFY_MODULE = "gas_calibrator.tools.export_v1_5_post_write_reverification"
 
@@ -185,6 +195,7 @@ FORMAL_PHYSICAL_FLOW = (
     "PRESSURE_SENCO9: if needed, use the full V1.5 no-write sealed-pressure runner and transition trace",
     "PRESSURE_COMPLETION: after SENCO9 write and reverification, freeze traceable pressure-channel completion evidence",
     "POST_CLOSEOUT_RESUME_GATE: bind an evidence-backed completed prefix and next step without applying or executing it",
+    "AUTHORITATIVE_RESUME_STATE_WRITER_DESIGN: freeze atomic replace, compare-and-swap, snapshot, readback, and rollback requirements without writing state",
     "TEMPERATURE: review chamber/case temperature evidence before final approval",
     "CO2_OPEN_FLOW: sample clean dry gas under continuous open flow",
     "H2O_OPEN_FLOW: sample water route under dewpoint/reference evidence",
@@ -552,6 +563,12 @@ def validate_v1_5_formal_flow_contract(
     _require_before(
         step_ids,
         "post_closeout_resume_prefix_application_review",
+        "authoritative_resume_state_writer_design",
+        issues,
+    )
+    _require_before(
+        step_ids,
+        "authoritative_resume_state_writer_design",
         "temperature_channel_fast_review",
         issues,
     )
@@ -566,6 +583,18 @@ def validate_v1_5_formal_flow_contract(
     _require_before(
         step_ids,
         "post_closeout_resume_prefix_application_review",
+        "h2o_open_flow_sampling",
+        issues,
+    )
+    _require_before(
+        step_ids,
+        "authoritative_resume_state_writer_design",
+        "co2_open_flow_sampling",
+        issues,
+    )
+    _require_before(
+        step_ids,
+        "authoritative_resume_state_writer_design",
         "h2o_open_flow_sampling",
         issues,
     )
@@ -2156,6 +2185,68 @@ def validate_v1_5_formal_flow_contract(
                             "error",
                             "resume_prefix_application_review_forbidden_execution_flag",
                             f"Resume-prefix application review must not include {flag}",
+                            step_id,
+                        )
+                    )
+
+        if step_id == "authoritative_resume_state_writer_design":
+            if module != AUTHORITATIVE_RESUME_STATE_WRITER_DESIGN_MODULE:
+                issues.append(
+                    _issue(
+                        "error",
+                        "authoritative_resume_state_writer_design_wrong_tool",
+                        "Authoritative resume-state writer design must use the canonical offline design reviewer",
+                        step_id,
+                    )
+                )
+            if bool(step.get("opens_com_ports")) or bool(step.get("controls_pressure")) or controls_route or writes:
+                issues.append(
+                    _issue(
+                        "error",
+                        "authoritative_resume_state_writer_design_must_be_offline_no_write",
+                        "Authoritative resume-state writer design must not open COM, control pressure/routes, or write coefficients/state",
+                        step_id,
+                    )
+                )
+            if bool(step.get("writes_device_id")):
+                issues.append(
+                    _issue(
+                        "error",
+                        "authoritative_resume_state_writer_design_must_not_write_identity",
+                        "Authoritative resume-state writer design must not write SN/device_code or protocol ID",
+                        step_id,
+                    )
+                )
+            if not str(step.get("execution_mode") or "").startswith("offline"):
+                issues.append(
+                    _issue(
+                        "error",
+                        "authoritative_resume_state_writer_design_must_be_offline",
+                        "Authoritative resume-state writer design execution_mode must be offline",
+                        step_id,
+                    )
+                )
+            for flag in (
+                "--full-flow-plan-json",
+                "--resume-prefix-application-review-json",
+                "--output-dir",
+                "--fail-on-blocked",
+            ):
+                _require_flag(
+                    command,
+                    flag,
+                    step_id=step_id,
+                    issues=issues,
+                    code="authoritative_resume_state_writer_design_missing_required_flag",
+                    message=f"Authoritative resume-state writer design command must include {flag}",
+                )
+            for flag in AUTHORITATIVE_RESUME_STATE_WRITER_DESIGN_FORBIDDEN_FLAGS:
+                if _command_has_flag(command, flag):
+                    issues.append(
+                        _issue(
+                            "error",
+                            "authoritative_resume_state_writer_design_forbidden_execution_flag",
+                            f"Authoritative resume-state writer design must not include {flag}",
                             step_id,
                         )
                     )

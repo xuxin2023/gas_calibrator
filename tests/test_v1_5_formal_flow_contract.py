@@ -864,6 +864,39 @@ def test_formal_flow_contract_blocks_resume_prefix_application_review_that_can_e
     assert "resume_prefix_application_review_forbidden_execution_flag" in codes
 
 
+def test_formal_flow_contract_blocks_authoritative_state_writer_design_that_can_write(tmp_path):
+    plan = build_full_flow_plan(config_path=_config(tmp_path), output_dir=tmp_path / "flow", run_id="demo")
+    steps = list(plan.steps)
+    index = [step.step_id for step in steps].index("authoritative_resume_state_writer_design")
+    broken_command = (
+        *(item for item in steps[index].command if item != "--fail-on-blocked"),
+        "--write-state",
+    )
+    steps[index] = replace(
+        steps[index],
+        tool_module="gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue",
+        command=broken_command,
+        execution_mode="live_controlled",
+        opens_com_ports=True,
+        controls_gas_route=True,
+        writes_device_id=True,
+    )
+
+    report = validate_v1_5_formal_flow_contract(
+        replace(plan, steps=tuple(steps)),
+        inventory_entries=_inventory_for_plan(),
+    )
+
+    assert report.status == "blocked"
+    codes = {issue.code for issue in report.issues}
+    assert "authoritative_resume_state_writer_design_wrong_tool" in codes
+    assert "authoritative_resume_state_writer_design_must_be_offline_no_write" in codes
+    assert "authoritative_resume_state_writer_design_must_not_write_identity" in codes
+    assert "authoritative_resume_state_writer_design_must_be_offline" in codes
+    assert "authoritative_resume_state_writer_design_missing_required_flag" in codes
+    assert "authoritative_resume_state_writer_design_forbidden_execution_flag" in codes
+
+
 def test_formal_flow_contract_blocks_diagnostic_tool_in_formal_route(tmp_path):
     plan = build_full_flow_plan(config_path=_config(tmp_path), output_dir=tmp_path / "flow", run_id="demo")
     co2_index = [step.step_id for step in plan.steps].index("co2_open_flow_sampling")

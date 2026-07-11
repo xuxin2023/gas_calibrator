@@ -350,6 +350,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline read-only COM minimal executor stub; records would-execute evidence without opening COM or using authorization context as unlock")
     elif lower == "export_v1_5_resume_prefix_application_review":
         notes.append("offline resume-prefix application review; validates the hash-bound completed prefix without writing state or executing the next stage")
+    elif lower == "export_v1_5_authoritative_resume_state_writer_design":
+        notes.append("offline authoritative resume-state writer design; defines atomic replace, compare-and-swap, snapshot, readback, and rollback requirements without writing state")
     elif lower == "run_v1_5_formal_readonly_com_minimal_executor":
         notes.append("manual-authorized minimal read-only COM executor; reads SN/GETCO/runtime/CHECK evidence only, never writes analyzer state, database, pressure, or routes")
     elif "formal_archive_closure" in lower:

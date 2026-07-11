@@ -1015,6 +1015,9 @@ def build_full_flow_plan(
     batch_initialization_closeout_dir = root / "batch_initialization_closeout_index"
     post_closeout_resume_gate_dir = root / "post_closeout_resume_gate"
     resume_prefix_application_review_dir = root / "resume_prefix_application_review"
+    authoritative_resume_state_writer_design_dir = (
+        root / "authoritative_resume_state_writer_design"
+    )
     getco_dir = root / "coefficient_epoch_0_getco_snapshot"
     getco_readiness_dir = root / "identity_getco_readiness"
     aux_neutral_dir = root / "auxiliary_senco56789_neutralization"
@@ -2148,6 +2151,50 @@ def build_full_flow_plan(
 
     steps.append(
         FullFlowStep(
+            step_id="authoritative_resume_state_writer_design",
+            title="Review the future authoritative resume-state writer contract",
+            phase="AUTHORITATIVE_RESUME_STATE_WRITER_DESIGN",
+            tool_module=(
+                "gas_calibrator.tools.export_v1_5_authoritative_resume_state_writer_design"
+            ),
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_authoritative_resume_state_writer_design",
+                "--full-flow-plan-json",
+                root / "v1_5_full_flow_plan.json",
+                "--resume-prefix-application-review-json",
+                resume_prefix_application_review_dir
+                / "v1_5_resume_prefix_application_review.json",
+                "--output-dir",
+                authoritative_resume_state_writer_design_dir,
+                "--fail-on-blocked",
+            ),
+            required_inputs=(
+                "canonical V1.5 full-flow plan",
+                "ready hash-bound resume-prefix application review",
+            ),
+            expected_outputs=(
+                "authoritative_resume_state_writer_design/v1_5_authoritative_resume_state_writer_design.json",
+                "authoritative_resume_state_writer_design/v1_5_authoritative_resume_state_writer_design_preview.csv",
+                "authoritative_resume_state_writer_design/v1_5_authoritative_resume_state_transaction_contract.csv",
+                "authoritative_resume_state_writer_design/V1_5_AUTHORITATIVE_RESUME_STATE_WRITER_DESIGN.md",
+            ),
+            physical_meaning=(
+                "Freezes the future atomic state-write, compare-and-swap, snapshot, readback, and rollback "
+                "contract after the exact post-closeout prefix has been reviewed. It does not write the "
+                "authoritative state or execute temperature, pressure, gas, or water actions."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_before_authoritative_resume_state_writer_implementation",
+            notes=(
+                "The design remains blocked-by-default and has no execute or write-state flag.",
+                "The proposed state keeps real COM, pressure, routes, coefficient writes, and database import disabled.",
+                "Mature 0613 fitting and 0620/0621 physical-route implementations remain unchanged.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
             step_id="temperature_channel_fast_review",
             title="Review SENCO7/SENCO8 temperature input evidence",
             phase="TEMPERATURE_CHANNEL_REVIEW",
@@ -3089,6 +3136,9 @@ def build_full_flow_plan(
                 post_closeout_resume_gate_dir / "v1_5_post_closeout_resume_gate.json",
                 "--resume-prefix-application-review-json",
                 resume_prefix_application_review_dir / "v1_5_resume_prefix_application_review.json",
+                "--authoritative-resume-state-writer-design-json",
+                authoritative_resume_state_writer_design_dir
+                / "v1_5_authoritative_resume_state_writer_design.json",
                 "--getco-readiness-json",
                 getco_readiness_dir / "v1_5_getco_identity_readiness.json",
                 "--run-evidence-status-json",

@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 
 from gas_calibrator.tools.export_v1_5_formal_run_status import main as export_status_main
+from gas_calibrator.validation.v1_5_authoritative_resume_state_writer_design import (
+    write_v1_5_authoritative_resume_state_writer_design,
+)
 from gas_calibrator.validation.v1_5_formal_run_status import (
     build_v1_5_formal_run_status,
     render_v1_5_formal_run_status_markdown,
@@ -195,8 +198,61 @@ def _seed_post_closeout_resume_gate(root: Path, *, ready: bool = True) -> Path:
             "steps": [
                 {"step_id": "batch_initialization_closeout_index"},
                 {"step_id": "post_closeout_resume_gate_snapshot"},
-                {"step_id": "post_closeout_resume_prefix_application_review"},
+                {
+                    "step_id": "post_closeout_resume_prefix_application_review",
+                    "tool_module": (
+                        "gas_calibrator.tools."
+                        "export_v1_5_resume_prefix_application_review"
+                    ),
+                    "command": [
+                        "python",
+                        "-m",
+                        "gas_calibrator.tools.export_v1_5_resume_prefix_application_review",
+                        "--full-flow-plan-json",
+                        str((root / "v1_5_full_flow_plan.json").resolve()),
+                        "--post-closeout-resume-gate-json",
+                        str(
+                            (
+                                root
+                                / "post_closeout_resume_gate"
+                                / "v1_5_post_closeout_resume_gate.json"
+                            ).resolve()
+                        ),
+                        "--output-dir",
+                        str((root / "resume_prefix_application_review").resolve()),
+                        "--fail-on-blocked",
+                    ],
+                    "execution_mode": "offline_sidecar",
+                },
+                {
+                    "step_id": "authoritative_resume_state_writer_design",
+                    "tool_module": (
+                        "gas_calibrator.tools."
+                        "export_v1_5_authoritative_resume_state_writer_design"
+                    ),
+                    "command": [
+                        "python",
+                        "-m",
+                        "gas_calibrator.tools.export_v1_5_authoritative_resume_state_writer_design",
+                        "--full-flow-plan-json",
+                        str((root / "v1_5_full_flow_plan.json").resolve()),
+                        "--resume-prefix-application-review-json",
+                        str(
+                            (
+                                root
+                                / "resume_prefix_application_review"
+                                / "v1_5_resume_prefix_application_review.json"
+                            ).resolve()
+                        ),
+                        "--output-dir",
+                        str((root / "authoritative_resume_state_writer_design").resolve()),
+                        "--fail-on-blocked",
+                    ],
+                    "execution_mode": "offline_sidecar",
+                },
                 {"step_id": "temperature_channel_fast_review"},
+                {"step_id": "co2_open_flow_sampling"},
+                {"step_id": "h2o_open_flow_sampling"},
             ],
         },
     )
@@ -249,7 +305,14 @@ def _seed_post_closeout_resume_gate(root: Path, *, ready: bool = True) -> Path:
             "not_real_acceptance_evidence": True,
         },
     )
-    _seed_resume_prefix_application_review(root, resume_path=resume_path, ready=ready)
+    application_path = _seed_resume_prefix_application_review(
+        root, resume_path=resume_path, ready=ready
+    )
+    write_v1_5_authoritative_resume_state_writer_design(
+        output_dir=root / "authoritative_resume_state_writer_design",
+        full_flow_plan_json=plan_path,
+        resume_prefix_application_review_json=application_path,
+    )
     return resume_path
 
 
@@ -268,7 +331,16 @@ def _seed_resume_prefix_application_review(
             "overall_status": "ready_for_resume_prefix_state_application_review" if ready else "blocked",
             "resume_prefix_application_review_ready": ready,
             "resume_prefix_consumed_for_review": ready,
-            "state_preview_current_step_id": "temperature_channel_fast_review" if ready else "",
+            "state_preview_current_step_id": (
+                "authoritative_resume_state_writer_design" if ready else ""
+            ),
+            "state_preview_current_status": (
+                "ready_for_offline_review" if ready else "blocked"
+            ),
+            "downstream_route_step_ids": [
+                "co2_open_flow_sampling",
+                "h2o_open_flow_sampling",
+            ],
             "run_id": "status-test",
             "reviewed_resume_completed_step_ids": (
                 ["batch_initialization_closeout_index", "post_closeout_resume_gate_snapshot"]
@@ -1381,6 +1453,48 @@ def test_formal_run_status_accepts_ready_batch_initialization_closeout(tmp_path:
     assert model["linked_inputs"]["resume_prefix_application_review_json"].endswith(
         "v1_5_resume_prefix_application_review.json"
     )
+    writer_design_gate = next(
+        row for row in model["gates"] if row["gate_id"] == "authoritative_resume_state_writer_design"
+    )
+    assert writer_design_gate["status"] == "ready"
+    assert writer_design_gate["blocks_physical_flow"] is False
+    assert model["linked_inputs"]["authoritative_resume_state_writer_design_json"].endswith(
+        "v1_5_authoritative_resume_state_writer_design.json"
+    )
+
+
+def test_formal_run_status_recomputes_authoritative_writer_design(tmp_path: Path) -> None:
+    run_dir = tmp_path / "ready_run_with_forged_writer_design"
+    _seed_ready_run(run_dir)
+    closeout_path = _seed_batch_initialization_closeout(run_dir, ready=True)
+    resume_path = _seed_post_closeout_resume_gate(run_dir, ready=True)
+    design_path = (
+        run_dir
+        / "authoritative_resume_state_writer_design"
+        / "v1_5_authoritative_resume_state_writer_design.json"
+    )
+    design = json.loads(design_path.read_text(encoding="utf-8"))
+    design["proposed_completed_step_ids"].insert(-1, "database_import")
+    design["proposed_completed_step_cli_arguments"].extend(
+        ["--completed-step", "database_import"]
+    )
+    _write_json(design_path, design)
+
+    model = build_v1_5_formal_run_status(
+        run_dir=run_dir,
+        batch_initialization_closeout_json=closeout_path,
+        post_closeout_resume_gate_json=resume_path,
+        authoritative_resume_state_writer_design_json=design_path,
+    )
+    gate = next(
+        row for row in model["gates"] if row["gate_id"] == "authoritative_resume_state_writer_design"
+    )
+
+    assert gate["status"] == "blocked"
+    assert "independently recomputed" in gate["reason"]
+    assert gate["blocks_physical_flow"] is True
+    assert model["can_continue_physical_flow"] is False
+    assert model["formal_release_allowed"] is False
 
 
 def test_formal_run_status_blocks_stale_resume_prefix_application_review(tmp_path: Path) -> None:

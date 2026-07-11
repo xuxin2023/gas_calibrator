@@ -6,7 +6,7 @@ Date: 2026-07-11
 
 This package adds the offline `post_closeout_resume_prefix_application_review` stage after the hash-bound post-closeout resume gate and before temperature review.
 
-It consumes the resume-gate artifact for validation only. It does not write the authoritative full-flow state and does not execute the next stage.
+It consumes the resume-gate artifact for validation only. It does not write the authoritative full-flow state. Its next offline stage is the authoritative resume-state writer design review; it does not execute temperature review or any physical stage.
 
 ## Required Bindings
 
@@ -55,4 +55,4 @@ The 0613 fitting baseline and 0620/0621 mature CO2/H2O physical-route implementa
 
 ## Next Boundary
 
-A later, separately reviewed package may write an authoritative resumable state from this review. That later package must still keep route execution behind explicit authorization and must not infer completion from arbitrary user-supplied `--completed-step` values.
+A later, separately reviewed package may write an authoritative resumable state from this review. The writer design review must come first and must freeze compare-and-swap, atomic replacement, snapshot, readback, and rollback requirements. Any later implementation must still keep route execution behind explicit authorization and must not infer completion from arbitrary user-supplied `--completed-step` values.

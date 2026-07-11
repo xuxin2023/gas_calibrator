@@ -1060,6 +1060,38 @@ def test_full_flow_plan_binds_final_batch_closeout_before_mature_open_flow(tmp_p
         in application_review.expected_outputs
     )
 
+    writer_design = next(
+        item for item in plan.steps if item.step_id == "authoritative_resume_state_writer_design"
+    )
+    writer_command = list(writer_design.command)
+    assert writer_design.tool_module == (
+        "gas_calibrator.tools.export_v1_5_authoritative_resume_state_writer_design"
+    )
+    assert writer_design.execution_mode == "offline_sidecar"
+    assert writer_design.gate == "required_before_authoritative_resume_state_writer_implementation"
+    assert writer_design.opens_com_ports is False
+    assert writer_design.controls_pressure is False
+    assert writer_design.controls_gas_route is False
+    assert writer_design.controls_water_route is False
+    assert writer_design.writes_device_id is False
+    assert writer_design.writes_coefficients is False
+    assert _flag_value(writer_command, "--full-flow-plan-json") == str(
+        (tmp_path / "plan" / "v1_5_full_flow_plan.json").resolve()
+    )
+    assert _flag_value(writer_command, "--resume-prefix-application-review-json") == str(
+        (
+            tmp_path
+            / "plan"
+            / "resume_prefix_application_review"
+            / "v1_5_resume_prefix_application_review.json"
+        ).resolve()
+    )
+    assert "--fail-on-blocked" in writer_command
+    assert (
+        "authoritative_resume_state_writer_design/v1_5_authoritative_resume_state_writer_design.json"
+        in writer_design.expected_outputs
+    )
+
 
 def test_full_flow_plan_adds_no_write_post_run_coefficient_executor(tmp_path):
     config = tmp_path / "config.json"
@@ -1725,6 +1757,7 @@ def test_route_stage_remains_blocked_without_route_authorization(tmp_path):
             "batch_initialization_closeout_index",
             "post_closeout_resume_gate_snapshot",
             "post_closeout_resume_prefix_application_review",
+            "authoritative_resume_state_writer_design",
             "temperature_channel_fast_review",
         ],
         allow_real_com=True,
