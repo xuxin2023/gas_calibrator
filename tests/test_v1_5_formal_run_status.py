@@ -102,6 +102,11 @@ def _seed_ready_run(
                 "ready_for_archive_release": True,
                 "traceability_review_required": False,
             },
+            "senco_authorization_write_traceability": {
+                "overall_status": "not_applicable_no_main_senco_write_evidence",
+                "ready_for_archive_release": True,
+                "write_evidence_present": False,
+            },
         },
     )
     if include_mature_route_continuity_gate:

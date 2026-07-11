@@ -35,6 +35,10 @@ from .v1_5_formal_run_status import (
     build_v1_5_formal_run_status,
     write_v1_5_formal_run_status_outputs,
 )
+from .v1_5_senco_authorization_archive_binding import (
+    build_v1_5_senco_authorization_archive_binding,
+    write_v1_5_senco_authorization_archive_binding_outputs,
+)
 
 
 SCHEMA = "v1_5_formal_archive_closure_v1"
@@ -136,6 +140,26 @@ def _artifact_records(paths: Mapping[str, Path]) -> list[Dict[str, Any]]:
         if Path(path).exists():
             rows.append(_artifact_record(role, path))
     return rows
+
+
+def _senco_binding_source_paths(binding: Mapping[str, Any]) -> Dict[str, Path]:
+    paths: Dict[str, Path] = {}
+    for role, key in (
+        ("senco_artifact_authorization", "authorization_path"),
+        ("senco_artifact_hash_manifest", "manifest_path"),
+    ):
+        value = str(binding.get(key) or "").strip()
+        if value and Path(value).is_file():
+            paths[role] = Path(value).resolve()
+    for index, row in enumerate(binding.get("writer_evidence") or [], start=1):
+        if not isinstance(row, Mapping):
+            continue
+        scope = str(row.get("writer_scope") or "writer").replace("-", "_")
+        for suffix, key in (("metadata", "metadata_path"), ("readback_rows", "write_rows_path")):
+            value = str(row.get(key) or "").strip()
+            if value and Path(value).is_file():
+                paths[f"senco_write_{index:03d}_{scope}_{suffix}"] = Path(value).resolve()
+    return paths
 
 
 def _load_reviewed_standard_gases(path: str | Path) -> list[Dict[str, Any]]:
@@ -364,6 +388,7 @@ def build_v1_5_formal_archive_closure(
     capability_candidate_csvs: Sequence[str | Path] = (),
     co2_limit_pct: float = 1.5,
     h2o_limit_pct: float = 2.0,
+    senco_artifact_authorization_json: str | Path | None = None,
 ) -> Dict[str, Any]:
     """Run the offline report/database/archive closure for one V1.5 run."""
 
@@ -460,10 +485,23 @@ def build_v1_5_formal_archive_closure(
     summary = bundle_summary(final_bundle)
     traceability = bundle_traceability_summary(final_bundle)
     identity_getco_traceability = _identity_getco_traceability_summary(root, closure_dir=closure_dir)
+    senco_authorization_binding = build_v1_5_senco_authorization_archive_binding(
+        run_dir=root,
+        authorization_json=senco_artifact_authorization_json,
+        exclude_dirs=tuple(_archive_dirs_to_exclude(root, keep=closure_dir)) + (closure_dir,),
+    )
+    senco_binding_paths = write_v1_5_senco_authorization_archive_binding_outputs(
+        senco_authorization_binding,
+        closure_dir / "senco_authorization_write_traceability",
+    )
     traceability_checks = dict(traceability.get("traceability_checks") or {})
     traceability_checks["identity_getco_sn_device_code_traceability_ready"] = bool(
         identity_getco_traceability.get("ready_for_archive_release")
     )
+    traceability_checks["senco_authorization_write_traceability_ready"] = bool(
+        senco_authorization_binding.get("ready_for_archive_release")
+    )
+    traceability["traceability_checks"] = traceability_checks
     traceability_json = _write_json(closure_dir / "traceability_summary.json", traceability)
 
     db_mode_normalized = normalize_archive_db_mode(db_mode)
@@ -481,6 +519,11 @@ def build_v1_5_formal_archive_closure(
             raise ValueError(
                 "db_mode=import requires identity GETCO SN/device_code traceability to be ready; "
                 f"status={identity_getco_traceability.get('status')}"
+            )
+        if senco_authorization_binding.get("ready_for_archive_release") is not True:
+            raise ValueError(
+                "db_mode=import requires controlled SENCO write authorization/readback traceability to be ready; "
+                f"status={senco_authorization_binding.get('overall_status')}"
             )
         resolved_dsn = dsn or os.environ.get("GAS_CAL_DB_DSN", "")
         if not resolved_dsn:
@@ -505,7 +548,11 @@ def build_v1_5_formal_archive_closure(
         "run_evidence_status_markdown": run_status_md,
         "calibration_capability_json": capability_json,
         "calibration_capability_markdown": capability_md,
+        "senco_authorization_write_traceability_json": senco_binding_paths["json"],
+        "senco_authorization_write_traceability_csv": senco_binding_paths["csv"],
+        "senco_authorization_write_traceability_markdown": senco_binding_paths["markdown"],
     }
+    output_paths.update(_senco_binding_source_paths(senco_authorization_binding))
     identity_getco_path = identity_getco_traceability.get("evidence_path")
     if identity_getco_path:
         output_paths["identity_getco_readiness"] = Path(str(identity_getco_path)).resolve()
@@ -536,6 +583,7 @@ def build_v1_5_formal_archive_closure(
         },
         "database": database,
         "identity_getco_traceability": identity_getco_traceability,
+        "senco_authorization_write_traceability": senco_authorization_binding,
         "calibration_capability": {
             "json_path": str(capability_json),
             "markdown_path": str(capability_md),
@@ -555,6 +603,11 @@ def build_v1_5_formal_archive_closure(
         run_dir=root,
         run_evidence_status_json=run_status_json,
         archive_closure_json=index_json,
+        senco_artifact_authorization_json=(
+            str(senco_artifact_authorization_json)
+            if senco_artifact_authorization_json
+            else str(senco_authorization_binding.get("authorization_path") or "") or None
+        ),
     )
     formal_status_raw_paths = write_v1_5_formal_run_status_outputs(
         formal_status_model,
@@ -587,6 +640,10 @@ def build_v1_5_formal_archive_closure(
     traceability_checks["identity_getco_sn_device_code_traceability_ready"] = bool(
         identity_getco_traceability.get("ready_for_archive_release")
     )
+    traceability_checks["senco_authorization_write_traceability_ready"] = bool(
+        senco_authorization_binding.get("ready_for_archive_release")
+    )
+    traceability["traceability_checks"] = traceability_checks
     traceability_json = _write_json(closure_dir / "traceability_summary.json", traceability)
     output_paths["evidence_bundle"] = final_bundle_json
     output_paths["traceability_summary"] = traceability_json
@@ -620,6 +677,10 @@ def build_v1_5_formal_archive_closure(
     traceability_checks["identity_getco_sn_device_code_traceability_ready"] = bool(
         identity_getco_traceability.get("ready_for_archive_release")
     )
+    traceability_checks["senco_authorization_write_traceability_ready"] = bool(
+        senco_authorization_binding.get("ready_for_archive_release")
+    )
+    traceability["traceability_checks"] = traceability_checks
     traceability_json = _write_json(closure_dir / "traceability_summary.json", traceability)
     output_paths["evidence_bundle"] = final_bundle_json
     output_paths["traceability_summary"] = traceability_json

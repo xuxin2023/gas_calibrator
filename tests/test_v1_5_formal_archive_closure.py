@@ -1,3 +1,4 @@
+import csv
 import json
 
 import pytest
@@ -5,6 +6,9 @@ import pytest
 from gas_calibrator.tools.run_v1_5_formal_archive_closure import main as closure_main
 from gas_calibrator.validation.v1_5_canonical_evidence import write_canonical_v1_5_evidence_package
 from gas_calibrator.validation.v1_5_formal_archive_closure import build_v1_5_formal_archive_closure
+from gas_calibrator.validation.v1_5_senco_artifact_authorization import (
+    write_senco_artifact_authorization,
+)
 
 
 def _write_contract(path):
@@ -43,6 +47,51 @@ def _write_identity_getco_readiness(run_dir, *, review_required=False):
     }
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
+
+
+def _write_s13_controlled_write_evidence(run_dir, *, authorization_id="AUTH-MISSING"):
+    output = run_dir / "controlled_write" / "s13"
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "co2_senco13_pair_write_meta.json").write_text(
+        json.dumps(
+            {
+                "config_summary": {
+                    "reviewer": "reviewer-a",
+                    "approver": "approver-b",
+                    "artifact_hash_status": "pass",
+                    "artifact_authorization_status": "pass",
+                    "artifact_authorization_id": authorization_id,
+                }
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    with (output / "co2_senco13_pair_write_summary.csv").open(
+        "w", encoding="utf-8-sig", newline=""
+    ) as handle:
+        writer = csv.DictWriter(handle, fieldnames=["analyzer_device_id", "status"])
+        writer.writeheader()
+        writer.writerow({"analyzer_device_id": "001", "status": "written_readback_verified"})
+
+
+def _write_s13_authorization(run_dir, *, authorization_id="AUTH-ARCHIVE-001"):
+    precheck = run_dir / "main_senco_write_precheck"
+    precheck.mkdir(parents=True, exist_ok=True)
+    manifest = precheck / "main_senco_artifact_hash_manifest.json"
+    manifest.write_text(json.dumps({"files": []}, ensure_ascii=False), encoding="utf-8")
+    authorization = precheck / "main_senco_artifact_authorization.json"
+    write_senco_artifact_authorization(
+        authorization,
+        manifest_path=manifest,
+        reviewer="reviewer-a",
+        approver="approver-b",
+        authorization_id=authorization_id,
+        authorized_writer_scopes=["co2_senco13_pair"],
+        authorized_device_ids=["001"],
+    )
+    return authorization, manifest
 
 
 def _reviewed_standard_gases():
@@ -113,8 +162,13 @@ def test_formal_archive_closure_generates_reports_bundle_traceability_and_dry_ru
     assert index["traceability_checks"]["has_formal_run_status"] is True
     assert index["traceability_checks"]["has_water_route_traceability"] is True
     assert index["traceability_checks"]["identity_getco_sn_device_code_traceability_ready"] is True
+    assert index["traceability_checks"]["senco_authorization_write_traceability_ready"] is True
     assert index["identity_getco_traceability"]["status"] == "ready"
     assert index["identity_getco_traceability"]["evidence_path"] == str(identity_getco_path.resolve())
+    assert (
+        index["senco_authorization_write_traceability"]["overall_status"]
+        == "not_applicable_no_main_senco_write_evidence"
+    )
     assert index["formal_run_status"]["overall_status"] in {"in_progress", "review_required", "formal_release_ready"}
     assert isinstance(index["formal_run_status"]["can_continue_physical_flow"], bool)
     assert index["formal_run_status"]["formal_release_allowed"] is False
@@ -152,6 +206,9 @@ def test_formal_archive_closure_generates_reports_bundle_traceability_and_dry_ru
     assert paths["formal_run_status_markdown"].exists()
     assert paths["formal_run_status_gates"].exists()
     assert paths["formal_run_status_gaps"].exists()
+    assert paths["senco_authorization_write_traceability_json"].exists()
+    assert paths["senco_authorization_write_traceability_csv"].exists()
+    assert paths["senco_authorization_write_traceability_markdown"].exists()
     capability = json.loads(paths["calibration_capability_json"].read_text(encoding="utf-8"))
     assert capability["physical_boundaries"]["opens_com_ports"] is False
     index_text = paths["archive_index_markdown"].read_text(encoding="utf-8")
@@ -163,6 +220,102 @@ def test_formal_archive_closure_generates_reports_bundle_traceability_and_dry_ru
     assert "允许正式放行：否" in formal_report_text
     assert "控制气路/水路" not in index_text
     assert "controls_water_or_gas_routes" in index_text
+
+
+def test_formal_archive_closure_blocks_release_when_write_evidence_lacks_authorization(tmp_path):
+    canonical = write_canonical_v1_5_evidence_package(
+        tmp_path / "canonical_senco_binding_blocked",
+        include_reports=False,
+    )
+    run_dir = canonical["root"] / "run"
+    contract_path = _write_contract(run_dir / "v1_5_formal_flow_contract.json")
+    _write_identity_getco_readiness(run_dir)
+    _write_s13_controlled_write_evidence(run_dir)
+
+    result = build_v1_5_formal_archive_closure(
+        run_dir=run_dir,
+        plan_json=canonical["plan"],
+        pressure_reference_json=canonical["pressure_reference"],
+        contract_json=contract_path,
+        output_dir=run_dir / "formal_archive_closure_senco_binding_blocked",
+        today="2026-05-24",
+        report_no="RPT-CLOSURE-SENCO-BLOCKED",
+        db_mode="dry_run",
+    )
+
+    index = result["index"]
+    binding = index["senco_authorization_write_traceability"]
+    assert binding["overall_status"] == "blocked"
+    assert binding["ready_for_archive_release"] is False
+    assert index["traceability_checks"]["senco_authorization_write_traceability_ready"] is False
+    formal_status = json.loads(result["paths"]["formal_run_status_json"].read_text(encoding="utf-8"))
+    archive_gate = next(
+        gate for gate in formal_status["gates"] if gate["gate_id"] == "formal_archive_database_release"
+    )
+    assert archive_gate["status"] == "blocked"
+    assert formal_status["formal_release_allowed"] is False
+    assert formal_status["database_import_allowed"] is False
+
+
+def test_formal_archive_closure_indexes_authorization_manifest_and_write_readback_sources(tmp_path):
+    canonical = write_canonical_v1_5_evidence_package(
+        tmp_path / "canonical_senco_binding_ready",
+        include_reports=False,
+    )
+    run_dir = canonical["root"] / "run"
+    contract_path = _write_contract(run_dir / "v1_5_formal_flow_contract.json")
+    _write_identity_getco_readiness(run_dir)
+    authorization, manifest = _write_s13_authorization(run_dir)
+    _write_s13_controlled_write_evidence(run_dir, authorization_id="AUTH-ARCHIVE-001")
+
+    result = build_v1_5_formal_archive_closure(
+        run_dir=run_dir,
+        plan_json=canonical["plan"],
+        pressure_reference_json=canonical["pressure_reference"],
+        contract_json=contract_path,
+        output_dir=run_dir / "formal_archive_closure_senco_binding_ready",
+        senco_artifact_authorization_json=authorization,
+        today="2026-05-24",
+        report_no="RPT-CLOSURE-SENCO-READY",
+        db_mode="dry_run",
+    )
+
+    index = result["index"]
+    binding = index["senco_authorization_write_traceability"]
+    assert binding["overall_status"] == "ready_for_archive_release"
+    assert binding["authorization_path"] == str(authorization.resolve())
+    assert binding["manifest_path"] == str(manifest.resolve())
+    assert len(binding["authorization_sha256"]) == 64
+    assert len(binding["manifest_sha256"]) == 64
+    artifact_roles = {row["role"] for row in index["artifacts"]}
+    assert "senco_artifact_authorization" in artifact_roles
+    assert "senco_artifact_hash_manifest" in artifact_roles
+    assert "senco_write_001_co2_senco13_pair_metadata" in artifact_roles
+    assert "senco_write_001_co2_senco13_pair_readback_rows" in artifact_roles
+
+
+def test_formal_archive_closure_refuses_database_import_when_senco_binding_is_blocked(tmp_path):
+    canonical = write_canonical_v1_5_evidence_package(
+        tmp_path / "canonical_senco_binding_import_blocked",
+        include_reports=False,
+    )
+    run_dir = canonical["root"] / "run"
+    contract_path = _write_contract(run_dir / "v1_5_formal_flow_contract.json")
+    _write_identity_getco_readiness(run_dir)
+    _write_s13_controlled_write_evidence(run_dir)
+
+    with pytest.raises(ValueError, match="authorization/readback traceability"):
+        build_v1_5_formal_archive_closure(
+            run_dir=run_dir,
+            plan_json=canonical["plan"],
+            pressure_reference_json=canonical["pressure_reference"],
+            contract_json=contract_path,
+            output_dir=run_dir / "formal_archive_closure_senco_import_blocked",
+            today="2026-05-24",
+            report_no="RPT-CLOSURE-SENCO-IMPORT-BLOCKED",
+            db_mode="import",
+            dsn="postgresql://user:password@localhost:5432/gas_calibrator",
+        )
 
 
 def test_formal_archive_closure_marks_sn_traceability_review_before_release(tmp_path):

@@ -1259,6 +1259,12 @@ def _archive_gate(
     if isinstance(traceability, Mapping):
         traceability_ready = bool(traceability.get("ready_for_archive_release"))
         traceability_review = bool(traceability.get("traceability_review_required"))
+    senco_binding = archive.get("senco_authorization_write_traceability")
+    senco_binding_ready = False
+    senco_binding_status = "missing"
+    if isinstance(senco_binding, Mapping):
+        senco_binding_ready = bool(senco_binding.get("ready_for_archive_release"))
+        senco_binding_status = str(senco_binding.get("overall_status") or "missing")
 
     if not closure and not archive:
         status = MISSING
@@ -1266,15 +1272,29 @@ def _archive_gate(
     elif "blocked" in closure_status or "blocked" in archive_status:
         status = BLOCKED
         reason = f"closure_status={closure_status or 'missing'} archive_status={archive_status or 'missing'}"
+    elif senco_binding_status == "blocked":
+        status = BLOCKED
+        reason = "controlled SENCO write authorization/readback archive binding is blocked"
     elif closure_status == "ready_for_formal_release" and not archive:
         status = MISSING
         reason = "closure is ready, but formal archive closure index is missing"
-    elif closure_status == "ready_for_formal_release" and traceability_ready and not traceability_review:
+    elif (
+        closure_status == "ready_for_formal_release"
+        and traceability_ready
+        and not traceability_review
+        and senco_binding_ready
+    ):
         status = READY
-        reason = "closure release and archive traceability gates are ready"
+        reason = "closure release, identity traceability, and SENCO authorization/write binding gates are ready"
     elif closure_status == "ready_for_formal_release" and traceability_review:
         status = REVIEW_REQUIRED
         reason = "closure is ready, but archive SN/GETCO traceability still requires review"
+    elif closure_status == "ready_for_formal_release" and not senco_binding_ready:
+        status = REVIEW_REQUIRED
+        reason = (
+            "closure is ready, but controlled SENCO write authorization/readback archive binding "
+            f"is {senco_binding_status}"
+        )
     else:
         status = REVIEW_REQUIRED
         gap = _first_gap(closure) or _first_gap(archive)
