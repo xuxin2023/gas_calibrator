@@ -429,6 +429,97 @@ def _post_closeout_resume_gate(
     )
 
 
+def _resume_prefix_application_review_gate(
+    path: Path | None,
+    payload: Mapping[str, Any],
+    expected_resume_gate_path: Path | None,
+) -> FormalRunGate:
+    source_status = _source_status(payload)
+    boundary_ok = (
+        payload.get("does_not_execute_commands") is True
+        and payload.get("applies_completed_steps") is False
+        and payload.get("writes_authoritative_state") is False
+        and payload.get("would_execute") is False
+        and payload.get("live_resume_execution_allowed") is False
+        and payload.get("route_authorization_still_required") is True
+        and payload.get("opens_com_ports") is False
+        and payload.get("controls_pressure") is False
+        and payload.get("controls_water_or_gas_routes") is False
+        and payload.get("connects_postgresql") is False
+        and payload.get("writes_sn") is False
+        and payload.get("writes_device_id") is False
+        and payload.get("writes_coefficients") is False
+        and payload.get("database_written") is False
+        and payload.get("formal_release_allowed") is False
+        and payload.get("database_import_allowed") is False
+        and payload.get("not_real_acceptance_evidence") is True
+    )
+    plan_hash_ok = bool(payload.get("full_flow_plan_sha256")) and _artifact_sha256(
+        payload.get("full_flow_plan_json")
+    ) == str(payload.get("full_flow_plan_sha256") or "")
+    resume_gate_hash_ok = bool(payload.get("post_closeout_resume_gate_sha256")) and _artifact_sha256(
+        payload.get("post_closeout_resume_gate_json")
+    ) == str(payload.get("post_closeout_resume_gate_sha256") or "")
+    try:
+        resume_gate_path_bound = expected_resume_gate_path is not None and Path(
+            str(payload.get("post_closeout_resume_gate_json") or "")
+        ).resolve() == expected_resume_gate_path.resolve()
+    except (OSError, RuntimeError):
+        resume_gate_path_bound = False
+    reviewed = [str(item) for item in payload.get("reviewed_completed_step_ids_after_application") or []]
+    ready = (
+        source_status == "ready_for_resume_prefix_state_application_review"
+        and payload.get("resume_prefix_application_review_ready") is True
+        and payload.get("resume_prefix_consumed_for_review") is True
+        and payload.get("state_preview_current_step_id") == "temperature_channel_fast_review"
+        and "post_closeout_resume_gate_snapshot" in reviewed
+        and "post_closeout_resume_prefix_application_review" in reviewed
+        and plan_hash_ok
+        and resume_gate_hash_ok
+        and resume_gate_path_bound
+    )
+    if not payload:
+        status = MISSING
+        reason = "resume-prefix application review missing"
+    elif not boundary_ok:
+        status = BLOCKED
+        reason = "resume-prefix application review boundary is not clean"
+    elif ready:
+        status = READY
+        reason = "resume prefix is hash-bound and ready for a later authoritative state-application step"
+    elif not plan_hash_ok or not resume_gate_hash_ok or not resume_gate_path_bound:
+        status = BLOCKED
+        reason = "resume-prefix application source hash or resume-gate path missing or mismatched"
+    elif "blocked" in source_status:
+        status = BLOCKED
+        reason = f"source_status={source_status}"
+    else:
+        status = REVIEW_REQUIRED
+        review_reasons = payload.get("review_reasons")
+        reason = (
+            "; ".join(str(item) for item in review_reasons[:3])
+            if isinstance(review_reasons, list) and review_reasons
+            else f"source_status={source_status or 'unknown'}"
+        )
+    return _gate(
+        gate_id="resume_prefix_application_review",
+        title="Resume-prefix state-application review",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action=(
+            "Regenerate the application review from the exact current plan and resume gate. "
+            "A separate package is still required before authoritative state is written."
+        ),
+        physical_meaning=(
+            "Consumes the evidence-bound completed-step prefix for validation and previews temperature review "
+            "as the next stage without changing state or executing pressure, gas, or water actions."
+        ),
+        blocks_physical_flow=status in {MISSING, REVIEW_REQUIRED, BLOCKED},
+    )
+
+
 def _pressure_s9_readiness_index_gate(path: Path | None, payload: Mapping[str, Any]) -> FormalRunGate:
     source_status = _source_status(payload)
     boundary_ok = (
@@ -2155,6 +2246,7 @@ def build_v1_5_formal_run_status(
     pre_gas_readiness_json: str | Path | None = None,
     batch_initialization_closeout_json: str | Path | None = None,
     post_closeout_resume_gate_json: str | Path | None = None,
+    resume_prefix_application_review_json: str | Path | None = None,
     getco_readiness_json: str | Path | None = None,
     run_evidence_status_json: str | Path | None = None,
     full_flow_closure_readiness_json: str | Path | None = None,
@@ -2259,6 +2351,11 @@ def build_v1_5_formal_run_status(
         post_closeout_resume_gate_json,
         "v1_5_post_closeout_resume_gate.json",
     )
+    resume_prefix_application_review_path = _explicit_or_latest(
+        root,
+        resume_prefix_application_review_json,
+        "v1_5_resume_prefix_application_review.json",
+    )
     getco_path = _explicit_or_latest(root, getco_readiness_json, "v1_5_getco_identity_readiness.json")
     run_status_path = _explicit_or_latest(root, run_evidence_status_json, "v1_5_run_evidence_status.json")
     closure_path = _explicit_or_latest(root, full_flow_closure_readiness_json, "v1_5_full_flow_closure_readiness.json")
@@ -2350,6 +2447,7 @@ def build_v1_5_formal_run_status(
     pre_gas_payload = _load_json(pre_gas_path)
     batch_initialization_closeout_payload = _load_json(batch_initialization_closeout_path)
     post_closeout_resume_gate_payload = _load_json(post_closeout_resume_gate_path)
+    resume_prefix_application_review_payload = _load_json(resume_prefix_application_review_path)
     getco_payload = _load_json(getco_path)
     run_payload = _load_json(run_status_path)
     closure_payload = _load_json(closure_path)
@@ -2521,6 +2619,14 @@ def build_v1_5_formal_run_status(
                 post_closeout_resume_gate_path,
                 post_closeout_resume_gate_payload,
                 batch_initialization_closeout_path,
+            )
+        )
+    if resume_prefix_application_review_path or post_closeout_resume_gate_path:
+        gates.append(
+            _resume_prefix_application_review_gate(
+                resume_prefix_application_review_path,
+                resume_prefix_application_review_payload,
+                post_closeout_resume_gate_path,
             )
         )
     if pressure_s9_readiness_index_path:
@@ -2817,6 +2923,9 @@ def build_v1_5_formal_run_status(
             else "",
             "post_closeout_resume_gate_json": str(post_closeout_resume_gate_path)
             if post_closeout_resume_gate_path
+            else "",
+            "resume_prefix_application_review_json": str(resume_prefix_application_review_path)
+            if resume_prefix_application_review_path
             else "",
             "getco_readiness_json": str(getco_path) if getco_path else "",
             "run_evidence_status_json": str(run_status_path) if run_status_path else "",

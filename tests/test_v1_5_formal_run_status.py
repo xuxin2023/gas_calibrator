@@ -192,7 +192,7 @@ def _seed_post_closeout_resume_gate(root: Path, *, ready: bool = True) -> Path:
     batch_path = root / "batch_initialization_closeout_index" / "v1_5_batch_initialization_closeout_index.json"
     if not batch_path.exists():
         _seed_batch_initialization_closeout(root, ready=ready)
-    return _write_json(
+    resume_path = _write_json(
         root / "post_closeout_resume_gate" / "v1_5_post_closeout_resume_gate.json",
         {
             "schema": "v1_5_post_closeout_resume_gate_v1",
@@ -212,6 +212,59 @@ def _seed_post_closeout_resume_gate(root: Path, *, ready: bool = True) -> Path:
             "batch_initialization_closeout_sha256": hashlib.sha256(batch_path.read_bytes()).hexdigest(),
             "does_not_execute_commands": True,
             "applies_completed_steps": False,
+            "live_resume_execution_allowed": False,
+            "route_authorization_still_required": True,
+            "opens_com_ports": False,
+            "controls_pressure": False,
+            "controls_water_or_gas_routes": False,
+            "connects_postgresql": False,
+            "writes_sn": False,
+            "writes_device_id": False,
+            "writes_coefficients": False,
+            "database_written": False,
+            "formal_release_allowed": False,
+            "database_import_allowed": False,
+            "not_real_acceptance_evidence": True,
+        },
+    )
+    _seed_resume_prefix_application_review(root, resume_path=resume_path, ready=ready)
+    return resume_path
+
+
+def _seed_resume_prefix_application_review(
+    root: Path,
+    *,
+    resume_path: Path,
+    ready: bool = True,
+) -> Path:
+    resume = json.loads(resume_path.read_text(encoding="utf-8"))
+    plan_path = Path(resume["full_flow_plan_json"])
+    return _write_json(
+        root / "resume_prefix_application_review" / "v1_5_resume_prefix_application_review.json",
+        {
+            "schema": "v1_5_resume_prefix_application_review_v1",
+            "overall_status": "ready_for_resume_prefix_state_application_review" if ready else "blocked",
+            "resume_prefix_application_review_ready": ready,
+            "resume_prefix_consumed_for_review": ready,
+            "state_preview_current_step_id": "temperature_channel_fast_review" if ready else "",
+            "reviewed_completed_step_ids_after_application": (
+                [
+                    "batch_initialization_closeout_index",
+                    "post_closeout_resume_gate_snapshot",
+                    "post_closeout_resume_prefix_application_review",
+                ]
+                if ready
+                else []
+            ),
+            "review_reasons": [] if ready else ["resume_gate_status_not_ready"],
+            "full_flow_plan_json": str(plan_path.resolve()),
+            "full_flow_plan_sha256": hashlib.sha256(plan_path.read_bytes()).hexdigest(),
+            "post_closeout_resume_gate_json": str(resume_path.resolve()),
+            "post_closeout_resume_gate_sha256": hashlib.sha256(resume_path.read_bytes()).hexdigest(),
+            "does_not_execute_commands": True,
+            "applies_completed_steps": False,
+            "writes_authoritative_state": False,
+            "would_execute": False,
             "live_resume_execution_allowed": False,
             "route_authorization_still_required": True,
             "opens_com_ports": False,
@@ -1266,6 +1319,40 @@ def test_formal_run_status_accepts_ready_batch_initialization_closeout(tmp_path:
     assert resume_gate["status"] == "ready"
     assert resume_gate["blocks_physical_flow"] is False
     assert model["linked_inputs"]["post_closeout_resume_gate_json"] == str(resume_path.resolve())
+    application_gate = next(
+        row for row in model["gates"] if row["gate_id"] == "resume_prefix_application_review"
+    )
+    assert application_gate["status"] == "ready"
+    assert application_gate["blocks_physical_flow"] is False
+    assert model["linked_inputs"]["resume_prefix_application_review_json"].endswith(
+        "v1_5_resume_prefix_application_review.json"
+    )
+
+
+def test_formal_run_status_blocks_stale_resume_prefix_application_review(tmp_path: Path) -> None:
+    run_dir = tmp_path / "ready_run_with_stale_resume_application_review"
+    _seed_ready_run(run_dir)
+    closeout_path = _seed_batch_initialization_closeout(run_dir, ready=True)
+    resume_path = _seed_post_closeout_resume_gate(run_dir, ready=True)
+    resume_payload = json.loads(resume_path.read_text(encoding="utf-8"))
+    resume_payload["review_note_after_application_review"] = "changed"
+    _write_json(resume_path, resume_payload)
+
+    model = build_v1_5_formal_run_status(
+        run_dir=run_dir,
+        batch_initialization_closeout_json=closeout_path,
+        post_closeout_resume_gate_json=resume_path,
+    )
+    gate = next(
+        row for row in model["gates"] if row["gate_id"] == "resume_prefix_application_review"
+    )
+
+    assert gate["status"] == "blocked"
+    assert "hash" in gate["reason"]
+    assert gate["blocks_physical_flow"] is True
+    assert model["current_stage"] == "resume_prefix_application_review"
+    assert model["can_continue_physical_flow"] is False
+    assert model["formal_release_allowed"] is False
 
 
 def test_formal_run_status_blocks_physical_flow_on_blocked_post_closeout_resume_gate(tmp_path: Path) -> None:

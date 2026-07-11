@@ -137,6 +137,9 @@ def test_full_flow_plan_keeps_pressure_and_temperature_before_components(tmp_pat
         "post_closeout_resume_gate_snapshot"
     )
     assert step_ids.index("post_closeout_resume_gate_snapshot") < step_ids.index(
+        "post_closeout_resume_prefix_application_review"
+    )
+    assert step_ids.index("post_closeout_resume_prefix_application_review") < step_ids.index(
         "temperature_channel_fast_review"
     )
     assert step_ids.index("post_closeout_resume_gate_snapshot") < step_ids.index("co2_open_flow_sampling")
@@ -1027,6 +1030,36 @@ def test_full_flow_plan_binds_final_batch_closeout_before_mature_open_flow(tmp_p
     assert "--fail-on-blocked" in resume_command
     assert "post_closeout_resume_gate/v1_5_post_closeout_resume_gate.json" in resume.expected_outputs
 
+    application_review = next(
+        item for item in plan.steps if item.step_id == "post_closeout_resume_prefix_application_review"
+    )
+    application_command = list(application_review.command)
+    assert application_review.tool_module == "gas_calibrator.tools.export_v1_5_resume_prefix_application_review"
+    assert application_review.execution_mode == "offline_sidecar"
+    assert application_review.gate == "required_before_authoritative_resume_state_application"
+    assert application_review.opens_com_ports is False
+    assert application_review.controls_pressure is False
+    assert application_review.controls_gas_route is False
+    assert application_review.controls_water_route is False
+    assert application_review.writes_device_id is False
+    assert application_review.writes_coefficients is False
+    assert _flag_value(application_command, "--full-flow-plan-json") == str(
+        (tmp_path / "plan" / "v1_5_full_flow_plan.json").resolve()
+    )
+    assert _flag_value(application_command, "--post-closeout-resume-gate-json") == str(
+        (
+            tmp_path
+            / "plan"
+            / "post_closeout_resume_gate"
+            / "v1_5_post_closeout_resume_gate.json"
+        ).resolve()
+    )
+    assert "--fail-on-blocked" in application_command
+    assert (
+        "resume_prefix_application_review/v1_5_resume_prefix_application_review.json"
+        in application_review.expected_outputs
+    )
+
 
 def test_full_flow_plan_adds_no_write_post_run_coefficient_executor(tmp_path):
     config = tmp_path / "config.json"
@@ -1691,6 +1724,7 @@ def test_route_stage_remains_blocked_without_route_authorization(tmp_path):
             "pressure_channel_completion_audit",
             "batch_initialization_closeout_index",
             "post_closeout_resume_gate_snapshot",
+            "post_closeout_resume_prefix_application_review",
             "temperature_channel_fast_review",
         ],
         allow_real_com=True,

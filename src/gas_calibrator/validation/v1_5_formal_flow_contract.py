@@ -43,6 +43,7 @@ REQUIRED_STEP_IDS = (
     "pressure_channel_completion_audit",
     "batch_initialization_closeout_index",
     "post_closeout_resume_gate_snapshot",
+    "post_closeout_resume_prefix_application_review",
     "temperature_channel_fast_review",
     "co2_open_flow_sampling",
     "h2o_open_flow_sampling",
@@ -93,6 +94,7 @@ REQUIRED_ORDER = (
     "pressure_channel_completion_audit",
     "batch_initialization_closeout_index",
     "post_closeout_resume_gate_snapshot",
+    "post_closeout_resume_prefix_application_review",
     "temperature_channel_fast_review",
     "co2_open_flow_sampling",
     "h2o_open_flow_sampling",
@@ -126,6 +128,21 @@ BATCH_INITIALIZATION_CLOSEOUT_MODULE = (
     "gas_calibrator.tools.export_v1_5_batch_initialization_closeout_index"
 )
 POST_CLOSEOUT_RESUME_GATE_MODULE = "gas_calibrator.tools.export_v1_5_post_closeout_resume_gate"
+RESUME_PREFIX_APPLICATION_REVIEW_MODULE = (
+    "gas_calibrator.tools.export_v1_5_resume_prefix_application_review"
+)
+RESUME_PREFIX_APPLICATION_REVIEW_FORBIDDEN_FLAGS = (
+    "--completed-step",
+    "--failed-step",
+    "--execute",
+    "--execute-offline-commands",
+    "--supervised-run-ready-offline",
+    "--allow-real-com",
+    "--allow-pressure-control",
+    "--allow-route-control",
+    "--allow-writes",
+    "--allow-database-import",
+)
 POST_WRITE_REVERIFY_MODULE = "gas_calibrator.tools.export_v1_5_post_write_reverification"
 
 FORMAL_CO2_TEMPERATURE_ORDER = "desc"
@@ -526,9 +543,32 @@ def validate_v1_5_formal_flow_contract(
     _require_before(step_ids, "pressure_senco9_no_write_review", "pressure_channel_completion_audit", issues)
     _require_before(step_ids, "pressure_channel_completion_audit", "batch_initialization_closeout_index", issues)
     _require_before(step_ids, "batch_initialization_closeout_index", "post_closeout_resume_gate_snapshot", issues)
-    _require_before(step_ids, "post_closeout_resume_gate_snapshot", "temperature_channel_fast_review", issues)
+    _require_before(
+        step_ids,
+        "post_closeout_resume_gate_snapshot",
+        "post_closeout_resume_prefix_application_review",
+        issues,
+    )
+    _require_before(
+        step_ids,
+        "post_closeout_resume_prefix_application_review",
+        "temperature_channel_fast_review",
+        issues,
+    )
     _require_before(step_ids, "post_closeout_resume_gate_snapshot", "co2_open_flow_sampling", issues)
     _require_before(step_ids, "post_closeout_resume_gate_snapshot", "h2o_open_flow_sampling", issues)
+    _require_before(
+        step_ids,
+        "post_closeout_resume_prefix_application_review",
+        "co2_open_flow_sampling",
+        issues,
+    )
+    _require_before(
+        step_ids,
+        "post_closeout_resume_prefix_application_review",
+        "h2o_open_flow_sampling",
+        issues,
+    )
     _require_before(step_ids, "temperature_channel_fast_review", "co2_open_flow_sampling", issues)
     _require_before(step_ids, "temperature_channel_fast_review", "h2o_open_flow_sampling", issues)
     _require_before(step_ids, "controlled_component_write_placeholder", "post_write_reverification_placeholder", issues)
@@ -2057,6 +2097,68 @@ def validate_v1_5_formal_flow_contract(
                     code="post_closeout_resume_gate_missing_required_flag",
                     message=f"Post-closeout resume gate command must include {flag}",
                 )
+
+        if step_id == "post_closeout_resume_prefix_application_review":
+            if module != RESUME_PREFIX_APPLICATION_REVIEW_MODULE:
+                issues.append(
+                    _issue(
+                        "error",
+                        "resume_prefix_application_review_wrong_tool",
+                        "Resume-prefix application review must use the canonical offline reviewer",
+                        step_id,
+                    )
+                )
+            if bool(step.get("opens_com_ports")) or bool(step.get("controls_pressure")) or controls_route or writes:
+                issues.append(
+                    _issue(
+                        "error",
+                        "resume_prefix_application_review_must_be_offline_no_write",
+                        "Resume-prefix application review must not open COM, control pressure/routes, or write coefficients",
+                        step_id,
+                    )
+                )
+            if bool(step.get("writes_device_id")):
+                issues.append(
+                    _issue(
+                        "error",
+                        "resume_prefix_application_review_must_not_write_identity",
+                        "Resume-prefix application review must not write SN/device_code or protocol ID",
+                        step_id,
+                    )
+                )
+            if not str(step.get("execution_mode") or "").startswith("offline"):
+                issues.append(
+                    _issue(
+                        "error",
+                        "resume_prefix_application_review_must_be_offline",
+                        "Resume-prefix application review execution_mode must be offline",
+                        step_id,
+                    )
+                )
+            for flag in (
+                "--full-flow-plan-json",
+                "--post-closeout-resume-gate-json",
+                "--output-dir",
+                "--fail-on-blocked",
+            ):
+                _require_flag(
+                    command,
+                    flag,
+                    step_id=step_id,
+                    issues=issues,
+                    code="resume_prefix_application_review_missing_required_flag",
+                    message=f"Resume-prefix application review command must include {flag}",
+                )
+            for flag in RESUME_PREFIX_APPLICATION_REVIEW_FORBIDDEN_FLAGS:
+                if _command_has_flag(command, flag):
+                    issues.append(
+                        _issue(
+                            "error",
+                            "resume_prefix_application_review_forbidden_execution_flag",
+                            f"Resume-prefix application review must not include {flag}",
+                            step_id,
+                        )
+                    )
 
         if step_id == "co2_open_flow_sampling":
             _require_temperature_order(

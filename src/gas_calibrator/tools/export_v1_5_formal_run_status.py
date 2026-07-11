@@ -107,6 +107,11 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default="",
         help="Optional explicit post-closeout resume gate JSON.",
     )
+    parser.add_argument(
+        "--resume-prefix-application-review-json",
+        default="",
+        help="Optional explicit resume-prefix state-application review JSON.",
+    )
     parser.add_argument("--getco-readiness-json", default="", help="Optional explicit identity/GETCO readiness JSON.")
     parser.add_argument("--run-evidence-status-json", default="", help="Optional explicit run evidence status JSON.")
     parser.add_argument(
@@ -221,6 +226,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             pre_gas_readiness_json=args.pre_gas_readiness_json or None,
             batch_initialization_closeout_json=args.batch_initialization_closeout_json or None,
             post_closeout_resume_gate_json=args.post_closeout_resume_gate_json or None,
+            resume_prefix_application_review_json=(
+                args.resume_prefix_application_review_json or None
+            ),
             getco_readiness_json=args.getco_readiness_json or None,
             run_evidence_status_json=args.run_evidence_status_json or None,
             full_flow_closure_readiness_json=args.full_flow_closure_readiness_json or None,

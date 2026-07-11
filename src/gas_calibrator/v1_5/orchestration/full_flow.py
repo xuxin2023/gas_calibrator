@@ -1014,6 +1014,7 @@ def build_full_flow_plan(
     pre_gas_readiness_dir = root / "pre_gas_readiness"
     batch_initialization_closeout_dir = root / "batch_initialization_closeout_index"
     post_closeout_resume_gate_dir = root / "post_closeout_resume_gate"
+    resume_prefix_application_review_dir = root / "resume_prefix_application_review"
     getco_dir = root / "coefficient_epoch_0_getco_snapshot"
     getco_readiness_dir = root / "identity_getco_readiness"
     aux_neutral_dir = root / "auxiliary_senco56789_neutralization"
@@ -2108,6 +2109,45 @@ def build_full_flow_plan(
 
     steps.append(
         FullFlowStep(
+            step_id="post_closeout_resume_prefix_application_review",
+            title="Review application of the evidence-bound resume prefix",
+            phase="POST_CLOSEOUT_RESUME_APPLICATION_REVIEW",
+            tool_module="gas_calibrator.tools.export_v1_5_resume_prefix_application_review",
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_resume_prefix_application_review",
+                "--full-flow-plan-json",
+                root / "v1_5_full_flow_plan.json",
+                "--post-closeout-resume-gate-json",
+                post_closeout_resume_gate_dir / "v1_5_post_closeout_resume_gate.json",
+                "--output-dir",
+                resume_prefix_application_review_dir,
+                "--fail-on-blocked",
+            ),
+            required_inputs=(
+                "canonical V1.5 full-flow plan",
+                "ready hash-bound post-closeout resume gate",
+            ),
+            expected_outputs=(
+                "resume_prefix_application_review/v1_5_resume_prefix_application_review.json",
+                "resume_prefix_application_review/v1_5_resume_prefix_state_preview.csv",
+                "resume_prefix_application_review/V1_5_RESUME_PREFIX_APPLICATION_REVIEW.md",
+            ),
+            physical_meaning=(
+                "Consumes the exact post-closeout resume prefix for validation and previews temperature review "
+                "as the next state. It does not mutate the authoritative state or execute any command."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_before_authoritative_resume_state_application",
+            notes=(
+                "The reviewed prefix must be exact and contiguous through the post-closeout gate.",
+                "Plan, batch closeout, and resume gate hashes must remain current.",
+                "Mature 0613 fitting and 0620/0621 physical-route implementations remain unchanged.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
             step_id="temperature_channel_fast_review",
             title="Review SENCO7/SENCO8 temperature input evidence",
             phase="TEMPERATURE_CHANNEL_REVIEW",
@@ -3047,6 +3087,8 @@ def build_full_flow_plan(
                 / "v1_5_batch_initialization_closeout_index.json",
                 "--post-closeout-resume-gate-json",
                 post_closeout_resume_gate_dir / "v1_5_post_closeout_resume_gate.json",
+                "--resume-prefix-application-review-json",
+                resume_prefix_application_review_dir / "v1_5_resume_prefix_application_review.json",
                 "--getco-readiness-json",
                 getco_readiness_dir / "v1_5_getco_identity_readiness.json",
                 "--run-evidence-status-json",
@@ -3084,6 +3126,7 @@ def build_full_flow_plan(
                 "read-only COM execution blocked executor sidecar",
                 "read-only COM execution packet validator sidecar",
                 "read-only COM execution plan preview sidecar",
+                "resume-prefix state-application review sidecar",
                 "read-only COM minimal executor review sidecar",
                 "identity/GETCO readiness sidecar",
                 "pre-gas readiness sidecar",
