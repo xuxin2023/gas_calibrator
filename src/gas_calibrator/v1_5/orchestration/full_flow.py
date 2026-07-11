@@ -1010,7 +1010,9 @@ def build_full_flow_plan(
     formal_readonly_com_minimal_executor_stub_dir = (
         root / "formal_readonly_com_minimal_executor_stub"
     )
+    formal_readonly_com_minimal_executor_dir = root / "formal_readonly_com_minimal_executor"
     pre_gas_readiness_dir = root / "pre_gas_readiness"
+    batch_initialization_closeout_dir = root / "batch_initialization_closeout_index"
     getco_dir = root / "coefficient_epoch_0_getco_snapshot"
     getco_readiness_dir = root / "identity_getco_readiness"
     aux_neutral_dir = root / "auxiliary_senco56789_neutralization"
@@ -2011,6 +2013,60 @@ def build_full_flow_plan(
 
     steps.append(
         FullFlowStep(
+            step_id="batch_initialization_closeout_index",
+            title="Bind batch initialization closeout before mature open flow",
+            phase="BATCH_INITIALIZATION_CLOSEOUT",
+            tool_module="gas_calibrator.tools.export_v1_5_batch_initialization_closeout_index",
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_batch_initialization_closeout_index",
+                "--readonly-com-executor-json",
+                formal_readonly_com_minimal_executor_dir
+                / "v1_5_formal_readonly_com_minimal_executor.json",
+                "--readonly-identity-getco-snapshot-json",
+                getco_dir / "old_component_coefficients_snapshot.json",
+                "--pressure-device-readiness-csv",
+                pressure_dir
+                / "pressure_channel_completion"
+                / "pressure_channel_device_readiness.csv",
+                "--route-readiness-json",
+                formal_initialization_dir / "formal_route_readiness.json",
+                "--pre-gas-readiness-json",
+                pre_gas_readiness_dir / "v1_5_pre_gas_readiness.json",
+                "--output-dir",
+                batch_initialization_closeout_dir,
+                "--fail-on-review-required",
+            ),
+            required_inputs=(
+                "authorized real read-only COM identity/GETCO/runtime closeout",
+                "per-device S5/S6/S7/S8 neutral readback",
+                "per-device pressure/S9 completion or no-write pass evidence",
+                "formal route readiness",
+                "early pre-gas contract sidecar",
+            ),
+            expected_outputs=(
+                "batch_initialization_closeout_index/v1_5_batch_initialization_closeout_index.json",
+                "batch_initialization_closeout_index/v1_5_batch_initialization_closeout_index_devices.csv",
+                "batch_initialization_closeout_index/v1_5_batch_initialization_closeout_index_gates.csv",
+                "batch_initialization_closeout_index/V1_5_BATCH_INITIALIZATION_CLOSEOUT_INDEX.md",
+            ),
+            physical_meaning=(
+                "This is the final offline pre-route binder for the active 1-6 device batch. It proves that "
+                "SN/device_code and protocol IDs are unique, GETCO1-9/runtime evidence is complete, S5-S8 are "
+                "neutral, pressure/S9 is ready per device, and the mature 0620/0621 route is ready before "
+                "temperature review or CO2/H2O open-flow execution."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_after_pressure_completion_before_mature_open_flow",
+            notes=(
+                "The exporter opens no COM ports and performs no writes or route actions.",
+                "Legacy CHECK remains absent; new-algorithm CHECK evidence remains algorithm-scoped.",
+                "A review-required index must stop the generated command before mature route execution.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
             step_id="temperature_channel_fast_review",
             title="Review SENCO7/SENCO8 temperature input evidence",
             phase="TEMPERATURE_CHANNEL_REVIEW",
@@ -2940,8 +2996,14 @@ def build_full_flow_plan(
                 "--formal-readonly-com-minimal-executor-stub-json",
                 formal_readonly_com_minimal_executor_stub_dir
                 / "v1_5_formal_readonly_com_minimal_executor_stub.json",
+                "--formal-readonly-com-minimal-executor-json",
+                formal_readonly_com_minimal_executor_dir
+                / "v1_5_formal_readonly_com_minimal_executor.json",
                 "--pre-gas-readiness-json",
                 pre_gas_readiness_dir / "v1_5_pre_gas_readiness.json",
+                "--batch-initialization-closeout-json",
+                batch_initialization_closeout_dir
+                / "v1_5_batch_initialization_closeout_index.json",
                 "--getco-readiness-json",
                 getco_readiness_dir / "v1_5_getco_identity_readiness.json",
                 "--run-evidence-status-json",

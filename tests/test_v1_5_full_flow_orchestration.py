@@ -130,7 +130,14 @@ def test_full_flow_plan_keeps_pressure_and_temperature_before_components(tmp_pat
     assert step_ids.index("pressure_quick_check") < step_ids.index("pressure_senco9_no_write_acquisition")
     assert step_ids.index("pressure_senco9_no_write_acquisition") < step_ids.index("pressure_senco9_no_write_review")
     assert step_ids.index("pressure_senco9_no_write_review") < step_ids.index("pressure_channel_completion_audit")
-    assert step_ids.index("pressure_channel_completion_audit") < step_ids.index("temperature_channel_fast_review")
+    assert step_ids.index("pressure_channel_completion_audit") < step_ids.index(
+        "batch_initialization_closeout_index"
+    )
+    assert step_ids.index("batch_initialization_closeout_index") < step_ids.index(
+        "temperature_channel_fast_review"
+    )
+    assert step_ids.index("batch_initialization_closeout_index") < step_ids.index("co2_open_flow_sampling")
+    assert step_ids.index("batch_initialization_closeout_index") < step_ids.index("h2o_open_flow_sampling")
     assert step_ids.index("temperature_channel_fast_review") < step_ids.index("co2_open_flow_sampling")
     assert step_ids.index("temperature_channel_fast_review") < step_ids.index("h2o_open_flow_sampling")
     assert step_ids.index("co2_open_flow_sampling") < step_ids.index("factory_signal_health_review")
@@ -745,6 +752,17 @@ def test_full_flow_stage_manifest_makes_automation_boundaries_explicit(tmp_path)
     assert pressure_completion.authorization_required["coefficient_write"] is False
     assert "pressure_channel_completion_summary.csv" in " ".join(pressure_completion.expected_outputs)
 
+    batch_closeout = by_step["batch_initialization_closeout_index"]
+    assert batch_closeout.automation_state == "offline_review_auto_candidate"
+    assert batch_closeout.authorization_required["real_com"] is False
+    assert batch_closeout.authorization_required["pressure_control"] is False
+    assert batch_closeout.authorization_required["route_control"] is False
+    assert batch_closeout.authorization_required["coefficient_write"] is False
+    assert batch_closeout.safety_boundaries["opens_com_ports"] is False
+    assert batch_closeout.safety_boundaries["writes_device_id"] is False
+    assert batch_closeout.safety_boundaries["writes_coefficients"] is False
+    assert "v1_5_batch_initialization_closeout_index.json" in " ".join(batch_closeout.expected_outputs)
+
     artifact_authorization = by_step["main_senco_write_precheck_authorization_gate"]
     authorization_command = list(artifact_authorization.command)
     assert artifact_authorization.automation_state == "offline_review_waiting_for_run_artifacts"
@@ -922,6 +940,53 @@ def test_full_flow_plan_requires_factory_signal_health_before_fit_review(tmp_pat
     assert fit_review.gate == "requires_factory_signal_health_review"
     assert "v1_5_fit_input_quality_summary.csv" in fit_review.expected_outputs
     assert "v1_5_fit_input_quality_devices.csv" in fit_review.expected_outputs
+
+
+def test_full_flow_plan_binds_final_batch_closeout_before_mature_open_flow(tmp_path):
+    config = tmp_path / "config.json"
+    config.write_text("{}", encoding="utf-8")
+    plan = build_full_flow_plan(config_path=config, output_dir=tmp_path / "plan", run_id="demo")
+
+    step = next(item for item in plan.steps if item.step_id == "batch_initialization_closeout_index")
+    command = list(step.command)
+
+    assert step.tool_module == "gas_calibrator.tools.export_v1_5_batch_initialization_closeout_index"
+    assert step.execution_mode == "offline_sidecar"
+    assert step.gate == "required_after_pressure_completion_before_mature_open_flow"
+    assert step.opens_com_ports is False
+    assert step.controls_pressure is False
+    assert step.controls_gas_route is False
+    assert step.controls_water_route is False
+    assert step.writes_device_id is False
+    assert step.writes_coefficients is False
+    assert _flag_value(command, "--readonly-com-executor-json") == str(
+        (
+            tmp_path
+            / "plan"
+            / "formal_readonly_com_minimal_executor"
+            / "v1_5_formal_readonly_com_minimal_executor.json"
+        ).resolve()
+    )
+    assert _flag_value(command, "--readonly-identity-getco-snapshot-json") == str(
+        (tmp_path / "plan" / "coefficient_epoch_0_getco_snapshot" / "old_component_coefficients_snapshot.json").resolve()
+    )
+    assert _flag_value(command, "--pressure-device-readiness-csv") == str(
+        (
+            tmp_path
+            / "plan"
+            / "pressure_channel"
+            / "pressure_channel_completion"
+            / "pressure_channel_device_readiness.csv"
+        ).resolve()
+    )
+    assert _flag_value(command, "--route-readiness-json") == str(
+        (tmp_path / "plan" / "formal_initialization" / "formal_route_readiness.json").resolve()
+    )
+    assert _flag_value(command, "--pre-gas-readiness-json") == str(
+        (tmp_path / "plan" / "pre_gas_readiness" / "v1_5_pre_gas_readiness.json").resolve()
+    )
+    assert "--fail-on-review-required" in command
+    assert "batch_initialization_closeout_index/v1_5_batch_initialization_closeout_index.json" in step.expected_outputs
 
 
 def test_full_flow_plan_adds_no_write_post_run_coefficient_executor(tmp_path):
@@ -1481,8 +1546,14 @@ def test_empty_reviewer_and_approver_are_not_rendered_as_bare_flags(tmp_path):
     assert _flag_value(status_command, "--formal-readonly-com-minimal-executor-stub-json").endswith(
         "formal_readonly_com_minimal_executor_stub\\v1_5_formal_readonly_com_minimal_executor_stub.json"
     )
+    assert _flag_value(status_command, "--formal-readonly-com-minimal-executor-json").endswith(
+        "formal_readonly_com_minimal_executor\\v1_5_formal_readonly_com_minimal_executor.json"
+    )
     assert _flag_value(status_command, "--pre-gas-readiness-json").endswith(
         "pre_gas_readiness\\v1_5_pre_gas_readiness.json"
+    )
+    assert _flag_value(status_command, "--batch-initialization-closeout-json").endswith(
+        "batch_initialization_closeout_index\\v1_5_batch_initialization_closeout_index.json"
     )
     assert _flag_value(status_command, "--run-evidence-status-json").endswith("v1_5_run_evidence_status.json")
     assert _flag_value(status_command, "--algorithm-profile-runner-dry-run-json").endswith(
@@ -1576,6 +1647,7 @@ def test_route_stage_remains_blocked_without_route_authorization(tmp_path):
             "pressure_senco9_no_write_acquisition",
             "pressure_senco9_no_write_review",
             "pressure_channel_completion_audit",
+            "batch_initialization_closeout_index",
             "temperature_channel_fast_review",
         ],
         allow_real_com=True,

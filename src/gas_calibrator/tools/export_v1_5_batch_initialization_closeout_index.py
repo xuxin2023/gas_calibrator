@@ -26,6 +26,11 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--pressure-device-readiness-csv", default="")
     parser.add_argument("--route-readiness-json", default="")
     parser.add_argument("--pre-gas-readiness-json", default="")
+    parser.add_argument(
+        "--fail-on-review-required",
+        action="store_true",
+        help="Return exit code 2 unless the batch is ready for the mature open-flow route.",
+    )
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -45,6 +50,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         print(f"V1.5 batch initialization closeout index export failed: {exc}", file=sys.stderr, flush=True)
         return 1
     print(json.dumps({key: str(path) for key, path in paths.items()}, ensure_ascii=False, indent=2))
+    if args.fail_on_review_required:
+        payload = json.loads(paths["manifest"].read_text(encoding="utf-8"))
+        if payload.get("ready_for_mature_open_flow_from_initialization_index") is not True:
+            return 2
     return 0
 
 

@@ -41,6 +41,7 @@ REQUIRED_STEP_IDS = (
     "pressure_senco9_no_write_acquisition",
     "pressure_senco9_no_write_review",
     "pressure_channel_completion_audit",
+    "batch_initialization_closeout_index",
     "temperature_channel_fast_review",
     "co2_open_flow_sampling",
     "h2o_open_flow_sampling",
@@ -89,6 +90,7 @@ REQUIRED_ORDER = (
     "pressure_senco9_no_write_acquisition",
     "pressure_senco9_no_write_review",
     "pressure_channel_completion_audit",
+    "batch_initialization_closeout_index",
     "temperature_channel_fast_review",
     "co2_open_flow_sampling",
     "h2o_open_flow_sampling",
@@ -118,6 +120,9 @@ ALLOWED_SHARED_TOOL_MODULES = {
 
 PRESSURE_SENCO9_EVALUATION_MODULE = "gas_calibrator.tools.export_v1_5_pressure_senco9_evaluation"
 PRESSURE_CHANNEL_COMPLETION_MODULE = "gas_calibrator.tools.export_v1_5_pressure_channel_completion"
+BATCH_INITIALIZATION_CLOSEOUT_MODULE = (
+    "gas_calibrator.tools.export_v1_5_batch_initialization_closeout_index"
+)
 POST_WRITE_REVERIFY_MODULE = "gas_calibrator.tools.export_v1_5_post_write_reverification"
 
 FORMAL_CO2_TEMPERATURE_ORDER = "desc"
@@ -515,7 +520,10 @@ def validate_v1_5_formal_flow_contract(
     _require_before(step_ids, "pressure_quick_check", "co2_open_flow_sampling", issues)
     _require_before(step_ids, "pressure_quick_check", "h2o_open_flow_sampling", issues)
     _require_before(step_ids, "pressure_senco9_no_write_review", "pressure_channel_completion_audit", issues)
-    _require_before(step_ids, "pressure_channel_completion_audit", "temperature_channel_fast_review", issues)
+    _require_before(step_ids, "pressure_channel_completion_audit", "batch_initialization_closeout_index", issues)
+    _require_before(step_ids, "batch_initialization_closeout_index", "temperature_channel_fast_review", issues)
+    _require_before(step_ids, "batch_initialization_closeout_index", "co2_open_flow_sampling", issues)
+    _require_before(step_ids, "batch_initialization_closeout_index", "h2o_open_flow_sampling", issues)
     _require_before(step_ids, "temperature_channel_fast_review", "co2_open_flow_sampling", issues)
     _require_before(step_ids, "temperature_channel_fast_review", "h2o_open_flow_sampling", issues)
     _require_before(step_ids, "controlled_component_write_placeholder", "post_write_reverification_placeholder", issues)
@@ -1781,7 +1789,9 @@ def validate_v1_5_formal_flow_contract(
             for flag in (
                 "--initialization-readiness-json",
                 "--formal-initialization-controlled-executor-design-json",
+                "--formal-readonly-com-minimal-executor-json",
                 "--pre-gas-readiness-json",
+                "--batch-initialization-closeout-json",
                 "--getco-readiness-json",
                 "--run-evidence-status-json",
                 "--formal-database-dry-run-json",
@@ -1933,6 +1943,61 @@ def validate_v1_5_formal_flow_contract(
                         "Pressure-channel completion audit must be offline and cannot open COM or write SENCO",
                         step_id,
                     )
+                )
+
+        if step_id == "batch_initialization_closeout_index":
+            if module != BATCH_INITIALIZATION_CLOSEOUT_MODULE:
+                issues.append(
+                    _issue(
+                        "error",
+                        "batch_initialization_closeout_wrong_tool",
+                        "Batch initialization closeout must use the canonical offline evidence binder",
+                        step_id,
+                    )
+                )
+            if bool(step.get("opens_com_ports")) or bool(step.get("controls_pressure")) or controls_route or writes:
+                issues.append(
+                    _issue(
+                        "error",
+                        "batch_initialization_closeout_must_be_offline_no_write",
+                        "Batch initialization closeout must not open COM, control pressure/routes, or write coefficients",
+                        step_id,
+                    )
+                )
+            if bool(step.get("writes_device_id")):
+                issues.append(
+                    _issue(
+                        "error",
+                        "batch_initialization_closeout_must_not_write_identity",
+                        "Batch initialization closeout must not write SN/device_code or protocol ID",
+                        step_id,
+                    )
+                )
+            if not str(step.get("execution_mode") or "").startswith("offline"):
+                issues.append(
+                    _issue(
+                        "error",
+                        "batch_initialization_closeout_must_be_offline",
+                        "Batch initialization closeout execution_mode must be offline",
+                        step_id,
+                    )
+                )
+            for flag in (
+                "--readonly-com-executor-json",
+                "--readonly-identity-getco-snapshot-json",
+                "--pressure-device-readiness-csv",
+                "--route-readiness-json",
+                "--pre-gas-readiness-json",
+                "--output-dir",
+                "--fail-on-review-required",
+            ):
+                _require_flag(
+                    command,
+                    flag,
+                    step_id=step_id,
+                    issues=issues,
+                    code="batch_initialization_closeout_missing_required_flag",
+                    message=f"Batch initialization closeout command must include {flag}",
                 )
 
         if step_id == "co2_open_flow_sampling":
