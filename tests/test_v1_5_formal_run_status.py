@@ -198,7 +198,32 @@ def _seed_post_closeout_resume_gate(root: Path, *, ready: bool = True) -> Path:
             "steps": [
                 {"step_id": "batch_initialization_closeout_index"},
                 {"step_id": "post_closeout_resume_gate_snapshot"},
-                {"step_id": "post_closeout_resume_prefix_application_review"},
+                {
+                    "step_id": "post_closeout_resume_prefix_application_review",
+                    "tool_module": (
+                        "gas_calibrator.tools."
+                        "export_v1_5_resume_prefix_application_review"
+                    ),
+                    "command": [
+                        "python",
+                        "-m",
+                        "gas_calibrator.tools.export_v1_5_resume_prefix_application_review",
+                        "--full-flow-plan-json",
+                        str((root / "v1_5_full_flow_plan.json").resolve()),
+                        "--post-closeout-resume-gate-json",
+                        str(
+                            (
+                                root
+                                / "post_closeout_resume_gate"
+                                / "v1_5_post_closeout_resume_gate.json"
+                            ).resolve()
+                        ),
+                        "--output-dir",
+                        str((root / "resume_prefix_application_review").resolve()),
+                        "--fail-on-blocked",
+                    ],
+                    "execution_mode": "offline_sidecar",
+                },
                 {
                     "step_id": "authoritative_resume_state_writer_design",
                     "tool_module": (
@@ -309,6 +334,13 @@ def _seed_resume_prefix_application_review(
             "state_preview_current_step_id": (
                 "authoritative_resume_state_writer_design" if ready else ""
             ),
+            "state_preview_current_status": (
+                "ready_for_offline_review" if ready else "blocked"
+            ),
+            "downstream_route_step_ids": [
+                "co2_open_flow_sampling",
+                "h2o_open_flow_sampling",
+            ],
             "run_id": "status-test",
             "reviewed_resume_completed_step_ids": (
                 ["batch_initialization_closeout_index", "post_closeout_resume_gate_snapshot"]

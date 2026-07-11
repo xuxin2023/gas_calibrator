@@ -26,6 +26,7 @@ The design binds and rechecks:
 - batch initialization closeout path and SHA256
 - run ID
 - exact completed-step list and flattened CLI representation
+- independently recomputed application-review source chain from the canonical plan and resume gate
 
 Same-content copies at alternate paths are not interchangeable with the paths declared by the full-flow plan.
 

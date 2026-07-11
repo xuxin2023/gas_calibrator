@@ -153,6 +153,35 @@ def test_writer_design_blocks_stale_or_alternate_application_source(tmp_path: Pa
     assert "batch_closeout_artifact_sha256_mismatch" in stale_model["review_reasons"]
 
 
+def test_writer_design_recomputes_application_source_chain_and_rejects_alternate_gate(
+    tmp_path: Path,
+) -> None:
+    plan_path, application_path, _batch_path = _ready_sources(tmp_path)
+    application = json.loads(application_path.read_text(encoding="utf-8"))
+    canonical_gate = Path(application["post_closeout_resume_gate_json"])
+    alternate_gate = _write_json(
+        tmp_path / "alternate" / "resume_gate.json",
+        json.loads(canonical_gate.read_text(encoding="utf-8")),
+    )
+    application["post_closeout_resume_gate_json"] = str(alternate_gate.resolve())
+    application["post_closeout_resume_gate_sha256"] = application[
+        "post_closeout_resume_gate_sha256"
+    ]
+    _write_json(application_path, application)
+
+    model = build_v1_5_authoritative_resume_state_writer_design(
+        full_flow_plan_json=plan_path,
+        resume_prefix_application_review_json=application_path,
+    )
+
+    assert model["overall_status"] == BLOCKED_STATUS
+    assert model["authoritative_resume_state_writer_design_ready"] is False
+    assert model["proposed_completed_step_ids"] == []
+    assert "resume_prefix_application_source_chain_recompute_mismatch" in model[
+        "review_reasons"
+    ]
+
+
 def test_writer_design_rejects_execution_or_state_write_flags(tmp_path: Path) -> None:
     plan_path, application_path, _batch_path = _ready_sources(tmp_path)
     plan = json.loads(plan_path.read_text(encoding="utf-8"))

@@ -9,6 +9,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .v1_5_resume_prefix_application_review import (
+    build_v1_5_resume_prefix_application_review,
+)
+
 
 SCHEMA = "v1_5_authoritative_resume_state_writer_design_v1"
 READY_STATUS = "ready_for_authoritative_resume_state_writer_design_review"
@@ -126,6 +130,51 @@ def _application_boundary_clean(payload: Mapping[str, Any]) -> bool:
         and payload.get("database_import_allowed") is False
         and payload.get("not_real_acceptance_evidence") is True
     )
+
+
+def _application_recompute_matches(
+    application: Mapping[str, Any],
+    recomputed: Mapping[str, Any],
+) -> bool:
+    keys = (
+        "schema",
+        "overall_status",
+        "resume_prefix_application_review_ready",
+        "resume_prefix_consumed_for_review",
+        "full_flow_plan_json",
+        "full_flow_plan_sha256",
+        "post_closeout_resume_gate_json",
+        "post_closeout_resume_gate_sha256",
+        "batch_initialization_closeout_json",
+        "batch_initialization_closeout_sha256",
+        "run_id",
+        "reviewed_resume_completed_step_ids",
+        "reviewed_completed_step_ids_after_application",
+        "reviewed_resume_cli_arguments",
+        "reviewed_state_application_cli_arguments",
+        "state_preview_current_step_id",
+        "state_preview_current_status",
+        "downstream_route_step_ids",
+        "route_authorization_still_required",
+        "review_reasons",
+        "does_not_execute_commands",
+        "applies_completed_steps",
+        "writes_authoritative_state",
+        "would_execute",
+        "live_resume_execution_allowed",
+        "opens_com_ports",
+        "controls_pressure",
+        "controls_water_or_gas_routes",
+        "connects_postgresql",
+        "writes_sn",
+        "writes_device_id",
+        "writes_coefficients",
+        "database_written",
+        "formal_release_allowed",
+        "database_import_allowed",
+        "not_real_acceptance_evidence",
+    )
+    return all(application.get(key) == recomputed.get(key) for key in keys)
 
 
 def build_v1_5_authoritative_resume_state_writer_design(
@@ -265,6 +314,22 @@ def build_v1_5_authoritative_resume_state_writer_design(
         reasons.append("batch_closeout_artifact_sha256_mismatch")
     if str(application.get("run_id") or "") != str(plan.get("run_id") or ""):
         reasons.append("resume_prefix_application_run_id_mismatch")
+
+    recomputed_application: dict[str, Any] = {}
+    if resume_gate_path is not None and resume_gate_path.is_file():
+        try:
+            recomputed_application = build_v1_5_resume_prefix_application_review(
+                full_flow_plan_json=plan_path,
+                post_closeout_resume_gate_json=resume_gate_path,
+            )
+        except (OSError, ValueError, json.JSONDecodeError):
+            recomputed_application = {}
+    if (
+        not recomputed_application
+        or recomputed_application.get("resume_prefix_application_review_ready") is not True
+        or not _application_recompute_matches(application, recomputed_application)
+    ):
+        reasons.append("resume_prefix_application_source_chain_recompute_mismatch")
 
     state_target = plan_path.parent / "v1_5_full_flow_state.json"
     state_markdown_target = plan_path.parent / "v1_5_full_flow_state.md"
