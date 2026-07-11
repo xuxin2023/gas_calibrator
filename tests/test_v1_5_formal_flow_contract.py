@@ -140,12 +140,15 @@ def test_formal_flow_contract_passes_for_generated_plan(tmp_path):
         "batch_initialization_closeout_index"
     )
     assert report.step_sequence.index("batch_initialization_closeout_index") < report.step_sequence.index(
+        "post_closeout_resume_gate_snapshot"
+    )
+    assert report.step_sequence.index("post_closeout_resume_gate_snapshot") < report.step_sequence.index(
         "temperature_channel_fast_review"
     )
-    assert report.step_sequence.index("batch_initialization_closeout_index") < report.step_sequence.index(
+    assert report.step_sequence.index("post_closeout_resume_gate_snapshot") < report.step_sequence.index(
         "co2_open_flow_sampling"
     )
-    assert report.step_sequence.index("batch_initialization_closeout_index") < report.step_sequence.index(
+    assert report.step_sequence.index("post_closeout_resume_gate_snapshot") < report.step_sequence.index(
         "h2o_open_flow_sampling"
     )
     assert report.step_sequence.index("co2_candidate_write_review") < report.step_sequence.index(
@@ -793,6 +796,35 @@ def test_formal_flow_contract_blocks_batch_closeout_that_can_touch_live_state(tm
     assert "batch_initialization_closeout_must_not_write_identity" in codes
     assert "batch_initialization_closeout_must_be_offline" in codes
     assert "batch_initialization_closeout_missing_required_flag" in codes
+
+
+def test_formal_flow_contract_blocks_post_closeout_resume_gate_that_can_execute(tmp_path):
+    plan = build_full_flow_plan(config_path=_config(tmp_path), output_dir=tmp_path / "flow", run_id="demo")
+    steps = list(plan.steps)
+    index = [step.step_id for step in steps].index("post_closeout_resume_gate_snapshot")
+    broken_command = tuple(item for item in steps[index].command if item != "--fail-on-blocked")
+    steps[index] = replace(
+        steps[index],
+        tool_module="gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue",
+        command=broken_command,
+        execution_mode="live_controlled",
+        opens_com_ports=True,
+        controls_gas_route=True,
+        writes_device_id=True,
+    )
+
+    report = validate_v1_5_formal_flow_contract(
+        replace(plan, steps=tuple(steps)),
+        inventory_entries=_inventory_for_plan(),
+    )
+
+    assert report.status == "blocked"
+    codes = {issue.code for issue in report.issues}
+    assert "post_closeout_resume_gate_wrong_tool" in codes
+    assert "post_closeout_resume_gate_must_be_offline_no_write" in codes
+    assert "post_closeout_resume_gate_must_not_write_identity" in codes
+    assert "post_closeout_resume_gate_must_be_offline" in codes
+    assert "post_closeout_resume_gate_missing_required_flag" in codes
 
 
 def test_formal_flow_contract_blocks_diagnostic_tool_in_formal_route(tmp_path):

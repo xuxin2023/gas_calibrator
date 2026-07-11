@@ -1013,6 +1013,7 @@ def build_full_flow_plan(
     formal_readonly_com_minimal_executor_dir = root / "formal_readonly_com_minimal_executor"
     pre_gas_readiness_dir = root / "pre_gas_readiness"
     batch_initialization_closeout_dir = root / "batch_initialization_closeout_index"
+    post_closeout_resume_gate_dir = root / "post_closeout_resume_gate"
     getco_dir = root / "coefficient_epoch_0_getco_snapshot"
     getco_readiness_dir = root / "identity_getco_readiness"
     aux_neutral_dir = root / "auxiliary_senco56789_neutralization"
@@ -2067,6 +2068,46 @@ def build_full_flow_plan(
 
     steps.append(
         FullFlowStep(
+            step_id="post_closeout_resume_gate_snapshot",
+            title="Bind the evidence-backed resume prefix after batch closeout",
+            phase="POST_CLOSEOUT_RESUME_GATE",
+            tool_module="gas_calibrator.tools.export_v1_5_post_closeout_resume_gate",
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_post_closeout_resume_gate",
+                "--full-flow-plan-json",
+                root / "v1_5_full_flow_plan.json",
+                "--batch-initialization-closeout-json",
+                batch_initialization_closeout_dir / "v1_5_batch_initialization_closeout_index.json",
+                "--output-dir",
+                post_closeout_resume_gate_dir,
+                "--fail-on-blocked",
+            ),
+            required_inputs=(
+                "canonical V1.5 full-flow plan",
+                "ready batch initialization closeout index",
+            ),
+            expected_outputs=(
+                "post_closeout_resume_gate/v1_5_post_closeout_resume_gate.json",
+                "post_closeout_resume_gate/v1_5_post_closeout_resume_steps.csv",
+                "post_closeout_resume_gate/V1_5_POST_CLOSEOUT_RESUME_GATE.md",
+            ),
+            physical_meaning=(
+                "Binds the completed prefix through batch closeout to exact plan and evidence hashes. "
+                "It identifies temperature review as the next stage while keeping mature CO2/H2O route "
+                "execution behind explicit route authorization."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_after_batch_closeout_before_resume_state_application",
+            notes=(
+                "This step does not apply --completed-step arguments or execute any command.",
+                "A changed plan or closeout artifact requires regenerating this gate.",
+                "Mature 0613/0620/0621 queue and fitting implementations remain unchanged.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
             step_id="temperature_channel_fast_review",
             title="Review SENCO7/SENCO8 temperature input evidence",
             phase="TEMPERATURE_CHANNEL_REVIEW",
@@ -3004,6 +3045,8 @@ def build_full_flow_plan(
                 "--batch-initialization-closeout-json",
                 batch_initialization_closeout_dir
                 / "v1_5_batch_initialization_closeout_index.json",
+                "--post-closeout-resume-gate-json",
+                post_closeout_resume_gate_dir / "v1_5_post_closeout_resume_gate.json",
                 "--getco-readiness-json",
                 getco_readiness_dir / "v1_5_getco_identity_readiness.json",
                 "--run-evidence-status-json",
@@ -3044,6 +3087,8 @@ def build_full_flow_plan(
                 "read-only COM minimal executor review sidecar",
                 "identity/GETCO readiness sidecar",
                 "pre-gas readiness sidecar",
+                "batch initialization closeout index",
+                "post-closeout resume gate",
                 "v1_5_run_evidence_status.json",
                 "full-flow closure readiness or archive sidecar when available",
                 "optional new-algorithm profile runner dry-run bundle",

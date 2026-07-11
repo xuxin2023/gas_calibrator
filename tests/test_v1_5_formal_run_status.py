@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import json
 from pathlib import Path
 
@@ -172,6 +173,48 @@ def _seed_batch_initialization_closeout(root: Path, *, ready: bool = True) -> Pa
             "mature_fitting_baseline": "0613 V1.5 fitting path",
             "opens_com_ports": False,
             "read_only_real_com_execution_allowed": False,
+            "controls_pressure": False,
+            "controls_water_or_gas_routes": False,
+            "connects_postgresql": False,
+            "writes_sn": False,
+            "writes_device_id": False,
+            "writes_coefficients": False,
+            "database_written": False,
+            "formal_release_allowed": False,
+            "database_import_allowed": False,
+            "not_real_acceptance_evidence": True,
+        },
+    )
+
+
+def _seed_post_closeout_resume_gate(root: Path, *, ready: bool = True) -> Path:
+    plan_path = _write_json(root / "v1_5_full_flow_plan.json", {"run_id": "status-test"})
+    batch_path = root / "batch_initialization_closeout_index" / "v1_5_batch_initialization_closeout_index.json"
+    if not batch_path.exists():
+        _seed_batch_initialization_closeout(root, ready=ready)
+    return _write_json(
+        root / "post_closeout_resume_gate" / "v1_5_post_closeout_resume_gate.json",
+        {
+            "schema": "v1_5_post_closeout_resume_gate_v1",
+            "overall_status": "ready_for_post_closeout_resume_review" if ready else "blocked",
+            "resume_gate_ready": ready,
+            "ready_for_resume_state_application_review": ready,
+            "next_step_id": "temperature_channel_fast_review" if ready else "",
+            "resume_completed_step_ids": (
+                ["batch_initialization_closeout_index", "post_closeout_resume_gate_snapshot"]
+                if ready
+                else []
+            ),
+            "review_reasons": [] if ready else ["full_flow_plan_hash_mismatch"],
+            "full_flow_plan_json": str(plan_path.resolve()),
+            "full_flow_plan_sha256": hashlib.sha256(plan_path.read_bytes()).hexdigest(),
+            "batch_initialization_closeout_json": str(batch_path.resolve()),
+            "batch_initialization_closeout_sha256": hashlib.sha256(batch_path.read_bytes()).hexdigest(),
+            "does_not_execute_commands": True,
+            "applies_completed_steps": False,
+            "live_resume_execution_allowed": False,
+            "route_authorization_still_required": True,
+            "opens_com_ports": False,
             "controls_pressure": False,
             "controls_water_or_gas_routes": False,
             "connects_postgresql": False,
@@ -1204,10 +1247,12 @@ def test_formal_run_status_accepts_ready_batch_initialization_closeout(tmp_path:
     run_dir = tmp_path / "ready_run_with_batch_closeout"
     _seed_ready_run(run_dir)
     closeout_path = _seed_batch_initialization_closeout(run_dir, ready=True)
+    resume_path = _seed_post_closeout_resume_gate(run_dir, ready=True)
 
     model = build_v1_5_formal_run_status(
         run_dir=run_dir,
         batch_initialization_closeout_json=closeout_path,
+        post_closeout_resume_gate_json=resume_path,
     )
     gate = next(row for row in model["gates"] if row["gate_id"] == "batch_initialization_closeout")
 
@@ -1217,6 +1262,75 @@ def test_formal_run_status_accepts_ready_batch_initialization_closeout(tmp_path:
     assert gate["blocks_physical_flow"] is False
     assert model["can_continue_physical_flow"] is True
     assert model["linked_inputs"]["batch_initialization_closeout_json"] == str(closeout_path.resolve())
+    resume_gate = next(row for row in model["gates"] if row["gate_id"] == "post_closeout_resume_gate")
+    assert resume_gate["status"] == "ready"
+    assert resume_gate["blocks_physical_flow"] is False
+    assert model["linked_inputs"]["post_closeout_resume_gate_json"] == str(resume_path.resolve())
+
+
+def test_formal_run_status_blocks_physical_flow_on_blocked_post_closeout_resume_gate(tmp_path: Path) -> None:
+    run_dir = tmp_path / "ready_run_with_blocked_resume_gate"
+    _seed_ready_run(run_dir)
+    closeout_path = _seed_batch_initialization_closeout(run_dir, ready=True)
+    resume_path = _seed_post_closeout_resume_gate(run_dir, ready=False)
+
+    model = build_v1_5_formal_run_status(
+        run_dir=run_dir,
+        batch_initialization_closeout_json=closeout_path,
+        post_closeout_resume_gate_json=resume_path,
+    )
+    gate = next(row for row in model["gates"] if row["gate_id"] == "post_closeout_resume_gate")
+
+    assert gate["status"] == "blocked"
+    assert gate["blocks_physical_flow"] is True
+    assert model["current_stage"] == "post_closeout_resume_gate"
+    assert model["can_continue_physical_flow"] is False
+    assert model["formal_release_allowed"] is False
+
+
+def test_formal_run_status_blocks_tampered_post_closeout_resume_source(tmp_path: Path) -> None:
+    run_dir = tmp_path / "ready_run_with_tampered_resume_source"
+    _seed_ready_run(run_dir)
+    closeout_path = _seed_batch_initialization_closeout(run_dir, ready=True)
+    resume_path = _seed_post_closeout_resume_gate(run_dir, ready=True)
+    closeout_payload = json.loads(closeout_path.read_text(encoding="utf-8"))
+    closeout_payload["tampered_after_resume_gate"] = True
+    _write_json(closeout_path, closeout_payload)
+
+    model = build_v1_5_formal_run_status(
+        run_dir=run_dir,
+        batch_initialization_closeout_json=closeout_path,
+        post_closeout_resume_gate_json=resume_path,
+    )
+    gate = next(row for row in model["gates"] if row["gate_id"] == "post_closeout_resume_gate")
+
+    assert gate["status"] == "blocked"
+    assert "missing or mismatched" in gate["reason"]
+    assert gate["blocks_physical_flow"] is True
+    assert model["can_continue_physical_flow"] is False
+
+
+def test_formal_run_status_blocks_resume_gate_bound_to_different_batch_path(tmp_path: Path) -> None:
+    run_dir = tmp_path / "ready_run_with_cross_batch_resume_gate"
+    _seed_ready_run(run_dir)
+    original_closeout = _seed_batch_initialization_closeout(run_dir, ready=True)
+    resume_path = _seed_post_closeout_resume_gate(run_dir, ready=True)
+    current_closeout = _write_json(
+        run_dir / "current_batch" / "v1_5_batch_initialization_closeout_index.json",
+        json.loads(original_closeout.read_text(encoding="utf-8")),
+    )
+
+    model = build_v1_5_formal_run_status(
+        run_dir=run_dir,
+        batch_initialization_closeout_json=current_closeout,
+        post_closeout_resume_gate_json=resume_path,
+    )
+    gate = next(row for row in model["gates"] if row["gate_id"] == "post_closeout_resume_gate")
+
+    assert gate["status"] == "blocked"
+    assert "batch-closeout path" in gate["reason"]
+    assert gate["blocks_physical_flow"] is True
+    assert model["can_continue_physical_flow"] is False
 
 
 def test_formal_run_status_blocks_physical_flow_on_incomplete_batch_closeout(tmp_path: Path) -> None:
@@ -2367,6 +2481,7 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
     minimal_executor_stub_path = _seed_formal_readonly_com_minimal_executor_stub(run_dir)
     pressure_s9_index_path = _seed_pressure_s9_readiness_index(run_dir)
     batch_closeout_path = _seed_batch_initialization_closeout(run_dir)
+    resume_gate_path = _seed_post_closeout_resume_gate(run_dir)
 
     rc = export_status_main(
         [
@@ -2400,6 +2515,8 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
             str(pressure_s9_index_path),
             "--batch-initialization-closeout-json",
             str(batch_closeout_path),
+            "--post-closeout-resume-gate-json",
+            str(resume_gate_path),
         ]
     )
     captured = capsys.readouterr()
@@ -2427,6 +2544,7 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
     assert gates["formal_database_import_controlled_executor_design"]["status"] == "ready"
     assert gates["formal_readonly_com_minimal_executor_stub"]["status"] == "ready"
     assert gates["batch_initialization_closeout"]["status"] == "ready"
+    assert gates["post_closeout_resume_gate"]["status"] == "ready"
     assert gates["pressure_senco9_pre_open_flow"]["status"] == "ready"
     assert exported["linked_inputs"]["formal_readonly_com_minimal_executor_stub_json"] == str(
         minimal_executor_stub_path.resolve()

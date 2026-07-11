@@ -42,6 +42,7 @@ REQUIRED_STEP_IDS = (
     "pressure_senco9_no_write_review",
     "pressure_channel_completion_audit",
     "batch_initialization_closeout_index",
+    "post_closeout_resume_gate_snapshot",
     "temperature_channel_fast_review",
     "co2_open_flow_sampling",
     "h2o_open_flow_sampling",
@@ -91,6 +92,7 @@ REQUIRED_ORDER = (
     "pressure_senco9_no_write_review",
     "pressure_channel_completion_audit",
     "batch_initialization_closeout_index",
+    "post_closeout_resume_gate_snapshot",
     "temperature_channel_fast_review",
     "co2_open_flow_sampling",
     "h2o_open_flow_sampling",
@@ -123,6 +125,7 @@ PRESSURE_CHANNEL_COMPLETION_MODULE = "gas_calibrator.tools.export_v1_5_pressure_
 BATCH_INITIALIZATION_CLOSEOUT_MODULE = (
     "gas_calibrator.tools.export_v1_5_batch_initialization_closeout_index"
 )
+POST_CLOSEOUT_RESUME_GATE_MODULE = "gas_calibrator.tools.export_v1_5_post_closeout_resume_gate"
 POST_WRITE_REVERIFY_MODULE = "gas_calibrator.tools.export_v1_5_post_write_reverification"
 
 FORMAL_CO2_TEMPERATURE_ORDER = "desc"
@@ -164,6 +167,7 @@ FORMAL_PHYSICAL_FLOW = (
     "PRESSURE: verify analyzer P against COM22 before component calibration",
     "PRESSURE_SENCO9: if needed, use the full V1.5 no-write sealed-pressure runner and transition trace",
     "PRESSURE_COMPLETION: after SENCO9 write and reverification, freeze traceable pressure-channel completion evidence",
+    "POST_CLOSEOUT_RESUME_GATE: bind an evidence-backed completed prefix and next step without applying or executing it",
     "TEMPERATURE: review chamber/case temperature evidence before final approval",
     "CO2_OPEN_FLOW: sample clean dry gas under continuous open flow",
     "H2O_OPEN_FLOW: sample water route under dewpoint/reference evidence",
@@ -521,9 +525,10 @@ def validate_v1_5_formal_flow_contract(
     _require_before(step_ids, "pressure_quick_check", "h2o_open_flow_sampling", issues)
     _require_before(step_ids, "pressure_senco9_no_write_review", "pressure_channel_completion_audit", issues)
     _require_before(step_ids, "pressure_channel_completion_audit", "batch_initialization_closeout_index", issues)
-    _require_before(step_ids, "batch_initialization_closeout_index", "temperature_channel_fast_review", issues)
-    _require_before(step_ids, "batch_initialization_closeout_index", "co2_open_flow_sampling", issues)
-    _require_before(step_ids, "batch_initialization_closeout_index", "h2o_open_flow_sampling", issues)
+    _require_before(step_ids, "batch_initialization_closeout_index", "post_closeout_resume_gate_snapshot", issues)
+    _require_before(step_ids, "post_closeout_resume_gate_snapshot", "temperature_channel_fast_review", issues)
+    _require_before(step_ids, "post_closeout_resume_gate_snapshot", "co2_open_flow_sampling", issues)
+    _require_before(step_ids, "post_closeout_resume_gate_snapshot", "h2o_open_flow_sampling", issues)
     _require_before(step_ids, "temperature_channel_fast_review", "co2_open_flow_sampling", issues)
     _require_before(step_ids, "temperature_channel_fast_review", "h2o_open_flow_sampling", issues)
     _require_before(step_ids, "controlled_component_write_placeholder", "post_write_reverification_placeholder", issues)
@@ -1792,6 +1797,7 @@ def validate_v1_5_formal_flow_contract(
                 "--formal-readonly-com-minimal-executor-json",
                 "--pre-gas-readiness-json",
                 "--batch-initialization-closeout-json",
+                "--post-closeout-resume-gate-json",
                 "--getco-readiness-json",
                 "--run-evidence-status-json",
                 "--formal-database-dry-run-json",
@@ -1998,6 +2004,58 @@ def validate_v1_5_formal_flow_contract(
                     issues=issues,
                     code="batch_initialization_closeout_missing_required_flag",
                     message=f"Batch initialization closeout command must include {flag}",
+                )
+
+        if step_id == "post_closeout_resume_gate_snapshot":
+            if module != POST_CLOSEOUT_RESUME_GATE_MODULE:
+                issues.append(
+                    _issue(
+                        "error",
+                        "post_closeout_resume_gate_wrong_tool",
+                        "Post-closeout resume must use the canonical offline hash-bound gate",
+                        step_id,
+                    )
+                )
+            if bool(step.get("opens_com_ports")) or bool(step.get("controls_pressure")) or controls_route or writes:
+                issues.append(
+                    _issue(
+                        "error",
+                        "post_closeout_resume_gate_must_be_offline_no_write",
+                        "Post-closeout resume gate must not open COM, control pressure/routes, or write coefficients",
+                        step_id,
+                    )
+                )
+            if bool(step.get("writes_device_id")):
+                issues.append(
+                    _issue(
+                        "error",
+                        "post_closeout_resume_gate_must_not_write_identity",
+                        "Post-closeout resume gate must not write SN/device_code or protocol ID",
+                        step_id,
+                    )
+                )
+            if not str(step.get("execution_mode") or "").startswith("offline"):
+                issues.append(
+                    _issue(
+                        "error",
+                        "post_closeout_resume_gate_must_be_offline",
+                        "Post-closeout resume gate execution_mode must be offline",
+                        step_id,
+                    )
+                )
+            for flag in (
+                "--full-flow-plan-json",
+                "--batch-initialization-closeout-json",
+                "--output-dir",
+                "--fail-on-blocked",
+            ):
+                _require_flag(
+                    command,
+                    flag,
+                    step_id=step_id,
+                    issues=issues,
+                    code="post_closeout_resume_gate_missing_required_flag",
+                    message=f"Post-closeout resume gate command must include {flag}",
                 )
 
         if step_id == "co2_open_flow_sampling":

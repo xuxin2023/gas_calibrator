@@ -400,6 +400,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline V1.5 mature route continuity gate; blocks segmented, retry, direct-recovery, 0624/migration, diagnostic, worker, and empty manifest route evidence from formal fitting")
     elif lower == "export_v1_5_batch_initialization_closeout_index":
         notes.append("offline V1.5 batch initialization closeout index; binds SN/device_code, GETCO, S5-S8, S9, and route evidence without opening COM")
+    elif lower == "export_v1_5_post_closeout_resume_gate":
+        notes.append("offline V1.5 post-closeout resume gate; binds a reviewed completed-step prefix to exact plan and closeout hashes without applying or executing it")
     elif lower == "export_v1_5_pressure_s9_readiness_index":
         notes.append("offline V1.5 pressure/SENCO9 readiness index; separates offset-only S9 and linear controlled exceptions without opening COM or writing coefficients")
     elif lower == "export_v1_5_production_entrypoint_map":
