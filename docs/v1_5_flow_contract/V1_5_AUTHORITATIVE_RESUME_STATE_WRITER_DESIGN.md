@@ -12,9 +12,10 @@ The package does not write or replace the authoritative state. It does not execu
 2. `post_closeout_resume_gate_snapshot`
 3. `post_closeout_resume_prefix_application_review`
 4. `authoritative_resume_state_writer_design`
-5. `temperature_channel_fast_review`
+5. `authoritative_resume_state_writer_blocked_executor`
+6. `temperature_channel_fast_review`
 
-The first four stages must form one exact contiguous prefix before a future writer can propose temperature review as the current step.
+The first four stages must form one exact contiguous prefix before the design can hand off to the blocked executor. The blocked executor must remain adjacent before temperature review.
 
 ## Source Binding
 

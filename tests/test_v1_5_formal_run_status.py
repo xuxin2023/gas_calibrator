@@ -7,6 +7,10 @@ from gas_calibrator.tools.export_v1_5_formal_run_status import main as export_st
 from gas_calibrator.validation.v1_5_authoritative_resume_state_writer_design import (
     write_v1_5_authoritative_resume_state_writer_design,
 )
+from gas_calibrator.validation.v1_5_authoritative_resume_state_writer_blocked_executor import (
+    build_v1_5_authoritative_resume_state_writer_blocked_executor,
+    write_v1_5_authoritative_resume_state_writer_blocked_executor_outputs,
+)
 from gas_calibrator.validation.v1_5_formal_run_status import (
     build_v1_5_formal_run_status,
     render_v1_5_formal_run_status_markdown,
@@ -250,6 +254,45 @@ def _seed_post_closeout_resume_gate(root: Path, *, ready: bool = True) -> Path:
                     ],
                     "execution_mode": "offline_sidecar",
                 },
+                {
+                    "step_id": "authoritative_resume_state_writer_blocked_executor",
+                    "tool_module": (
+                        "gas_calibrator.tools."
+                        "run_v1_5_authoritative_resume_state_writer_blocked_executor"
+                    ),
+                    "command": [
+                        "python",
+                        "-m",
+                        "gas_calibrator.tools.run_v1_5_authoritative_resume_state_writer_blocked_executor",
+                        "--full-flow-plan-json",
+                        str((root / "v1_5_full_flow_plan.json").resolve()),
+                        "--resume-prefix-application-review-json",
+                        str(
+                            (
+                                root
+                                / "resume_prefix_application_review"
+                                / "v1_5_resume_prefix_application_review.json"
+                            ).resolve()
+                        ),
+                        "--authoritative-resume-state-writer-design-json",
+                        str(
+                            (
+                                root
+                                / "authoritative_resume_state_writer_design"
+                                / "v1_5_authoritative_resume_state_writer_design.json"
+                            ).resolve()
+                        ),
+                        "--output-dir",
+                        str(
+                            (
+                                root
+                                / "authoritative_resume_state_writer_blocked_executor"
+                            ).resolve()
+                        ),
+                        "--fail-on-blocked",
+                    ],
+                    "execution_mode": "offline_blocked_stub",
+                },
                 {"step_id": "temperature_channel_fast_review"},
                 {"step_id": "co2_open_flow_sampling"},
                 {"step_id": "h2o_open_flow_sampling"},
@@ -308,10 +351,19 @@ def _seed_post_closeout_resume_gate(root: Path, *, ready: bool = True) -> Path:
     application_path = _seed_resume_prefix_application_review(
         root, resume_path=resume_path, ready=ready
     )
-    write_v1_5_authoritative_resume_state_writer_design(
+    design_path = write_v1_5_authoritative_resume_state_writer_design(
         output_dir=root / "authoritative_resume_state_writer_design",
         full_flow_plan_json=plan_path,
         resume_prefix_application_review_json=application_path,
+    )["manifest"]
+    blocked_model = build_v1_5_authoritative_resume_state_writer_blocked_executor(
+        full_flow_plan_json=plan_path,
+        resume_prefix_application_review_json=application_path,
+        authoritative_resume_state_writer_design_json=design_path,
+    )
+    write_v1_5_authoritative_resume_state_writer_blocked_executor_outputs(
+        blocked_model,
+        root / "authoritative_resume_state_writer_blocked_executor",
     )
     return resume_path
 
@@ -1461,6 +1513,50 @@ def test_formal_run_status_accepts_ready_batch_initialization_closeout(tmp_path:
     assert model["linked_inputs"]["authoritative_resume_state_writer_design_json"].endswith(
         "v1_5_authoritative_resume_state_writer_design.json"
     )
+    blocked_executor_gate = next(
+        row
+        for row in model["gates"]
+        if row["gate_id"] == "authoritative_resume_state_writer_blocked_executor"
+    )
+    assert blocked_executor_gate["status"] == "ready"
+    assert blocked_executor_gate["blocks_physical_flow"] is False
+    assert model["linked_inputs"][
+        "authoritative_resume_state_writer_blocked_executor_json"
+    ].endswith("v1_5_authoritative_resume_state_writer_blocked_executor.json")
+
+
+def test_formal_run_status_recomputes_blocked_executor_lock_evidence(tmp_path: Path) -> None:
+    run_dir = tmp_path / "ready_run_with_forged_blocked_executor"
+    _seed_ready_run(run_dir)
+    closeout_path = _seed_batch_initialization_closeout(run_dir, ready=True)
+    resume_path = _seed_post_closeout_resume_gate(run_dir, ready=True)
+    blocked_path = (
+        run_dir
+        / "authoritative_resume_state_writer_blocked_executor"
+        / "v1_5_authoritative_resume_state_writer_blocked_executor.json"
+    )
+    blocked = json.loads(blocked_path.read_text(encoding="utf-8"))
+    blocked["state_file_created"] = True
+    blocked["writes_authoritative_state"] = True
+    _write_json(blocked_path, blocked)
+
+    model = build_v1_5_formal_run_status(
+        run_dir=run_dir,
+        batch_initialization_closeout_json=closeout_path,
+        post_closeout_resume_gate_json=resume_path,
+        authoritative_resume_state_writer_blocked_executor_json=blocked_path,
+    )
+    gate = next(
+        row
+        for row in model["gates"]
+        if row["gate_id"] == "authoritative_resume_state_writer_blocked_executor"
+    )
+
+    assert gate["status"] == "blocked"
+    assert "boundary" in gate["reason"]
+    assert gate["blocks_physical_flow"] is True
+    assert model["can_continue_physical_flow"] is False
+    assert model["formal_release_allowed"] is False
 
 
 def test_formal_run_status_recomputes_authoritative_writer_design(tmp_path: Path) -> None:

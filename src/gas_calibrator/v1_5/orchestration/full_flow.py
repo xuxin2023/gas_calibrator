@@ -1018,6 +1018,9 @@ def build_full_flow_plan(
     authoritative_resume_state_writer_design_dir = (
         root / "authoritative_resume_state_writer_design"
     )
+    authoritative_resume_state_writer_blocked_executor_dir = (
+        root / "authoritative_resume_state_writer_blocked_executor"
+    )
     getco_dir = root / "coefficient_epoch_0_getco_snapshot"
     getco_readiness_dir = root / "identity_getco_readiness"
     aux_neutral_dir = root / "auxiliary_senco56789_neutralization"
@@ -2195,6 +2198,53 @@ def build_full_flow_plan(
 
     steps.append(
         FullFlowStep(
+            step_id="authoritative_resume_state_writer_blocked_executor",
+            title="Prove the authoritative resume-state writer remains locked",
+            phase="AUTHORITATIVE_RESUME_STATE_WRITER_BLOCKED_EXECUTOR",
+            tool_module=(
+                "gas_calibrator.tools.run_v1_5_authoritative_resume_state_writer_blocked_executor"
+            ),
+            command=_python_module(
+                "gas_calibrator.tools.run_v1_5_authoritative_resume_state_writer_blocked_executor",
+                "--full-flow-plan-json",
+                root / "v1_5_full_flow_plan.json",
+                "--resume-prefix-application-review-json",
+                resume_prefix_application_review_dir
+                / "v1_5_resume_prefix_application_review.json",
+                "--authoritative-resume-state-writer-design-json",
+                authoritative_resume_state_writer_design_dir
+                / "v1_5_authoritative_resume_state_writer_design.json",
+                "--output-dir",
+                authoritative_resume_state_writer_blocked_executor_dir,
+                "--fail-on-blocked",
+            ),
+            required_inputs=(
+                "canonical V1.5 full-flow plan",
+                "ready hash-bound resume-prefix application review",
+                "ready authoritative resume-state writer design",
+            ),
+            expected_outputs=(
+                "authoritative_resume_state_writer_blocked_executor/v1_5_authoritative_resume_state_writer_blocked_executor.json",
+                "authoritative_resume_state_writer_blocked_executor/v1_5_authoritative_resume_state_writer_blocked_executor_checks.csv",
+                "authoritative_resume_state_writer_blocked_executor/v1_5_authoritative_resume_state_writer_blocked_executor_summary.csv",
+                "authoritative_resume_state_writer_blocked_executor/V1_5_AUTHORITATIVE_RESUME_STATE_WRITER_BLOCKED_EXECUTOR.md",
+            ),
+            physical_meaning=(
+                "Consumes and independently recomputes the #91 design while proving that no state target, "
+                "expected-state hash, authorization, execute, or replace input can unlock a write."
+            ),
+            execution_mode="offline_blocked_stub",
+            gate="required_before_authoritative_resume_state_writer_implementation",
+            notes=(
+                "The command intentionally returns blocked when --fail-on-blocked is supplied.",
+                "No v1_5_full_flow_state.json is created, opened, replaced, or snapshotted.",
+                "Mature 0613 fitting and 0620/0621 physical-route implementations remain unchanged.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
             step_id="temperature_channel_fast_review",
             title="Review SENCO7/SENCO8 temperature input evidence",
             phase="TEMPERATURE_CHANNEL_REVIEW",
@@ -3139,6 +3189,9 @@ def build_full_flow_plan(
                 "--authoritative-resume-state-writer-design-json",
                 authoritative_resume_state_writer_design_dir
                 / "v1_5_authoritative_resume_state_writer_design.json",
+                "--authoritative-resume-state-writer-blocked-executor-json",
+                authoritative_resume_state_writer_blocked_executor_dir
+                / "v1_5_authoritative_resume_state_writer_blocked_executor.json",
                 "--getco-readiness-json",
                 getco_readiness_dir / "v1_5_getco_identity_readiness.json",
                 "--run-evidence-status-json",
@@ -3177,6 +3230,8 @@ def build_full_flow_plan(
                 "read-only COM execution packet validator sidecar",
                 "read-only COM execution plan preview sidecar",
                 "resume-prefix state-application review sidecar",
+                "authoritative resume-state writer design sidecar",
+                "authoritative resume-state writer blocked executor sidecar",
                 "read-only COM minimal executor review sidecar",
                 "identity/GETCO readiness sidecar",
                 "pre-gas readiness sidecar",

@@ -352,6 +352,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline resume-prefix application review; validates the hash-bound completed prefix without writing state or executing the next stage")
     elif lower == "export_v1_5_authoritative_resume_state_writer_design":
         notes.append("offline authoritative resume-state writer design; defines atomic replace, compare-and-swap, snapshot, readback, and rollback requirements without writing state")
+    elif lower == "run_v1_5_authoritative_resume_state_writer_blocked_executor":
+        notes.append("offline authoritative resume-state writer blocked executor; refuses state target, expected-state hash, authorization, execute, and replace inputs without creating or replacing state")
     elif lower == "run_v1_5_formal_readonly_com_minimal_executor":
         notes.append("manual-authorized minimal read-only COM executor; reads SN/GETCO/runtime/CHECK evidence only, never writes analyzer state, database, pressure, or routes")
     elif "formal_archive_closure" in lower:
@@ -541,6 +543,7 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             "run_v1_5_formal_initialization_readonly_com_preflight_controlled_blocked_executor",
             "export_v1_5_formal_readonly_com_execution_contract",
             "run_v1_5_formal_readonly_com_execution_blocked_executor",
+            "run_v1_5_authoritative_resume_state_writer_blocked_executor",
             "export_v1_5_formal_readonly_com_execution_packet_validator",
             "export_v1_5_formal_readonly_com_execution_plan_preview",
             "export_v1_5_formal_readonly_com_minimal_executor_review",
