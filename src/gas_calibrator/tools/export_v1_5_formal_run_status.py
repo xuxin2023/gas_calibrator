@@ -112,6 +112,11 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default="",
         help="Optional explicit resume-prefix state-application review JSON.",
     )
+    parser.add_argument(
+        "--authoritative-resume-state-writer-design-json",
+        default="",
+        help="Optional explicit authoritative resume-state writer design JSON.",
+    )
     parser.add_argument("--getco-readiness-json", default="", help="Optional explicit identity/GETCO readiness JSON.")
     parser.add_argument("--run-evidence-status-json", default="", help="Optional explicit run evidence status JSON.")
     parser.add_argument(
@@ -228,6 +233,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             post_closeout_resume_gate_json=args.post_closeout_resume_gate_json or None,
             resume_prefix_application_review_json=(
                 args.resume_prefix_application_review_json or None
+            ),
+            authoritative_resume_state_writer_design_json=(
+                args.authoritative_resume_state_writer_design_json or None
             ),
             getco_readiness_json=args.getco_readiness_json or None,
             run_evidence_status_json=args.run_evidence_status_json or None,

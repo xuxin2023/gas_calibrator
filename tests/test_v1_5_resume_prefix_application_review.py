@@ -87,7 +87,7 @@ def test_resume_prefix_application_review_consumes_exact_prefix_without_applying
         "--completed-step",
         "post_closeout_resume_prefix_application_review",
     ]
-    assert model["state_preview_current_step_id"] == "temperature_channel_fast_review"
+    assert model["state_preview_current_step_id"] == "authoritative_resume_state_writer_design"
     assert model["route_authorization_still_required"] is True
     assert model["does_not_execute_commands"] is True
     assert model["applies_completed_steps"] is False

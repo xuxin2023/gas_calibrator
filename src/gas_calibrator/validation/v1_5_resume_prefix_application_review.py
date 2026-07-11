@@ -18,7 +18,8 @@ RESUME_GATE_SCHEMA = "v1_5_post_closeout_resume_gate_v1"
 RESUME_GATE_READY_STATUS = "ready_for_post_closeout_resume_review"
 RESUME_GATE_STEP_ID = "post_closeout_resume_gate_snapshot"
 APPLICATION_REVIEW_STEP_ID = "post_closeout_resume_prefix_application_review"
-NEXT_STEP_ID = "temperature_channel_fast_review"
+NEXT_STEP_ID = "authoritative_resume_state_writer_design"
+TEMPERATURE_STEP_ID = "temperature_channel_fast_review"
 CO2_STEP_ID = "co2_open_flow_sampling"
 H2O_STEP_ID = "h2o_open_flow_sampling"
 APPLICATION_REVIEW_MODULE = "gas_calibrator.tools.export_v1_5_resume_prefix_application_review"
@@ -140,6 +141,7 @@ def build_v1_5_resume_prefix_application_review(
         RESUME_GATE_STEP_ID,
         APPLICATION_REVIEW_STEP_ID,
         NEXT_STEP_ID,
+        TEMPERATURE_STEP_ID,
         CO2_STEP_ID,
         H2O_STEP_ID,
     )
@@ -223,7 +225,7 @@ def build_v1_5_resume_prefix_application_review(
         reasons.append("resume_gate_not_ready")
     if gate.get("ready_for_resume_state_application_review") is not True:
         reasons.append("resume_gate_not_ready_for_state_application_review")
-    if gate.get("next_step_id") != NEXT_STEP_ID:
+    if gate.get("next_step_id") != TEMPERATURE_STEP_ID:
         reasons.append("resume_gate_next_step_mismatch")
     if str(gate.get("run_id") or "") != str(plan.get("run_id") or ""):
         reasons.append("resume_gate_run_id_mismatch")
