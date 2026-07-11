@@ -92,6 +92,13 @@ def _source_status(payload: Mapping[str, Any]) -> str:
     return ""
 
 
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _manifest_payload(payload: Mapping[str, Any]) -> Mapping[str, Any]:
     manifest = payload.get("manifest")
     return manifest if isinstance(manifest, Mapping) else payload
@@ -271,8 +278,8 @@ def _batch_initialization_closeout_gate(
         and payload.get("database_import_allowed") is False
         and payload.get("not_real_acceptance_evidence") is True
     )
-    device_count = int(payload.get("device_count") or 0)
-    device_ready_count = int(payload.get("device_ready_count") or 0)
+    device_count = _safe_int(payload.get("device_count"))
+    device_ready_count = _safe_int(payload.get("device_ready_count"))
     ready = (
         source_status == "ready_for_mature_open_flow_from_initialization_index"
         and payload.get("batch_initialization_closeout_ready") is True

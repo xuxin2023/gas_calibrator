@@ -1238,6 +1238,26 @@ def test_formal_run_status_blocks_physical_flow_on_incomplete_batch_closeout(tmp
     assert model["formal_release_allowed"] is False
 
 
+def test_formal_run_status_fails_closed_on_malformed_batch_device_count(tmp_path: Path) -> None:
+    run_dir = tmp_path / "ready_run_with_malformed_batch_closeout"
+    _seed_ready_run(run_dir)
+    closeout_path = _seed_batch_initialization_closeout(run_dir, ready=True)
+    payload = json.loads(closeout_path.read_text(encoding="utf-8"))
+    payload["device_count"] = "six"
+    _write_json(closeout_path, payload)
+
+    model = build_v1_5_formal_run_status(
+        run_dir=run_dir,
+        batch_initialization_closeout_json=closeout_path,
+    )
+    gate = next(row for row in model["gates"] if row["gate_id"] == "batch_initialization_closeout")
+
+    assert gate["status"] == "review_required"
+    assert gate["blocks_physical_flow"] is True
+    assert model["current_stage"] == "batch_initialization_closeout"
+    assert model["can_continue_physical_flow"] is False
+
+
 def test_formal_run_status_blocks_physical_flow_on_route_recovery_blockers(tmp_path: Path) -> None:
     run_dir = tmp_path / "ready_run_with_unrecovered_route_physics"
     _seed_ready_run(run_dir)

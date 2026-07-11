@@ -18,7 +18,7 @@ python -m pytest tests\test_v1_5_batch_initialization_closeout_index.py tests\te
 Result:
 
 ```text
-125 passed, 1 warning in 204.23s
+126 passed, 1 warning in 175.80s
 ```
 
 The warning is the existing unregistered `v1_5_formal_gate` pytest marker.
