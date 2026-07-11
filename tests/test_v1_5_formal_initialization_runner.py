@@ -29,6 +29,14 @@ def _write_config(path):
     return path
 
 
+def _command_module(command):
+    values = list(command)
+    try:
+        return values[values.index("-m") + 1]
+    except (ValueError, IndexError):
+        return values[0] if values else ""
+
+
 def _write_top_level_sn_config(path):
     path.write_text(
         json.dumps(
@@ -552,7 +560,7 @@ def test_formal_initialization_executor_read_only_unlock_does_not_run_writers(tm
     assert any("probe_v1_5_getco_component_snapshot" in command for command in joined)
     assert any("run_v1_5_formal_route_readiness_probe" in command for command in joined)
     assert any("export_v1_5_initialization_readiness" in command for command in joined)
-    assert not any("controlled_write" in command for command in joined)
+    assert not any("controlled_write" in _command_module(command) for command in calls)
     assert not any("run_v1_5_temperature_senco78_neutral_controlled_write" in command for command in joined)
     by_step = {row.step_id: row for row in report.step_results}
     assert by_step["identity_and_getco_epoch0_snapshot"].status == "passed"
@@ -580,7 +588,7 @@ def test_formal_initialization_executor_blocks_controlled_writes_without_real_co
     )
 
     joined = [" ".join(command) for command in calls]
-    assert not any("controlled_write" in command for command in joined)
+    assert not any("controlled_write" in _command_module(command) for command in calls)
     by_step = {row.step_id: row for row in report.step_results}
     assert by_step["senco5_neutralization_gate"].status == "blocked"
     assert by_step["senco5_neutralization_gate"].reason == (

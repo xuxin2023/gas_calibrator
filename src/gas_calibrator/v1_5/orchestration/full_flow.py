@@ -1021,6 +1021,12 @@ def build_full_flow_plan(
     authoritative_resume_state_writer_blocked_executor_dir = (
         root / "authoritative_resume_state_writer_blocked_executor"
     )
+    authoritative_resume_state_write_authorization_dir = (
+        root / "authoritative_resume_state_write_authorization"
+    )
+    authoritative_resume_state_controlled_write_preflight_dir = (
+        root / "authoritative_resume_state_controlled_write_preflight"
+    )
     getco_dir = root / "coefficient_epoch_0_getco_snapshot"
     getco_readiness_dir = root / "identity_getco_readiness"
     aux_neutral_dir = root / "auxiliary_senco56789_neutralization"
@@ -2245,6 +2251,63 @@ def build_full_flow_plan(
 
     steps.append(
         FullFlowStep(
+            step_id="authoritative_resume_state_controlled_write_preflight",
+            title="Preflight a future controlled authoritative resume-state write",
+            phase="AUTHORITATIVE_RESUME_STATE_CONTROLLED_WRITE_PREFLIGHT",
+            tool_module=(
+                "gas_calibrator.tools.export_v1_5_authoritative_resume_state_controlled_write_preflight"
+            ),
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_authoritative_resume_state_controlled_write_preflight",
+                "--full-flow-plan-json",
+                root / "v1_5_full_flow_plan.json",
+                "--resume-prefix-application-review-json",
+                resume_prefix_application_review_dir
+                / "v1_5_resume_prefix_application_review.json",
+                "--authoritative-resume-state-writer-design-json",
+                authoritative_resume_state_writer_design_dir
+                / "v1_5_authoritative_resume_state_writer_design.json",
+                "--authoritative-resume-state-writer-blocked-executor-json",
+                authoritative_resume_state_writer_blocked_executor_dir
+                / "v1_5_authoritative_resume_state_writer_blocked_executor.json",
+                "--authorization-packet-json",
+                authoritative_resume_state_write_authorization_dir
+                / "v1_5_authoritative_resume_state_write_authorization.json",
+                "--output-dir",
+                authoritative_resume_state_controlled_write_preflight_dir,
+                "--fail-on-blocker",
+                "--fail-on-review-required",
+            ),
+            required_inputs=(
+                "canonical V1.5 full-flow plan",
+                "ready hash-bound resume-prefix application review",
+                "ready authoritative resume-state writer design",
+                "independently recomputed blocked-executor lock evidence",
+                "manual operator/reviewer/approver authorization packet bound to exact hashes",
+            ),
+            expected_outputs=(
+                "authoritative_resume_state_controlled_write_preflight/v1_5_resume_state_write_preflight.json",
+                "authoritative_resume_state_controlled_write_preflight/v1_5_resume_state_candidate_preview.json",
+                "authoritative_resume_state_controlled_write_preflight/v1_5_resume_state_write_preflight_checks.csv",
+                "authoritative_resume_state_controlled_write_preflight/v1_5_resume_state_write_preflight_summary.csv",
+                "authoritative_resume_state_controlled_write_preflight/V1_5_RESUME_STATE_WRITE_PREFLIGHT.md",
+            ),
+            physical_meaning=(
+                "Builds a deterministic candidate state, compares the current target with an authorized absent/SHA256 value, "
+                "and binds distinct operator/reviewer/approver approval without creating or replacing the authoritative state."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_before_future_authoritative_resume_state_controlled_writer",
+            notes=(
+                "The candidate is written only to a preview artifact; v1_5_full_flow_state.json remains read-only.",
+                "A first pass may expose the candidate hash; authorization must bind that exact hash before ready status.",
+                "Mature 0613 fitting and 0620/0621 physical-route implementations remain unchanged.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
             step_id="temperature_channel_fast_review",
             title="Review SENCO7/SENCO8 temperature input evidence",
             phase="TEMPERATURE_CHANNEL_REVIEW",
@@ -3192,6 +3255,9 @@ def build_full_flow_plan(
                 "--authoritative-resume-state-writer-blocked-executor-json",
                 authoritative_resume_state_writer_blocked_executor_dir
                 / "v1_5_authoritative_resume_state_writer_blocked_executor.json",
+                "--authoritative-resume-state-controlled-write-preflight-json",
+                authoritative_resume_state_controlled_write_preflight_dir
+                / "v1_5_resume_state_write_preflight.json",
                 "--getco-readiness-json",
                 getco_readiness_dir / "v1_5_getco_identity_readiness.json",
                 "--run-evidence-status-json",
@@ -3232,6 +3298,7 @@ def build_full_flow_plan(
                 "resume-prefix state-application review sidecar",
                 "authoritative resume-state writer design sidecar",
                 "authoritative resume-state writer blocked executor sidecar",
+                "authoritative resume-state controlled-write preflight sidecar",
                 "read-only COM minimal executor review sidecar",
                 "identity/GETCO readiness sidecar",
                 "pre-gas readiness sidecar",

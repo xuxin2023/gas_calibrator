@@ -22,6 +22,9 @@ from .v1_5_authoritative_resume_state_writer_design import (
 from .v1_5_authoritative_resume_state_writer_blocked_executor import (
     build_v1_5_authoritative_resume_state_writer_blocked_executor,
 )
+from .v1_5_authoritative_resume_state_controlled_write_preflight import (
+    build_v1_5_authoritative_resume_state_controlled_write_preflight,
+)
 from .v1_5_senco_artifact_authorization import validate_senco_artifact_authorization
 
 
@@ -864,6 +867,174 @@ def _authoritative_resume_state_writer_blocked_executor_gate(
         ),
         physical_meaning=(
             "Proves that resume-state review cannot create or replace state, open devices, control routes, write coefficients, or import a database."
+        ),
+        blocks_physical_flow=status in {MISSING, REVIEW_REQUIRED, BLOCKED},
+    )
+
+
+def _authoritative_resume_state_controlled_write_preflight_gate(
+    path: Path | None,
+    payload: Mapping[str, Any],
+    expected_blocked_executor_path: Path | None,
+) -> FormalRunGate:
+    source_status = _source_status(payload)
+    boundary_ok = (
+        payload.get("production_state") == "offline_controlled_write_preflight_only"
+        and payload.get("execution_supported") is False
+        and payload.get("execution_requested") is False
+        and payload.get("authoritative_state_write_allowed") is False
+        and payload.get("does_not_execute_commands") is True
+        and payload.get("writes_authoritative_state") is False
+        and payload.get("state_file_created") is False
+        and payload.get("state_file_replaced") is False
+        and payload.get("state_snapshot_created") is False
+        and payload.get("rollback_executed") is False
+        and payload.get("would_execute") is False
+        and payload.get("live_resume_execution_allowed") is False
+        and payload.get("route_authorization_still_required") is True
+        and payload.get("opens_com_ports") is False
+        and payload.get("controls_pressure") is False
+        and payload.get("controls_water_or_gas_routes") is False
+        and payload.get("connects_postgresql") is False
+        and payload.get("writes_sn") is False
+        and payload.get("writes_device_id") is False
+        and payload.get("writes_coefficients") is False
+        and payload.get("database_written") is False
+        and payload.get("formal_release_allowed") is False
+        and payload.get("database_import_allowed") is False
+        and payload.get("not_real_acceptance_evidence") is True
+    )
+    try:
+        blocked_path_bound = expected_blocked_executor_path is not None and Path(
+            str(
+                payload.get(
+                    "authoritative_resume_state_writer_blocked_executor_json"
+                )
+                or ""
+            )
+        ).resolve() == expected_blocked_executor_path.resolve()
+    except (OSError, RuntimeError):
+        blocked_path_bound = False
+    source_fields = (
+        ("full_flow_plan_json", "full_flow_plan_sha256"),
+        (
+            "resume_prefix_application_review_json",
+            "resume_prefix_application_review_sha256",
+        ),
+        (
+            "authoritative_resume_state_writer_design_json",
+            "authoritative_resume_state_writer_design_sha256",
+        ),
+        (
+            "authoritative_resume_state_writer_blocked_executor_json",
+            "authoritative_resume_state_writer_blocked_executor_sha256",
+        ),
+        ("authorization_packet_json", "authorization_packet_sha256"),
+    )
+    source_hashes_ok = all(
+        bool(payload.get(hash_field))
+        and _artifact_sha256(payload.get(path_field))
+        == str(payload.get(hash_field) or "")
+        for path_field, hash_field in source_fields
+    )
+    preview_path = Path(str(payload.get("candidate_state_preview_json") or ""))
+    preview_hash_ok = (
+        bool(payload.get("candidate_state_sha256"))
+        and bool(payload.get("candidate_state_preview_sha256"))
+        and _artifact_sha256(preview_path)
+        == str(payload.get("candidate_state_preview_sha256") or "")
+        == str(payload.get("candidate_state_sha256") or "")
+    )
+    recomputed: dict[str, Any] = {}
+    if source_hashes_ok and blocked_path_bound:
+        try:
+            recomputed = build_v1_5_authoritative_resume_state_controlled_write_preflight(
+                full_flow_plan_json=payload.get("full_flow_plan_json"),
+                resume_prefix_application_review_json=payload.get(
+                    "resume_prefix_application_review_json"
+                ),
+                authoritative_resume_state_writer_design_json=payload.get(
+                    "authoritative_resume_state_writer_design_json"
+                ),
+                authoritative_resume_state_writer_blocked_executor_json=(
+                    expected_blocked_executor_path
+                ),
+                authorization_packet_json=payload.get("authorization_packet_json"),
+            )
+        except (OSError, ValueError, json.JSONDecodeError):
+            recomputed = {}
+    exact_preflight_ok = bool(recomputed) and all(
+        payload.get(key) == recomputed.get(key)
+        for key in (
+            "overall_status",
+            "blocker_count",
+            "review_required_count",
+            "controlled_write_preflight_ready",
+            "run_id",
+            "full_flow_plan_json",
+            "full_flow_plan_sha256",
+            "resume_prefix_application_review_json",
+            "resume_prefix_application_review_sha256",
+            "authoritative_resume_state_writer_design_json",
+            "authoritative_resume_state_writer_design_sha256",
+            "authoritative_resume_state_writer_blocked_executor_json",
+            "authoritative_resume_state_writer_blocked_executor_sha256",
+            "authorization_packet_json",
+            "authorization_packet_sha256",
+            "authorization_id",
+            "authoritative_state_json_read_only",
+            "state_target_exists",
+            "observed_existing_state_sha256",
+            "expected_existing_state_sha256",
+            "candidate_state",
+            "candidate_state_sha256",
+        )
+    ) and payload.get("checks") == json.loads(json.dumps(recomputed.get("checks") or []))
+    ready = (
+        source_status == "ready_for_authoritative_resume_state_controlled_write_review"
+        and payload.get("controlled_write_preflight_ready") is True
+        and int(payload.get("blocker_count") or 0) == 0
+        and int(payload.get("review_required_count") or 0) == 0
+        and recomputed.get("controlled_write_preflight_ready") is True
+        and boundary_ok
+        and blocked_path_bound
+        and source_hashes_ok
+        and preview_hash_ok
+        and exact_preflight_ok
+    )
+    if not payload:
+        status = MISSING
+        reason = "authoritative resume-state controlled-write preflight missing"
+    elif not boundary_ok:
+        status = BLOCKED
+        reason = "authoritative resume-state controlled-write preflight boundary is not clean"
+    elif ready:
+        status = READY
+        reason = "candidate, current-state SHA256, and distinct authorization are bound while state writing remains disabled"
+    elif not blocked_path_bound or not source_hashes_ok:
+        status = BLOCKED
+        reason = "controlled-write preflight source path or hash missing or mismatched"
+    elif not preview_hash_ok:
+        status = BLOCKED
+        reason = "candidate state preview is missing or differs from the authorized candidate hash"
+    elif not exact_preflight_ok:
+        status = BLOCKED
+        reason = "controlled-write preflight differs from independently recomputed evidence"
+    else:
+        status = REVIEW_REQUIRED
+        reason = f"source_status={source_status or 'unknown'}"
+    return _gate(
+        gate_id="authoritative_resume_state_controlled_write_preflight",
+        title="Authoritative resume-state controlled-write preflight",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action=(
+            "Keep state writing locked. A separately reviewed atomic writer must consume this exact preflight and recheck the current-state SHA immediately before replacement."
+        ),
+        physical_meaning=(
+            "Binds exact candidate bytes, current target SHA256, and distinct authorization without creating, replacing, or snapshotting the authoritative state."
         ),
         blocks_physical_flow=status in {MISSING, REVIEW_REQUIRED, BLOCKED},
     )
@@ -2598,6 +2769,7 @@ def build_v1_5_formal_run_status(
     resume_prefix_application_review_json: str | Path | None = None,
     authoritative_resume_state_writer_design_json: str | Path | None = None,
     authoritative_resume_state_writer_blocked_executor_json: str | Path | None = None,
+    authoritative_resume_state_controlled_write_preflight_json: str | Path | None = None,
     getco_readiness_json: str | Path | None = None,
     run_evidence_status_json: str | Path | None = None,
     full_flow_closure_readiness_json: str | Path | None = None,
@@ -2717,6 +2889,11 @@ def build_v1_5_formal_run_status(
         authoritative_resume_state_writer_blocked_executor_json,
         "v1_5_authoritative_resume_state_writer_blocked_executor.json",
     )
+    authoritative_resume_state_controlled_write_preflight_path = _explicit_or_latest(
+        root,
+        authoritative_resume_state_controlled_write_preflight_json,
+        "v1_5_resume_state_write_preflight.json",
+    )
     getco_path = _explicit_or_latest(root, getco_readiness_json, "v1_5_getco_identity_readiness.json")
     run_status_path = _explicit_or_latest(root, run_evidence_status_json, "v1_5_run_evidence_status.json")
     closure_path = _explicit_or_latest(root, full_flow_closure_readiness_json, "v1_5_full_flow_closure_readiness.json")
@@ -2814,6 +2991,9 @@ def build_v1_5_formal_run_status(
     )
     authoritative_resume_state_writer_blocked_executor_payload = _load_json(
         authoritative_resume_state_writer_blocked_executor_path
+    )
+    authoritative_resume_state_controlled_write_preflight_payload = _load_json(
+        authoritative_resume_state_controlled_write_preflight_path
     )
     getco_payload = _load_json(getco_path)
     run_payload = _load_json(run_status_path)
@@ -3013,6 +3193,17 @@ def build_v1_5_formal_run_status(
                 authoritative_resume_state_writer_blocked_executor_path,
                 authoritative_resume_state_writer_blocked_executor_payload,
                 authoritative_resume_state_writer_design_path,
+            )
+        )
+    if (
+        authoritative_resume_state_controlled_write_preflight_path
+        or authoritative_resume_state_writer_blocked_executor_path
+    ):
+        gates.append(
+            _authoritative_resume_state_controlled_write_preflight_gate(
+                authoritative_resume_state_controlled_write_preflight_path,
+                authoritative_resume_state_controlled_write_preflight_payload,
+                authoritative_resume_state_writer_blocked_executor_path,
             )
         )
     if pressure_s9_readiness_index_path:
@@ -3322,6 +3513,11 @@ def build_v1_5_formal_run_status(
                 authoritative_resume_state_writer_blocked_executor_path
             )
             if authoritative_resume_state_writer_blocked_executor_path
+            else "",
+            "authoritative_resume_state_controlled_write_preflight_json": str(
+                authoritative_resume_state_controlled_write_preflight_path
+            )
+            if authoritative_resume_state_controlled_write_preflight_path
             else "",
             "getco_readiness_json": str(getco_path) if getco_path else "",
             "run_evidence_status_json": str(run_status_path) if run_status_path else "",

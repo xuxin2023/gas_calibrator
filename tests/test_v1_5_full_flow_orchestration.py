@@ -142,6 +142,15 @@ def test_full_flow_plan_keeps_pressure_and_temperature_before_components(tmp_pat
     assert step_ids.index("post_closeout_resume_prefix_application_review") < step_ids.index(
         "temperature_channel_fast_review"
     )
+    assert step_ids.index("authoritative_resume_state_writer_design") < step_ids.index(
+        "authoritative_resume_state_writer_blocked_executor"
+    )
+    assert step_ids.index("authoritative_resume_state_writer_blocked_executor") < step_ids.index(
+        "authoritative_resume_state_controlled_write_preflight"
+    )
+    assert step_ids.index("authoritative_resume_state_controlled_write_preflight") < step_ids.index(
+        "temperature_channel_fast_review"
+    )
     assert step_ids.index("post_closeout_resume_gate_snapshot") < step_ids.index("co2_open_flow_sampling")
     assert step_ids.index("post_closeout_resume_gate_snapshot") < step_ids.index("h2o_open_flow_sampling")
     assert step_ids.index("temperature_channel_fast_review") < step_ids.index("co2_open_flow_sampling")
@@ -1127,6 +1136,39 @@ def test_full_flow_plan_binds_final_batch_closeout_before_mature_open_flow(tmp_p
         in blocked_writer.expected_outputs
     )
 
+    controlled_preflight = next(
+        item
+        for item in plan.steps
+        if item.step_id == "authoritative_resume_state_controlled_write_preflight"
+    )
+    controlled_command = list(controlled_preflight.command)
+    assert controlled_preflight.tool_module == (
+        "gas_calibrator.tools.export_v1_5_authoritative_resume_state_controlled_write_preflight"
+    )
+    assert controlled_preflight.execution_mode == "offline_sidecar"
+    assert controlled_preflight.opens_com_ports is False
+    assert controlled_preflight.controls_pressure is False
+    assert controlled_preflight.controls_gas_route is False
+    assert controlled_preflight.controls_water_route is False
+    assert controlled_preflight.writes_device_id is False
+    assert controlled_preflight.writes_coefficients is False
+    assert _flag_value(controlled_command, "--authorization-packet-json") == str(
+        (
+            tmp_path
+            / "plan"
+            / "authoritative_resume_state_write_authorization"
+            / "v1_5_authoritative_resume_state_write_authorization.json"
+        ).resolve()
+    )
+    assert "--fail-on-blocker" in controlled_command
+    assert "--fail-on-review-required" in controlled_command
+    assert "--execute" not in controlled_command
+    assert "--write-state" not in controlled_command
+    assert (
+        "authoritative_resume_state_controlled_write_preflight/v1_5_resume_state_candidate_preview.json"
+        in controlled_preflight.expected_outputs
+    )
+
 
 def test_full_flow_plan_adds_no_write_post_run_coefficient_executor(tmp_path):
     config = tmp_path / "config.json"
@@ -1794,6 +1836,7 @@ def test_route_stage_remains_blocked_without_route_authorization(tmp_path):
             "post_closeout_resume_prefix_application_review",
             "authoritative_resume_state_writer_design",
             "authoritative_resume_state_writer_blocked_executor",
+            "authoritative_resume_state_controlled_write_preflight",
             "temperature_channel_fast_review",
         ],
         allow_real_com=True,

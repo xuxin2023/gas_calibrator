@@ -122,6 +122,11 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default="",
         help="Optional explicit authoritative resume-state writer blocked executor JSON.",
     )
+    parser.add_argument(
+        "--authoritative-resume-state-controlled-write-preflight-json",
+        default="",
+        help="Optional explicit authoritative resume-state controlled-write preflight JSON.",
+    )
     parser.add_argument("--getco-readiness-json", default="", help="Optional explicit identity/GETCO readiness JSON.")
     parser.add_argument("--run-evidence-status-json", default="", help="Optional explicit run evidence status JSON.")
     parser.add_argument(
@@ -244,6 +249,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             ),
             authoritative_resume_state_writer_blocked_executor_json=(
                 args.authoritative_resume_state_writer_blocked_executor_json or None
+            ),
+            authoritative_resume_state_controlled_write_preflight_json=(
+                args.authoritative_resume_state_controlled_write_preflight_json or None
             ),
             getco_readiness_json=args.getco_readiness_json or None,
             run_evidence_status_json=args.run_evidence_status_json or None,
