@@ -6,6 +6,9 @@ import pytest
 from gas_calibrator.tools.run_v1_5_formal_archive_closure import main as closure_main
 from gas_calibrator.validation.v1_5_canonical_evidence import write_canonical_v1_5_evidence_package
 from gas_calibrator.validation.v1_5_formal_archive_closure import build_v1_5_formal_archive_closure
+from gas_calibrator.validation.v1_5_formal_database_import_evidence_bundle import (
+    validate_v1_5_formal_database_import_evidence_bundle,
+)
 from gas_calibrator.validation.v1_5_senco_artifact_authorization import (
     write_senco_artifact_authorization,
 )
@@ -175,6 +178,12 @@ def test_formal_archive_closure_generates_reports_bundle_traceability_and_dry_ru
     assert index["formal_run_status"]["database_import_allowed"] is False
 
     final_bundle = json.loads(paths["evidence_bundle"].read_text(encoding="utf-8"))
+    bundle_ready, bundle_reasons, bundle_details = (
+        validate_v1_5_formal_database_import_evidence_bundle(final_bundle)
+    )
+    assert bundle_ready is True, bundle_reasons
+    assert bundle_details["schema"] == "v1_5_evidence_registry"
+    assert bundle_details["missing_artifact_roles"] == []
     report_types = {row["report_type"] for row in final_bundle["tables"]["reports"]}
     assert {"run_report", "technical_report", "formal_calibration_report", "report_model"}.issubset(
         report_types

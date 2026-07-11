@@ -79,9 +79,64 @@ def _archive_json(tmp_path: Path, *, ready: bool = True) -> Path:
 
 
 def _evidence_bundle_json(tmp_path: Path) -> Path:
+    run_id = "formal-run-001"
+    run_db_id = "run-db-001"
+    roles = (
+        "raw_samples",
+        "formal_plan_snapshot",
+        "pressure_reference_snapshot",
+        "pressure_channel_completion",
+        "run_evidence_status",
+        "formal_run_status",
+        "formal_calibration_report",
+    )
+    sample_files = [
+        {
+            "id": f"artifact-{index}",
+            "artifact_role": role,
+            "path": str((tmp_path / "evidence" / f"{role}.json").resolve()),
+            "sha256": f"{index + 1:x}" * 64,
+            "required": role
+            in {
+                "raw_samples",
+                "formal_plan_snapshot",
+                "pressure_reference_snapshot",
+                "pressure_channel_completion",
+            },
+        }
+        for index, role in enumerate(roles)
+    ]
     payload = {
-        "schema": "v1_5_formal_evidence_bundle_v1",
-        "tables": {"devices": [], "samples": [], "reports": []},
+        "schema": "v1_5_evidence_registry",
+        "schema_version": "001",
+        "created_at": "2026-07-11T00:00:00+00:00",
+        "run_id": run_id,
+        "run_db_id": run_db_id,
+        "tables": {
+            "runs": [
+                {
+                    "id": run_db_id,
+                    "run_id": run_id,
+                    "evidence_status": "ready_for_reviewer",
+                    "package_status": "ready_for_reviewer",
+                }
+            ],
+            "devices": [{"id": "device-001", "serial_number": "01260701"}],
+            "run_devices": [{"run_db_id": run_db_id, "device_id": "device-001"}],
+            "standard_gases": [{"id": "gas-001", "component": "co2"}],
+            "reference_certificates": [{"id": "reference-001"}],
+            "calibration_points": [{"id": "point-001", "component": "co2"}],
+            "sample_files": sample_files,
+            "qc_results": [{"id": "qc-001", "status": "pass"}],
+            "coefficient_snapshots": [],
+            "coefficient_candidates": [],
+            "coefficient_write_events": [],
+            "reports": [{"id": "report-001", "report_type": "formal_calibration_report"}],
+            "audit_events": [{"id": "audit-001", "event_type": "evidence_bundle_built"}],
+            "evidence_integrity_checks": [
+                {"check_name": "required_artifacts_hashed", "status": "pass", "severity": "error"}
+            ],
+        },
     }
     return _write_json(tmp_path / "archive" / "evidence_bundle.json", payload)
 
@@ -131,6 +186,9 @@ def test_formal_database_import_command_contract_ready_without_connecting(tmp_pa
     assert model["archive_closure_sha256"] == sha256_file(archive_json)
     assert model["senco_authorization_archive_binding_ready"] is True
     assert model["evidence_bundle_ready"] is True
+    assert model["evidence_bundle_schema_ready"] is True
+    assert model["evidence_bundle_schema"] == "v1_5_evidence_registry"
+    assert model["evidence_bundle_schema_version"] == "001"
     assert model["evidence_bundle_binding_ready"] is True
     assert model["evidence_bundle_sha256"] == sha256_file(bundle_json)
     assert model["command_contract_ready"] is True
@@ -149,6 +207,54 @@ def test_formal_database_import_command_contract_ready_without_connecting(tmp_pa
     assert _check(model, "senco_authorization_archive_binding_ready")["status"] == "ready"
     assert _check(model, "formal_evidence_bundle_ready")["status"] == "ready"
     assert _check(model, "formal_evidence_bundle_hash_bound")["status"] == "ready"
+
+
+def test_formal_database_import_command_contract_blocks_wrong_bundle_schema(tmp_path: Path) -> None:
+    authorization_json, preflight_json, archive_json, bundle_json = _authorization_json(tmp_path)
+    bundle = json.loads(bundle_json.read_text(encoding="utf-8"))
+    bundle["schema"] = "v1_5_formal_evidence_bundle_v1"
+    bundle_json.write_text(json.dumps(bundle, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    model = build_v1_5_formal_database_import_command_contract(
+        formal_database_import_authorization_json=authorization_json,
+        formal_database_import_preflight_json=preflight_json,
+        archive_closure_json=archive_json,
+        evidence_bundle_json=bundle_json,
+    )
+
+    assert model["overall_status"] == "blocked"
+    assert model["evidence_bundle_schema_ready"] is False
+    assert model["command_contract_ready"] is False
+    bundle_check = _check(model, "formal_evidence_bundle_ready")
+    assert bundle_check["status"] == "blocker"
+    assert "evidence_bundle_schema=v1_5_formal_evidence_bundle_v1" in bundle_check["reasons"]
+
+
+def test_formal_database_import_command_contract_blocks_missing_required_bundle_role(
+    tmp_path: Path,
+) -> None:
+    authorization_json, preflight_json, archive_json, bundle_json = _authorization_json(tmp_path)
+    bundle = json.loads(bundle_json.read_text(encoding="utf-8"))
+    bundle["tables"]["sample_files"] = [
+        row
+        for row in bundle["tables"]["sample_files"]
+        if row["artifact_role"] != "formal_run_status"
+    ]
+    bundle_json.write_text(json.dumps(bundle, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    model = build_v1_5_formal_database_import_command_contract(
+        formal_database_import_authorization_json=authorization_json,
+        formal_database_import_preflight_json=preflight_json,
+        archive_closure_json=archive_json,
+        evidence_bundle_json=bundle_json,
+    )
+
+    assert model["overall_status"] == "blocked"
+    assert model["evidence_bundle_schema_ready"] is False
+    bundle_check = _check(model, "formal_evidence_bundle_ready")
+    assert "evidence_bundle_required_artifact_role_missing:formal_run_status" in bundle_check[
+        "reasons"
+    ]
 
 
 def test_formal_database_import_command_contract_blocks_preflight_changed_after_authorization(
@@ -183,20 +289,22 @@ def test_formal_database_import_command_contract_blocks_missing_archive_binding(
     )
 
     assert model["overall_status"] == "blocked"
-    assert model["blocker_count"] == 3
-    assert model["review_required_count"] == 2
+    assert model["blocker_count"] == 4
+    assert model["review_required_count"] == 1
     assert model["authorization_ready"] is True
     assert model["preflight_ready"] is True
     assert model["archive_release_ready"] is False
     assert model["senco_authorization_archive_binding_ready"] is False
-    assert model["senco_authorization_archive_binding_ready"] is False
     assert model["evidence_bundle_ready"] is False
+    assert model["evidence_bundle_schema_ready"] is False
     assert model["command_contract_ready"] is False
     assert _check(model, "formal_archive_closure_ready")["status"] == "review_required"
     assert "archive_closure_missing" in _check(model, "formal_archive_closure_ready")["reasons"]
     assert _check(model, "senco_authorization_archive_binding_ready")["status"] == "blocker"
-    assert _check(model, "formal_evidence_bundle_ready")["status"] == "review_required"
-    assert "evidence_bundle_missing" in _check(model, "formal_evidence_bundle_ready")["reasons"]
+    assert _check(model, "formal_evidence_bundle_ready")["status"] == "blocker"
+    assert "evidence_bundle_missing_or_not_json_object" in _check(
+        model, "formal_evidence_bundle_ready"
+    )["reasons"]
 
 
 def test_formal_database_import_command_contract_blocks_missing_authorization(tmp_path: Path) -> None:
