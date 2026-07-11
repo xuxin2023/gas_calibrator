@@ -3,6 +3,7 @@ import hashlib
 import json
 from pathlib import Path
 
+import gas_calibrator.validation.v1_5_formal_run_status as formal_status_module
 from gas_calibrator.tools.export_v1_5_formal_run_status import main as export_status_main
 from gas_calibrator.validation.v1_5_authoritative_resume_state_writer_design import (
     write_v1_5_authoritative_resume_state_writer_design,
@@ -22,6 +23,10 @@ from gas_calibrator.validation.v1_5_formal_run_status import (
     build_v1_5_formal_run_status,
     render_v1_5_formal_run_status_markdown,
     write_v1_5_formal_run_status_outputs,
+)
+from gas_calibrator.validation.v1_5_authoritative_resume_state_post_write_verification import (
+    READY_STATUS as RESUME_STATE_POST_WRITE_READY_STATUS,
+    SCHEMA as RESUME_STATE_POST_WRITE_SCHEMA,
 )
 from gas_calibrator.validation.v1_5_senco_artifact_authorization import (
     WRITER_SCOPES,
@@ -3177,3 +3182,78 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
     )
     assert exported["database_import_allowed"] is False
     assert exported["full_production_auto_allowed"] is False
+# Resume-state verification is conditional: it becomes mandatory only after an
+# atomic state-write artifact exists.
+def test_formal_status_blocks_physical_resume_when_atomic_write_lacks_verification(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "run"
+    _seed_ready_run(root)
+    atomic = _write_json(
+        root / "resume_state" / "v1_5_resume_state_atomic_write.json",
+        {"schema": "v1_5_authoritative_resume_state_atomic_writer_v1"},
+    )
+    model = build_v1_5_formal_run_status(
+        run_dir=root,
+        authoritative_resume_state_atomic_write_json=atomic,
+    )
+    gate = next(
+        row
+        for row in model["gates"]
+        if row["gate_id"] == "authoritative_resume_state_post_write_verification"
+    )
+    assert gate["status"] == "missing"
+    assert gate["blocks_physical_flow"] is True
+    assert gate["release_gate"] is False
+    assert model["can_continue_physical_flow"] is False
+
+
+def test_resume_state_post_write_gate_accepts_exact_independent_recompute(
+    tmp_path: Path, monkeypatch
+) -> None:
+    atomic = _write_json(tmp_path / "v1_5_resume_state_atomic_write.json", {})
+    verification_path = tmp_path / "v1_5_resume_state_post_write_verification.json"
+    payload = {
+        "schema": RESUME_STATE_POST_WRITE_SCHEMA,
+        "overall_status": RESUME_STATE_POST_WRITE_READY_STATUS,
+        "post_write_verification_ready": True,
+        "blocker_count": 0,
+        "blocker_reasons": [],
+        "atomic_write_json": str(atomic.resolve()),
+        "atomic_write_sha256": "a" * 64,
+        "preflight_json": str(tmp_path / "preflight.json"),
+        "preflight_sha256": "b" * 64,
+        "writer_authorization_json": str(tmp_path / "authorization.json"),
+        "writer_authorization_sha256": "c" * 64,
+        "authoritative_state_json": str(tmp_path / "state.json"),
+        "authoritative_state_sha256": "d" * 64,
+        "candidate_state_preview_json": str(tmp_path / "candidate.json"),
+        "candidate_state_sha256": "d" * 64,
+        "opens_com_ports": False,
+        "controls_pressure": False,
+        "controls_water_or_gas_routes": False,
+        "writes_authoritative_state": False,
+        "writes_sn": False,
+        "writes_device_id": False,
+        "writes_coefficients": False,
+        "connects_postgresql": False,
+        "database_written": False,
+        "formal_release_allowed": False,
+        "database_import_allowed": False,
+        "not_real_acceptance_evidence": True,
+    }
+    _write_json(verification_path, payload)
+    monkeypatch.setattr(
+        formal_status_module,
+        "build_v1_5_authoritative_resume_state_post_write_verification",
+        lambda **_kwargs: dict(payload),
+    )
+    gate = formal_status_module._authoritative_resume_state_post_write_verification_gate(
+        verification_path,
+        payload,
+        atomic,
+    )
+    assert gate.status == "ready"
+    assert gate.blocks_physical_flow is False
+    assert gate.release_gate is False
+    assert gate.blocks_release is False
