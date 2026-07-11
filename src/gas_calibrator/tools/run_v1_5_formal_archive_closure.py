@@ -42,6 +42,14 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--location", default="")
     parser.add_argument("--calibration-date", default="")
     parser.add_argument("--uncertainty-json", default=None)
+    parser.add_argument(
+        "--senco-artifact-authorization-json",
+        default=None,
+        help=(
+            "Optional exact main SENCO artifact authorization JSON. When controlled-write evidence exists, "
+            "archive closure binds its authorization ID, writer scope, device set, and verified readback rows."
+        ),
+    )
     parser.add_argument("--db-mode", choices=("skip", "dry-run", "import"), default="dry-run")
     parser.add_argument("--dsn", default=None)
     parser.add_argument("--apply-migrations", action="store_true")
@@ -83,6 +91,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             location=args.location,
             calibration_date=args.calibration_date,
             uncertainty_json=args.uncertainty_json,
+            senco_artifact_authorization_json=args.senco_artifact_authorization_json,
             db_mode=args.db_mode,
             dsn=args.dsn,
             apply_db_migrations=args.apply_migrations,
