@@ -5,6 +5,7 @@ import pytest
 
 from gas_calibrator.tools import run_v1_5_h2o_senco6_linear_controlled_write as writer
 from gas_calibrator.validation.v1_5_artifact_hash_binding import write_artifact_hash_manifest
+from gas_calibrator.validation.v1_5_senco_artifact_authorization import write_senco_artifact_authorization
 
 
 def _write_json(path, payload):
@@ -60,6 +61,9 @@ def _precheck_dir(tmp_path, candidate_path):
             "artifact_hash_manifest_required": True,
             "artifact_hash_manifest_path": str((root / "main_senco_artifact_hash_manifest.json").resolve()),
             "artifact_hash_algorithm": "sha256",
+            "artifact_authorization_required": True,
+            "artifact_authorization_path": str((root / "main_senco_artifact_authorization.json").resolve()),
+            "artifact_authorization_schema": "v1_5_senco_artifact_authorization_v1",
         },
     )
     h2o_payload = root / "h2o_senco24_payload_preview.csv"
@@ -86,6 +90,15 @@ def _precheck_dir(tmp_path, candidate_path):
         source.write_text("status\npass\n", encoding="utf-8")
         artifacts[role] = source
     write_artifact_hash_manifest(root / "main_senco_artifact_hash_manifest.json", artifacts=artifacts)
+    write_senco_artifact_authorization(
+        root / "main_senco_artifact_authorization.json",
+        manifest_path=root / "main_senco_artifact_hash_manifest.json",
+        reviewer="reviewer-a",
+        approver="approver-b",
+        authorization_id="AUTH-TEST-004",
+        authorized_writer_scopes=("h2o_senco6_linear",),
+        authorized_device_ids=("022",),
+    )
     return root
 
 
@@ -253,6 +266,8 @@ def test_senco6_linear_writer_writes_decimal_payload_and_readback(monkeypatch, t
     meta = json.loads((out / "senco6_linear_write_meta.json").read_text(encoding="utf-8"))
     assert meta["artifact_hash_status"] == "pass"
     assert int(meta["artifact_hash_count"]) >= 10
+    assert meta["artifact_authorization_status"] == "pass"
+    assert meta["artifact_authorization_id"] == "AUTH-TEST-004"
 
 
 def test_senco6_linear_writer_refuses_replaced_candidate_before_open(monkeypatch, tmp_path):
@@ -286,6 +301,33 @@ def test_senco6_linear_writer_refuses_replaced_candidate_before_open(monkeypatch
             "reviewer-a",
             "--approver",
             "approver-b",
+        ]
+    )
+
+    assert rc == 2
+    assert _FakeGasAnalyzer.instances == {}
+
+
+def test_senco6_linear_writer_refuses_authorization_reviewer_mismatch_before_open(monkeypatch, tmp_path):
+    _FakeGasAnalyzer.instances = {}
+    monkeypatch.setattr(writer, "GasAnalyzer", _FakeGasAnalyzer)
+    cfg = tmp_path / "cfg.json"
+    candidates = tmp_path / "candidates.csv"
+    _write_json(cfg, _config(tmp_path))
+    _candidates(candidates)
+    precheck = _precheck_dir(tmp_path, candidates)
+    authorization_path = precheck / "main_senco_artifact_authorization.json"
+    authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+    authorization["reviewer"] = "reviewer-other"
+    authorization_path.write_text(json.dumps(authorization), encoding="utf-8")
+
+    rc = writer.main(
+        [
+            "--config", str(cfg), "--candidate-coefficients-csv", str(candidates),
+            "--main-senco-precheck-dir", str(precheck),
+            "--output-dir", str(tmp_path / "out_auth"), "--device-id", "022",
+            "--enable-senco6-write", "--operator-confirmation", writer.CONFIRMATION_TEXT,
+            "--reviewer", "reviewer-a", "--approver", "approver-b",
         ]
     )
 

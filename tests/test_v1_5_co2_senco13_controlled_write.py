@@ -6,6 +6,7 @@ from gas_calibrator.senco_format import rounded_senco_values
 from gas_calibrator.tools import run_v1_5_co2_senco13_controlled_rollback as rollback
 from gas_calibrator.tools import run_v1_5_co2_senco13_controlled_write as writer
 from gas_calibrator.validation.v1_5_artifact_hash_binding import write_artifact_hash_manifest
+from gas_calibrator.validation.v1_5_senco_artifact_authorization import write_senco_artifact_authorization
 
 
 def _write_json(path, payload):
@@ -78,6 +79,9 @@ def _write_formula_contract_pass(review_dir):
             "artifact_hash_manifest_required": True,
             "artifact_hash_manifest_path": str((review_dir / "main_senco_artifact_hash_manifest.json").resolve()),
             "artifact_hash_algorithm": "sha256",
+            "artifact_authorization_required": True,
+            "artifact_authorization_path": str((review_dir / "main_senco_artifact_authorization.json").resolve()),
+            "artifact_authorization_schema": "v1_5_senco_artifact_authorization_v1",
         },
     )
     artifacts = {
@@ -96,6 +100,15 @@ def _write_formula_contract_pass(review_dir):
         source.write_text("status\npass\n", encoding="utf-8")
         artifacts[role] = source
     write_artifact_hash_manifest(review_dir / "main_senco_artifact_hash_manifest.json", artifacts=artifacts)
+    write_senco_artifact_authorization(
+        review_dir / "main_senco_artifact_authorization.json",
+        manifest_path=review_dir / "main_senco_artifact_hash_manifest.json",
+        reviewer="reviewer-a",
+        approver="approver-b",
+        authorization_id="AUTH-TEST-001",
+        authorized_writer_scopes=("co2_senco13_pair",),
+        authorized_device_ids=("030", "022"),
+    )
 
 
 def _config(tmp_path):
@@ -346,6 +359,8 @@ def test_controlled_co2_senco13_pair_write_selected_only(monkeypatch, tmp_path):
     conclusion = _read_csv(out_dir / "co2_senco13_pair_write_conclusion.csv")[0]
     assert conclusion["artifact_hash_status"] == "pass"
     assert int(conclusion["artifact_hash_count"]) >= 8
+    assert conclusion["artifact_authorization_status"] == "pass"
+    assert conclusion["artifact_authorization_id"] == "AUTH-TEST-001"
     ga = _FakeGasAnalyzer.instances["COM36"]
     assert ga.coeff1 == [14881.5, -25610.4, 13458.5, -1521.12, 0.0, 0.0]
     assert ga.coeff3 == [20.6216, 0.0235468, -22.1346, 0.0, 0.0, 0.0]
@@ -463,6 +478,60 @@ def test_controlled_co2_senco13_write_refuses_replaced_review_artifact_before_op
             "reviewer-a",
             "--approver",
             "approver-b",
+        ]
+    )
+
+    assert rc == 2
+    assert _FakeGasAnalyzer.instances == {}
+
+
+def test_controlled_co2_senco13_write_refuses_authorization_reviewer_mismatch_before_open(monkeypatch, tmp_path):
+    _FakeGasAnalyzer.instances = {}
+    monkeypatch.setattr(writer, "GasAnalyzer", _FakeGasAnalyzer)
+    cfg_path = tmp_path / "cfg.json"
+    review_dir = tmp_path / "review"
+    review_dir.mkdir()
+    _write_json(cfg_path, _config(tmp_path))
+    _write_csv(review_dir / "candidate_senco_mapping_review.csv", _mapping_rows())
+    _write_formula_contract_pass(review_dir)
+    authorization_path = review_dir / "main_senco_artifact_authorization.json"
+    authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+    authorization["reviewer"] = "reviewer-other"
+    authorization_path.write_text(json.dumps(authorization), encoding="utf-8")
+
+    rc = writer.main(
+        [
+            "--config", str(cfg_path), "--review-dir", str(review_dir),
+            "--output-dir", str(tmp_path / "out_auth"), "--device-id", "030",
+            "--enable-senco13-write", "--operator-confirmation", writer.CONFIRMATION_TEXT,
+            "--reviewer", "reviewer-a", "--approver", "approver-b",
+        ]
+    )
+
+    assert rc == 2
+    assert _FakeGasAnalyzer.instances == {}
+
+
+def test_controlled_co2_senco13_write_refuses_unauthorized_device_before_open(monkeypatch, tmp_path):
+    _FakeGasAnalyzer.instances = {}
+    monkeypatch.setattr(writer, "GasAnalyzer", _FakeGasAnalyzer)
+    cfg_path = tmp_path / "cfg.json"
+    review_dir = tmp_path / "review"
+    review_dir.mkdir()
+    _write_json(cfg_path, _config(tmp_path))
+    _write_csv(review_dir / "candidate_senco_mapping_review.csv", _mapping_rows())
+    _write_formula_contract_pass(review_dir)
+    authorization_path = review_dir / "main_senco_artifact_authorization.json"
+    authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+    authorization["authorized_device_ids"] = ["022"]
+    authorization_path.write_text(json.dumps(authorization), encoding="utf-8")
+
+    rc = writer.main(
+        [
+            "--config", str(cfg_path), "--review-dir", str(review_dir),
+            "--output-dir", str(tmp_path / "out_device"), "--device-id", "030",
+            "--enable-senco13-write", "--operator-confirmation", writer.CONFIRMATION_TEXT,
+            "--reviewer", "reviewer-a", "--approver", "approver-b",
         ]
     )
 

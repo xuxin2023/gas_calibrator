@@ -8,6 +8,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 from .v1_5_artifact_hash_binding import validate_artifact_hash_manifest
+from .v1_5_senco_artifact_authorization import (
+    SCHEMA as ARTIFACT_AUTHORIZATION_SCHEMA,
+    validate_senco_artifact_authorization,
+)
 
 
 GLOBAL_CHECK = "fit_input_traceability_required_before_final_senco_review"
@@ -15,6 +19,7 @@ META_FILENAME = "main_senco_write_precheck_meta.json"
 CHECKS_FILENAME = "candidate_write_review_checks.csv"
 SUMMARY_FILENAME = "main_senco_write_precheck_summary.csv"
 HASH_MANIFEST_FILENAME = "main_senco_artifact_hash_manifest.json"
+ARTIFACT_AUTHORIZATION_FILENAME = "main_senco_artifact_authorization.json"
 
 
 def _device_id(value: Any) -> str:
@@ -36,6 +41,9 @@ def validate_final_senco_prewrite_gate(
     *,
     component: str,
     device_ids: Sequence[str],
+    reviewer: str,
+    approver: str,
+    writer_scope: str,
     required_artifact_paths: Mapping[str, str | Path] | None = None,
 ) -> Tuple[bool, List[str], Mapping[str, Any]]:
     component_key = str(component or "").strip().lower()
@@ -50,11 +58,13 @@ def validate_final_senco_prewrite_gate(
     checks_path = root / CHECKS_FILENAME
     summary_path = root / SUMMARY_FILENAME
     hash_manifest_path = root / HASH_MANIFEST_FILENAME
+    artifact_authorization_path = root / ARTIFACT_AUTHORIZATION_FILENAME
     for path, label in (
         (meta_path, "main_senco_precheck_meta_missing"),
         (checks_path, "candidate_write_review_checks_missing"),
         (summary_path, "main_senco_precheck_summary_missing"),
         (hash_manifest_path, "main_senco_artifact_hash_manifest_missing"),
+        (artifact_authorization_path, "main_senco_artifact_authorization_missing"),
     ):
         if not path.is_file():
             reasons.append(label)
@@ -90,6 +100,13 @@ def validate_final_senco_prewrite_gate(
         reasons.append("artifact_hash_manifest_path_mismatch_with_precheck_meta")
     if str(meta.get("artifact_hash_algorithm") or "").strip().lower() != "sha256":
         reasons.append("artifact_hash_algorithm_not_sha256")
+    if not _truthy(meta.get("artifact_authorization_required")):
+        reasons.append("artifact_authorization_not_required_by_precheck")
+    declared_authorization = str(meta.get("artifact_authorization_path") or "").strip()
+    if not declared_authorization or Path(declared_authorization).resolve() != artifact_authorization_path:
+        reasons.append("artifact_authorization_path_mismatch_with_precheck_meta")
+    if str(meta.get("artifact_authorization_schema") or "").strip() != ARTIFACT_AUTHORIZATION_SCHEMA:
+        reasons.append("artifact_authorization_schema_mismatch_with_precheck_meta")
     package_traceability_status = str(meta.get("fit_input_traceability_status") or "").strip().lower()
     if package_traceability_status not in {"pass", "blocked"}:
         reasons.append(f"fit_input_traceability_package_status_invalid:{package_traceability_status or 'missing'}")
@@ -165,6 +182,16 @@ def validate_final_senco_prewrite_gate(
     )
     if not hash_ok:
         reasons.extend(hash_reasons)
+    authorization_ok, authorization_reasons, authorization_detail = validate_senco_artifact_authorization(
+        artifact_authorization_path,
+        manifest_path=hash_manifest_path,
+        reviewer=reviewer,
+        approver=approver,
+        writer_scope=writer_scope,
+        device_ids=normalized_devices,
+    )
+    if not authorization_ok:
+        reasons.extend(authorization_reasons)
 
     detail = {
         "precheck_dir": str(root),
@@ -174,6 +201,11 @@ def validate_final_senco_prewrite_gate(
         "hash_manifest_path": str(hash_manifest_path),
         "artifact_hash_status": str(hash_detail.get("status") or "blocked"),
         "artifact_hash_count": int(hash_detail.get("artifact_count") or 0),
+        "artifact_authorization_path": str(artifact_authorization_path),
+        "artifact_authorization_status": str(authorization_detail.get("status") or "blocked"),
+        "artifact_authorization_id": str(authorization_detail.get("authorization_id") or ""),
+        "artifact_authorization_writer_scope": str(authorization_detail.get("writer_scope") or ""),
+        "artifact_authorized_device_ids": list(authorization_detail.get("authorized_device_ids") or ()),
         "component": component_key,
         "device_ids": normalized_devices,
         "package_fit_input_traceability_status": package_traceability_status,

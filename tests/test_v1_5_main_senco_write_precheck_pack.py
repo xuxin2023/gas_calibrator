@@ -239,6 +239,16 @@ def test_precheck_pack_generates_component_specific_main_commands(tmp_path):
         old_coefficients_path=_snapshot_path(tmp_path),
         co2_senco5_candidate_path=co2_senco5_candidate,
         h2o_senco6_candidate_path=h2o_senco6_candidate,
+        artifact_reviewer="reviewer-a",
+        artifact_approver="approver-b",
+        artifact_authorization_id="AUTH-PRECHECK-001",
+        authorized_writer_scopes=(
+            "co2_senco13_pair",
+            "h2o_senco24_pair",
+            "co2_senco5_linear",
+            "h2o_senco6_linear",
+        ),
+        authorized_device_ids=("091",),
         include_devices=("091",),
     )
 
@@ -295,6 +305,11 @@ def test_precheck_pack_generates_component_specific_main_commands(tmp_path):
     meta = json.loads(paths["meta"].read_text(encoding="utf-8"))
     assert meta["artifact_hash_manifest_required"] is True
     assert meta["artifact_hash_algorithm"] == "sha256"
+    assert meta["artifact_authorization_required"] is True
+    assert meta["artifact_authorization_status"] == "ready_for_controlled_writer_review"
+    authorization = json.loads(paths["artifact_authorization"].read_text(encoding="utf-8"))
+    assert authorization["overall_status"] == "ready_for_controlled_writer_review"
+    assert authorization["authorization_id"] == "AUTH-PRECHECK-001"
 
 
 def test_precheck_pack_blocks_actual_write_when_old_snapshot_missing(tmp_path):
@@ -413,6 +428,18 @@ def test_precheck_pack_cli_writes_meta_and_chinese_report(tmp_path):
             str(output_dir),
             "--include-device-id",
             "091",
+            "--artifact-reviewer",
+            "reviewer-a",
+            "--artifact-approver",
+            "approver-b",
+            "--artifact-authorization-id",
+            "AUTH-CLI-001",
+            "--authorized-writer-scope",
+            "co2_senco13_pair",
+            "--authorized-writer-scope",
+            "h2o_senco24_pair",
+            "--authorized-device-id",
+            "091",
         ]
     )
 
@@ -423,5 +450,12 @@ def test_precheck_pack_cli_writes_meta_and_chinese_report(tmp_path):
     assert meta["writes_senco"] is False
     assert meta["fit_input_traceability_required"] is True
     assert meta["fit_input_traceability_status"] == "pass"
+    authorization = json.loads(
+        (output_dir / "main_senco_artifact_authorization.json").read_text(encoding="utf-8")
+    )
+    assert authorization["overall_status"] == "ready_for_controlled_writer_review"
+    assert authorization["authorization_id"] == "AUTH-CLI-001"
     report = (output_dir / "main_senco_write_precheck_pack_zh.md").read_text(encoding="utf-8")
     assert "V1.5 主系数写入前评审包" in report
+    assert "工件授权绑定" in report
+    assert "AUTH-CLI-001" in report
