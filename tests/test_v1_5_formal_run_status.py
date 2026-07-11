@@ -430,6 +430,7 @@ def _seed_formal_database_import_command_contract(
             "archive_closure_index_binding_ready": archive_release_ready,
             "senco_authorization_archive_binding_ready": archive_release_ready,
             "evidence_bundle_ready": evidence_bundle_ready,
+            "evidence_bundle_schema_ready": evidence_bundle_ready,
             "evidence_bundle_binding_ready": evidence_bundle_ready,
             "command_contract_ready": command_contract_ready,
             "connects_postgresql": False,
@@ -477,6 +478,7 @@ def _seed_formal_database_import_blocked_executor(
                 blocked_executor_ready and side_effect_lock_clean
             ),
             "evidence_bundle_binding_ready": blocked_executor_ready and side_effect_lock_clean,
+            "evidence_bundle_schema_ready": blocked_executor_ready and side_effect_lock_clean,
             "archive_closure_index_binding_ready": (
                 blocked_executor_ready and side_effect_lock_clean
             ),
@@ -527,6 +529,7 @@ def _seed_formal_database_import_controlled_executor_design(
             "database_import_authorization_binding_ready": side_effect_lock_clean,
             "database_import_preflight_binding_ready": side_effect_lock_clean,
             "evidence_bundle_binding_ready": side_effect_lock_clean,
+            "evidence_bundle_schema_ready": side_effect_lock_clean,
             "archive_closure_index_binding_ready": side_effect_lock_clean,
             "senco_authorization_archive_binding_ready": side_effect_lock_clean,
             "real_import_execution_allowed": False,

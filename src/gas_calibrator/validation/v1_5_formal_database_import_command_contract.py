@@ -25,6 +25,9 @@ from .v1_5_formal_database_import_input_binding import (
     snapshot_v1_5_database_import_input,
     validate_v1_5_database_import_input_binding,
 )
+from .v1_5_formal_database_import_evidence_bundle import (
+    validate_v1_5_formal_database_import_evidence_bundle,
+)
 
 
 SCHEMA = "v1_5_formal_database_import_command_contract_v1"
@@ -223,16 +226,6 @@ def _archive_ready(payload: Mapping[str, Any]) -> tuple[bool, list[str], str]:
     return not reasons, reasons, "ready" if not reasons else "review_required"
 
 
-def _evidence_bundle_ready(payload: Mapping[str, Any]) -> tuple[bool, list[str], str]:
-    reasons: list[str] = []
-    if not payload:
-        reasons.append("evidence_bundle_missing")
-        return False, reasons, "review_required"
-    if not isinstance(payload, Mapping):
-        reasons.append("evidence_bundle_not_json_object")
-    return not reasons, reasons, "ready" if not reasons else "review_required"
-
-
 def build_v1_5_formal_database_import_command_contract(
     *,
     formal_database_import_authorization_json: str | Path | None = None,
@@ -425,18 +418,23 @@ def build_v1_5_formal_database_import_command_contract(
         )
     )
 
-    evidence_bundle_ok, evidence_reasons, evidence_status = _evidence_bundle_ready(evidence_bundle_payload)
+    evidence_bundle_ok, evidence_reasons, evidence_details = (
+        validate_v1_5_formal_database_import_evidence_bundle(evidence_bundle_payload)
+    )
     checks.append(
         _check(
             check="formal_evidence_bundle_ready",
-            status=evidence_status,
+            status="ready" if evidence_bundle_ok else "blocker",
             evidence_role="required_import_payload",
             reasons=evidence_reasons,
-            physical_meaning="The import command must consume the frozen evidence bundle, not scan a mutable run folder.",
-            next_action="Build or review the formal evidence bundle before a controlled import command.",
+            physical_meaning=(
+                "The import command must consume a complete V1.5 evidence registry with the formal run, "
+                "pressure, raw-sample, status, and report roles required for traceable database import."
+            ),
+            next_action="Rebuild the formal evidence bundle until its schema, tables, identities, roles, and integrity checks pass.",
             details={
                 "source_path": str(evidence_bundle_path) if evidence_bundle_path else "",
-                "bundle_schema": evidence_bundle_payload.get("schema", ""),
+                **evidence_details,
             },
         )
     )
@@ -526,6 +524,10 @@ def build_v1_5_formal_database_import_command_contract(
         "archive_closure_json": str(archive_path) if archive_path else "",
         "evidence_bundle_json": str(evidence_bundle_path) if evidence_bundle_path else "",
         "evidence_bundle_sha256": evidence_binding_detail.get("current_sha256", ""),
+        "evidence_bundle_schema_ready": evidence_bundle_ok,
+        "evidence_bundle_schema": evidence_details.get("schema", ""),
+        "evidence_bundle_schema_version": evidence_details.get("schema_version", ""),
+        "evidence_bundle_present_artifact_roles": evidence_details.get("present_artifact_roles", []),
         "evidence_bundle_binding_ready": evidence_binding_ok and evidence_bundle_ok,
         "dsn_env": dsn_env_name,
         "requested_command_module": command_module,
@@ -611,6 +613,9 @@ def write_v1_5_formal_database_import_command_contract_outputs(
                     "senco_authorization_archive_binding_ready"
                 ),
                 "evidence_bundle_ready": model.get("evidence_bundle_ready"),
+                "evidence_bundle_schema_ready": model.get("evidence_bundle_schema_ready"),
+                "evidence_bundle_schema": model.get("evidence_bundle_schema"),
+                "evidence_bundle_schema_version": model.get("evidence_bundle_schema_version"),
                 "evidence_bundle_binding_ready": model.get("evidence_bundle_binding_ready"),
                 "evidence_bundle_sha256": model.get("evidence_bundle_sha256"),
                 "command_contract_ready": model.get("command_contract_ready"),
@@ -639,6 +644,9 @@ def write_v1_5_formal_database_import_command_contract_outputs(
         f"- database_import_preflight_binding_ready: `{model.get('database_import_preflight_binding_ready')}`",
         f"- formal_database_import_preflight_sha256: `{model.get('formal_database_import_preflight_sha256')}`",
         f"- evidence_bundle_binding_ready: `{model.get('evidence_bundle_binding_ready')}`",
+        f"- evidence_bundle_schema_ready: `{model.get('evidence_bundle_schema_ready')}`",
+        f"- evidence_bundle_schema: `{model.get('evidence_bundle_schema')}`",
+        f"- evidence_bundle_schema_version: `{model.get('evidence_bundle_schema_version')}`",
         f"- evidence_bundle_sha256: `{model.get('evidence_bundle_sha256')}`",
         f"- senco_authorization_archive_binding_ready: `{model.get('senco_authorization_archive_binding_ready')}`",
         f"- real_import_execution_allowed: `{model.get('real_import_execution_allowed')}`",

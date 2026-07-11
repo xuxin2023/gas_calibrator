@@ -46,6 +46,9 @@ def _blocked_executor_json(tmp_path: Path) -> Path:
             ),
             "formal_database_import_preflight_sha256": "d" * 64,
             "evidence_bundle_binding_ready": True,
+            "evidence_bundle_schema_ready": True,
+            "evidence_bundle_schema": "v1_5_evidence_registry",
+            "evidence_bundle_schema_version": "001",
             "evidence_bundle_json": str((tmp_path / "archive" / "evidence_bundle.json").resolve()),
             "evidence_bundle_sha256": "e" * 64,
             "formal_database_import_authorization_json": str(
@@ -86,6 +89,8 @@ def test_controlled_executor_design_is_offline_and_execution_blocked(tmp_path: P
     assert manifest["database_import_authorization_binding_ready"] is True
     assert manifest["database_import_preflight_binding_ready"] is True
     assert manifest["evidence_bundle_binding_ready"] is True
+    assert manifest["evidence_bundle_schema_ready"] is True
+    assert manifest["evidence_bundle_schema"] == "v1_5_evidence_registry"
     assert gates["design_only_no_connect"]["status"] == "pass"
     assert gates["future_execute_still_blocked"]["status"] == "pass"
 
@@ -217,6 +222,7 @@ def test_controlled_executor_design_reviews_unbound_preflight_or_evidence_bundle
     payload = json.loads(blocked_executor.read_text(encoding="utf-8"))
     payload["database_import_preflight_binding_ready"] = False
     payload["evidence_bundle_binding_ready"] = False
+    payload["evidence_bundle_schema_ready"] = False
     blocked_executor.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     tables = build_v1_5_formal_database_import_controlled_executor_design(
@@ -228,3 +234,4 @@ def test_controlled_executor_design_reviews_unbound_preflight_or_evidence_bundle
     evidence = gates["blocked_executor_consumed"]["evidence"]
     assert "blocked_executor_database_import_preflight_binding_not_ready" in evidence
     assert "blocked_executor_evidence_bundle_binding_not_ready" in evidence
+    assert "blocked_executor_evidence_bundle_schema_not_ready" in evidence

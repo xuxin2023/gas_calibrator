@@ -23,6 +23,9 @@ from .v1_5_formal_database_import_archive_binding import (
     validate_v1_5_database_import_archive_binding,
 )
 from .v1_5_formal_database_import_input_binding import validate_v1_5_database_import_input_binding
+from .v1_5_formal_database_import_evidence_bundle import (
+    validate_v1_5_formal_database_import_evidence_bundle,
+)
 
 
 SCHEMA = "v1_5_formal_database_import_blocked_executor_v1"
@@ -131,6 +134,7 @@ def _contract_reasons(payload: Mapping[str, Any]) -> list[str]:
         "archive_closure_index_binding_ready",
         "senco_authorization_archive_binding_ready",
         "evidence_bundle_ready",
+        "evidence_bundle_schema_ready",
         "evidence_bundle_binding_ready",
     ):
         if payload.get(field) is not True:
@@ -193,6 +197,7 @@ def build_v1_5_formal_database_import_blocked_executor(
     evidence_bundle_path = Path(evidence_bundle_json).resolve() if evidence_bundle_json else None
     contract = _load_json(contract_path)
     archive_payload = _load_json(archive_path)
+    evidence_bundle_payload = _load_json(evidence_bundle_path)
     dsn_env_name = str(dsn_env or DEFAULT_DSN_ENV).strip() or DEFAULT_DSN_ENV
 
     checks: list[FormalDatabaseImportBlockedExecutorCheck] = []
@@ -214,6 +219,24 @@ def build_v1_5_formal_database_import_blocked_executor(
                 "source_status": contract.get("overall_status", ""),
                 "requested_command_module": contract.get("requested_command_module", ""),
             },
+        )
+    )
+
+    evidence_schema_ok, evidence_schema_reasons, evidence_schema_details = (
+        validate_v1_5_formal_database_import_evidence_bundle(evidence_bundle_payload)
+    )
+    checks.append(
+        _check(
+            check="formal_evidence_bundle_schema_and_roles",
+            status="ready" if evidence_schema_ok else "review_required",
+            evidence_role="required_structured_import_payload",
+            reasons=evidence_schema_reasons,
+            physical_meaning=(
+                "The blocked executor independently revalidates the frozen bundle schema and required artifact roles "
+                "instead of trusting a boolean copied from the command contract."
+            ),
+            next_action="Rebuild the evidence bundle and command contract after any schema or artifact-role failure.",
+            details=evidence_schema_details,
         )
     )
 
@@ -458,7 +481,13 @@ def build_v1_5_formal_database_import_blocked_executor(
         "archive_closure_index_binding_ready": archive_index_ok,
         "evidence_bundle_json": str(evidence_bundle_path) if evidence_bundle_path else "",
         "evidence_bundle_sha256": evidence_binding_detail.get("current_sha256", ""),
-        "evidence_bundle_binding_ready": evidence_binding_ok,
+        "evidence_bundle_schema_ready": evidence_schema_ok,
+        "evidence_bundle_schema": evidence_schema_details.get("schema", ""),
+        "evidence_bundle_schema_version": evidence_schema_details.get("schema_version", ""),
+        "evidence_bundle_present_artifact_roles": evidence_schema_details.get(
+            "present_artifact_roles", []
+        ),
+        "evidence_bundle_binding_ready": evidence_binding_ok and evidence_schema_ok,
         "senco_authorization_archive_binding_ready": binding_ok,
         "senco_authorization_archive_binding_json": binding_detail.get("binding_path", ""),
         "senco_authorization_archive_binding_sha256": binding_detail.get("binding_sha256", ""),
@@ -519,6 +548,9 @@ def write_v1_5_formal_database_import_blocked_executor_outputs(
                     "formal_database_import_preflight_sha256"
                 ),
                 "evidence_bundle_binding_ready": model.get("evidence_bundle_binding_ready"),
+                "evidence_bundle_schema_ready": model.get("evidence_bundle_schema_ready"),
+                "evidence_bundle_schema": model.get("evidence_bundle_schema"),
+                "evidence_bundle_schema_version": model.get("evidence_bundle_schema_version"),
                 "evidence_bundle_sha256": model.get("evidence_bundle_sha256"),
                 "archive_closure_index_binding_ready": model.get(
                     "archive_closure_index_binding_ready"
@@ -549,6 +581,9 @@ def write_v1_5_formal_database_import_blocked_executor_outputs(
         f"- database_import_preflight_binding_ready: `{model.get('database_import_preflight_binding_ready')}`",
         f"- formal_database_import_preflight_sha256: `{model.get('formal_database_import_preflight_sha256')}`",
         f"- evidence_bundle_binding_ready: `{model.get('evidence_bundle_binding_ready')}`",
+        f"- evidence_bundle_schema_ready: `{model.get('evidence_bundle_schema_ready')}`",
+        f"- evidence_bundle_schema: `{model.get('evidence_bundle_schema')}`",
+        f"- evidence_bundle_schema_version: `{model.get('evidence_bundle_schema_version')}`",
         f"- evidence_bundle_sha256: `{model.get('evidence_bundle_sha256')}`",
         f"- archive_closure_index_binding_ready: `{model.get('archive_closure_index_binding_ready')}`",
         f"- archive_closure_sha256: `{model.get('archive_closure_sha256')}`",
