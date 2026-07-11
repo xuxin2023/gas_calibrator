@@ -24,6 +24,9 @@ RESUME_GATE_STEP_ID = "post_closeout_resume_gate_snapshot"
 APPLICATION_STEP_ID = "post_closeout_resume_prefix_application_review"
 WRITER_DESIGN_STEP_ID = "authoritative_resume_state_writer_design"
 NEXT_STEP_ID = "authoritative_resume_state_writer_blocked_executor"
+CONTROLLED_WRITE_PREFLIGHT_STEP_ID = (
+    "authoritative_resume_state_controlled_write_preflight"
+)
 TEMPERATURE_STEP_ID = "temperature_channel_fast_review"
 CO2_STEP_ID = "co2_open_flow_sampling"
 H2O_STEP_ID = "h2o_open_flow_sampling"
@@ -198,6 +201,7 @@ def build_v1_5_authoritative_resume_state_writer_design(
         APPLICATION_STEP_ID,
         WRITER_DESIGN_STEP_ID,
         NEXT_STEP_ID,
+        CONTROLLED_WRITE_PREFLIGHT_STEP_ID,
         TEMPERATURE_STEP_ID,
         CO2_STEP_ID,
         H2O_STEP_ID,
@@ -213,12 +217,14 @@ def build_v1_5_authoritative_resume_state_writer_design(
         application_index = step_ids.index(APPLICATION_STEP_ID)
         writer_index = step_ids.index(WRITER_DESIGN_STEP_ID)
         next_index = step_ids.index(NEXT_STEP_ID)
+        preflight_index = step_ids.index(CONTROLLED_WRITE_PREFLIGHT_STEP_ID)
         temperature_index = step_ids.index(TEMPERATURE_STEP_ID)
         if not (
             application_index == gate_index + 1
             and writer_index == application_index + 1
             and next_index == writer_index + 1
-            and temperature_index == next_index + 1
+            and preflight_index == next_index + 1
+            and temperature_index == preflight_index + 1
         ):
             reasons.append("authoritative_writer_design_steps_not_adjacent")
 

@@ -11,7 +11,7 @@ The stub consumes and independently verifies:
 - canonical full-flow plan path and SHA256
 - canonical resume-prefix application review path and SHA256
 - canonical #91 writer-design path and SHA256
-- exact step adjacency: design, blocked executor, temperature review
+- exact step adjacency: design, blocked executor, controlled-write preflight, temperature review
 - independently recomputed #91 design payload
 
 Same-content design copies at alternate paths are rejected when the full-flow plan names a different canonical artifact.
@@ -48,3 +48,5 @@ A normal no-unlock invocation writes only lock evidence:
 - `database_import_allowed=false`
 
 The 0613 fitting baseline and 0620/0621 mature CO2/H2O physical-route implementations remain unchanged.
+
+The next stage is an offline controlled-write preflight. It may read the canonical state target and generate a separate candidate preview, but it still cannot create or replace the authoritative state.

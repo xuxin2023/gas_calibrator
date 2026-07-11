@@ -116,7 +116,9 @@ def test_blocked_executor_recomputes_design_and_keeps_state_unwritten(tmp_path: 
     assert model["controls_water_or_gas_routes"] is False
     assert model["writes_coefficients"] is False
     assert model["connects_postgresql"] is False
-    assert model["next_step_id_after_blocked_executor_review"] == "temperature_channel_fast_review"
+    assert model["next_step_id_after_blocked_executor_review"] == (
+        "authoritative_resume_state_controlled_write_preflight"
+    )
     assert not Path(model["proposed_authoritative_state_json_recorded_only"]).exists()
     checks = {row["check"]: row for row in model["checks"]}
     assert checks["blocked_executor_bound_to_canonical_plan"]["status"] == "ready"

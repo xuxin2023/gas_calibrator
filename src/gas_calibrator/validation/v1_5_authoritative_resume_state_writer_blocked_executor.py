@@ -23,7 +23,8 @@ REVIEW_STATUS = "review_required"
 
 DESIGN_STEP_ID = "authoritative_resume_state_writer_design"
 BLOCKED_EXECUTOR_STEP_ID = "authoritative_resume_state_writer_blocked_executor"
-NEXT_STEP_ID = "temperature_channel_fast_review"
+NEXT_STEP_ID = "authoritative_resume_state_controlled_write_preflight"
+TEMPERATURE_STEP_ID = "temperature_channel_fast_review"
 BLOCKED_EXECUTOR_MODULE = (
     "gas_calibrator.tools.run_v1_5_authoritative_resume_state_writer_blocked_executor"
 )
@@ -193,7 +194,12 @@ def _plan_binding_reasons(
     step_ids = [str(row.get("step_id") or "") for row in steps]
     if len(step_ids) != len(set(step_ids)):
         reasons.append("duplicate_full_flow_step_ids")
-    required = (DESIGN_STEP_ID, BLOCKED_EXECUTOR_STEP_ID, NEXT_STEP_ID)
+    required = (
+        DESIGN_STEP_ID,
+        BLOCKED_EXECUTOR_STEP_ID,
+        NEXT_STEP_ID,
+        TEMPERATURE_STEP_ID,
+    )
     for step_id in required:
         if step_id not in step_ids:
             reasons.append(f"required_step_missing:{step_id}")
@@ -201,7 +207,12 @@ def _plan_binding_reasons(
         design_index = step_ids.index(DESIGN_STEP_ID)
         blocked_index = step_ids.index(BLOCKED_EXECUTOR_STEP_ID)
         next_index = step_ids.index(NEXT_STEP_ID)
-        if blocked_index != design_index + 1 or next_index != blocked_index + 1:
+        temperature_index = step_ids.index(TEMPERATURE_STEP_ID)
+        if not (
+            blocked_index == design_index + 1
+            and next_index == blocked_index + 1
+            and temperature_index == next_index + 1
+        ):
             reasons.append("authoritative_state_blocked_executor_steps_not_adjacent")
     by_id = {str(row.get("step_id") or ""): row for row in steps}
     step = by_id.get(BLOCKED_EXECUTOR_STEP_ID) or {}

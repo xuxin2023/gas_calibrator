@@ -11,6 +11,13 @@ from gas_calibrator.validation.v1_5_authoritative_resume_state_writer_blocked_ex
     build_v1_5_authoritative_resume_state_writer_blocked_executor,
     write_v1_5_authoritative_resume_state_writer_blocked_executor_outputs,
 )
+from gas_calibrator.validation.v1_5_authoritative_resume_state_controlled_write_preflight import (
+    AUTHORIZATION_OPERATION,
+    AUTHORIZATION_SCHEMA,
+    CONFIRMATION_TEMPLATE,
+    build_v1_5_authoritative_resume_state_controlled_write_preflight,
+    write_v1_5_authoritative_resume_state_controlled_write_preflight_outputs,
+)
 from gas_calibrator.validation.v1_5_formal_run_status import (
     build_v1_5_formal_run_status,
     render_v1_5_formal_run_status_markdown,
@@ -198,7 +205,16 @@ def _seed_post_closeout_resume_gate(root: Path, *, ready: bool = True) -> Path:
     plan_path = _write_json(
         root / "v1_5_full_flow_plan.json",
         {
+            "schema": "v1_5_full_calibration_flow_plan_v0",
+            "contract": "pressure_first_temperature_review_then_open_flow_components",
             "run_id": "status-test",
+            "created_at": "2026-07-11T12:00:00Z",
+            "config_path": str((root / "config.json").resolve()),
+            "output_dir": str(root.resolve()),
+            "dry_run_only": True,
+            "safety_contract": {},
+            "coefficient_epoch_contract": {},
+            "physical_order": [],
             "steps": [
                 {"step_id": "batch_initialization_closeout_index"},
                 {"step_id": "post_closeout_resume_gate_snapshot"},
@@ -293,6 +309,62 @@ def _seed_post_closeout_resume_gate(root: Path, *, ready: bool = True) -> Path:
                     ],
                     "execution_mode": "offline_blocked_stub",
                 },
+                {
+                    "step_id": "authoritative_resume_state_controlled_write_preflight",
+                    "tool_module": (
+                        "gas_calibrator.tools."
+                        "export_v1_5_authoritative_resume_state_controlled_write_preflight"
+                    ),
+                    "command": [
+                        "python",
+                        "-m",
+                        "gas_calibrator.tools.export_v1_5_authoritative_resume_state_controlled_write_preflight",
+                        "--full-flow-plan-json",
+                        str((root / "v1_5_full_flow_plan.json").resolve()),
+                        "--resume-prefix-application-review-json",
+                        str(
+                            (
+                                root
+                                / "resume_prefix_application_review"
+                                / "v1_5_resume_prefix_application_review.json"
+                            ).resolve()
+                        ),
+                        "--authoritative-resume-state-writer-design-json",
+                        str(
+                            (
+                                root
+                                / "authoritative_resume_state_writer_design"
+                                / "v1_5_authoritative_resume_state_writer_design.json"
+                            ).resolve()
+                        ),
+                        "--authoritative-resume-state-writer-blocked-executor-json",
+                        str(
+                            (
+                                root
+                                / "authoritative_resume_state_writer_blocked_executor"
+                                / "v1_5_authoritative_resume_state_writer_blocked_executor.json"
+                            ).resolve()
+                        ),
+                        "--authorization-packet-json",
+                        str(
+                            (
+                                root
+                                / "authoritative_resume_state_write_authorization"
+                                / "v1_5_authoritative_resume_state_write_authorization.json"
+                            ).resolve()
+                        ),
+                        "--output-dir",
+                        str(
+                            (
+                                root
+                                / "authoritative_resume_state_controlled_write_preflight"
+                            ).resolve()
+                        ),
+                        "--fail-on-blocker",
+                        "--fail-on-review-required",
+                    ],
+                    "execution_mode": "offline_sidecar",
+                },
                 {"step_id": "temperature_channel_fast_review"},
                 {"step_id": "co2_open_flow_sampling"},
                 {"step_id": "h2o_open_flow_sampling"},
@@ -361,9 +433,79 @@ def _seed_post_closeout_resume_gate(root: Path, *, ready: bool = True) -> Path:
         resume_prefix_application_review_json=application_path,
         authoritative_resume_state_writer_design_json=design_path,
     )
-    write_v1_5_authoritative_resume_state_writer_blocked_executor_outputs(
+    blocked_path = write_v1_5_authoritative_resume_state_writer_blocked_executor_outputs(
         blocked_model,
         root / "authoritative_resume_state_writer_blocked_executor",
+    )["json"]
+    authorization_path = (
+        root
+        / "authoritative_resume_state_write_authorization"
+        / "v1_5_authoritative_resume_state_write_authorization.json"
+    )
+    authorization = {
+        "schema": AUTHORIZATION_SCHEMA,
+        "requested_operation": AUTHORIZATION_OPERATION,
+        "confirmation_template": CONFIRMATION_TEMPLATE,
+        "authorization_id": "status-resume-state-001",
+        "authorized_at": "2026-07-11T12:00:00Z",
+        "operator": "operator-a",
+        "reviewer": "reviewer-b",
+        "approver": "approver-c",
+        "preflight_only": True,
+        "full_flow_plan_json": str(plan_path.resolve()),
+        "full_flow_plan_sha256": hashlib.sha256(plan_path.read_bytes()).hexdigest(),
+        "resume_prefix_application_review_json": str(application_path.resolve()),
+        "resume_prefix_application_review_sha256": hashlib.sha256(
+            application_path.read_bytes()
+        ).hexdigest(),
+        "authoritative_resume_state_writer_design_json": str(design_path.resolve()),
+        "authoritative_resume_state_writer_design_sha256": hashlib.sha256(
+            design_path.read_bytes()
+        ).hexdigest(),
+        "authoritative_resume_state_writer_blocked_executor_json": str(
+            blocked_path.resolve()
+        ),
+        "authoritative_resume_state_writer_blocked_executor_sha256": hashlib.sha256(
+            blocked_path.read_bytes()
+        ).hexdigest(),
+        "authoritative_state_json": str(
+            (root / "v1_5_full_flow_state.json").resolve()
+        ),
+        "expected_existing_state_sha256": "absent",
+        "expected_candidate_state_sha256": "",
+        "authoritative_state_write_allowed": False,
+        "opens_com_ports": False,
+        "controls_pressure": False,
+        "controls_water_or_gas_routes": False,
+        "writes_sn": False,
+        "writes_device_id": False,
+        "writes_coefficients": False,
+        "connects_postgresql": False,
+        "database_import_allowed": False,
+        "formal_release_allowed": False,
+    }
+    _write_json(authorization_path, authorization)
+    preflight = build_v1_5_authoritative_resume_state_controlled_write_preflight(
+        full_flow_plan_json=plan_path,
+        resume_prefix_application_review_json=application_path,
+        authoritative_resume_state_writer_design_json=design_path,
+        authoritative_resume_state_writer_blocked_executor_json=blocked_path,
+        authorization_packet_json=authorization_path,
+    )
+    authorization["expected_candidate_state_sha256"] = preflight[
+        "candidate_state_sha256"
+    ]
+    _write_json(authorization_path, authorization)
+    preflight = build_v1_5_authoritative_resume_state_controlled_write_preflight(
+        full_flow_plan_json=plan_path,
+        resume_prefix_application_review_json=application_path,
+        authoritative_resume_state_writer_design_json=design_path,
+        authoritative_resume_state_writer_blocked_executor_json=blocked_path,
+        authorization_packet_json=authorization_path,
+    )
+    write_v1_5_authoritative_resume_state_controlled_write_preflight_outputs(
+        preflight,
+        root / "authoritative_resume_state_controlled_write_preflight",
     )
     return resume_path
 
@@ -1523,6 +1665,49 @@ def test_formal_run_status_accepts_ready_batch_initialization_closeout(tmp_path:
     assert model["linked_inputs"][
         "authoritative_resume_state_writer_blocked_executor_json"
     ].endswith("v1_5_authoritative_resume_state_writer_blocked_executor.json")
+    controlled_preflight_gate = next(
+        row
+        for row in model["gates"]
+        if row["gate_id"] == "authoritative_resume_state_controlled_write_preflight"
+    )
+    assert controlled_preflight_gate["status"] == "ready"
+    assert controlled_preflight_gate["blocks_physical_flow"] is False
+    assert model["linked_inputs"][
+        "authoritative_resume_state_controlled_write_preflight_json"
+    ].endswith("v1_5_resume_state_write_preflight.json")
+
+
+def test_formal_run_status_recomputes_controlled_write_preflight(tmp_path: Path) -> None:
+    run_dir = tmp_path / "ready_run_with_forged_controlled_write_preflight"
+    _seed_ready_run(run_dir)
+    closeout_path = _seed_batch_initialization_closeout(run_dir, ready=True)
+    resume_path = _seed_post_closeout_resume_gate(run_dir, ready=True)
+    preflight_path = (
+        run_dir
+        / "authoritative_resume_state_controlled_write_preflight"
+        / "v1_5_resume_state_write_preflight.json"
+    )
+    preflight = json.loads(preflight_path.read_text(encoding="utf-8"))
+    preflight["candidate_state"]["completed_step_ids"].append("database_import")
+    _write_json(preflight_path, preflight)
+
+    model = build_v1_5_formal_run_status(
+        run_dir=run_dir,
+        batch_initialization_closeout_json=closeout_path,
+        post_closeout_resume_gate_json=resume_path,
+        authoritative_resume_state_controlled_write_preflight_json=preflight_path,
+    )
+    gate = next(
+        row
+        for row in model["gates"]
+        if row["gate_id"] == "authoritative_resume_state_controlled_write_preflight"
+    )
+
+    assert gate["status"] == "blocked"
+    assert "independently recomputed" in gate["reason"]
+    assert gate["blocks_physical_flow"] is True
+    assert model["can_continue_physical_flow"] is False
+    assert model["formal_release_allowed"] is False
 
 
 def test_formal_run_status_recomputes_blocked_executor_lock_evidence(tmp_path: Path) -> None:
