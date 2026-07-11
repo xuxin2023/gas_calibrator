@@ -78,6 +78,26 @@ def _command_text(step: Mapping[str, Any]) -> str:
     return " ".join(str(item) for item in command)
 
 
+def _command_value(step: Mapping[str, Any], flag: str) -> str:
+    command = step.get("command") or []
+    if isinstance(command, str):
+        return ""
+    values = [str(item) for item in command]
+    try:
+        return values[values.index(flag) + 1]
+    except (ValueError, IndexError):
+        return ""
+
+
+def _same_resolved_path(value: str, expected: Path) -> bool:
+    if not value:
+        return False
+    try:
+        return Path(value).resolve() == expected.resolve()
+    except (OSError, RuntimeError):
+        return False
+
+
 def _boundary_clean(payload: Mapping[str, Any]) -> bool:
     return (
         payload.get("opens_com_ports") is False
@@ -145,6 +165,13 @@ def build_v1_5_post_closeout_resume_gate(
         )
     ):
         reasons.append("resume_gate_side_effect_boundary_not_clean")
+    if not _same_resolved_path(_command_value(resume_step, "--full-flow-plan-json"), plan_path):
+        reasons.append("resume_gate_plan_path_mismatch_with_full_flow_plan")
+    if not _same_resolved_path(
+        _command_value(resume_step, "--batch-initialization-closeout-json"),
+        batch_path,
+    ):
+        reasons.append("resume_gate_batch_path_mismatch_with_full_flow_plan")
 
     for step_id in (BATCH_STEP_ID, RESUME_STEP_ID, NEXT_STEP_ID, CO2_STEP_ID, H2O_STEP_ID):
         row = by_id.get(step_id) or {}

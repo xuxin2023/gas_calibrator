@@ -126,6 +126,21 @@ def test_post_closeout_resume_gate_blocks_0624_or_noncanonical_queue(tmp_path: P
     assert any("forbidden_resume_surface:co2_open_flow_sampling:0624" == row for row in model["review_reasons"])
 
 
+def test_post_closeout_resume_gate_blocks_batch_path_not_declared_by_plan(tmp_path: Path) -> None:
+    plan_path, batch_path = _plan_and_batch(tmp_path)
+    alternate_batch = _write_json(tmp_path / "other_batch" / "closeout.json", _ready_batch_payload())
+
+    model = build_v1_5_post_closeout_resume_gate(
+        full_flow_plan_json=plan_path,
+        batch_initialization_closeout_json=alternate_batch,
+    )
+
+    assert model["overall_status"] == BLOCKED_STATUS
+    assert model["resume_gate_ready"] is False
+    assert "resume_gate_batch_path_mismatch_with_full_flow_plan" in model["review_reasons"]
+    assert batch_path != alternate_batch
+
+
 def test_post_closeout_resume_gate_cli_fails_closed_and_is_offline_entrypoint(tmp_path: Path) -> None:
     plan_path, batch_path = _plan_and_batch(tmp_path)
     output_dir = tmp_path / "resume_gate"

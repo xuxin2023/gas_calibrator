@@ -12,7 +12,7 @@ python -m pytest tests\test_v1_5_post_closeout_resume_gate.py tests\test_v1_5_ba
 Result:
 
 ```text
-134 passed, 1 warning in 179.28s
+135 passed, 1 warning in 181.08s
 ```
 
 ## Compatibility Regression
@@ -38,6 +38,7 @@ Both warnings are the existing unregistered `v1_5_formal_gate` pytest marker.
 - plan and closeout SHA256 values are bound into the resume artifact
 - source changes after gate generation block formal physical-flow continuation
 - a resume gate bound to a different batch-closeout path is blocked
+- the closeout input must match the path declared by the current full-flow plan
 - the gate does not apply completed steps or execute commands
 - route authorization remains required
 - legacy 45/13 and new-algorithm 47/14 contracts remain unchanged
