@@ -398,6 +398,12 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline next-step blocked executor; freshly revalidates the review authorization but exposes no execute, COM, route, write, or database path")
     elif lower == "export_v1_5_authoritative_resume_offline_state_advance_next_step_controlled_executor_design":
         notes.append("offline next-step controlled executor design; freezes exact-command authorization, least privilege, failure holds, and output evidence while keeping execution unavailable")
+    elif lower == "export_v1_5_authoritative_resume_offline_state_advance_next_step_execution_authorization":
+        notes.append("offline next-step execution authorization validator; binds a short-lived three-party packet to the exact plan, command hash, evidence chain, and least-privilege capabilities")
+    elif lower == "export_v1_5_authoritative_resume_offline_state_advance_next_step_execution_preflight":
+        notes.append("last-moment next-step execution preflight; freshly rehashes authorization, state, plan, exact mature command, and output boundaries without starting a process")
+    elif lower == "run_v1_5_authoritative_resume_offline_state_advance_next_step_controlled_executor":
+        notes.append("manual-authorized single-step V1.5 executor; permits one exact shell-free process only after fresh authorization, never retries, substitutes, imports PostgreSQL, or advances authoritative state")
     elif lower == "run_v1_5_formal_readonly_com_minimal_executor":
         notes.append("manual-authorized minimal read-only COM executor; reads SN/GETCO/runtime/CHECK evidence only, never writes analyzer state, database, pressure, or routes")
     elif "formal_archive_closure" in lower:
@@ -604,6 +610,13 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             opens_com_ports = False
             controls_routes = False
             writes_coefficients = False
+        elif lower == "run_v1_5_authoritative_resume_offline_state_advance_next_step_controlled_executor":
+            category = "full_flow_orchestration"
+            formal_status = "manual_authorized_single_step_resume_only"
+            risk_level = "real_com_or_route_or_write_risk"
+            opens_com_ports = True
+            controls_routes = True
+            writes_coefficients = True
         elif lower in {
             "run_v1_5_formal_initialization_blocked_executor",
             "run_v1_5_formal_initialization_readonly_com_preflight_blocked_executor",
@@ -630,6 +643,8 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             "export_v1_5_authoritative_resume_offline_state_advance_next_step_authorization_preflight",
             "run_v1_5_authoritative_resume_offline_state_advance_next_step_blocked_executor",
             "export_v1_5_authoritative_resume_offline_state_advance_next_step_controlled_executor_design",
+            "export_v1_5_authoritative_resume_offline_state_advance_next_step_execution_authorization",
+            "export_v1_5_authoritative_resume_offline_state_advance_next_step_execution_preflight",
             "export_v1_5_formal_readonly_com_execution_packet_validator",
             "export_v1_5_formal_readonly_com_execution_plan_preview",
             "export_v1_5_formal_readonly_com_minimal_executor_review",
