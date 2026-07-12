@@ -196,6 +196,9 @@ def _base_result(
         "execution_requested": True,
         "authorization_recomputed_ready": False,
         "authorization_recomputed_under_lock": False,
+        "authorization_revalidated_immediately_before_replace": False,
+        "authorization_revalidated_at": "",
+        "committed_at": "",
         "state_write_execution_allowed": False,
         "single_writer_lock_acquired": False,
         "current_state_sha256_rechecked": False,
@@ -284,6 +287,13 @@ def write_v1_5_authoritative_resume_offline_state_advance_atomic_writer_outputs(
                 "authorization_recomputed_under_lock": model.get(
                     "authorization_recomputed_under_lock"
                 ),
+                "authorization_revalidated_immediately_before_replace": model.get(
+                    "authorization_revalidated_immediately_before_replace"
+                ),
+                "authorization_revalidated_at": model.get(
+                    "authorization_revalidated_at"
+                ),
+                "committed_at": model.get("committed_at"),
                 "write_attempted": model.get("write_attempted"),
                 "authoritative_state_write_committed": model.get(
                     "authoritative_state_write_committed"
@@ -477,6 +487,31 @@ def execute_v1_5_authoritative_resume_offline_state_advance_atomic_write(
         result["rollback_snapshot_sha256"] = _sha256_file(snapshot_path)
 
         temp_path = _write_temp_same_directory(target, candidate_bytes)
+        final_authorization_check_at = _now_datetime()
+        final_validation, final_target, final_preview, final_reasons = (
+            _validate_authorization(
+                validation_path=validation_recorded_path,
+                authorization_id=authorization_id,
+                evaluated_at=final_authorization_check_at,
+            )
+        )
+        if final_reasons:
+            raise RuntimeError(
+                "authorization_revalidation_before_replace_failed:"
+                + ";".join(final_reasons)
+            )
+        if _sha256_file(validation_path) != validation_sha_at_start:
+            raise RuntimeError("state_advance_authorization_changed_before_replace")
+        if final_target is None or not _same_path(final_target, target):
+            raise RuntimeError("authoritative_state_path_changed_before_replace")
+        if final_preview is None or not _same_path(final_preview, preview):
+            raise RuntimeError("candidate_preview_path_changed_before_replace")
+        if final_validation.get("candidate_state_sha256") != result[
+            "candidate_state_sha256"
+        ]:
+            raise RuntimeError("candidate_sha256_changed_before_replace")
+        result["authorization_revalidated_immediately_before_replace"] = True
+        result["authorization_revalidated_at"] = _iso(final_authorization_check_at)
         result["write_attempted"] = True
         os.replace(temp_path, target)
         temp_path = None
@@ -492,6 +527,7 @@ def execute_v1_5_authoritative_resume_offline_state_advance_atomic_write(
         result["authoritative_state_write_committed"] = True
         result["writes_authoritative_state"] = True
         result["final_state_matches_candidate"] = True
+        result["committed_at"] = _iso(_now_datetime())
     except FileExistsError:
         result["failure_reasons"].append("single_writer_lock_or_snapshot_exists")
     except Exception as exc:

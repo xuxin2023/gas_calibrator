@@ -758,6 +758,25 @@ def test_resume_offline_state_advance_atomic_writer_is_manual_state_write_only()
     assert "one-step offline resume state-advance writer" in entry.notes[0]
 
 
+def test_resume_offline_state_advance_post_write_tools_are_offline_support() -> None:
+    root = Path(__file__).resolve().parents[1]
+    paths = (
+        root
+        / "src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_state_advance_post_write_verification.py",
+        root
+        / "src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_state_advance_consumer_readiness.py",
+    )
+    entries = [classify_v1_5_entrypoint(path, root=root) for path in paths]
+    assert all(entry.category == "formal_review_evidence" for entry in entries)
+    assert all(entry.formal_status == "formal_support" for entry in entries)
+    assert all(entry.risk_level == "offline" for entry in entries)
+    assert all(entry.opens_com_ports is False for entry in entries)
+    assert all(entry.controls_routes is False for entry in entries)
+    assert all(entry.writes_coefficients is False for entry in entries)
+    assert "post-write verifier" in entries[0].notes[0]
+    assert "consumer readiness gate" in entries[1].notes[0]
+
+
 def test_export_entrypoint_inventory_writes_review_artifacts(tmp_path: Path) -> None:
     tool = tmp_path / "src/gas_calibrator/tools/run_v1_5_formal_open_flow_sampling.py"
     test_file = tmp_path / "tests/test_v1_5_formal_open_flow_sampling_runner.py"
