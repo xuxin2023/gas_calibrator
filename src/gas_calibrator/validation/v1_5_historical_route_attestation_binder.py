@@ -472,8 +472,15 @@ def build_v1_5_historical_route_attestation_binder(
                     "reviewed_at": reviewed_at.strip(),
                     "not_0624_or_migration_source": True,
                     "mature_contract": MATURE_CONTRACT,
+                    "binder_schema": SCHEMA,
+                    "queue_summary_path": next(
+                        row["path"] for row in inventory if row["root_key"] == root_key and row["role"] == "queue_summary"
+                    ),
                     "queue_summary_sha256": next(
                         row["sha256"] for row in inventory if row["root_key"] == root_key and row["role"] == "queue_summary"
+                    ),
+                    "queue_manifest_path": next(
+                        row["path"] for row in inventory if row["root_key"] == root_key and row["role"] == "queue_manifest"
                     ),
                     "queue_manifest_sha256": next(
                         row["sha256"] for row in inventory if row["root_key"] == root_key and row["role"] == "queue_manifest"
@@ -551,6 +558,7 @@ def write_v1_5_historical_route_attestation_binder(
     for row in model.get("families") or []:
         family = dict(row)
         family.pop("evidence_inventory_sha256_pending_write", None)
+        family["evidence_inventory_path"] = str(outputs["evidence_csv"].resolve())
         family["evidence_inventory_sha256"] = inventory_sha
         payload["families"].append(family)
     payload["evidence_inventory_sha256"] = inventory_sha

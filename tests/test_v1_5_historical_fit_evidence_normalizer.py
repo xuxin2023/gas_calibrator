@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import json
 from pathlib import Path
 
@@ -44,6 +45,28 @@ def _write_csv(path: Path, rows: list[dict]) -> Path:
 def _read_csv(path: str | Path) -> list[dict[str, str]]:
     with Path(path).open("r", encoding="utf-8-sig", newline="") as handle:
         return list(csv.DictReader(handle))
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _attestation_binding_fields(tmp_path: Path, label: str) -> dict[str, str]:
+    summary = _write_json(tmp_path / f"{label}_queue_summary.json", {"status": "closed"})
+    manifest = _write_csv(tmp_path / f"{label}_queue_manifest.csv", [{"status": "ok"}])
+    inventory = _write_csv(
+        tmp_path / f"{label}_evidence_inventory.csv",
+        [{"role": "queue_summary", "path": str(summary), "sha256": _sha256(summary)}],
+    )
+    return {
+        "binder_schema": "v1_5_historical_route_attestation_binder_v1",
+        "queue_summary_path": str(summary),
+        "queue_summary_sha256": _sha256(summary),
+        "queue_manifest_path": str(manifest),
+        "queue_manifest_sha256": _sha256(manifest),
+        "evidence_inventory_path": str(inventory),
+        "evidence_inventory_sha256": _sha256(inventory),
+    }
 
 
 def _fixture(tmp_path: Path, profile_id: str) -> dict:
@@ -224,6 +247,7 @@ def _fixture(tmp_path: Path, profile_id: str) -> dict:
                     "reviewed_at": "2026-07-13T00:00:00+08:00",
                     "not_0624_or_migration_source": True,
                     "mature_contract": "0613_fit_0620_0621_route",
+                    **_attestation_binding_fields(tmp_path, family_id),
                 }
             ],
         },
@@ -417,6 +441,7 @@ def test_same_family_co2_and_h2o_roots_remain_separately_bound(tmp_path: Path) -
                     "reviewed_at": "2026-07-13T00:00:00+08:00",
                     "not_0624_or_migration_source": True,
                     "mature_contract": "0613_fit_0620_0621_route",
+                    **_attestation_binding_fields(tmp_path, f"{family_id}_{route}"),
                 }
                 for route, root in route_roots.items()
             ],
@@ -445,6 +470,21 @@ def test_unattested_root_is_a_structural_blocker(tmp_path: Path) -> None:
     assert "route_baseline_reviewed_attestation_missing" in reasons
 
 
+def test_attested_queue_hash_is_rechecked_at_consumption(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path, "legacy_ratio_production")
+    attestation = json.loads(fixture["attestation"].read_text(encoding="utf-8"))
+    manifest = Path(attestation["families"][0]["queue_manifest_path"])
+    manifest.write_text(manifest.read_text(encoding="utf-8") + "tampered\n", encoding="utf-8")
+    model = build_v1_5_historical_fit_evidence_normalizer(
+        algorithm_profile_lineage_json=fixture["lineage"],
+        historical_replay_evidence_json=fixture["replay"],
+        route_baseline_attestation_json=fixture["attestation"],
+    )
+    reasons = {row["reason"] for row in model["structural_gaps"]}
+    assert model["overall_status"] == "blocked"
+    assert "route_baseline_attestation_queue_manifest_hash_mismatch" in reasons
+
+
 def test_reviewed_attestation_binds_an_unlabeled_root(tmp_path: Path) -> None:
     fixture = _fixture(tmp_path, "legacy_ratio_production")
     replay = json.loads(fixture["replay"].read_text(encoding="utf-8"))
@@ -470,9 +510,10 @@ def test_reviewed_attestation_binds_an_unlabeled_root(tmp_path: Path) -> None:
                     "status": "reviewed",
                     "reviewer": "offline-test-reviewer",
                     "reviewed_at": "2026-07-13T00:00:00+08:00",
-                    "not_0624_or_migration_source": True,
-                    "mature_contract": "0613_fit_0620_0621_route",
-                }
+                        "not_0624_or_migration_source": True,
+                        "mature_contract": "0613_fit_0620_0621_route",
+                        **_attestation_binding_fields(tmp_path, "unlabeled_root"),
+                    }
             ]
         },
     )

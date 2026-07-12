@@ -3,13 +3,14 @@
 ## Validation
 
 ```text
-86 passed, 1 warning in 15.42s
+87 passed, 1 warning in 18.48s
 ```
 
 The compatibility run covered:
 
 - historical mature-root attestation binder;
 - historical fit evidence normalizer;
+- attestation hash revalidation at normalizer consumption time;
 - historical fit profile parity;
 - historical replay evidence;
 - mature route contract;

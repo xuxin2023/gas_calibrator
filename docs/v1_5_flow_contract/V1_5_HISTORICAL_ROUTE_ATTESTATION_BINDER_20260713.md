@@ -10,6 +10,7 @@ The binder prevents a historical directory label from being treated as proof of 
 - every queue point completed successfully;
 - every point has a mature continuous-atmosphere-hold sidecar, 1 Hz acquisition, samples, and component quality evidence;
 - sample, QC, sidecar, queue summary, and manifest files are bound by SHA-256;
+- the fit evidence normalizer rechecks the bound queue summary, manifest, and inventory hashes before consuming a reviewed family;
 - the source is not 0624, migration, segmented, retry, direct recovery, or diagnostic evidence.
 
 Historical `_handoff` storage is not rejected by location alone. Execution provenance is reviewed separately. A root stored under `_handoff` can only pass when its queue and point evidence independently prove the mature route. Cross-run quality backfills and successful retry points do not turn a segmented root into continuous evidence.
