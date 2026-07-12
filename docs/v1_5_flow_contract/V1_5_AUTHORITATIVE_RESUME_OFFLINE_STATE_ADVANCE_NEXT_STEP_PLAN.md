@@ -28,6 +28,8 @@ If the next step is a mature physical route, the reviewer additionally requires:
   `gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue`;
 - the route step to remain `real_com_route_requires_authorization`;
 - the correct COM and gas/water route-control boundaries.
+- runtime identity-bound configuration, mature temperature order, ratio policy,
+  and the existing CO2/H2O forbidden-flag contract.
 
 This preserves the original 0613 fitting and 0620/0621 mature route baseline.
 It does not authorize a migrated root runner, 0624 evidence path, diagnostic

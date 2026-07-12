@@ -6,14 +6,14 @@ Date: 2026-07-12
 
 ```text
 python -m pytest tests\test_v1_5_authoritative_resume_offline_state_advance_next_step_plan.py tests\test_v1_5_authoritative_resume_offline_state_advance_post_write_verification.py tests\test_v1_5_entrypoint_inventory.py -q
-50 passed, 1 existing marker warning
+51 passed, 1 existing marker warning
 ```
 
 ## Formal And Mature-Route Guards
 
 ```text
 python -m pytest tests\test_v1_5_formal_flow_contract.py tests\test_v1_5_mature_route_contract.py tests\test_v1_5_resume_offline_state_advance_status_integration.py tests\test_v1_5_authoritative_resume_offline_state_advance_next_step_plan.py -q
-53 passed, 1 existing marker warning
+54 passed, 1 existing marker warning
 ```
 
 ## Full-Flow Regression

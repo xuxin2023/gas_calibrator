@@ -18,6 +18,12 @@ from .v1_5_authoritative_resume_offline_state_advance_consumer_readiness import 
 from .v1_5_authoritative_resume_offline_state_advance_post_write_verification import (
     _contains_reparse,
 )
+from .v1_5_formal_flow_contract import (
+    FORMAL_CO2_FORBIDDEN_FLAGS,
+    FORMAL_CO2_TEMPERATURE_ORDER,
+    FORMAL_H2O_FORBIDDEN_FLAGS,
+    FORMAL_H2O_TEMPERATURE_ORDER,
+)
 
 SCHEMA = "v1_5_authoritative_resume_offline_state_advance_next_step_plan_v1"
 READY_STATUS = "ready_for_offline_advanced_resume_next_step_plan_review"
@@ -82,6 +88,14 @@ def _load(path: Path) -> dict[str, Any]:
 
 def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else ""
+
+
+def _command_value_after(command: list[str], flag: str) -> str:
+    try:
+        index = command.index(flag)
+    except ValueError:
+        return ""
+    return command[index + 1] if index + 1 < len(command) else ""
 
 
 def build_v1_5_authoritative_resume_offline_state_advance_next_step_plan(
@@ -209,6 +223,37 @@ def build_v1_5_authoritative_resume_offline_state_advance_next_step_plan(
                 reasons.append("mature_h2o_route_control_boundary_missing")
             if step.get("controls_gas_route") is not False:
                 reasons.append("mature_h2o_gas_route_boundary_invalid")
+        config_path = _command_value_after(command, "--config").replace("\\", "/")
+        if not config_path.endswith(
+            "coefficient_epoch_0_getco_snapshot/runtime_identity_bound_config.json"
+        ):
+            reasons.append("mature_route_not_runtime_identity_bound")
+        expected_order = (
+            FORMAL_CO2_TEMPERATURE_ORDER
+            if expected_next == "co2_open_flow_sampling"
+            else FORMAL_H2O_TEMPERATURE_ORDER
+        )
+        if _command_value_after(command, "--temperature-order") != expected_order:
+            reasons.append("mature_route_temperature_order_invalid")
+        forbidden_flags = (
+            FORMAL_CO2_FORBIDDEN_FLAGS
+            if expected_next == "co2_open_flow_sampling"
+            else FORMAL_H2O_FORBIDDEN_FLAGS
+        )
+        for flag in sorted(forbidden_flags):
+            if flag in command:
+                reasons.append(f"mature_route_forbidden_flag:{flag}")
+        if expected_next == "co2_open_flow_sampling":
+            ratio_policy = _command_value_after(
+                command, "--co2-ratio-f-preseal-policy"
+            )
+            if ratio_policy and ratio_policy != "reject":
+                reasons.append("mature_co2_ratio_gate_policy_invalid")
+        normalized_command = [value.replace("\\", "/").lower() for value in command]
+        if any(".v2" in value for value in normalized_command):
+            reasons.append("mature_route_v2_reference_forbidden")
+        if any("/_handoff/" in f"/{value.strip('/')}" for value in normalized_command):
+            reasons.append("mature_route_handoff_reference_forbidden")
 
     ready = not reasons
     requires_route = bool(

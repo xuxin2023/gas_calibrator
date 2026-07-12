@@ -49,7 +49,13 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _bundle(tmp_path: Path, monkeypatch, *, route_module: str | None = None):
+def _bundle(
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    route_module: str | None = None,
+    extra_route_flags: tuple[str, ...] = (),
+):
     root = tmp_path / "flow"
     config = _write(root / "config.json", {})
     plan = build_full_flow_plan(
@@ -57,20 +63,21 @@ def _bundle(tmp_path: Path, monkeypatch, *, route_module: str | None = None):
         output_dir=root,
         run_id="next-step-plan-111",
     )
-    if route_module:
+    if route_module or extra_route_flags:
         steps = list(plan.steps)
         index = next(
             index
             for index, step in enumerate(steps)
             if step.step_id == "co2_open_flow_sampling"
         )
+        selected_module = route_module or str(steps[index].tool_module)
         command = tuple(
-            route_module if value == steps[index].tool_module else value
+            selected_module if value == steps[index].tool_module else value
             for value in steps[index].command
-        )
+        ) + extra_route_flags
         steps[index] = replace(
             steps[index],
-            tool_module=route_module,
+            tool_module=selected_module,
             command=command,
         )
         plan = replace(plan, steps=tuple(steps))
@@ -190,6 +197,24 @@ def test_next_step_plan_blocks_non_mature_co2_module(
         "blocker_reasons"
     ]
     assert model["mature_route_module_verified"] is False
+
+
+def test_next_step_plan_blocks_mature_module_with_forbidden_route_flag(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _plan, _consumer, consumer_path = _bundle(
+        tmp_path,
+        monkeypatch,
+        extra_route_flags=("--skip-stability-gate",),
+    )
+    model = build_v1_5_authoritative_resume_offline_state_advance_next_step_plan(
+        consumer_readiness_json=consumer_path
+    )
+    assert model["overall_status"] == BLOCKED_STATUS
+    assert "mature_route_forbidden_flag:--skip-stability-gate" in model[
+        "blocker_reasons"
+    ]
+    assert model["next_step_execution_allowed"] is False
 
 
 def test_next_step_plan_cli_and_entrypoint_stay_offline(

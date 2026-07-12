@@ -733,7 +733,7 @@ def validate_v1_5_formal_flow_contract(
                     "offline_state_advance_evidence_must_remain_out_of_band",
                     (
                         "Offline state-advance writer/verification/consumer/preview tools must not become canonical "
-                        "completed_step_ids; formal status consumes their evidence out of band."
+                        "completed_step_ids; dedicated offline review/status paths consume their evidence out of band."
                     ),
                     step_id,
                 )
