@@ -1045,6 +1045,9 @@ def build_full_flow_plan(
     authoritative_resume_offline_state_advance_next_step_blocked_executor_dir = (
         root / "authoritative_resume_offline_state_advance_next_step_blocked_executor"
     )
+    authoritative_resume_offline_state_advance_next_step_controlled_executor_design_dir = (
+        root / "authoritative_resume_offline_state_advance_next_step_controlled_executor_design"
+    )
     getco_dir = root / "coefficient_epoch_0_getco_snapshot"
     getco_readiness_dir = root / "identity_getco_readiness"
     aux_neutral_dir = root / "auxiliary_senco56789_neutralization"
@@ -3294,6 +3297,9 @@ def build_full_flow_plan(
                 "--authoritative-resume-offline-state-advance-next-step-blocked-executor-json",
                 authoritative_resume_offline_state_advance_next_step_blocked_executor_dir
                 / "v1_5_authoritative_resume_offline_state_advance_next_step_blocked_executor.json",
+                "--authoritative-resume-offline-state-advance-next-step-controlled-executor-design-json",
+                authoritative_resume_offline_state_advance_next_step_controlled_executor_design_dir
+                / "v1_5_authoritative_resume_offline_state_advance_next_step_controlled_executor_design.json",
                 "--getco-readiness-json",
                 getco_readiness_dir / "v1_5_getco_identity_readiness.json",
                 "--run-evidence-status-json",
@@ -3338,6 +3344,7 @@ def build_full_flow_plan(
                 "offline advanced resume-state next-step plan sidecar",
                 "offline next-step review authorization preflight sidecar",
                 "offline next-step blocked executor sidecar",
+                "offline next-step controlled executor design sidecar",
                 "read-only COM minimal executor review sidecar",
                 "identity/GETCO readiness sidecar",
                 "pre-gas readiness sidecar",
