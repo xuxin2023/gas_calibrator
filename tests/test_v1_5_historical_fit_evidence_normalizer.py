@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import json
 from pathlib import Path
 
@@ -44,6 +45,46 @@ def _write_csv(path: Path, rows: list[dict]) -> Path:
 def _read_csv(path: str | Path) -> list[dict[str, str]]:
     with Path(path).open("r", encoding="utf-8-sig", newline="") as handle:
         return list(csv.DictReader(handle))
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _attestation_binding_fields(root: Path, label: str) -> dict[str, str]:
+    binding = root / "attestation_binding" / label
+    summary = _write_json(binding / "queue_summary.json", {"status": "closed"})
+    manifest = _write_csv(binding / "queue_manifest.csv", [{"status": "ok"}])
+    queue_source = _write_csv(binding / "queue_source.csv", [{"status": "reviewed"}])
+    runtime_config = _write_json(binding / "runtime_config.json", {"mode": "reviewed"})
+    sidecar = _write_json(binding / "point_sidecar.json", {"status": "reviewed"})
+    samples = _write_csv(binding / "point_samples.csv", [{"sample": "1"}])
+    quality = _write_csv(binding / "point_component_quality.csv", [{"grade": "A"}])
+    evidence_files = {
+        "queue_summary": summary,
+        "queue_manifest": manifest,
+        "queue_source": queue_source,
+        "runtime_config": runtime_config,
+        "point_sidecar": sidecar,
+        "point_samples": samples,
+        "point_component_quality": quality,
+    }
+    inventory = _write_csv(
+        binding / "evidence_inventory.csv",
+        [
+            {"role": role, "path": str(path.resolve()), "sha256": _sha256(path)}
+            for role, path in evidence_files.items()
+        ],
+    )
+    return {
+        "binder_schema": "v1_5_historical_route_attestation_binder_v1",
+        "queue_summary_path": str(summary),
+        "queue_summary_sha256": _sha256(summary),
+        "queue_manifest_path": str(manifest),
+        "queue_manifest_sha256": _sha256(manifest),
+        "evidence_inventory_path": str(inventory),
+        "evidence_inventory_sha256": _sha256(inventory),
+    }
 
 
 def _fixture(tmp_path: Path, profile_id: str) -> dict:
@@ -224,6 +265,7 @@ def _fixture(tmp_path: Path, profile_id: str) -> dict:
                     "reviewed_at": "2026-07-13T00:00:00+08:00",
                     "not_0624_or_migration_source": True,
                     "mature_contract": "0613_fit_0620_0621_route",
+                    **_attestation_binding_fields(root, family_id),
                 }
             ],
         },
@@ -417,6 +459,7 @@ def test_same_family_co2_and_h2o_roots_remain_separately_bound(tmp_path: Path) -
                     "reviewed_at": "2026-07-13T00:00:00+08:00",
                     "not_0624_or_migration_source": True,
                     "mature_contract": "0613_fit_0620_0621_route",
+                    **_attestation_binding_fields(root, f"{family_id}_{route}"),
                 }
                 for route, root in route_roots.items()
             ],
@@ -445,6 +488,21 @@ def test_unattested_root_is_a_structural_blocker(tmp_path: Path) -> None:
     assert "route_baseline_reviewed_attestation_missing" in reasons
 
 
+def test_attested_queue_hash_is_rechecked_at_consumption(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path, "legacy_ratio_production")
+    attestation = json.loads(fixture["attestation"].read_text(encoding="utf-8"))
+    manifest = Path(attestation["families"][0]["queue_manifest_path"])
+    manifest.write_text(manifest.read_text(encoding="utf-8") + "tampered\n", encoding="utf-8")
+    model = build_v1_5_historical_fit_evidence_normalizer(
+        algorithm_profile_lineage_json=fixture["lineage"],
+        historical_replay_evidence_json=fixture["replay"],
+        route_baseline_attestation_json=fixture["attestation"],
+    )
+    reasons = {row["reason"] for row in model["structural_gaps"]}
+    assert model["overall_status"] == "blocked"
+    assert "route_baseline_attestation_queue_manifest_hash_mismatch" in reasons
+
+
 def test_reviewed_attestation_binds_an_unlabeled_root(tmp_path: Path) -> None:
     fixture = _fixture(tmp_path, "legacy_ratio_production")
     replay = json.loads(fixture["replay"].read_text(encoding="utf-8"))
@@ -470,9 +528,10 @@ def test_reviewed_attestation_binds_an_unlabeled_root(tmp_path: Path) -> None:
                     "status": "reviewed",
                     "reviewer": "offline-test-reviewer",
                     "reviewed_at": "2026-07-13T00:00:00+08:00",
-                    "not_0624_or_migration_source": True,
-                    "mature_contract": "0613_fit_0620_0621_route",
-                }
+                        "not_0624_or_migration_source": True,
+                        "mature_contract": "0613_fit_0620_0621_route",
+                        **_attestation_binding_fields(new_root, "unlabeled_root"),
+                    }
             ]
         },
     )

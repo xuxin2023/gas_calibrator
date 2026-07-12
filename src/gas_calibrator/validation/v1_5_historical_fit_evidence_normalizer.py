@@ -21,6 +21,7 @@ from .v1_5_algorithm_profile_lineage_gate import PROFILE_CONTRACTS
 
 SCHEMA = "v1_5_historical_fit_evidence_normalizer_v1"
 ATTESTATION_SCHEMA = "v1_5_historical_route_baseline_attestation_v1"
+ATTESTATION_BINDER_SCHEMA = "v1_5_historical_route_attestation_binder_v1"
 FIT_BASELINE = "0613"
 ALLOWED_ROUTE_BASELINES = {"0620", "0621"}
 GA_ID_RE = re.compile(r"^(ga\d+)_id$", re.IGNORECASE)
@@ -126,6 +127,48 @@ def _route_baseline(root: Mapping[str, Any], attestation: Mapping[str, Any]) -> 
             reasons.append("route_baseline_attestation_migration_exclusion_missing")
         if str(attestation.get("mature_contract") or "") != "0613_fit_0620_0621_route":
             reasons.append("route_baseline_attestation_mature_contract_invalid")
+        if str(attestation.get("binder_schema") or "") != ATTESTATION_BINDER_SCHEMA:
+            reasons.append("route_baseline_attestation_binder_schema_invalid")
+        for role in ("queue_summary", "queue_manifest", "evidence_inventory"):
+            bound_path = Path(str(attestation.get(f"{role}_path") or ""))
+            expected_sha = str(attestation.get(f"{role}_sha256") or "").lower()
+            if not str(attestation.get(f"{role}_path") or "").strip() or not bound_path.is_file():
+                reasons.append(f"route_baseline_attestation_{role}_missing")
+            elif not re.fullmatch(r"[0-9a-f]{64}", expected_sha) or _sha256(bound_path) != expected_sha:
+                reasons.append(f"route_baseline_attestation_{role}_hash_mismatch")
+        inventory_path = Path(str(attestation.get("evidence_inventory_path") or ""))
+        inventory_sha = str(attestation.get("evidence_inventory_sha256") or "").lower()
+        if (
+            inventory_path.is_file()
+            and re.fullmatch(r"[0-9a-f]{64}", inventory_sha)
+            and _sha256(inventory_path) == inventory_sha
+        ):
+            inventory_rows = _read_csv(inventory_path)
+            required_roles = {
+                "queue_summary",
+                "queue_manifest",
+                "queue_source",
+                "runtime_config",
+                "point_sidecar",
+                "point_samples",
+                "point_component_quality",
+            }
+            observed_roles = {str(row.get("role") or "") for row in inventory_rows}
+            if not required_roles.issubset(observed_roles):
+                reasons.append("route_baseline_attestation_evidence_roles_incomplete")
+            for row in inventory_rows:
+                evidence_path = Path(str(row.get("path") or ""))
+                evidence_sha = str(row.get("sha256") or "").lower()
+                if (
+                    not evidence_path.is_file()
+                    or not re.fullmatch(r"[0-9a-f]{64}", evidence_sha)
+                    or _sha256(evidence_path) != evidence_sha
+                ):
+                    reasons.append("route_baseline_attestation_evidence_file_hash_mismatch")
+                    break
+                if str(row.get("role") or "").startswith("point_") and not _is_within(evidence_path, Path(root_path)):
+                    reasons.append("route_baseline_attestation_point_evidence_outside_root")
+                    break
         return (baseline if not reasons else ""), reasons
     reasons.append("route_baseline_reviewed_attestation_missing")
     return "", reasons
