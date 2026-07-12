@@ -406,6 +406,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("manual-authorized single-step V1.5 executor; permits one exact shell-free process only after fresh authorization, never retries, substitutes, imports PostgreSQL, or advances authoritative state")
     elif lower == "run_v1_5_authoritative_resume_offline_state_advance_next_step_operator_bundle":
         notes.append("manual-authorized operator bundle launcher; derives least-privilege authorization from the exact plan, revalidates immediately, and defaults to locked evidence unless one explicit next-step execution is requested")
+    elif lower == "run_v1_5_new_run_bootstrap":
+        notes.append("offline atomic new-run bootstrap; snapshots one reviewed config and creates a zero-authority plan/state at the first canonical stage without opening COM or marking any step complete")
     elif lower == "run_v1_5_formal_readonly_com_minimal_executor":
         notes.append("manual-authorized minimal read-only COM executor; reads SN/GETCO/runtime/CHECK evidence only, never writes analyzer state, database, pressure, or routes")
     elif "formal_archive_closure" in lower:
@@ -626,6 +628,13 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             opens_com_ports = True
             controls_routes = True
             writes_coefficients = True
+        elif lower == "run_v1_5_new_run_bootstrap":
+            category = "full_flow_orchestration"
+            formal_status = "manual_new_batch_bootstrap_no_com"
+            risk_level = "state_file_write_risk"
+            opens_com_ports = False
+            controls_routes = False
+            writes_coefficients = False
         elif lower in {
             "run_v1_5_formal_initialization_blocked_executor",
             "run_v1_5_formal_initialization_readonly_com_preflight_blocked_executor",
