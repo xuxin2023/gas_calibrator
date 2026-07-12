@@ -370,6 +370,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline controlled resume executor design; binds future authorization to exact plan, state, next-step, command hash, expiry, and least-privilege capabilities without executing")
     elif lower == "export_v1_5_authoritative_resume_executor_authorization_validator":
         notes.append("offline resume executor authorization validator; recomputes the design and validates identity, expiry, evidence hashes, canonical next-step, command hash, and least-privilege capabilities without executing")
+    elif lower == "export_v1_5_authoritative_resume_execution_preflight":
+        notes.append("offline last-moment resume execution preflight; revalidates authorization, state, plan, next-step, command hash, expiry, and least-privilege envelope while keeping execution locked")
     elif lower == "run_v1_5_formal_readonly_com_minimal_executor":
         notes.append("manual-authorized minimal read-only COM executor; reads SN/GETCO/runtime/CHECK evidence only, never writes analyzer state, database, pressure, or routes")
     elif "formal_archive_closure" in lower:
@@ -576,6 +578,7 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             "run_v1_5_authoritative_resume_executor_blocked",
             "export_v1_5_authoritative_resume_executor_controlled_design",
             "export_v1_5_authoritative_resume_executor_authorization_validator",
+            "export_v1_5_authoritative_resume_execution_preflight",
             "export_v1_5_formal_readonly_com_execution_packet_validator",
             "export_v1_5_formal_readonly_com_execution_plan_preview",
             "export_v1_5_formal_readonly_com_minimal_executor_review",
