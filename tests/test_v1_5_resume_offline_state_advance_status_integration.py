@@ -10,6 +10,10 @@ from gas_calibrator.validation.v1_5_authoritative_resume_offline_state_advance_c
     READY_STATUS as CONSUMER_READY_STATUS,
     SCHEMA as CONSUMER_SCHEMA,
 )
+from gas_calibrator.validation.v1_5_authoritative_resume_offline_state_advance_next_step_plan import (
+    READY_STATUS as NEXT_STEP_PLAN_READY_STATUS,
+    SCHEMA as NEXT_STEP_PLAN_SCHEMA,
+)
 from gas_calibrator.validation.v1_5_authoritative_resume_offline_state_advance_post_write_verification import (
     READY_STATUS as VERIFICATION_READY_STATUS,
     SCHEMA as VERIFICATION_SCHEMA,
@@ -121,13 +125,66 @@ def _consumer_payload(verification: Path) -> dict:
     }
 
 
+def _next_step_payload(consumer: Path) -> dict:
+    return {
+        "schema": NEXT_STEP_PLAN_SCHEMA,
+        "generated_at": "2026-07-12T07:01:00Z",
+        "overall_status": NEXT_STEP_PLAN_READY_STATUS,
+        "next_step_plan_review_ready": True,
+        "blocker_count": 0,
+        "blocker_reasons": [],
+        "consumer_readiness_json": str(consumer.resolve()),
+        "consumer_readiness_sha256": _sha(consumer),
+        "post_write_verification_json": "verification.json",
+        "post_write_verification_sha256": "a" * 64,
+        "full_flow_plan_json": "plan.json",
+        "full_flow_plan_sha256": "b" * 64,
+        "authoritative_state_json": "state.json",
+        "authoritative_state_sha256": "c" * 64,
+        "run_id": "run-001",
+        "attempt_id": "attempt-001",
+        "verified_step_id": "temperature_channel_fast_review",
+        "completed_step_ids": ["temperature_channel_fast_review"],
+        "next_step_id": "co2_open_flow_sampling",
+        "next_step_title": "CO2 open-flow sampling",
+        "next_step_phase": "co2",
+        "next_step_tool_module": "gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue",
+        "next_step_command": [],
+        "next_step_execution_mode": "real_com_route_requires_authorization",
+        "requires_real_com_authorization": True,
+        "requires_pressure_authorization": False,
+        "requires_route_authorization": True,
+        "requires_write_authorization": False,
+        "mature_route_module_verified": True,
+        "plan_consumption_allowed": True,
+        "execution_supported": False,
+        "next_step_execution_allowed": False,
+        "resume_execution_allowed": False,
+        "would_execute": False,
+        "opens_com_ports": False,
+        "controls_pressure": False,
+        "controls_water_or_gas_routes": False,
+        "writes_authoritative_state": False,
+        "writes_sn": False,
+        "writes_device_id": False,
+        "writes_coefficients": False,
+        "connects_postgresql": False,
+        "database_written": False,
+        "formal_release_allowed": False,
+        "database_import_allowed": False,
+        "not_real_acceptance_evidence": True,
+    }
+
+
 def test_full_flow_keeps_state_advance_evidence_out_of_canonical_steps(tmp_path: Path) -> None:
     plan = _plan(tmp_path)
     step_ids = [step.step_id for step in plan.steps]
     post_id = "authoritative_resume_offline_state_advance_post_write_verification"
     consumer_id = "authoritative_resume_offline_state_advance_consumer_readiness"
+    next_step_plan_id = "authoritative_resume_offline_state_advance_next_step_plan"
     assert post_id not in step_ids
     assert consumer_id not in step_ids
+    assert next_step_plan_id not in step_ids
     assert step_ids.index("temperature_channel_fast_review") < step_ids.index(
         "co2_open_flow_sampling"
     )
@@ -154,6 +211,12 @@ def test_full_flow_keeps_state_advance_evidence_out_of_canonical_steps(tmp_path:
         "--authoritative-resume-offline-state-advance-consumer-readiness-json",
     ).endswith(
         "authoritative_resume_offline_state_advance_consumer_readiness\\v1_5_authoritative_resume_offline_state_advance_consumer_readiness.json"
+    )
+    assert _flag_value(
+        status.command,
+        "--authoritative-resume-offline-state-advance-next-step-plan-json",
+    ).endswith(
+        "authoritative_resume_offline_state_advance_next_step_plan\\v1_5_authoritative_resume_offline_state_advance_next_step_plan.json"
     )
 
 
@@ -212,6 +275,11 @@ def test_formal_status_gates_accept_exact_read_only_chain(tmp_path: Path, monkey
         tmp_path / "v1_5_authoritative_resume_offline_state_advance_consumer_readiness.json",
         consumer,
     )
+    next_step = _next_step_payload(consumer_path)
+    next_step_path = _write(
+        tmp_path / "v1_5_authoritative_resume_offline_state_advance_next_step_plan.json",
+        next_step,
+    )
     monkeypatch.setattr(
         formal_status_module,
         "build_v1_5_authoritative_resume_offline_state_advance_post_write_verification",
@@ -221,6 +289,11 @@ def test_formal_status_gates_accept_exact_read_only_chain(tmp_path: Path, monkey
         formal_status_module,
         "build_v1_5_authoritative_resume_offline_state_advance_consumer_readiness",
         lambda **_kwargs: dict(consumer),
+    )
+    monkeypatch.setattr(
+        formal_status_module,
+        "build_v1_5_authoritative_resume_offline_state_advance_next_step_plan",
+        lambda **_kwargs: dict(next_step),
     )
     post_gate = formal_status_module._authoritative_resume_offline_state_advance_post_write_verification_gate(
         verification_path,
@@ -232,12 +305,29 @@ def test_formal_status_gates_accept_exact_read_only_chain(tmp_path: Path, monkey
         consumer,
         verification_path,
     )
+    next_step_gate = formal_status_module._authoritative_resume_offline_state_advance_next_step_plan_gate(
+        next_step_path,
+        next_step,
+        consumer_path,
+    )
     assert post_gate.status == "ready"
     assert post_gate.blocks_physical_flow is False
     assert post_gate.release_gate is False
     assert consumer_gate.status == "ready"
     assert consumer_gate.blocks_physical_flow is False
     assert consumer_gate.release_gate is False
+    assert next_step_gate.status == "ready"
+    assert next_step_gate.blocks_physical_flow is False
+    assert next_step_gate.release_gate is False
+
+    consumer_path.write_text('{"tampered":true}\n', encoding="utf-8")
+    tampered_gate = formal_status_module._authoritative_resume_offline_state_advance_next_step_plan_gate(
+        next_step_path,
+        next_step,
+        consumer_path,
+    )
+    assert tampered_gate.status == "blocked"
+    assert "hash-bound" in tampered_gate.reason
 
 
 def test_formal_status_blocks_missing_or_execution_capable_consumer(tmp_path: Path) -> None:
@@ -258,6 +348,9 @@ def test_formal_status_blocks_missing_or_execution_capable_consumer(tmp_path: Pa
     ]["status"] == "missing"
     assert gates[
         "authoritative_resume_offline_state_advance_consumer_readiness"
+    ]["status"] == "missing"
+    assert gates[
+        "authoritative_resume_offline_state_advance_next_step_plan"
     ]["status"] == "missing"
     assert model["can_continue_physical_flow"] is False
 
@@ -282,3 +375,19 @@ def test_formal_status_blocks_missing_or_execution_capable_consumer(tmp_path: Pa
     )
     assert gate.status == "blocked"
     assert gate.blocks_physical_flow is True
+
+    next_step_payload = _next_step_payload(consumer)
+    next_step_payload["next_step_execution_allowed"] = True
+    next_step = _write(
+        root
+        / "authoritative_resume_offline_state_advance_next_step_plan"
+        / "v1_5_authoritative_resume_offline_state_advance_next_step_plan.json",
+        next_step_payload,
+    )
+    next_step_gate = formal_status_module._authoritative_resume_offline_state_advance_next_step_plan_gate(
+        next_step,
+        next_step_payload,
+        consumer,
+    )
+    assert next_step_gate.status == "blocked"
+    assert next_step_gate.blocks_physical_flow is True
