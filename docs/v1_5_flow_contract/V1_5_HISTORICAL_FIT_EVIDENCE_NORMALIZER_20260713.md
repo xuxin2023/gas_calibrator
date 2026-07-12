@@ -24,7 +24,8 @@ R0(T1) evaluation and computes `A=-ln(R/R0(T))/(P_kPa/100)`.
 A row is fit-eligible only when component-matched formal quality evidence is A
 grade and explicitly allows calibration fitting. Missing H2O quality cannot be
 borrowed from a CO2 quality row. Duplicate component-quality rows or a mismatch
-between quality sample counts and machine-readable samples fail closed.
+between quality sample counts and machine-readable samples fail closed. Frame
+and usable-ratio counts are required on every accepted formal quality row.
 
 ## Anchor Contract
 
@@ -59,7 +60,9 @@ Every evidence root requires a separate reviewed attestation with this shape:
 ```
 
 The root path is matched exactly, and CO2/H2O roots sharing one family remain
-separately bound by `family_id + route_kind`.
+separately bound by `family_id + route_kind`. Duplicate root keys are rejected.
+The output records SHA-256 for the lineage, replay evidence, attestation, sample
+files, and formal quality files.
 
 ## Safety Boundary
 

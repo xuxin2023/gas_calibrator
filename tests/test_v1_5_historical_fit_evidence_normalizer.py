@@ -168,6 +168,8 @@ def _fixture(tmp_path: Path, profile_id: str) -> dict:
                 "prefix": "ga01",
                 "grade": "A_calibration_eligible",
                 "ratio_key": f"ga01_{route}_ratio_f",
+                "frame_count": "2",
+                "usable_ratio_count": "2",
                 "sample_can_enter_calibration_fit": "True",
                 "reason": "",
             }
@@ -179,6 +181,8 @@ def _fixture(tmp_path: Path, profile_id: str) -> dict:
                     "prefix": "ga01",
                     "grade": "A_calibration_eligible",
                     "ratio_key": "ga01_h2o_ratio_f",
+                    "frame_count": "2",
+                    "usable_ratio_count": "2",
                     "sample_can_enter_calibration_fit": "True",
                     "reason": "",
                 }
@@ -269,6 +273,9 @@ def test_normalized_historical_rows_pass_profile_parity(
     assert device["h2o_dry_anchor_count"] >= 3
     assert model["opens_com_ports"] is False
     assert model["writes_coefficients"] is False
+    assert len(model["source_paths"]["algorithm_profile_lineage_sha256"]) == 64
+    assert len(model["source_paths"]["historical_replay_evidence_sha256"]) == 64
+    assert len(model["source_paths"]["route_baseline_attestation_sha256"]) == 64
 
 
 def test_normalizer_uses_ratio_T1_pressure_and_not_displayed_concentration(tmp_path: Path) -> None:
@@ -336,6 +343,21 @@ def test_duplicate_component_quality_rows_are_structural_blockers(tmp_path: Path
     reasons = {row["reason"] for row in model["structural_gaps"]}
     assert model["overall_status"] == "blocked"
     assert "duplicate_formal_quality_row:ga01:co2" in reasons
+
+
+def test_duplicate_historical_root_keys_are_structural_blockers(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path, "legacy_ratio_production")
+    replay = json.loads(fixture["replay"].read_text(encoding="utf-8"))
+    replay["evidence_roots"].append(dict(replay["evidence_roots"][0]))
+    _write_json(fixture["replay"], replay)
+    model = build_v1_5_historical_fit_evidence_normalizer(
+        algorithm_profile_lineage_json=fixture["lineage"],
+        historical_replay_evidence_json=fixture["replay"],
+        route_baseline_attestation_json=fixture["attestation"],
+    )
+    reasons = {row["reason"] for row in model["structural_gaps"]}
+    assert model["overall_status"] == "blocked"
+    assert "duplicate_historical_evidence_root_key" in reasons
 
 
 def test_absorption_normalizer_rechecks_current_r0_files(tmp_path: Path) -> None:

@@ -3,19 +3,20 @@
 ## Focused
 
 ```text
-11 passed in 10.31s
+12 passed in 8.18s
 ```
 
 Coverage includes legacy R, absorption A/R0(T1), complete 45/13 and 47/14
 normalization, profile-parity consumption, separate CO2/H2O roots, reviewed
 route attestation, missing component QC, stale/missing R0 files, source hashes,
 sample-count mismatches, duplicate QC rows, CLI fail-closed behavior, and
+duplicate evidence-root keys, source SHA binding, CLI fail-closed behavior, and
 offline entrypoint classification.
 
 ## Compatibility
 
 ```text
-104 passed, 1 warning in 25.11s
+105 passed, 1 warning in 15.99s
 ```
 
 Coverage includes historical replay contract/evidence/gap audits, historical

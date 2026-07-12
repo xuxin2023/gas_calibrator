@@ -253,9 +253,13 @@ def _normalized_row(
         reasons.append(f"formal_{component}_quality_not_fit_eligible")
     expected_frames = _number(quality.get("frame_count"))
     expected_usable = _number(quality.get("usable_ratio_count"))
-    if expected_frames is not None and int(expected_frames) != len(rows):
+    if quality and expected_frames is None:
+        reasons.append(f"formal_{component}_frame_count_missing")
+    elif expected_frames is not None and int(expected_frames) != len(rows):
         reasons.append(f"formal_{component}_frame_count_mismatch")
-    if expected_usable is not None and int(expected_usable) != len(ratios):
+    if quality and expected_usable is None:
+        reasons.append(f"formal_{component}_usable_ratio_count_missing")
+    elif expected_usable is not None and int(expected_usable) != len(ratios):
         reasons.append(f"formal_{component}_usable_ratio_count_mismatch")
 
     dewpoint = _mean(_values(rows, "dewpoint_c"))
@@ -345,11 +349,16 @@ def build_v1_5_historical_fit_evidence_normalizer(
     r0_required = bool(profile_contract.get("r0_required"))
     attestations = _attestations(route_baseline_attestation_json)
     r0_sources = _r0_sources(lineage)
-    root_by_key = {
-        _root_key(str(row.get("family_id") or ""), str(row.get("route_kind") or "")): dict(row)
-        for row in replay.get("evidence_roots", [])
-        if isinstance(row, Mapping) and str(row.get("family_id") or "")
-    }
+    root_by_key: dict[str, dict[str, Any]] = {}
+    duplicate_root_keys: list[str] = []
+    for row in replay.get("evidence_roots", []):
+        if not isinstance(row, Mapping) or not str(row.get("family_id") or ""):
+            continue
+        key = _root_key(str(row.get("family_id") or ""), str(row.get("route_kind") or ""))
+        if key in root_by_key:
+            duplicate_root_keys.append(key)
+        else:
+            root_by_key[key] = dict(row)
     selected_root_keys = {
         key for key, root in root_by_key.items() if str(root.get("algorithm_profile_id") or "") == profile_id
     }
@@ -357,6 +366,10 @@ def build_v1_5_historical_fit_evidence_normalizer(
 
     structural_gaps: list[dict[str, Any]] = []
     review_gaps: list[dict[str, Any]] = []
+    structural_gaps.extend(
+        {"scope": key, "reason": "duplicate_historical_evidence_root_key", "source": str(replay_path)}
+        for key in duplicate_root_keys
+    )
     if lineage.get("overall_status") != "pass" or lineage.get("fit_input_allowed") is not True:
         structural_gaps.append({"scope": "lineage", "reason": "algorithm_profile_lineage_not_ready", "source": str(lineage_path)})
     if profile_id not in PROFILE_CONTRACTS:
@@ -531,8 +544,11 @@ def build_v1_5_historical_fit_evidence_normalizer(
         "blocked_fit_row_count": sum(not _truthy(row.get("fit_eligible")) for row in fit_rows),
         "source_paths": {
             "algorithm_profile_lineage_json": str(lineage_path),
+            "algorithm_profile_lineage_sha256": _sha256(lineage_path),
             "historical_replay_evidence_json": str(replay_path),
+            "historical_replay_evidence_sha256": _sha256(replay_path),
             "route_baseline_attestation_json": str(Path(route_baseline_attestation_json).resolve()) if route_baseline_attestation_json else "",
+            "route_baseline_attestation_sha256": _sha256(Path(route_baseline_attestation_json).resolve()) if route_baseline_attestation_json else "",
         },
         "fit_points": fit_rows,
         "source_files": sorted(source_files.values(), key=lambda row: row["path"]),
