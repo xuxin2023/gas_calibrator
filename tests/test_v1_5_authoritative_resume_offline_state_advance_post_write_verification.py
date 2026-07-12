@@ -45,6 +45,7 @@ from gas_calibrator.validation.v1_5_authoritative_resume_offline_state_advance_c
 from gas_calibrator.validation.v1_5_authoritative_resume_offline_state_advance_next_step_plan import (
     READY_STATUS as NEXT_STEP_PLAN_READY_STATUS,
     build_v1_5_authoritative_resume_offline_state_advance_next_step_plan,
+    write_v1_5_authoritative_resume_offline_state_advance_next_step_plan,
 )
 from gas_calibrator.validation.v1_5_authoritative_resume_offline_state_advance_post_write_verification import (
     BLOCKED_STATUS,
@@ -501,6 +502,13 @@ def test_formal_status_accepts_real_post_write_and_consumer_chain(
         consumer_model,
         tmp_path / "formal-status-consumer",
     )
+    next_step_model = build_v1_5_authoritative_resume_offline_state_advance_next_step_plan(
+        consumer_readiness_json=consumer_path
+    )
+    next_step_path = write_v1_5_authoritative_resume_offline_state_advance_next_step_plan(
+        next_step_model,
+        tmp_path / "formal-status-next-step-plan",
+    )
 
     post_gate = formal_status_module._authoritative_resume_offline_state_advance_post_write_verification_gate(
         verification_path,
@@ -512,10 +520,18 @@ def test_formal_status_accepts_real_post_write_and_consumer_chain(
         consumer_model,
         verification_path,
     )
+    next_step_gate = formal_status_module._authoritative_resume_offline_state_advance_next_step_plan_gate(
+        next_step_path,
+        next_step_model,
+        consumer_path,
+    )
 
     assert post_gate.status == "ready"
     assert post_gate.blocks_physical_flow is False
     assert consumer_gate.status == "ready"
     assert consumer_gate.blocks_physical_flow is False
+    assert next_step_gate.status == "ready"
+    assert next_step_gate.blocks_physical_flow is False
     assert consumer_model["state_consumption_allowed"] is True
     assert consumer_model["resume_execution_allowed"] is False
+    assert next_step_model["next_step_execution_allowed"] is False

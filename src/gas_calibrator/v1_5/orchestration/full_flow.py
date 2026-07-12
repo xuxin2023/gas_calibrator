@@ -1036,6 +1036,9 @@ def build_full_flow_plan(
     authoritative_resume_offline_state_advance_consumer_readiness_dir = (
         root / "authoritative_resume_offline_state_advance_consumer_readiness"
     )
+    authoritative_resume_offline_state_advance_next_step_plan_dir = (
+        root / "authoritative_resume_offline_state_advance_next_step_plan"
+    )
     getco_dir = root / "coefficient_epoch_0_getco_snapshot"
     getco_readiness_dir = root / "identity_getco_readiness"
     aux_neutral_dir = root / "auxiliary_senco56789_neutralization"
@@ -3276,6 +3279,9 @@ def build_full_flow_plan(
                 "--authoritative-resume-offline-state-advance-consumer-readiness-json",
                 authoritative_resume_offline_state_advance_consumer_readiness_dir
                 / "v1_5_authoritative_resume_offline_state_advance_consumer_readiness.json",
+                "--authoritative-resume-offline-state-advance-next-step-plan-json",
+                authoritative_resume_offline_state_advance_next_step_plan_dir
+                / "v1_5_authoritative_resume_offline_state_advance_next_step_plan.json",
                 "--getco-readiness-json",
                 getco_readiness_dir / "v1_5_getco_identity_readiness.json",
                 "--run-evidence-status-json",
@@ -3317,6 +3323,7 @@ def build_full_flow_plan(
                 "authoritative resume-state writer design sidecar",
                 "authoritative resume-state writer blocked executor sidecar",
                 "authoritative resume-state controlled-write preflight sidecar",
+                "offline advanced resume-state next-step plan sidecar",
                 "read-only COM minimal executor review sidecar",
                 "identity/GETCO readiness sidecar",
                 "pre-gas readiness sidecar",
