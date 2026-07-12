@@ -24,6 +24,10 @@ from gas_calibrator.v1_5.orchestration.full_flow import (
 from .v1_5_authoritative_resume_offline_state_advance_post_write_verification import (
     _contains_reparse,
 )
+from .v1_5_algorithm_mature_queue_inputs import (
+    EXPECTED_COUNTS,
+    write_v1_5_algorithm_mature_queue_inputs,
+)
 
 SCHEMA = "v1_5_new_run_bootstrap_v1"
 READY_STATUS = "new_v1_5_run_bootstrapped_execution_locked"
@@ -83,6 +87,8 @@ def bootstrap_v1_5_new_run(
     reviewer: str,
     approver: str,
     analyzer_id: str = "multi_device",
+    algorithm_profile_id: str = "legacy_ratio_production",
+    algorithm_profile_path: str | Path | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     created_at = (now or _now()).astimezone(UTC).replace(microsecond=0)
@@ -96,12 +102,25 @@ def bootstrap_v1_5_new_run(
         )
 
     config_source = Path(config_path).absolute()
+    profile_source = (
+        Path(algorithm_profile_path).absolute()
+        if algorithm_profile_path
+        else Path(__file__).resolve().parents[3]
+        / "configs"
+        / "v1_5_algorithm_route_profiles.json"
+    )
+    if algorithm_profile_id not in EXPECTED_COUNTS:
+        raise ValueError(f"Unsupported V1.5 algorithm profile: {algorithm_profile_id}")
     root = Path(runs_root).absolute()
     target = root / run_id
     if _contains_reparse(config_source):
         raise ValueError("bootstrap config path must not contain a reparse point")
+    if _contains_reparse(profile_source):
+        raise ValueError("algorithm profile path must not contain a reparse point")
     _config, config_bytes = _load_json_object_bytes(config_source)
+    _profiles, profile_bytes = _load_json_object_bytes(profile_source)
     config_source_sha = hashlib.sha256(config_bytes).hexdigest()
+    profile_source_sha = hashlib.sha256(profile_bytes).hexdigest()
     if _contains_reparse(root) or _contains_reparse(target):
         raise ValueError("bootstrap run path must not contain a reparse point")
     root.mkdir(parents=True, exist_ok=True)
@@ -124,6 +143,19 @@ def bootstrap_v1_5_new_run(
         snapshot_final = target / snapshot_relative
         snapshot_temp.parent.mkdir(parents=True, exist_ok=True)
         snapshot_temp.write_bytes(config_bytes)
+        profile_relative = Path("bootstrap_input") / "algorithm_route_profiles_snapshot.json"
+        profile_temp = temp / profile_relative
+        profile_final = target / profile_relative
+        profile_temp.write_bytes(profile_bytes)
+        queue_relative = Path("queues")
+        queue_temp = temp / queue_relative
+        queue_final = target / queue_relative
+        queue_model = write_v1_5_algorithm_mature_queue_inputs(
+            profile_path=profile_temp,
+            profile_id=algorithm_profile_id,
+            output_dir=queue_temp,
+            recorded_output_dir=queue_final,
+        )
 
         plan = build_full_flow_plan(
             config_path=snapshot_final,
@@ -133,6 +165,8 @@ def bootstrap_v1_5_new_run(
             analyzer_id=str(analyzer_id).strip() or "multi_device",
             reviewer=identities[1],
             approver=identities[2],
+            co2_queue_csv=queue_final / "co2_runner_queue.csv",
+            h2o_queue_csv=queue_final / "h2o_runner_queue.csv",
         )
         if plan.schema != PLAN_SCHEMA or plan.run_id != run_id:
             raise RuntimeError("generated full-flow plan identity mismatch")
@@ -172,7 +206,27 @@ def bootstrap_v1_5_new_run(
                 "role": "config_snapshot",
                 "path": str(snapshot_final),
                 "sha256": _sha(snapshot_temp),
-            }
+            },
+            {
+                "role": "algorithm_profile_snapshot",
+                "path": str(profile_final),
+                "sha256": _sha(profile_temp),
+            },
+            {
+                "role": "co2_queue_input",
+                "path": str(queue_final / "co2_runner_queue.csv"),
+                "sha256": _sha(queue_temp / "co2_runner_queue.csv"),
+            },
+            {
+                "role": "h2o_queue_input",
+                "path": str(queue_final / "h2o_runner_queue.csv"),
+                "sha256": _sha(queue_temp / "h2o_runner_queue.csv"),
+            },
+            {
+                "role": "algorithm_queue_input_manifest",
+                "path": str(queue_final / "v1_5_queue_inputs.json"),
+                "sha256": _sha(queue_temp / "v1_5_queue_inputs.json"),
+            },
         ]
         for role, path in output_paths.items():
             relative = Path(path).resolve().relative_to(temp.resolve())
@@ -200,6 +254,25 @@ def bootstrap_v1_5_new_run(
             "config_source_sha256": config_source_sha,
             "config_snapshot_json": str(snapshot_final),
             "config_snapshot_sha256": _sha(snapshot_temp),
+            "algorithm_profile_id": algorithm_profile_id,
+            "algorithm_profile_source_path_recorded_only": str(profile_source),
+            "algorithm_profile_source_sha256": profile_source_sha,
+            "algorithm_profile_snapshot_json": str(profile_final),
+            "algorithm_profile_snapshot_sha256": _sha(profile_temp),
+            "algorithm_queue_input_manifest_json": str(
+                queue_final / "v1_5_queue_inputs.json"
+            ),
+            "co2_queue_csv": queue_model["co2_queue_csv"],
+            "co2_queue_sha256": queue_model["co2_queue_sha256"],
+            "co2_point_count": queue_model["co2_point_count"],
+            "h2o_queue_csv": queue_model["h2o_queue_csv"],
+            "h2o_queue_sha256": queue_model["h2o_queue_sha256"],
+            "h2o_point_count": queue_model["h2o_point_count"],
+            "queue_source_contract": queue_model["queue_source_contract"],
+            "mature_queue_runners": {
+                "co2": queue_model["co2_queue_runner"],
+                "h2o": queue_model["h2o_queue_runner"],
+            },
             "full_flow_plan_json": str(target / "v1_5_full_flow_plan.json"),
             "full_flow_plan_sha256": _sha(temp / "v1_5_full_flow_plan.json"),
             "authoritative_state_json": str(target / "v1_5_full_flow_state.json"),
@@ -237,6 +310,8 @@ def bootstrap_v1_5_new_run(
         )
         if _sha(config_source) != config_source_sha:
             raise RuntimeError("bootstrap config changed before atomic publish")
+        if _sha(profile_source) != profile_source_sha:
+            raise RuntimeError("algorithm profile changed before atomic publish")
         os.replace(temp, target)
         return {
             **manifest,

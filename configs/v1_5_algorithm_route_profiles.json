@@ -33,7 +33,7 @@
       },
       "co2_route": {
         "runner": "gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue",
-        "queue_source": "D:/gas_calibrator/_handoff/v1_5_formal_queue_migration_20260624/canonical_open_flow_points/co2_runner_queue.csv",
+        "queue_source": "profile_generated_runtime_artifact:co2_runner_queue.csv",
         "formal_point_count": 45,
         "temperature_plan": {
           "-20": [0, 400, 1000],
@@ -74,7 +74,7 @@
       },
       "h2o_route": {
         "runner": "gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue",
-        "queue_source": "D:/gas_calibrator/_handoff/v1_5_formal_queue_migration_20260624/canonical_open_flow_points/h2o_runner_queue.csv",
+        "queue_source": "profile_generated_runtime_artifact:h2o_runner_queue.csv",
         "formal_point_count": 13,
         "temperature_plan": {
           "0": ["HGEN0C_50RH"],
@@ -178,7 +178,7 @@
       },
       "co2_route": {
         "runner": "gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue",
-        "queue_source": "D:/gas_calibrator/_handoff/v1_5_formal_queue_migration_20260624/canonical_open_flow_points/co2_runner_queue.csv",
+        "queue_source": "profile_generated_runtime_artifact:co2_runner_queue.csv",
         "formal_point_count": 45,
         "production_candidate_point_count_with_supplements": 47,
         "temperature_plan": {
@@ -287,7 +287,7 @@
       },
       "h2o_route": {
         "runner": "gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue",
-        "queue_source": "D:/gas_calibrator/_handoff/v1_5_formal_queue_migration_20260624/canonical_open_flow_points/h2o_runner_queue.csv",
+        "queue_source": "profile_generated_runtime_artifact:h2o_runner_queue.csv",
         "formal_wet_point_count": 13,
         "production_candidate_wet_point_count_with_supplements": 14,
         "wet_temperature_plan": {
