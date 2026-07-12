@@ -27,7 +27,7 @@ HOLD_STATUS = "offline_step_execution_hold"
 CONFIRMATION_TEXT = "execute_v1_5_offline_canonical_step_only"
 DEFAULT_TIMEOUT_S = 300.0
 
-_GATE_COMPARE_KEYS = (
+GATE_COMPARE_KEYS = (
     "overall_status",
     "offline_resume_candidate_ready",
     "review_required_count",
@@ -207,7 +207,7 @@ def run_v1_5_authoritative_resume_offline_executor(
     if not recomputed:
         reasons.append("offline_candidate_gate_recompute_failed")
     else:
-        for key in _GATE_COMPARE_KEYS:
+        for key in GATE_COMPARE_KEYS:
             if gate.get(key) != recomputed.get(key):
                 reasons.append(f"offline_candidate_gate_recompute_mismatch:{key}")
         reasons.extend(
@@ -387,6 +387,7 @@ def write_v1_5_authoritative_resume_offline_executor(
 __all__ = [
     "CONFIRMATION_TEXT",
     "EXECUTED_STATUS",
+    "GATE_COMPARE_KEYS",
     "HOLD_STATUS",
     "LOCKED_STATUS",
     "SCHEMA",
