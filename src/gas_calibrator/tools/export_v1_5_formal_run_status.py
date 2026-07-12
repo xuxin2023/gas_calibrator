@@ -137,6 +137,21 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default="",
         help="Optional explicit authoritative resume-state post-write verification JSON.",
     )
+    parser.add_argument(
+        "--authoritative-resume-offline-state-advance-atomic-write-json",
+        default="",
+        help="Optional explicit manual offline state-advance atomic writer JSON.",
+    )
+    parser.add_argument(
+        "--authoritative-resume-offline-state-advance-post-write-verification-json",
+        default="",
+        help="Optional explicit offline state-advance post-write verification JSON.",
+    )
+    parser.add_argument(
+        "--authoritative-resume-offline-state-advance-consumer-readiness-json",
+        default="",
+        help="Optional explicit offline-advanced resume-state consumer readiness JSON.",
+    )
     parser.add_argument("--getco-readiness-json", default="", help="Optional explicit identity/GETCO readiness JSON.")
     parser.add_argument("--run-evidence-status-json", default="", help="Optional explicit run evidence status JSON.")
     parser.add_argument(
@@ -268,6 +283,17 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             ),
             authoritative_resume_state_post_write_verification_json=(
                 args.authoritative_resume_state_post_write_verification_json or None
+            ),
+            authoritative_resume_offline_state_advance_atomic_write_json=(
+                args.authoritative_resume_offline_state_advance_atomic_write_json or None
+            ),
+            authoritative_resume_offline_state_advance_post_write_verification_json=(
+                args.authoritative_resume_offline_state_advance_post_write_verification_json
+                or None
+            ),
+            authoritative_resume_offline_state_advance_consumer_readiness_json=(
+                args.authoritative_resume_offline_state_advance_consumer_readiness_json
+                or None
             ),
             getco_readiness_json=args.getco_readiness_json or None,
             run_evidence_status_json=args.run_evidence_status_json or None,

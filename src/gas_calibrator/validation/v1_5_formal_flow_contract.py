@@ -146,6 +146,17 @@ AUTHORITATIVE_RESUME_STATE_WRITER_BLOCKED_EXECUTOR_MODULE = (
 AUTHORITATIVE_RESUME_STATE_CONTROLLED_WRITE_PREFLIGHT_MODULE = (
     "gas_calibrator.tools.export_v1_5_authoritative_resume_state_controlled_write_preflight"
 )
+AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_POST_WRITE_VERIFICATION_MODULE = (
+    "gas_calibrator.tools.export_v1_5_authoritative_resume_offline_state_advance_post_write_verification"
+)
+AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_CONSUMER_READINESS_MODULE = (
+    "gas_calibrator.tools.export_v1_5_authoritative_resume_offline_state_advance_consumer_readiness"
+)
+OUT_OF_BAND_OFFLINE_STATE_ADVANCE_MODULES = {
+    AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_POST_WRITE_VERIFICATION_MODULE,
+    AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_CONSUMER_READINESS_MODULE,
+    "gas_calibrator.tools.run_v1_5_authoritative_resume_offline_state_advance_atomic_writer",
+}
 RESUME_PREFIX_APPLICATION_REVIEW_FORBIDDEN_FLAGS = (
     "--completed-step",
     "--failed-step",
@@ -209,6 +220,8 @@ FORMAL_PHYSICAL_FLOW = (
     "AUTHORITATIVE_RESUME_STATE_WRITER_BLOCKED_EXECUTOR: prove state target, hash, authorization, execute, and replace inputs remain locked",
     "AUTHORITATIVE_RESUME_STATE_CONTROLLED_WRITE_PREFLIGHT: bind the exact candidate bytes, current-state SHA256, and distinct authorization without writing state",
     "TEMPERATURE: review chamber/case temperature evidence before final approval",
+    "OUT_OF_BAND_STATE_ADVANCE_VERIFICATION: formal status verifies the manually authorized state advance without adding a completed_step_id",
+    "OUT_OF_BAND_STATE_CONSUMER_READINESS: formal status allows read-only planning consumption while resume execution remains locked",
     "CO2_OPEN_FLOW: sample clean dry gas under continuous open flow",
     "H2O_OPEN_FLOW: sample water route under dewpoint/reference evidence",
     "QC: keep raw frames, rejected frames, reasons, and fit-eligible samples",
@@ -708,6 +721,19 @@ def validate_v1_5_formal_flow_contract(
         command = step.get("command") or ()
         writes = bool(step.get("writes_coefficients"))
         controls_route = bool(step.get("controls_gas_route") or step.get("controls_water_route"))
+
+        if module in OUT_OF_BAND_OFFLINE_STATE_ADVANCE_MODULES:
+            issues.append(
+                _issue(
+                    "error",
+                    "offline_state_advance_evidence_must_remain_out_of_band",
+                    (
+                        "Offline state-advance writer/verification/consumer tools must not become canonical "
+                        "completed_step_ids; formal status consumes their evidence out of band."
+                    ),
+                    step_id,
+                )
+            )
 
         if ".v2" in module.lower() or any(".v2" in str(part).lower() for part in command):
             issues.append(_issue("error", "v2_reference_forbidden", "V1.5 formal plan must not reference V2", step_id))
@@ -1915,6 +1941,9 @@ def validate_v1_5_formal_flow_contract(
                 "--pre-gas-readiness-json",
                 "--batch-initialization-closeout-json",
                 "--post-closeout-resume-gate-json",
+                "--authoritative-resume-offline-state-advance-atomic-write-json",
+                "--authoritative-resume-offline-state-advance-post-write-verification-json",
+                "--authoritative-resume-offline-state-advance-consumer-readiness-json",
                 "--getco-readiness-json",
                 "--run-evidence-status-json",
                 "--formal-database-dry-run-json",
@@ -2448,6 +2477,143 @@ def validate_v1_5_formal_flow_contract(
                             "error",
                             "authoritative_resume_state_controlled_write_preflight_forbidden_unlock_flag",
                             f"Authoritative resume-state controlled-write preflight must not include {flag}",
+                            step_id,
+                        )
+                    )
+
+        if step_id == "authoritative_resume_offline_state_advance_post_write_verification":
+            if module != AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_POST_WRITE_VERIFICATION_MODULE:
+                issues.append(
+                    _issue(
+                        "error",
+                        "authoritative_resume_offline_state_advance_post_write_verification_wrong_tool",
+                        "Offline state-advance post-write verification must use the canonical offline exporter",
+                        step_id,
+                    )
+                )
+            if bool(step.get("opens_com_ports")) or bool(step.get("controls_pressure")) or controls_route or writes:
+                issues.append(
+                    _issue(
+                        "error",
+                        "authoritative_resume_offline_state_advance_post_write_verification_must_be_offline_no_write",
+                        "Offline state-advance post-write verification must not open COM, control routes/pressure, or write state/coefficients",
+                        step_id,
+                    )
+                )
+            if bool(step.get("writes_device_id")):
+                issues.append(
+                    _issue(
+                        "error",
+                        "authoritative_resume_offline_state_advance_post_write_verification_must_not_write_identity",
+                        "Offline state-advance post-write verification must not write identity",
+                        step_id,
+                    )
+                )
+            if not str(step.get("execution_mode") or "").startswith("offline"):
+                issues.append(
+                    _issue(
+                        "error",
+                        "authoritative_resume_offline_state_advance_post_write_verification_must_be_offline",
+                        "Offline state-advance post-write verification execution_mode must be offline",
+                        step_id,
+                    )
+                )
+            for flag in ("--atomic-write-json", "--output-dir", "--fail-on-blocker"):
+                _require_flag(
+                    command,
+                    flag,
+                    step_id=step_id,
+                    issues=issues,
+                    code="authoritative_resume_offline_state_advance_post_write_verification_missing_required_flag",
+                    message=f"Offline state-advance post-write verification command must include {flag}",
+                )
+            for flag in (
+                "--execute",
+                "--write-state",
+                "--replace-state",
+                "--allow-real-com",
+                "--allow-pressure-control",
+                "--allow-route-control",
+                "--allow-writes",
+                "--allow-database-import",
+            ):
+                if _command_has_flag(command, flag):
+                    issues.append(
+                        _issue(
+                            "error",
+                            "authoritative_resume_offline_state_advance_post_write_verification_forbidden_unlock_flag",
+                            f"Offline state-advance post-write verification must not include {flag}",
+                            step_id,
+                        )
+                    )
+
+        if step_id == "authoritative_resume_offline_state_advance_consumer_readiness":
+            if module != AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_CONSUMER_READINESS_MODULE:
+                issues.append(
+                    _issue(
+                        "error",
+                        "authoritative_resume_offline_state_advance_consumer_readiness_wrong_tool",
+                        "Offline state-advance consumer readiness must use the canonical offline exporter",
+                        step_id,
+                    )
+                )
+            if bool(step.get("opens_com_ports")) or bool(step.get("controls_pressure")) or controls_route or writes:
+                issues.append(
+                    _issue(
+                        "error",
+                        "authoritative_resume_offline_state_advance_consumer_readiness_must_be_offline_no_write",
+                        "Offline state-advance consumer readiness must not open COM, control routes/pressure, or write state/coefficients",
+                        step_id,
+                    )
+                )
+            if bool(step.get("writes_device_id")):
+                issues.append(
+                    _issue(
+                        "error",
+                        "authoritative_resume_offline_state_advance_consumer_readiness_must_not_write_identity",
+                        "Offline state-advance consumer readiness must not write identity",
+                        step_id,
+                    )
+                )
+            if not str(step.get("execution_mode") or "").startswith("offline"):
+                issues.append(
+                    _issue(
+                        "error",
+                        "authoritative_resume_offline_state_advance_consumer_readiness_must_be_offline",
+                        "Offline state-advance consumer readiness execution_mode must be offline",
+                        step_id,
+                    )
+                )
+            for flag in (
+                "--post-write-verification-json",
+                "--output-dir",
+                "--fail-on-blocker",
+            ):
+                _require_flag(
+                    command,
+                    flag,
+                    step_id=step_id,
+                    issues=issues,
+                    code="authoritative_resume_offline_state_advance_consumer_readiness_missing_required_flag",
+                    message=f"Offline state-advance consumer readiness command must include {flag}",
+                )
+            for flag in (
+                "--execute",
+                "--write-state",
+                "--replace-state",
+                "--execute-offline-commands",
+                "--allow-real-com",
+                "--allow-pressure-control",
+                "--allow-route-control",
+                "--allow-writes",
+                "--allow-database-import",
+            ):
+                if _command_has_flag(command, flag):
+                    issues.append(
+                        _issue(
+                            "error",
+                            "authoritative_resume_offline_state_advance_consumer_readiness_forbidden_unlock_flag",
+                            f"Offline state-advance consumer readiness must not include {flag}",
                             step_id,
                         )
                     )

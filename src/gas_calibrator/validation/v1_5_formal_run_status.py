@@ -30,6 +30,17 @@ from .v1_5_authoritative_resume_state_post_write_verification import (
     SCHEMA as RESUME_STATE_POST_WRITE_SCHEMA,
     build_v1_5_authoritative_resume_state_post_write_verification,
 )
+from .v1_5_authoritative_resume_offline_state_advance_post_write_verification import (
+    READY_STATUS as OFFLINE_STATE_ADVANCE_POST_WRITE_READY_STATUS,
+    SCHEMA as OFFLINE_STATE_ADVANCE_POST_WRITE_SCHEMA,
+    build_v1_5_authoritative_resume_offline_state_advance_post_write_verification,
+)
+from .v1_5_authoritative_resume_offline_state_advance_consumer_readiness import (
+    READY_STATUS as OFFLINE_STATE_ADVANCE_CONSUMER_READY_STATUS,
+    SCHEMA as OFFLINE_STATE_ADVANCE_CONSUMER_SCHEMA,
+    VERIFICATION_COMPARE_KEYS as OFFLINE_STATE_ADVANCE_VERIFICATION_COMPARE_KEYS,
+    build_v1_5_authoritative_resume_offline_state_advance_consumer_readiness,
+)
 from .v1_5_senco_artifact_authorization import validate_senco_artifact_authorization
 
 
@@ -1127,6 +1138,177 @@ def _authoritative_resume_state_post_write_verification_gate(
         reason=reason,
         next_action="Regenerate offline post-write verification from the exact atomic-write evidence before resuming physical flow.",
         physical_meaning="A resumed run must consume the exact state bytes that were authorized, atomically written, and read back.",
+        release_gate=False,
+        blocks_release=False,
+        blocks_physical_flow=status != READY,
+    )
+
+
+def _authoritative_resume_offline_state_advance_post_write_verification_gate(
+    path: Path | None,
+    payload: Mapping[str, Any],
+    atomic_write_path: Path | None,
+) -> FormalRunGate:
+    source_status = _source_status(payload)
+    boundary_ok = (
+        payload.get("state_consumption_allowed") is False
+        and payload.get("execution_supported") is False
+        and payload.get("resume_execution_allowed") is False
+        and all(
+            payload.get(field) is False
+            for field in (
+                "opens_com_ports",
+                "controls_pressure",
+                "controls_water_or_gas_routes",
+                "writes_authoritative_state",
+                "writes_sn",
+                "writes_device_id",
+                "writes_coefficients",
+                "connects_postgresql",
+                "database_written",
+                "formal_release_allowed",
+                "database_import_allowed",
+            )
+        )
+        and payload.get("not_real_acceptance_evidence") is True
+    )
+    declared_atomic = Path(str(payload.get("atomic_write_json") or "")).resolve()
+    atomic_bound = atomic_write_path is not None and declared_atomic == atomic_write_path.resolve()
+    recomputed: dict[str, Any] = {}
+    if atomic_bound:
+        try:
+            recomputed = build_v1_5_authoritative_resume_offline_state_advance_post_write_verification(
+                atomic_write_json=atomic_write_path
+            )
+        except (OSError, RuntimeError, TypeError, ValueError, json.JSONDecodeError):
+            recomputed = {}
+    exact = (
+        bool(recomputed)
+        and payload.get("schema") == recomputed.get("schema")
+        and all(
+            payload.get(key) == recomputed.get(key)
+            for key in OFFLINE_STATE_ADVANCE_VERIFICATION_COMPARE_KEYS
+        )
+    )
+    ready = (
+        payload.get("schema") == OFFLINE_STATE_ADVANCE_POST_WRITE_SCHEMA
+        and source_status == OFFLINE_STATE_ADVANCE_POST_WRITE_READY_STATUS
+        and payload.get("post_write_verification_ready") is True
+        and int(payload.get("blocker_count") or 0) == 0
+        and not payload.get("blocker_reasons")
+        and boundary_ok
+        and atomic_bound
+        and exact
+    )
+    if not payload:
+        status, reason = MISSING, "offline state-advance post-write verification missing"
+    elif not boundary_ok:
+        status, reason = BLOCKED, "offline state-advance post-write verification boundary is not clean"
+    elif not atomic_bound:
+        status, reason = BLOCKED, "offline state-advance verification is not bound to the detected atomic writer"
+    elif not exact:
+        status, reason = BLOCKED, "offline state-advance verification differs from independently recomputed evidence"
+    elif ready:
+        status, reason = READY, "one-step offline state advance, rollback snapshot, readback, and lock release are verified"
+    else:
+        status, reason = BLOCKED, f"source_status={source_status or 'unknown'}"
+    return _gate(
+        gate_id="authoritative_resume_offline_state_advance_post_write_verification",
+        title="Offline resume-state advance post-write verification",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action="Regenerate the offline post-write verification from the exact manual writer evidence before CO2 resume planning.",
+        physical_meaning="Proves that the completed offline step advanced the canonical state by exactly one position without changing any physical or analyzer authority.",
+        release_gate=False,
+        blocks_release=False,
+        blocks_physical_flow=status != READY,
+    )
+
+
+def _authoritative_resume_offline_state_advance_consumer_readiness_gate(
+    path: Path | None,
+    payload: Mapping[str, Any],
+    verification_path: Path | None,
+) -> FormalRunGate:
+    source_status = _source_status(payload)
+    boundary_ok = (
+        payload.get("state_consumption_allowed") is True
+        and payload.get("execution_supported") is False
+        and payload.get("resume_execution_allowed") is False
+        and payload.get("would_execute") is False
+        and all(
+            payload.get(field) is False
+            for field in (
+                "opens_com_ports",
+                "controls_pressure",
+                "controls_water_or_gas_routes",
+                "writes_authoritative_state",
+                "writes_sn",
+                "writes_device_id",
+                "writes_coefficients",
+                "connects_postgresql",
+                "database_written",
+                "formal_release_allowed",
+                "database_import_allowed",
+            )
+        )
+        and payload.get("not_real_acceptance_evidence") is True
+    )
+    declared_verification = Path(
+        str(payload.get("post_write_verification_json") or "")
+    ).resolve()
+    verification_bound = (
+        verification_path is not None
+        and declared_verification == verification_path.resolve()
+        and str(payload.get("post_write_verification_sha256") or "")
+        == _artifact_sha256(verification_path)
+    )
+    recomputed: dict[str, Any] = {}
+    if verification_bound:
+        try:
+            recomputed = build_v1_5_authoritative_resume_offline_state_advance_consumer_readiness(
+                post_write_verification_json=verification_path
+            )
+        except (OSError, RuntimeError, TypeError, ValueError, json.JSONDecodeError):
+            recomputed = {}
+    payload_without_time = {key: value for key, value in payload.items() if key != "generated_at"}
+    recomputed_without_time = {
+        key: value for key, value in recomputed.items() if key != "generated_at"
+    }
+    exact = bool(recomputed) and payload_without_time == recomputed_without_time
+    ready = (
+        payload.get("schema") == OFFLINE_STATE_ADVANCE_CONSUMER_SCHEMA
+        and source_status == OFFLINE_STATE_ADVANCE_CONSUMER_READY_STATUS
+        and payload.get("resume_state_consumer_readiness_ready") is True
+        and int(payload.get("blocker_count") or 0) == 0
+        and not payload.get("blocker_reasons")
+        and boundary_ok
+        and verification_bound
+        and exact
+    )
+    if not payload:
+        status, reason = MISSING, "offline state-advance consumer readiness missing"
+    elif not boundary_ok:
+        status, reason = BLOCKED, "offline state-advance consumer boundary is not read-only"
+    elif not verification_bound:
+        status, reason = BLOCKED, "consumer readiness is not hash-bound to the detected post-write verification"
+    elif not exact:
+        status, reason = BLOCKED, "consumer readiness differs from independently recomputed evidence"
+    elif ready:
+        status, reason = READY, "verified state may be consumed for offline planning while resume execution remains locked"
+    else:
+        status, reason = BLOCKED, f"source_status={source_status or 'unknown'}"
+    return _gate(
+        gate_id="authoritative_resume_offline_state_advance_consumer_readiness",
+        title="Offline-advanced resume-state consumer readiness",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action="Allow only offline planning to consume this state; keep CO2 route execution behind its existing explicit authorization gate.",
+        physical_meaning="Separates permission to read the verified next state from permission to execute the next physical calibration step.",
         release_gate=False,
         blocks_release=False,
         blocks_physical_flow=status != READY,
@@ -2865,6 +3047,9 @@ def build_v1_5_formal_run_status(
     authoritative_resume_state_controlled_write_preflight_json: str | Path | None = None,
     authoritative_resume_state_atomic_write_json: str | Path | None = None,
     authoritative_resume_state_post_write_verification_json: str | Path | None = None,
+    authoritative_resume_offline_state_advance_atomic_write_json: str | Path | None = None,
+    authoritative_resume_offline_state_advance_post_write_verification_json: str | Path | None = None,
+    authoritative_resume_offline_state_advance_consumer_readiness_json: str | Path | None = None,
     getco_readiness_json: str | Path | None = None,
     run_evidence_status_json: str | Path | None = None,
     full_flow_closure_readiness_json: str | Path | None = None,
@@ -2999,6 +3184,21 @@ def build_v1_5_formal_run_status(
         authoritative_resume_state_post_write_verification_json,
         "v1_5_resume_state_post_write_verification.json",
     )
+    authoritative_resume_offline_state_advance_atomic_write_path = _explicit_or_latest(
+        root,
+        authoritative_resume_offline_state_advance_atomic_write_json,
+        "v1_5_authoritative_resume_offline_state_advance_atomic_writer.json",
+    )
+    authoritative_resume_offline_state_advance_post_write_verification_path = _explicit_or_latest(
+        root,
+        authoritative_resume_offline_state_advance_post_write_verification_json,
+        "v1_5_authoritative_resume_offline_state_advance_post_write_verification.json",
+    )
+    authoritative_resume_offline_state_advance_consumer_readiness_path = _explicit_or_latest(
+        root,
+        authoritative_resume_offline_state_advance_consumer_readiness_json,
+        "v1_5_authoritative_resume_offline_state_advance_consumer_readiness.json",
+    )
     getco_path = _explicit_or_latest(root, getco_readiness_json, "v1_5_getco_identity_readiness.json")
     run_status_path = _explicit_or_latest(root, run_evidence_status_json, "v1_5_run_evidence_status.json")
     closure_path = _explicit_or_latest(root, full_flow_closure_readiness_json, "v1_5_full_flow_closure_readiness.json")
@@ -3102,6 +3302,12 @@ def build_v1_5_formal_run_status(
     )
     authoritative_resume_state_post_write_verification_payload = _load_json(
         authoritative_resume_state_post_write_verification_path
+    )
+    authoritative_resume_offline_state_advance_post_write_verification_payload = _load_json(
+        authoritative_resume_offline_state_advance_post_write_verification_path
+    )
+    authoritative_resume_offline_state_advance_consumer_readiness_payload = _load_json(
+        authoritative_resume_offline_state_advance_consumer_readiness_path
     )
     getco_payload = _load_json(getco_path)
     run_payload = _load_json(run_status_path)
@@ -3323,6 +3529,25 @@ def build_v1_5_formal_run_status(
                 authoritative_resume_state_post_write_verification_path,
                 authoritative_resume_state_post_write_verification_payload,
                 authoritative_resume_state_atomic_write_path,
+            )
+        )
+    if (
+        authoritative_resume_offline_state_advance_atomic_write_path
+        or authoritative_resume_offline_state_advance_post_write_verification_path
+        or authoritative_resume_offline_state_advance_consumer_readiness_path
+    ):
+        gates.append(
+            _authoritative_resume_offline_state_advance_post_write_verification_gate(
+                authoritative_resume_offline_state_advance_post_write_verification_path,
+                authoritative_resume_offline_state_advance_post_write_verification_payload,
+                authoritative_resume_offline_state_advance_atomic_write_path,
+            )
+        )
+        gates.append(
+            _authoritative_resume_offline_state_advance_consumer_readiness_gate(
+                authoritative_resume_offline_state_advance_consumer_readiness_path,
+                authoritative_resume_offline_state_advance_consumer_readiness_payload,
+                authoritative_resume_offline_state_advance_post_write_verification_path,
             )
         )
     if pressure_s9_readiness_index_path:
@@ -3647,6 +3872,21 @@ def build_v1_5_formal_run_status(
                 authoritative_resume_state_post_write_verification_path
             )
             if authoritative_resume_state_post_write_verification_path
+            else "",
+            "authoritative_resume_offline_state_advance_atomic_write_json": str(
+                authoritative_resume_offline_state_advance_atomic_write_path
+            )
+            if authoritative_resume_offline_state_advance_atomic_write_path
+            else "",
+            "authoritative_resume_offline_state_advance_post_write_verification_json": str(
+                authoritative_resume_offline_state_advance_post_write_verification_path
+            )
+            if authoritative_resume_offline_state_advance_post_write_verification_path
+            else "",
+            "authoritative_resume_offline_state_advance_consumer_readiness_json": str(
+                authoritative_resume_offline_state_advance_consumer_readiness_path
+            )
+            if authoritative_resume_offline_state_advance_consumer_readiness_path
             else "",
             "getco_readiness_json": str(getco_path) if getco_path else "",
             "run_evidence_status_json": str(run_status_path) if run_status_path else "",

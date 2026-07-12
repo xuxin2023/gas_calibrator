@@ -1027,6 +1027,15 @@ def build_full_flow_plan(
     authoritative_resume_state_controlled_write_preflight_dir = (
         root / "authoritative_resume_state_controlled_write_preflight"
     )
+    authoritative_resume_offline_state_advance_atomic_writer_dir = (
+        root / "authoritative_resume_offline_state_advance_atomic_writer"
+    )
+    authoritative_resume_offline_state_advance_post_write_verification_dir = (
+        root / "authoritative_resume_offline_state_advance_post_write_verification"
+    )
+    authoritative_resume_offline_state_advance_consumer_readiness_dir = (
+        root / "authoritative_resume_offline_state_advance_consumer_readiness"
+    )
     getco_dir = root / "coefficient_epoch_0_getco_snapshot"
     getco_readiness_dir = root / "identity_getco_readiness"
     aux_neutral_dir = root / "auxiliary_senco56789_neutralization"
@@ -3258,6 +3267,15 @@ def build_full_flow_plan(
                 "--authoritative-resume-state-controlled-write-preflight-json",
                 authoritative_resume_state_controlled_write_preflight_dir
                 / "v1_5_resume_state_write_preflight.json",
+                "--authoritative-resume-offline-state-advance-atomic-write-json",
+                authoritative_resume_offline_state_advance_atomic_writer_dir
+                / "v1_5_authoritative_resume_offline_state_advance_atomic_writer.json",
+                "--authoritative-resume-offline-state-advance-post-write-verification-json",
+                authoritative_resume_offline_state_advance_post_write_verification_dir
+                / "v1_5_authoritative_resume_offline_state_advance_post_write_verification.json",
+                "--authoritative-resume-offline-state-advance-consumer-readiness-json",
+                authoritative_resume_offline_state_advance_consumer_readiness_dir
+                / "v1_5_authoritative_resume_offline_state_advance_consumer_readiness.json",
                 "--getco-readiness-json",
                 getco_readiness_dir / "v1_5_getco_identity_readiness.json",
                 "--run-evidence-status-json",
