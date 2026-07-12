@@ -157,6 +157,11 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default="",
         help="Optional explicit offline-advanced resume-state next-step plan JSON.",
     )
+    parser.add_argument(
+        "--authoritative-resume-offline-state-advance-next-step-authorization-preflight-json",
+        default="",
+        help="Optional explicit offline next-step review authorization preflight JSON.",
+    )
     parser.add_argument("--getco-readiness-json", default="", help="Optional explicit identity/GETCO readiness JSON.")
     parser.add_argument("--run-evidence-status-json", default="", help="Optional explicit run evidence status JSON.")
     parser.add_argument(
@@ -302,6 +307,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             ),
             authoritative_resume_offline_state_advance_next_step_plan_json=(
                 args.authoritative_resume_offline_state_advance_next_step_plan_json
+                or None
+            ),
+            authoritative_resume_offline_state_advance_next_step_authorization_preflight_json=(
+                args.authoritative_resume_offline_state_advance_next_step_authorization_preflight_json
                 or None
             ),
             getco_readiness_json=args.getco_readiness_json or None,

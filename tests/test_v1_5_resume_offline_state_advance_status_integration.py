@@ -14,6 +14,10 @@ from gas_calibrator.validation.v1_5_authoritative_resume_offline_state_advance_n
     READY_STATUS as NEXT_STEP_PLAN_READY_STATUS,
     SCHEMA as NEXT_STEP_PLAN_SCHEMA,
 )
+from gas_calibrator.validation.v1_5_authoritative_resume_offline_state_advance_next_step_authorization_preflight import (
+    READY_STATUS as NEXT_STEP_AUTHORIZATION_READY_STATUS,
+    SCHEMA as NEXT_STEP_AUTHORIZATION_SCHEMA,
+)
 from gas_calibrator.validation.v1_5_authoritative_resume_offline_state_advance_post_write_verification import (
     READY_STATUS as VERIFICATION_READY_STATUS,
     SCHEMA as VERIFICATION_SCHEMA,
@@ -176,15 +180,63 @@ def _next_step_payload(consumer: Path) -> dict:
     }
 
 
+def _next_step_authorization_payload(next_step: Path, authorization: Path) -> dict:
+    return {
+        "schema": NEXT_STEP_AUTHORIZATION_SCHEMA,
+        "generated_at": "2026-07-12T07:02:00Z",
+        "overall_status": NEXT_STEP_AUTHORIZATION_READY_STATUS,
+        "next_step_authorization_preflight_ready": True,
+        "authorization_packet_validated_offline": True,
+        "review_required_count": 0,
+        "review_reasons": [],
+        "next_step_plan_json": str(next_step.resolve()),
+        "next_step_plan_sha256": _sha(next_step),
+        "authorization_packet_json": str(authorization.resolve()),
+        "authorization_packet_sha256": _sha(authorization),
+        "authorization_id": "authorization-113",
+        "authorization_expires_at": "2026-07-12T07:15:00Z",
+        "consumer_readiness_json": "consumer.json",
+        "consumer_readiness_sha256": "a" * 64,
+        "run_id": "run-001",
+        "attempt_id": "attempt-001",
+        "verified_step_id": "temperature_channel_fast_review",
+        "next_step_id": "co2_open_flow_sampling",
+        "next_step_tool_module": "gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue",
+        "plan_review_allowed": True,
+        "execution_supported": False,
+        "next_step_execution_allowed": False,
+        "resume_execution_allowed": False,
+        "would_execute": False,
+        "opens_com_ports": False,
+        "controls_pressure": False,
+        "controls_water_or_gas_routes": False,
+        "writes_authoritative_state": False,
+        "writes_sn": False,
+        "writes_device_id": False,
+        "writes_coefficients": False,
+        "connects_postgresql": False,
+        "database_written": False,
+        "formal_release_allowed": False,
+        "database_import_allowed": False,
+        "not_real_acceptance_evidence": True,
+        "checks": [],
+        "next_action": "Review only.",
+    }
+
+
 def test_full_flow_keeps_state_advance_evidence_out_of_canonical_steps(tmp_path: Path) -> None:
     plan = _plan(tmp_path)
     step_ids = [step.step_id for step in plan.steps]
     post_id = "authoritative_resume_offline_state_advance_post_write_verification"
     consumer_id = "authoritative_resume_offline_state_advance_consumer_readiness"
     next_step_plan_id = "authoritative_resume_offline_state_advance_next_step_plan"
+    authorization_id = (
+        "authoritative_resume_offline_state_advance_next_step_authorization_preflight"
+    )
     assert post_id not in step_ids
     assert consumer_id not in step_ids
     assert next_step_plan_id not in step_ids
+    assert authorization_id not in step_ids
     assert step_ids.index("temperature_channel_fast_review") < step_ids.index(
         "co2_open_flow_sampling"
     )
@@ -217,6 +269,12 @@ def test_full_flow_keeps_state_advance_evidence_out_of_canonical_steps(tmp_path:
         "--authoritative-resume-offline-state-advance-next-step-plan-json",
     ).endswith(
         "authoritative_resume_offline_state_advance_next_step_plan\\v1_5_authoritative_resume_offline_state_advance_next_step_plan.json"
+    )
+    assert _flag_value(
+        status.command,
+        "--authoritative-resume-offline-state-advance-next-step-authorization-preflight-json",
+    ).endswith(
+        "authoritative_resume_offline_state_advance_next_step_authorization_preflight\\v1_5_authoritative_resume_offline_state_advance_next_step_authorization_preflight.json"
     )
 
 
@@ -280,6 +338,19 @@ def test_formal_status_gates_accept_exact_read_only_chain(tmp_path: Path, monkey
         tmp_path / "v1_5_authoritative_resume_offline_state_advance_next_step_plan.json",
         next_step,
     )
+    authorization_packet_path = _write(
+        tmp_path
+        / "v1_5_authoritative_resume_offline_state_advance_next_step_authorization_packet.json",
+        {"authorization": True},
+    )
+    authorization = _next_step_authorization_payload(
+        next_step_path, authorization_packet_path
+    )
+    authorization_path = _write(
+        tmp_path
+        / "v1_5_authoritative_resume_offline_state_advance_next_step_authorization_preflight.json",
+        authorization,
+    )
     monkeypatch.setattr(
         formal_status_module,
         "build_v1_5_authoritative_resume_offline_state_advance_post_write_verification",
@@ -294,6 +365,11 @@ def test_formal_status_gates_accept_exact_read_only_chain(tmp_path: Path, monkey
         formal_status_module,
         "build_v1_5_authoritative_resume_offline_state_advance_next_step_plan",
         lambda **_kwargs: dict(next_step),
+    )
+    monkeypatch.setattr(
+        formal_status_module,
+        "build_v1_5_authoritative_resume_offline_state_advance_next_step_authorization_preflight",
+        lambda **_kwargs: dict(authorization),
     )
     post_gate = formal_status_module._authoritative_resume_offline_state_advance_post_write_verification_gate(
         verification_path,
@@ -310,6 +386,11 @@ def test_formal_status_gates_accept_exact_read_only_chain(tmp_path: Path, monkey
         next_step,
         consumer_path,
     )
+    authorization_gate = formal_status_module._authoritative_resume_offline_state_advance_next_step_authorization_preflight_gate(
+        authorization_path,
+        authorization,
+        next_step_path,
+    )
     assert post_gate.status == "ready"
     assert post_gate.blocks_physical_flow is False
     assert post_gate.release_gate is False
@@ -319,6 +400,9 @@ def test_formal_status_gates_accept_exact_read_only_chain(tmp_path: Path, monkey
     assert next_step_gate.status == "ready"
     assert next_step_gate.blocks_physical_flow is False
     assert next_step_gate.release_gate is False
+    assert authorization_gate.status == "ready"
+    assert authorization_gate.blocks_physical_flow is False
+    assert authorization_gate.release_gate is False
 
     consumer_path.write_text('{"tampered":true}\n', encoding="utf-8")
     tampered_gate = formal_status_module._authoritative_resume_offline_state_advance_next_step_plan_gate(
@@ -351,6 +435,9 @@ def test_formal_status_blocks_missing_or_execution_capable_consumer(tmp_path: Pa
     ]["status"] == "missing"
     assert gates[
         "authoritative_resume_offline_state_advance_next_step_plan"
+    ]["status"] == "missing"
+    assert gates[
+        "authoritative_resume_offline_state_advance_next_step_authorization_preflight"
     ]["status"] == "missing"
     assert model["can_continue_physical_flow"] is False
 
@@ -391,3 +478,27 @@ def test_formal_status_blocks_missing_or_execution_capable_consumer(tmp_path: Pa
     )
     assert next_step_gate.status == "blocked"
     assert next_step_gate.blocks_physical_flow is True
+
+    next_step_payload["next_step_execution_allowed"] = False
+    _write(next_step, next_step_payload)
+    authorization_packet = _write(
+        root / "next-step-authorization-packet.json",
+        {"authorization": True},
+    )
+    authorization_payload = _next_step_authorization_payload(
+        next_step, authorization_packet
+    )
+    authorization_payload["next_step_execution_allowed"] = True
+    authorization_path = _write(
+        root
+        / "authoritative_resume_offline_state_advance_next_step_authorization_preflight"
+        / "v1_5_authoritative_resume_offline_state_advance_next_step_authorization_preflight.json",
+        authorization_payload,
+    )
+    authorization_gate = formal_status_module._authoritative_resume_offline_state_advance_next_step_authorization_preflight_gate(
+        authorization_path,
+        authorization_payload,
+        next_step,
+    )
+    assert authorization_gate.status == "blocked"
+    assert authorization_gate.blocks_physical_flow is True
