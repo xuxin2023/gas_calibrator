@@ -458,6 +458,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline historical fitting parity replay; enforces 0613 fitting plus 0620/0621 route baselines and legacy R versus absorption A/R0(T) without executing hardware")
     elif lower == "export_v1_5_historical_fit_evidence_normalizer":
         notes.append("offline historical fit evidence normalizer; extracts ratio, chamber T1, pressure, dewpoint, and component-matched QC without opening COM or fitting coefficients")
+    elif lower == "export_v1_5_historical_route_attestation_binder":
+        notes.append("offline historical mature-root attestation binder; binds exact queue, sidecar, sample, QC, and 0613/0620/0621 contract hashes without opening COM")
     elif lower == "export_v1_5_automation_control_contract":
         notes.append("offline V1.5 automation control contract; keeps automation as a shell around the 0613/0620/0621 mature core")
     elif lower == "export_v1_5_full_flow_automation_closure":
@@ -684,6 +686,7 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             "export_v1_5_route_physical_recovery_evidence_packet_template",
             "export_v1_5_route_physical_recovery_evidence_binder",
             "export_v1_5_mature_route_continuity_gate",
+            "export_v1_5_historical_route_attestation_binder",
         }:
             category = "formal_review_evidence"
             formal_status = "formal_support"
