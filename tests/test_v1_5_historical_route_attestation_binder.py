@@ -220,6 +220,13 @@ def test_complete_exact_root_emits_reviewed_attestation(tmp_path: Path, route_ki
     )
     assert baseline == ("0620" if route_kind == "co2" else "0621")
     assert reasons == []
+    samples = fixture["point"] / "samples_machine_readable.csv"
+    samples.write_text(samples.read_text(encoding="utf-8-sig") + "tampered\n", encoding="utf-8-sig")
+    _, tampered_reasons = _route_baseline(
+        {"family_id": f"family_{route_kind}", "route_kind": route_kind, "root_path": fixture["root"]},
+        attestations[f"family_{route_kind}:{route_kind}"],
+    )
+    assert "route_baseline_attestation_evidence_file_hash_mismatch" in tampered_reasons
 
 
 @pytest.mark.parametrize(
