@@ -384,6 +384,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline resume state-advance authorization validator; binds a short-lived distinct-reviewer packet to the exact preflight, current-state SHA, candidate SHA, run, attempt, and verified step without writing state")
     elif lower == "run_v1_5_authoritative_resume_offline_state_advance_blocked_executor":
         notes.append("offline resume state-advance blocked executor; freshly revalidates authorization but exposes no execute or state-write path")
+    elif lower == "run_v1_5_authoritative_resume_offline_state_advance_atomic_writer":
+        notes.append("manual-authorized one-step offline resume state-advance writer; freshly revalidates authorization under the shared lock, checks current and candidate SHA256 values, snapshots, atomically replaces, reads back, and rolls back without opening COM")
     elif lower == "run_v1_5_formal_readonly_com_minimal_executor":
         notes.append("manual-authorized minimal read-only COM executor; reads SN/GETCO/runtime/CHECK evidence only, never writes analyzer state, database, pressure, or routes")
     elif "formal_archive_closure" in lower:
@@ -570,6 +572,13 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             controls_routes = False
             writes_coefficients = False
         elif lower == "run_v1_5_authoritative_resume_state_atomic_writer":
+            category = "controlled_state_writer"
+            formal_status = "manual_authorized_only"
+            risk_level = "state_file_write_risk"
+            opens_com_ports = False
+            controls_routes = False
+            writes_coefficients = False
+        elif lower == "run_v1_5_authoritative_resume_offline_state_advance_atomic_writer":
             category = "controlled_state_writer"
             formal_status = "manual_authorized_only"
             risk_level = "state_file_write_risk"
