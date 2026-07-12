@@ -956,6 +956,11 @@ def build_v1_5_profile_queue_rows(
     return {
         "profile_id": profile_id,
         "algorithm_mode": str(point_plan[0].get("algorithm_mode") or ""),
+        "point_plan_guard_status": tables["manifest"]["status"],
+        "point_plan_guard_blocker_count": tables["manifest"]["blocker_count"],
+        "source_runners": sorted(
+            {str(row.get("source_runner") or "") for row in point_plan}
+        ),
         "co2_rows": co2_rows,
         "h2o_rows": h2o_rows,
     }

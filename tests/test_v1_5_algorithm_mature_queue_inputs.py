@@ -96,6 +96,28 @@ def test_materializer_rejects_unknown_profile(tmp_path: Path) -> None:
         )
 
 
+@pytest.mark.parametrize("tamper", ("point", "runner"))
+def test_materializer_rejects_same_count_point_or_runner_substitution(
+    tmp_path: Path, tamper: str
+) -> None:
+    payload = json.loads(PROFILE.read_text(encoding="utf-8-sig"))
+    profile = next(
+        row for row in payload["profiles"] if row["profile_id"] == "absorption_ratio_shadow"
+    )
+    if tamper == "point":
+        profile["co2_route"]["temperature_plan"]["-20"] = [0, 500, 1000]
+    else:
+        profile["co2_route"]["runner"] = "migration.run_v1_5_co2"
+    altered = tmp_path / "altered_profiles.json"
+    altered.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError):
+        write_v1_5_algorithm_mature_queue_inputs(
+            profile_path=altered,
+            profile_id="absorption_ratio_shadow",
+            output_dir=tmp_path / "queues",
+        )
+
+
 def test_cli_is_offline_formal_support(tmp_path: Path) -> None:
     output = tmp_path / "queues"
     assert (

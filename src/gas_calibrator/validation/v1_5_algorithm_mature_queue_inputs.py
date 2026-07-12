@@ -21,6 +21,43 @@ EXPECTED_COUNTS = {
 FORBIDDEN_SOURCE_MARKERS = ("_handoff", "20260624", "0624", "migration")
 
 
+def _expected_co2_points(profile_id: str) -> set[tuple[float, float]]:
+    points = {
+        (temp, ppm)
+        for temp in (-20.0, -10.0, 0.0, 40.0)
+        for ppm in (0.0, 400.0, 1000.0)
+    }
+    points.update(
+        (temp, float(ppm))
+        for temp in (10.0, 20.0, 30.0)
+        for ppm in range(0, 1001, 100)
+    )
+    if profile_id == "absorption_ratio_shadow":
+        points.update({(-20.0, 600.0), (-10.0, 600.0)})
+    return points
+
+
+def _expected_h2o_points(profile_id: str) -> set[tuple[float, float, float]]:
+    points = {
+        (0.0, 0.0, 50.0),
+        (10.0, 10.0, 30.0),
+        (10.0, 10.0, 50.0),
+        (10.0, 10.0, 70.0),
+        (20.0, 20.0, 30.0),
+        (20.0, 20.0, 50.0),
+        (20.0, 20.0, 70.0),
+        (30.0, 20.0, 30.0),
+        (30.0, 20.0, 50.0),
+        (30.0, 20.0, 70.0),
+        (30.0, 20.0, 90.0),
+        (40.0, 30.0, 50.0),
+        (40.0, 30.0, 70.0),
+    }
+    if profile_id == "absorption_ratio_shadow":
+        points.add((40.0, 30.0, 30.0))
+    return points
+
+
 def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -47,6 +84,10 @@ def build_v1_5_algorithm_mature_queue_inputs(
     if profile_id not in EXPECTED_COUNTS:
         raise ValueError(f"Unsupported V1.5 algorithm profile: {profile_id}")
     rows = build_v1_5_profile_queue_rows(profile_file, profile_id=profile_id)
+    if int(rows.get("point_plan_guard_blocker_count") or 0) != 0:
+        raise ValueError("V1.5 algorithm point-plan guard contains blockers")
+    if set(rows.get("source_runners") or ()) != {CO2_QUEUE_RUNNER, H2O_QUEUE_RUNNER}:
+        raise ValueError("Profile does not reference the two mature V1.5 queue runners")
     co2_rows = [dict(row) for row in rows["co2_rows"]]
     h2o_rows = [dict(row) for row in rows["h2o_rows"]]
     expected_co2, expected_h2o = EXPECTED_COUNTS[profile_id]
@@ -54,6 +95,22 @@ def build_v1_5_algorithm_mature_queue_inputs(
         raise ValueError(
             "Profile point count does not match the V1.5 algorithm queue contract"
         )
+    observed_co2 = {
+        (float(row["temp_c"]), float(row["source_nominal_ppm"]))
+        for row in co2_rows
+    }
+    observed_h2o = {
+        (
+            float(row["temp_c"]),
+            float(row["hgen_temp_c"]),
+            float(row["hgen_rh_pct"]),
+        )
+        for row in h2o_rows
+    }
+    if observed_co2 != _expected_co2_points(profile_id):
+        raise ValueError("CO2 point identities differ from the mature profile contract")
+    if observed_h2o != _expected_h2o_points(profile_id):
+        raise ValueError("H2O point identities differ from the mature profile contract")
     for row in [*co2_rows, *h2o_rows]:
         source_text = json.dumps(row, ensure_ascii=False).lower()
         if any(marker in source_text for marker in FORBIDDEN_SOURCE_MARKERS):
