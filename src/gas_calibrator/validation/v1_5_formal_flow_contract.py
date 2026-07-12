@@ -50,6 +50,7 @@ REQUIRED_STEP_IDS = (
     "temperature_channel_fast_review",
     "co2_open_flow_sampling",
     "h2o_open_flow_sampling",
+    "algorithm_profile_lineage_gate",
     "fit_input_quality_review",
     "post_run_coefficient_executor",
     "co2_candidate_write_review",
@@ -104,6 +105,7 @@ REQUIRED_ORDER = (
     "temperature_channel_fast_review",
     "co2_open_flow_sampling",
     "h2o_open_flow_sampling",
+    "algorithm_profile_lineage_gate",
     "fit_input_quality_review",
     "post_run_coefficient_executor",
     "co2_candidate_write_review",
@@ -1642,6 +1644,68 @@ def validate_v1_5_formal_flow_contract(
                             step_id,
                         )
                     )
+
+        if step_id == "algorithm_profile_lineage_gate":
+            if module != "gas_calibrator.tools.export_v1_5_algorithm_profile_lineage_gate":
+                issues.append(
+                    _issue(
+                        "error",
+                        "algorithm_profile_lineage_wrong_tool",
+                        "Algorithm profile lineage must use the offline canonical exporter",
+                        step_id,
+                    )
+                )
+            if bool(step.get("opens_com_ports")) or bool(step.get("controls_pressure")) or controls_route or writes:
+                issues.append(
+                    _issue(
+                        "error",
+                        "algorithm_profile_lineage_must_be_offline_no_write",
+                        "Algorithm profile lineage must not open COM, control routes, or write coefficients",
+                        step_id,
+                    )
+                )
+            required_suffixes = {
+                "--bootstrap-json": "v1_5_new_run_bootstrap.json",
+                "--queue-inputs-json": "queues/v1_5_queue_inputs.json",
+                "--co2-queue-summary-json": "co2_open_flow/",
+                "--h2o-queue-summary-json": "h2o_open_flow/",
+            }
+            for flag, suffix in required_suffixes.items():
+                value = _command_value_after(command, flag).replace("\\", "/")
+                if not value or suffix not in value:
+                    issues.append(
+                        _issue(
+                            "error",
+                            "algorithm_profile_lineage_missing_bound_input",
+                            f"Algorithm profile lineage must bind {flag} to {suffix}",
+                            step_id,
+                        )
+                    )
+            if not _command_has_flag(command, "--fail-on-blocker"):
+                issues.append(
+                    _issue(
+                        "error",
+                        "algorithm_profile_lineage_must_fail_on_blocker",
+                        "Algorithm profile lineage must stop fitting when profile lineage is inconsistent",
+                        step_id,
+                    )
+                )
+
+        if step_id == "fit_input_quality_review":
+            lineage_value = _command_value_after(
+                command, "--algorithm-profile-lineage-json"
+            ).replace("\\", "/")
+            if not lineage_value.endswith(
+                "algorithm_profile_lineage/v1_5_algorithm_profile_lineage_gate.json"
+            ):
+                issues.append(
+                    _issue(
+                        "error",
+                        "fit_input_quality_missing_algorithm_profile_lineage",
+                        "Fit-input quality must consume the passed algorithm-profile lineage gate",
+                        step_id,
+                    )
+                )
 
         if step_id == "automation_control_contract_snapshot":
             if module != "gas_calibrator.tools.export_v1_5_automation_control_contract":

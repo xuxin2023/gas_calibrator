@@ -452,6 +452,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline algorithm queue handoff preflight; requires dry-run/no-prompt evidence before any future live queue wiring")
     elif lower == "export_v1_5_algorithm_mature_queue_inputs":
         notes.append("offline profile queue materializer; emits immutable 45/13 or 47/14 inputs for the mature V1.5 CO2/H2O queues without executing them")
+    elif lower == "export_v1_5_algorithm_profile_lineage_gate":
+        notes.append("offline algorithm-profile lineage gate; binds bootstrap and queue hashes to legacy R or absorption A/R0(T) fit semantics without executing hardware")
     elif lower == "export_v1_5_automation_control_contract":
         notes.append("offline V1.5 automation control contract; keeps automation as a shell around the 0613/0620/0621 mature core")
     elif lower == "export_v1_5_full_flow_automation_closure":
@@ -671,6 +673,7 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             "run_v1_5_formal_readonly_com_minimal_executor_stub",
             "export_v1_5_automation_control_contract",
             "export_v1_5_algorithm_mature_queue_inputs",
+            "export_v1_5_algorithm_profile_lineage_gate",
             "export_v1_5_full_flow_automation_closure",
             "export_v1_5_production_entrypoint_gate",
             "export_v1_5_route_physical_recovery_evidence_packet",
