@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 import gas_calibrator.validation.v1_5_authoritative_resume_offline_state_advance_next_step_execution_authorization as authorization_module
+import gas_calibrator.validation.v1_5_authoritative_resume_offline_state_advance_next_step_operator_bundle as bundle_module
 from gas_calibrator.tools.run_v1_5_authoritative_resume_offline_state_advance_next_step_operator_bundle import (
     main,
 )
@@ -341,6 +342,27 @@ def test_operator_bundle_refuses_nonempty_output_directory(
             output_dir=output,
             now=NOW,
         )
+
+
+def test_operator_bundle_refuses_reparse_output_before_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fixture = _fixture(tmp_path, monkeypatch)
+    output = tmp_path / "bundle"
+    monkeypatch.setattr(
+        bundle_module, "_contains_reparse", lambda path: path == output.absolute()
+    )
+    with pytest.raises(ValueError, match="must not contain a reparse point"):
+        run_v1_5_authoritative_resume_offline_state_advance_next_step_operator_bundle(
+            controlled_executor_design_json=fixture["design_path"],
+            authorization_id="operator-bundle-117",
+            operator="operator-a",
+            reviewer="reviewer-b",
+            approver="approver-c",
+            output_dir=output,
+            now=NOW,
+        )
+    assert not output.exists()
 
 
 def test_operator_bundle_cli_rejects_generic_execute_before_output(

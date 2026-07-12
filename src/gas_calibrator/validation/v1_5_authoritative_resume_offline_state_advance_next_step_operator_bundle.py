@@ -26,6 +26,9 @@ from .v1_5_authoritative_resume_offline_state_advance_next_step_execution_prefli
     build_v1_5_authoritative_resume_offline_state_advance_next_step_execution_preflight,
     write_v1_5_authoritative_resume_offline_state_advance_next_step_execution_preflight,
 )
+from .v1_5_authoritative_resume_offline_state_advance_post_write_verification import (
+    _contains_reparse,
+)
 
 SCHEMA = "v1_5_authoritative_resume_offline_state_advance_next_step_operator_bundle_v1"
 PREPARED_STATUS = "operator_bundle_prepared_execution_locked"
@@ -165,6 +168,10 @@ def run_v1_5_authoritative_resume_offline_state_advance_next_step_operator_bundl
 ) -> dict[str, Any]:
     evaluated_at = (now or _now()).astimezone(UTC).replace(microsecond=0)
     output = Path(output_dir).absolute()
+    if _contains_reparse(output):
+        raise ValueError(
+            "operator bundle output directory must not contain a reparse point"
+        )
     if output.exists() and any(output.iterdir()):
         raise ValueError("operator bundle output directory must be absent or empty")
     authorization_dir = output / "01_execution_authorization"
