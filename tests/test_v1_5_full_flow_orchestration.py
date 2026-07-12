@@ -1838,6 +1838,8 @@ def test_route_stage_remains_blocked_without_route_authorization(tmp_path):
             "authoritative_resume_state_writer_blocked_executor",
             "authoritative_resume_state_controlled_write_preflight",
             "temperature_channel_fast_review",
+            "authoritative_resume_offline_state_advance_post_write_verification",
+            "authoritative_resume_offline_state_advance_consumer_readiness",
         ],
         allow_real_com=True,
         allow_pressure_control=True,
