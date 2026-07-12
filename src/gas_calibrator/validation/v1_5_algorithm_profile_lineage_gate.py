@@ -47,6 +47,35 @@ def _sha(path: Path) -> str:
         return ""
 
 
+def _read_csv(path: Path) -> list[dict[str, str]]:
+    try:
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            return list(csv.DictReader(handle))
+    except OSError:
+        return []
+
+
+def _point_identities(route: str, rows: Sequence[Mapping[str, Any]]) -> list[tuple[float, ...]]:
+    identities: list[tuple[float, ...]] = []
+    try:
+        for row in rows:
+            if route == "co2":
+                identities.append(
+                    (float(row["temp_c"]), float(row["source_nominal_ppm"]))
+                )
+            else:
+                identities.append(
+                    (
+                        float(row["temp_c"]),
+                        float(row["hgen_temp_c"]),
+                        float(row["hgen_rh_pct"]),
+                    )
+                )
+    except (KeyError, TypeError, ValueError):
+        return []
+    return identities
+
+
 def _same_path(left: Any, right: Any) -> bool:
     if not left or not right:
         return False
@@ -68,6 +97,7 @@ def _route_check(
     bootstrap: Mapping[str, Any],
     queue_inputs: Mapping[str, Any],
     summary: Mapping[str, Any],
+    manifest_path: Path,
     expected_count: int,
     expected_runner: str,
 ) -> dict[str, Any]:
@@ -76,6 +106,8 @@ def _route_check(
     sha_key = f"{route}_queue_sha256"
     runner_key = f"{route}_queue_runner"
     queue_path = Path(str(queue_inputs.get(queue_key) or ""))
+    queue_rows = _read_csv(queue_path)
+    manifest_rows = _read_csv(manifest_path)
     if not _same_path(bootstrap.get(queue_key), queue_inputs.get(queue_key)):
         reasons.append(f"{route}_queue_path_mismatch")
     observed_sha = _sha(queue_path)
@@ -87,6 +119,16 @@ def _route_check(
         reasons.append(f"{route}_mature_runner_mismatch")
     if int(queue_inputs.get(f"{route}_point_count") or 0) != expected_count:
         reasons.append(f"{route}_queue_input_count_mismatch")
+    queue_identities = _point_identities(route, queue_rows)
+    manifest_identities = _point_identities(route, manifest_rows)
+    if len(manifest_rows) != expected_count:
+        reasons.append(f"{route}_point_manifest_count_mismatch")
+    if not manifest_identities or manifest_identities != queue_identities:
+        reasons.append(f"{route}_point_manifest_identity_mismatch")
+    if len(set(manifest_identities)) != len(manifest_identities):
+        reasons.append(f"{route}_point_manifest_duplicate_identity")
+    if any(str(row.get("status") or "").lower() != "ok" for row in manifest_rows):
+        reasons.append(f"{route}_point_manifest_has_non_ok_status")
     if not summary:
         reasons.append(f"{route}_queue_summary_missing")
     else:
@@ -109,6 +151,8 @@ def _route_check(
             "expected_point_count": expected_count,
             "runner": queue_inputs.get(runner_key),
             "summary_status": summary.get("overall_status") or summary.get("status"),
+            "point_manifest": str(manifest_path),
+            "point_manifest_count": len(manifest_rows),
         },
     )
 
@@ -158,6 +202,8 @@ def build_v1_5_algorithm_profile_lineage_gate(
     queue_inputs_json: str | Path,
     co2_queue_summary_json: str | Path,
     h2o_queue_summary_json: str | Path,
+    co2_queue_manifest_csv: str | Path,
+    h2o_queue_manifest_csv: str | Path,
     co2_r0_model_json: str | Path | None = None,
     h2o_r0_model_json: str | Path | None = None,
 ) -> dict[str, Any]:
@@ -202,6 +248,7 @@ def build_v1_5_algorithm_profile_lineage_gate(
             bootstrap=bootstrap,
             queue_inputs=queue_inputs,
             summary=co2_summary,
+            manifest_path=Path(co2_queue_manifest_csv).resolve(),
             expected_count=co2_count,
             expected_runner=CO2_QUEUE_RUNNER,
         )
@@ -212,6 +259,7 @@ def build_v1_5_algorithm_profile_lineage_gate(
             bootstrap=bootstrap,
             queue_inputs=queue_inputs,
             summary=h2o_summary,
+            manifest_path=Path(h2o_queue_manifest_csv).resolve(),
             expected_count=h2o_count,
             expected_runner=H2O_QUEUE_RUNNER,
         )
@@ -261,6 +309,8 @@ def build_v1_5_algorithm_profile_lineage_gate(
             "queue_inputs_json": str(queue_inputs_path),
             "co2_queue_summary_json": str(Path(co2_queue_summary_json).resolve()),
             "h2o_queue_summary_json": str(Path(h2o_queue_summary_json).resolve()),
+            "co2_queue_manifest_csv": str(Path(co2_queue_manifest_csv).resolve()),
+            "h2o_queue_manifest_csv": str(Path(h2o_queue_manifest_csv).resolve()),
             "co2_r0_model_json": str(Path(co2_r0_model_json).resolve()) if co2_r0_model_json else "",
             "h2o_r0_model_json": str(Path(h2o_r0_model_json).resolve()) if h2o_r0_model_json else "",
         },

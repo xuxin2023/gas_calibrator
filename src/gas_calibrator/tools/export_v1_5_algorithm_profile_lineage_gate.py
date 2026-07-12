@@ -18,6 +18,8 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--queue-inputs-json", required=True)
     parser.add_argument("--co2-queue-summary-json", required=True)
     parser.add_argument("--h2o-queue-summary-json", required=True)
+    parser.add_argument("--co2-queue-manifest-csv", required=True)
+    parser.add_argument("--h2o-queue-manifest-csv", required=True)
     parser.add_argument("--co2-r0-model-json", default="")
     parser.add_argument("--h2o-r0-model-json", default="")
     parser.add_argument("--output-dir", required=True)
@@ -28,6 +30,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         queue_inputs_json=args.queue_inputs_json,
         co2_queue_summary_json=args.co2_queue_summary_json,
         h2o_queue_summary_json=args.h2o_queue_summary_json,
+        co2_queue_manifest_csv=args.co2_queue_manifest_csv,
+        h2o_queue_manifest_csv=args.h2o_queue_manifest_csv,
         co2_r0_model_json=args.co2_r0_model_json or None,
         h2o_r0_model_json=args.h2o_r0_model_json or None,
     )

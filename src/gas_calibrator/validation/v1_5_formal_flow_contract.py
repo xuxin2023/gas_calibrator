@@ -1669,6 +1669,8 @@ def validate_v1_5_formal_flow_contract(
                 "--queue-inputs-json": "queues/v1_5_queue_inputs.json",
                 "--co2-queue-summary-json": "co2_open_flow/",
                 "--h2o-queue-summary-json": "h2o_open_flow/",
+                "--co2-queue-manifest-csv": "co2_open_flow/",
+                "--h2o-queue-manifest-csv": "h2o_open_flow/",
             }
             for flag, suffix in required_suffixes.items():
                 value = _command_value_after(command, flag).replace("\\", "/")

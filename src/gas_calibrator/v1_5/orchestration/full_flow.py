@@ -2447,6 +2447,10 @@ def build_full_flow_plan(
                 co2_dir / f"{rid}_co2" / "queue_summary.json",
                 "--h2o-queue-summary-json",
                 h2o_dir / f"{rid}_h2o" / "queue_summary.json",
+                "--co2-queue-manifest-csv",
+                co2_dir / f"{rid}_co2" / "queue_manifest.csv",
+                "--h2o-queue-manifest-csv",
+                h2o_dir / f"{rid}_h2o" / "queue_manifest.csv",
                 "--co2-r0-model-json",
                 root / "algorithm_r0" / "co2_r0_model.json",
                 "--h2o-r0-model-json",
@@ -2459,6 +2463,7 @@ def build_full_flow_plan(
                 "atomic new-run bootstrap manifest",
                 "profile-generated immutable queue inputs",
                 "completed CO2/H2O queue summaries",
+                "completed CO2/H2O point manifests",
                 "R0_CO2(T)/R0_H2O(T) evidence for the absorption profile",
             ),
             expected_outputs=(

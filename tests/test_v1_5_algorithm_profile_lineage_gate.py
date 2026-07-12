@@ -1,3 +1,4 @@
+import csv
 import json
 from pathlib import Path
 
@@ -63,6 +64,23 @@ def _fixture(tmp_path: Path, profile_id: str) -> dict:
             "status": "ok",
         },
     )
+    manifests = {}
+    for route in ("co2", "h2o"):
+        queue_path = Path(queue_model[f"{route}_queue_csv"])
+        with queue_path.open("r", encoding="utf-8-sig", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        manifest_path = tmp_path / f"{route}_manifest.csv"
+        fields = (
+            ("temp_c", "source_nominal_ppm", "status")
+            if route == "co2"
+            else ("temp_c", "hgen_temp_c", "hgen_rh_pct", "status")
+        )
+        with manifest_path.open("w", encoding="utf-8-sig", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fields)
+            writer.writeheader()
+            for row in rows:
+                writer.writerow({**{key: row[key] for key in fields if key != "status"}, "status": "ok"})
+        manifests[route] = manifest_path
     r0 = {}
     if profile_id == "absorption_ratio_shadow":
         for component, variable in (("co2", "R0_CO2(T)"), ("h2o", "R0_H2O(T)")):
@@ -84,6 +102,8 @@ def _fixture(tmp_path: Path, profile_id: str) -> dict:
         "queue_inputs_json": Path(queue_model["manifest_json"]),
         "co2_queue_summary_json": co2_summary,
         "h2o_queue_summary_json": h2o_summary,
+        "co2_queue_manifest_csv": manifests["co2"],
+        "h2o_queue_manifest_csv": manifests["h2o"],
         "co2_r0_model_json": r0.get("co2"),
         "h2o_r0_model_json": r0.get("h2o"),
     }
@@ -130,7 +150,7 @@ def test_absorption_profile_blocks_without_both_r0_models(tmp_path: Path) -> Non
     assert "h2o_r0_model_missing" in reasons
 
 
-@pytest.mark.parametrize("tamper", ("profile", "queue"))
+@pytest.mark.parametrize("tamper", ("profile", "queue", "manifest"))
 def test_lineage_gate_blocks_profile_or_queue_substitution(
     tmp_path: Path, tamper: str
 ) -> None:
@@ -140,8 +160,18 @@ def test_lineage_gate_blocks_profile_or_queue_substitution(
         bootstrap["algorithm_profile_id"] = "absorption_ratio_shadow"
         _write_json(Path(inputs["bootstrap_json"]), bootstrap)
     else:
-        queue_inputs = json.loads(Path(inputs["queue_inputs_json"]).read_text(encoding="utf-8"))
-        Path(queue_inputs["co2_queue_csv"]).write_text("tampered\n", encoding="utf-8")
+        if tamper == "queue":
+            queue_inputs = json.loads(Path(inputs["queue_inputs_json"]).read_text(encoding="utf-8"))
+            Path(queue_inputs["co2_queue_csv"]).write_text("tampered\n", encoding="utf-8")
+        else:
+            manifest = Path(inputs["co2_queue_manifest_csv"])
+            with manifest.open("r", encoding="utf-8-sig", newline="") as handle:
+                rows = list(csv.DictReader(handle))
+            rows[0]["source_nominal_ppm"] = "123"
+            with manifest.open("w", encoding="utf-8-sig", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=rows[0].keys())
+                writer.writeheader()
+                writer.writerows(rows)
     model = build_v1_5_algorithm_profile_lineage_gate(**inputs)
     assert model["overall_status"] == "blocked"
     assert model["fit_input_allowed"] is False
