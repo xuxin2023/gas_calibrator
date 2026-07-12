@@ -34,6 +34,12 @@ _FORBIDDEN_PROVENANCE = (
 )
 
 
+def historical_provenance_blockers(*values: Any) -> list[str]:
+    """Return deterministic mature-route provenance blocker codes."""
+    text = " ".join(str(value or "") for value in values)
+    return sorted({code for pattern, code in _FORBIDDEN_PROVENANCE if pattern.search(text)})
+
+
 def _now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -343,9 +349,8 @@ def build_v1_5_historical_route_attestation_binder(
             if manifest_path:
                 manifest_rows = _read_csv(manifest_path)
                 _add_evidence(inventory, root_key, "queue_manifest", manifest_path)
-            for pattern, code in _FORBIDDEN_PROVENANCE:
-                if pattern.search(provenance_text):
-                    block(root_key, root, code, provenance_text)
+            for code in historical_provenance_blockers(provenance_text):
+                block(root_key, root, code, provenance_text)
             expected = _expected_points(profile, route_kind) if profile and route_kind in {"co2", "h2o"} else []
             observed = _manifest_points(manifest_rows, route_kind) if route_kind in {"co2", "h2o"} else []
             declared_count = _declared_point_count(profile, route_kind) if profile and route_kind in {"co2", "h2o"} else None
@@ -596,5 +601,6 @@ __all__ = [
     "ATTESTATION_SCHEMA",
     "SCHEMA",
     "build_v1_5_historical_route_attestation_binder",
+    "historical_provenance_blockers",
     "write_v1_5_historical_route_attestation_binder",
 ]
