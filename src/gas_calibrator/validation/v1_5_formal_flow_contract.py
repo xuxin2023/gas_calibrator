@@ -152,9 +152,13 @@ AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_POST_WRITE_VERIFICATION_MODULE = (
 AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_CONSUMER_READINESS_MODULE = (
     "gas_calibrator.tools.export_v1_5_authoritative_resume_offline_state_advance_consumer_readiness"
 )
+AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_NEXT_STEP_PLAN_MODULE = (
+    "gas_calibrator.tools.export_v1_5_authoritative_resume_offline_state_advance_next_step_plan"
+)
 OUT_OF_BAND_OFFLINE_STATE_ADVANCE_MODULES = {
     AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_POST_WRITE_VERIFICATION_MODULE,
     AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_CONSUMER_READINESS_MODULE,
+    AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_NEXT_STEP_PLAN_MODULE,
     "gas_calibrator.tools.run_v1_5_authoritative_resume_offline_state_advance_atomic_writer",
 }
 RESUME_PREFIX_APPLICATION_REVIEW_FORBIDDEN_FLAGS = (
@@ -728,8 +732,8 @@ def validate_v1_5_formal_flow_contract(
                     "error",
                     "offline_state_advance_evidence_must_remain_out_of_band",
                     (
-                        "Offline state-advance writer/verification/consumer tools must not become canonical "
-                        "completed_step_ids; formal status consumes their evidence out of band."
+                        "Offline state-advance writer/verification/consumer/preview tools must not become canonical "
+                        "completed_step_ids; dedicated offline review/status paths consume their evidence out of band."
                     ),
                     step_id,
                 )

@@ -42,6 +42,10 @@ from gas_calibrator.validation.v1_5_authoritative_resume_offline_state_advance_c
     build_v1_5_authoritative_resume_offline_state_advance_consumer_readiness,
     write_v1_5_authoritative_resume_offline_state_advance_consumer_readiness,
 )
+from gas_calibrator.validation.v1_5_authoritative_resume_offline_state_advance_next_step_plan import (
+    READY_STATUS as NEXT_STEP_PLAN_READY_STATUS,
+    build_v1_5_authoritative_resume_offline_state_advance_next_step_plan,
+)
 from gas_calibrator.validation.v1_5_authoritative_resume_offline_state_advance_post_write_verification import (
     BLOCKED_STATUS,
     READY_STATUS,
@@ -279,6 +283,17 @@ def test_post_write_verification_and_consumer_gate_accept_exact_chain(
     assert consumer["resume_execution_allowed"] is False
     assert consumer["verified_step_id"] == steps[2]
     assert consumer["next_step_id"] == steps[3]
+    consumer_path = write_v1_5_authoritative_resume_offline_state_advance_consumer_readiness(
+        consumer, tmp_path / "consumer"
+    )
+    preview = build_v1_5_authoritative_resume_offline_state_advance_next_step_plan(
+        consumer_readiness_json=consumer_path
+    )
+    assert preview["overall_status"] == NEXT_STEP_PLAN_READY_STATUS
+    assert preview["next_step_id"] == steps[3]
+    assert preview["plan_consumption_allowed"] is True
+    assert preview["next_step_execution_allowed"] is False
+    assert preview["resume_execution_allowed"] is False
 
 
 @pytest.mark.parametrize(

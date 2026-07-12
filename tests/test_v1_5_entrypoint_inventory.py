@@ -777,6 +777,22 @@ def test_resume_offline_state_advance_post_write_tools_are_offline_support() -> 
     assert "consumer readiness gate" in entries[1].notes[0]
 
 
+def test_resume_offline_state_advance_next_step_plan_is_offline_support() -> None:
+    root = Path(__file__).resolve().parents[1]
+    entry = classify_v1_5_entrypoint(
+        root
+        / "src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_state_advance_next_step_plan.py",
+        root=root,
+    )
+    assert entry.category == "formal_review_evidence"
+    assert entry.formal_status == "formal_support"
+    assert entry.risk_level == "offline"
+    assert entry.opens_com_ports is False
+    assert entry.controls_routes is False
+    assert entry.writes_coefficients is False
+    assert "next-step preview" in entry.notes[0]
+
+
 def test_export_entrypoint_inventory_writes_review_artifacts(tmp_path: Path) -> None:
     tool = tmp_path / "src/gas_calibrator/tools/run_v1_5_formal_open_flow_sampling.py"
     test_file = tmp_path / "tests/test_v1_5_formal_open_flow_sampling_runner.py"
