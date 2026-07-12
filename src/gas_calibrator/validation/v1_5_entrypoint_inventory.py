@@ -366,6 +366,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline plan-only resume executor preview; independently recomputes the consumer contract and displays the next command and authorization requirements without executing it")
     elif lower == "run_v1_5_authoritative_resume_executor_blocked":
         notes.append("offline blocked resume executor; independently recomputes the plan preview and rejects execute, resume, COM, pressure, route, write, and database unlocks")
+    elif lower == "export_v1_5_authoritative_resume_executor_controlled_design":
+        notes.append("offline controlled resume executor design; binds future authorization to exact plan, state, next-step, command hash, expiry, and least-privilege capabilities without executing")
     elif lower == "run_v1_5_formal_readonly_com_minimal_executor":
         notes.append("manual-authorized minimal read-only COM executor; reads SN/GETCO/runtime/CHECK evidence only, never writes analyzer state, database, pressure, or routes")
     elif "formal_archive_closure" in lower:
@@ -570,6 +572,7 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             "export_v1_5_authoritative_resume_state_consumer_contract",
             "export_v1_5_authoritative_resume_executor_plan_preview",
             "run_v1_5_authoritative_resume_executor_blocked",
+            "export_v1_5_authoritative_resume_executor_controlled_design",
             "export_v1_5_formal_readonly_com_execution_packet_validator",
             "export_v1_5_formal_readonly_com_execution_plan_preview",
             "export_v1_5_formal_readonly_com_minimal_executor_review",
