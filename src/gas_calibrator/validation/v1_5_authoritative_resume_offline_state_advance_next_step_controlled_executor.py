@@ -5,7 +5,9 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import os
 import subprocess
+import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -144,6 +146,14 @@ def run_v1_5_authoritative_resume_offline_state_advance_next_step_controlled_exe
             reasons.append("next_step_execution_operator_confirmation_invalid")
 
     command = [str(value) for value in preflight.get("next_step_command") or []]
+    runtime_python = Path(sys.executable).resolve()
+    if str(preflight.get("runtime_python_executable") or "") != str(runtime_python):
+        reasons.append("runtime_python_executable_mismatch")
+    if str(preflight.get("runtime_python_executable_sha256") or "") != _sha(
+        runtime_python
+    ):
+        reasons.append("runtime_python_executable_sha256_mismatch")
+    runtime_command = [str(runtime_python), *command[1:]] if command else []
     expected_outputs = [
         Path(str(value)).absolute()
         for value in preflight.get("expected_output_paths") or []
@@ -160,10 +170,18 @@ def run_v1_5_authoritative_resume_offline_state_advance_next_step_controlled_exe
     if execute_next_step and not reasons:
         process_attempted = True
         monotonic_started = time.monotonic()
+        repo_root = Path(__file__).resolve().parents[3]
+        environment = dict(os.environ)
+        environment["PYTHONPATH"] = os.pathsep.join(
+            value
+            for value in (str(repo_root / "src"), environment.get("PYTHONPATH", ""))
+            if value
+        )
         try:
             result = subprocess_runner(
-                command,
-                cwd=str(Path(__file__).resolve().parents[3]),
+                runtime_command,
+                cwd=str(repo_root),
+                env=environment,
                 shell=False,
                 capture_output=True,
                 text=True,
@@ -222,7 +240,8 @@ def run_v1_5_authoritative_resume_offline_state_advance_next_step_controlled_exe
         "next_step_id": str(preflight.get("next_step_id") or ""),
         "next_step_tool_module": str(preflight.get("next_step_tool_module") or ""),
         "authorized_capabilities": capabilities,
-        "executed_command": command if process_attempted else [],
+        "planned_command": command,
+        "executed_command": runtime_command if process_attempted else [],
         "process_launch_count": 1 if process_attempted else 0,
         "process_return_code": process_return_code,
         "process_stdout_tail": stdout_tail,

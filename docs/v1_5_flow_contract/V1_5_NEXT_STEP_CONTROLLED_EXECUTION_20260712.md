@@ -18,6 +18,7 @@ It does not alter the 0613/0620/0621 mature CO2 or H2O queue, sampling worker, w
 - The packet binds the design, blocked proof, review preflight, next-step plan, consumer readiness, full-flow plan, authoritative state, run, attempt, verified step, mature tool module, and normalized command SHA256.
 - Capabilities must exactly match the reviewed step; PostgreSQL import is always false.
 - The executor launches one process at most, never uses a shell, never retries, never substitutes another entrypoint, and never automatically advances authoritative state.
+- The executor uses the currently reviewed Python executable rather than resolving `python` through `PATH`, and prepends the current repository `src` directory to child `PYTHONPATH`.
 - Child-process failure, missing fresh output, evidence drift, expiry, identity conflict, over-broad capability, or command drift produces a hold.
 - Executor evidence alone is not real acceptance or release/import authority.
 

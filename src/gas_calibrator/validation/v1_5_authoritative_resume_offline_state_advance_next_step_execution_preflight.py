@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -253,6 +254,8 @@ def build_v1_5_authoritative_resume_offline_state_advance_next_step_execution_pr
         "next_step_tool_module": module,
         "next_step_command": command,
         "next_step_command_sha256": _command_sha(command),
+        "runtime_python_executable": str(Path(sys.executable).resolve()),
+        "runtime_python_executable_sha256": _sha(Path(sys.executable).resolve()),
         "full_flow_plan_json": str(validation.get("full_flow_plan_json") or ""),
         "full_flow_plan_sha256": str(validation.get("full_flow_plan_sha256") or ""),
         "expected_output_paths": [str(path) for path in expected_outputs],

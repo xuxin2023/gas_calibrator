@@ -350,6 +350,11 @@ def test_immediate_preflight_allows_only_exact_mature_command(
     assert model["controlled_next_step_execution_preflight_ready"] is True
     assert model["next_step_execution_allowed"] is True
     assert model["next_step_command"] == fixture["command"]
+    assert (
+        Path(model["runtime_python_executable"]).resolve()
+        == Path(preflight_module.sys.executable).resolve()
+    )
+    assert model["runtime_python_executable_sha256"]
     assert model["single_process_launch_max"] == 1
     assert model["automatic_retry_allowed"] is False
     assert model["fallback_entry_allowed"] is False
@@ -426,8 +431,14 @@ def test_controlled_executor_runs_one_shell_free_command_with_fake_runner(
     assert result["overall_status"] == EXECUTED_STATUS
     assert result["next_step_process_completed"] is True
     assert len(calls) == 1
-    assert calls[0][0] == fixture["command"]
+    assert calls[0][0][0] == str(Path(executor_module.sys.executable).resolve())
+    assert calls[0][0][1:] == fixture["command"][1:]
     assert calls[0][1]["shell"] is False
+    assert (
+        calls[0][1]["env"]["PYTHONPATH"]
+        .split(executor_module.os.pathsep)[0]
+        .endswith("src")
+    )
     assert result["executor_retry_count"] == 0
     assert result["fallback_entry_used"] is False
     assert result["authoritative_state_advanced"] is False
