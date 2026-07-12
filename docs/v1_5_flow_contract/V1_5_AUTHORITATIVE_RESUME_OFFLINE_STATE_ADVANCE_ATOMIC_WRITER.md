@@ -10,6 +10,8 @@ validation and does not accept direct state-target or candidate arguments.
   authorization id, and the #107 confirmation template.
 - Authorization is independently recomputed before locking and again while
   holding the shared authoritative-state writer lock.
+- Authorization, candidate, and authoritative-state paths are rejected if any
+  existing ancestor is a symlink/junction/reparse point.
 - The current state SHA256 and candidate preview SHA256 are rechecked under the
   lock immediately before replacement.
 - The old state is fsynced to a rollback snapshot before a same-directory
@@ -29,7 +31,7 @@ The mature 0613 fitting and 0620/0621 CO2/H2O execution paths are unchanged.
 ## Verification
 
 - State-advance writer/authorization/preflight, existing atomic writer, and
-  entrypoint inventory: `73 passed`.
+  entrypoint inventory: `74 passed`.
 - Formal run status and flow contract compatibility: `103 passed`.
 - Mature-route and full-flow compatibility: `38 passed`.
 - Existing controlled-write preflight, atomic writer, and post-write verifier:

@@ -63,6 +63,11 @@ def _same_path(value: Any, expected: Path) -> bool:
         return False
 
 
+def _has_reparse_in_existing_path(path: Path) -> bool:
+    absolute = path.absolute()
+    return any(_has_reparse_point(candidate) for candidate in (absolute, *absolute.parents))
+
+
 def _authorization_matches_recomputed(
     recorded: Mapping[str, Any], recomputed: Mapping[str, Any]
 ) -> bool:
@@ -79,8 +84,8 @@ def _validate_authorization(
     reasons: list[str] = []
     if validation_path.name != AUTHORIZATION_FILENAME:
         reasons.append("state_advance_authorization_filename_not_canonical")
-    if _has_reparse_point(validation_path) or _has_reparse_point(validation_path.parent):
-        reasons.append("state_advance_authorization_or_parent_is_reparse_point")
+    if _has_reparse_in_existing_path(validation_path):
+        reasons.append("state_advance_authorization_path_contains_reparse_point")
     if validation.get("schema") != AUTHORIZATION_SCHEMA:
         reasons.append("state_advance_authorization_schema_invalid")
     if validation.get("overall_status") != AUTHORIZATION_READY_STATUS:
@@ -142,14 +147,10 @@ def _validate_authorization(
         reasons.append("authoritative_state_missing")
     if preview is None or not preview.is_file():
         reasons.append("candidate_state_preview_missing")
-    if target is not None and (
-        _has_reparse_point(target) or _has_reparse_point(target.parent)
-    ):
-        reasons.append("authoritative_state_target_or_parent_is_reparse_point")
-    if preview is not None and (
-        _has_reparse_point(preview) or _has_reparse_point(preview.parent)
-    ):
-        reasons.append("candidate_state_preview_or_parent_is_reparse_point")
+    if target is not None and _has_reparse_in_existing_path(target):
+        reasons.append("authoritative_state_path_contains_reparse_point")
+    if preview is not None and _has_reparse_in_existing_path(preview):
+        reasons.append("candidate_state_preview_path_contains_reparse_point")
     expected_state_sha = str(validation.get("expected_current_state_sha256") or "")
     if target is not None and _sha256_file(target) != expected_state_sha:
         reasons.append("authoritative_state_compare_and_swap_sha256_changed")

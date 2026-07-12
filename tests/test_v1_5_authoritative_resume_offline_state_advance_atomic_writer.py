@@ -215,6 +215,30 @@ def test_atomic_writer_rejects_recomputed_authorization_schema_drift(
     assert state.read_bytes() == original
 
 
+def test_atomic_writer_rejects_reparse_point_in_authorization_ancestor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    validation_path, validation, state, _preview, original, _candidate = _fixture(
+        tmp_path
+    )
+    _install_ready_authorization(monkeypatch, validation)
+    reparse_ancestor = validation_path.parent.parent
+    original_check = writer_module._has_reparse_point
+    monkeypatch.setattr(
+        writer_module,
+        "_has_reparse_point",
+        lambda path: path == reparse_ancestor or original_check(path),
+    )
+    result = _execute(tmp_path, validation_path)
+    assert result["overall_status"] == BLOCKED_STATUS
+    assert "state_advance_authorization_path_contains_reparse_point" in result[
+        "failure_reasons"
+    ]
+    assert result["single_writer_lock_acquired"] is False
+    assert result["write_attempted"] is False
+    assert state.read_bytes() == original
+
+
 def test_atomic_writer_blocks_when_authorization_drifts_under_lock(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
