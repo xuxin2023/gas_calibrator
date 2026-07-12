@@ -148,6 +148,9 @@ def test_atomic_writer_commits_exact_one_step_candidate(
     assert result["overall_status"] == COMMITTED_STATUS
     assert result["authorization_recomputed_ready"] is True
     assert result["authorization_recomputed_under_lock"] is True
+    assert result["authorization_revalidated_immediately_before_replace"] is True
+    assert result["authorization_revalidated_at"]
+    assert result["committed_at"]
     assert result["current_state_sha256_rechecked"] is True
     assert result["candidate_sha256_rechecked"] is True
     assert result["authoritative_state_write_committed"] is True
@@ -270,6 +273,39 @@ def test_atomic_writer_blocks_when_authorization_drifts_under_lock(
     assert result["write_attempted"] is False
     assert state.read_bytes() == original
     assert not Path(result["lock_path"]).exists()
+
+
+def test_atomic_writer_revalidates_authorization_immediately_before_replace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    validation_path, validation, state, _preview, original, _candidate = _fixture(
+        tmp_path
+    )
+    calls = 0
+
+    def rebuild(**_kwargs):
+        nonlocal calls
+        calls += 1
+        payload = dict(validation)
+        if calls >= 3:
+            payload["overall_status"] = "review_required"
+            payload["offline_state_advance_authorization_validated"] = False
+        return payload
+
+    monkeypatch.setattr(
+        writer_module,
+        "build_v1_5_authoritative_resume_offline_state_advance_authorization",
+        rebuild,
+    )
+    result = _execute(tmp_path, validation_path)
+    assert result["overall_status"] == BLOCKED_STATUS
+    assert any(
+        reason.startswith("authorization_revalidation_before_replace_failed")
+        for reason in result["failure_reasons"]
+    )
+    assert result["write_attempted"] is False
+    assert result["authorization_revalidated_immediately_before_replace"] is False
+    assert state.read_bytes() == original
 
 
 def test_atomic_writer_rechecks_state_after_acquiring_shared_lock(

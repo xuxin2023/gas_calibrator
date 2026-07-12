@@ -10,6 +10,9 @@ validation and does not accept direct state-target or candidate arguments.
   authorization id, and the #107 confirmation template.
 - Authorization is independently recomputed before locking and again while
   holding the shared authoritative-state writer lock.
+- Authorization is revalidated a final time immediately before `os.replace`;
+  the evidence records that timestamp and the committed timestamp so post-write
+  verification can prove both occurred inside the authorization window.
 - Authorization, candidate, and authoritative-state paths are rejected if any
   existing ancestor is a symlink/junction/reparse point.
 - The current state SHA256 and candidate preview SHA256 are rechecked under the
