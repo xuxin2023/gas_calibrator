@@ -100,8 +100,11 @@ def _fixture(tmp_path: Path, route_kind: str = "co2", root_name: str = "reviewed
         "hgen_rh_pct": "" if route_kind == "co2" else "50",
         "returncode": "0",
         "status": "ok",
+        "command": f"python -m worker --config {tmp_path / 'reviewed_config.json'} --output-dir {root}",
     }
     _csv(root / "queue" / "queue_manifest.csv", [manifest_row])
+    _csv(tmp_path / "canonical_queue.csv", [manifest_row])
+    _json(tmp_path / "reviewed_config.json", {"mode": "offline-test-fixture"})
     _json(
         root / "queue" / "queue_summary.json",
         {
@@ -250,6 +253,58 @@ def test_failed_queue_and_missing_quality_block_attestation(tmp_path: Path) -> N
     assert "queue_summary_not_closed_clean_nowrite" in codes
     assert "point_component_quality_missing" in codes
     assert model["families"] == []
+
+
+def test_missing_queue_source_and_runtime_config_block_attestation(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    (tmp_path / "canonical_queue.csv").unlink()
+    (tmp_path / "reviewed_config.json").unlink()
+    model = _build(fixture)
+    codes = {row["code"] for row in model["blockers"]}
+    assert "queue_source_missing" in codes
+    assert "runtime_config_missing" in codes
+    assert model["families"] == []
+
+
+def test_profile_declared_count_and_queue_order_are_enforced(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    profile = json.loads(fixture["profile"].read_text(encoding="utf-8"))
+    profile["profiles"][0]["co2_route"]["formal_point_count"] = 2
+    _json(fixture["profile"], profile)
+    model = _build(fixture)
+    assert "algorithm_profile_route_plan_invalid" in {row["code"] for row in model["blockers"]}
+
+    profile["profiles"][0]["co2_route"] = {
+        "formal_point_count": 2,
+        "temperature_plan": {"40": [0, 400]},
+    }
+    _json(fixture["profile"], profile)
+    second = dict(_read_csv_for_test(fixture["root"] / "queue" / "queue_manifest.csv")[0])
+    second.update({"point_run_id": "p002_T40_400ppm_fit", "source_nominal_ppm": "400"})
+    second_dir = fixture["root"] / second["point_run_id"]
+    first_dir = fixture["point"]
+    for source in first_dir.iterdir():
+        target_name = source.name
+        if target_name.endswith("sidecar_metadata.json"):
+            payload = json.loads(source.read_text(encoding="utf-8"))
+            payload["run_id"] = second["point_run_id"]
+            _json(second_dir / target_name, payload)
+        else:
+            second_dir.mkdir(parents=True, exist_ok=True)
+            (second_dir / target_name).write_bytes(source.read_bytes())
+    rows = [second, _read_csv_for_test(fixture["root"] / "queue" / "queue_manifest.csv")[0]]
+    _csv(fixture["root"] / "queue" / "queue_manifest.csv", rows)
+    _csv(tmp_path / "canonical_queue.csv", rows)
+    summary = json.loads((fixture["root"] / "queue" / "queue_summary.json").read_text(encoding="utf-8"))
+    summary.update({"selected_points": 2, "ok_points": 2})
+    _json(fixture["root"] / "queue" / "queue_summary.json", summary)
+    model = _build(fixture)
+    assert "queue_point_order_mismatch" in {row["code"] for row in model["blockers"]}
+
+
+def _read_csv_for_test(path: Path) -> list[dict[str, str]]:
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        return list(csv.DictReader(handle))
 
 
 def test_h2o_shorter_actual_purge_and_broken_contract_block(tmp_path: Path) -> None:

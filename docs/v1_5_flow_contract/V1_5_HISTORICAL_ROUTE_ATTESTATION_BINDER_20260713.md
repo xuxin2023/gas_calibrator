@@ -24,7 +24,7 @@ The audit is intentionally blocked and emits no reviewed family:
 | `new_algorithm_shadow_run:co2` | 39 observed points versus required 47; route readiness was skipped; component QC is absent | blocked |
 | `new_algorithm_shadow_run:h2o` | 13 observed points versus required 14; route readiness was not proven; component QC is absent; sidecars record 360 s actual purge below 720 s minimum | blocked |
 
-The expanded audit contains 85 blocker rows because point-level missing evidence is listed separately. This count must not be interpreted as 85 independent program defects.
+The expanded audit contains 89 blocker rows because point-level missing evidence is listed separately. This count must not be interpreted as 89 independent program defects.
 
 ## Outputs
 

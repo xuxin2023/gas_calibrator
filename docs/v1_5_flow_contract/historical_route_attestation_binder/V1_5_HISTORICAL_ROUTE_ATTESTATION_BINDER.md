@@ -2,7 +2,7 @@
 
 - overall_status: `blocked`
 - reviewed_family_count: `0`
-- blocker_count: `85`
+- blocker_count: `89`
 - offline_only: `true`
 - not_real_acceptance_evidence: `true`
 
@@ -13,8 +13,8 @@ A directory name is never sufficient. Reviewed families require an exact closed 
 | Root | Profile | Status | Blockers |
 | --- | --- | --- | ---: |
 | `mature_0620_legacy_ratio:co2` | `legacy_ratio_production` | `blocked` | 10 |
-| `new_algorithm_shadow_run:co2` | `absorption_ratio_shadow` | `blocked` | 45 |
-| `new_algorithm_shadow_run:h2o` | `absorption_ratio_shadow` | `blocked` | 30 |
+| `new_algorithm_shadow_run:co2` | `absorption_ratio_shadow` | `blocked` | 47 |
+| `new_algorithm_shadow_run:h2o` | `absorption_ratio_shadow` | `blocked` | 32 |
 
 ## Blocker Codes
 
@@ -27,5 +27,7 @@ A directory name is never sufficient. Reviewed families require an exact closed 
 - `point_samples_missing`
 - `queue_point_count_mismatch`
 - `queue_point_not_ok`
+- `queue_point_order_mismatch`
 - `queue_point_set_or_uniqueness_mismatch`
+- `queue_source_point_plan_mismatch`
 - `queue_summary_not_closed_clean_nowrite`

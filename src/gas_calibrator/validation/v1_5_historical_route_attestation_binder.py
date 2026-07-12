@@ -30,6 +30,7 @@ _FORBIDDEN_PROVENANCE = (
     (re.compile(r"(?:^|[\\/_\-.])direct(?:[\\/_\-.]|$)", re.I), "direct_source_forbidden"),
     (re.compile(r"(?:^|[\\/_\-.])recovery(?:[\\/_\-.]|$)", re.I), "recovery_source_forbidden"),
     (re.compile(r"diagnostic", re.I), "diagnostic_source_forbidden"),
+    (re.compile(r"(?:^|[\\/_\-.])worker(?:[\\/_\-.]|$)", re.I), "worker_source_forbidden"),
 )
 
 
@@ -139,6 +140,20 @@ def _manifest_points(rows: Sequence[Mapping[str, Any]], route_kind: str) -> list
         for row in rows
         if all(row.get(key) not in (None, "") for key in ("temp_c", "hgen_temp_c", "hgen_rh_pct"))
     ]
+
+
+def _declared_point_count(profile: Mapping[str, Any], route_kind: str) -> int | None:
+    route = dict(profile.get(f"{route_kind}_route") or {})
+    if route_kind == "co2":
+        value = route.get("production_candidate_point_count_with_supplements")
+        if value is None:
+            value = route.get("formal_point_count")
+    else:
+        value = route.get("production_candidate_wet_point_count_with_supplements")
+        if value is None:
+            value = route.get("formal_wet_point_count", route.get("formal_point_count"))
+    number = _number(value)
+    return int(number) if number is not None and number.is_integer() else None
 
 
 def _contract_reasons(mature: Mapping[str, Any], automation: Mapping[str, Any]) -> list[str]:
@@ -333,10 +348,20 @@ def build_v1_5_historical_route_attestation_binder(
                     block(root_key, root, code, provenance_text)
             expected = _expected_points(profile, route_kind) if profile and route_kind in {"co2", "h2o"} else []
             observed = _manifest_points(manifest_rows, route_kind) if route_kind in {"co2", "h2o"} else []
+            declared_count = _declared_point_count(profile, route_kind) if profile and route_kind in {"co2", "h2o"} else None
+            if not expected or declared_count != len(expected):
+                block(
+                    root_key,
+                    root,
+                    "algorithm_profile_route_plan_invalid",
+                    f"declared={declared_count};generated={len(expected)}",
+                )
             if len(manifest_rows) != len(expected):
                 block(root_key, root, "queue_point_count_mismatch", f"expected={len(expected)};observed={len(manifest_rows)}")
             if sorted(set(observed)) != sorted(set(expected)) or len(observed) != len(set(observed)):
                 block(root_key, root, "queue_point_set_or_uniqueness_mismatch")
+            if observed != expected:
+                block(root_key, root, "queue_point_order_mismatch")
             for row in manifest_rows:
                 point_id = str(row.get("point_run_id") or "")
                 if row.get("status") != "ok" or str(row.get("returncode") or "") != "0":
@@ -367,8 +392,28 @@ def build_v1_5_historical_route_attestation_binder(
                 block(root_key, root, "formal_route_readiness_not_pass")
             if summary and not _same_path(summary.get("output_dir"), root_path):
                 block(root_key, root, "queue_summary_output_root_mismatch")
+            source_paths: dict[str, Path] = {}
+            for role, key in (("queue_source", "queue_csv"), ("runtime_config", "config_path")):
+                raw_path = str(summary.get(key) or "").strip()
+                source_path = Path(raw_path).resolve() if raw_path else Path("__missing_source__").resolve()
+                if not raw_path or not source_path.is_file():
+                    block(root_key, root, f"{role}_missing", raw_path)
+                else:
+                    source_paths[role] = source_path
+                    _add_evidence(inventory, root_key, role, source_path)
+            queue_source = source_paths.get("queue_source")
+            if queue_source:
+                source_points = _manifest_points(_read_csv(queue_source), route_kind)
+                if sorted(set(source_points)) != sorted(set(expected)) or len(source_points) != len(set(source_points)):
+                    block(root_key, root, "queue_source_point_plan_mismatch")
             for row in manifest_rows:
                 point_id = str(row.get("point_run_id") or "")
+                command = str(row.get("command") or "")
+                if not command or str(root_path).lower() not in command.lower():
+                    block(root_key, root, "point_command_output_root_mismatch", point_id)
+                config_path = str(summary.get("config_path") or "")
+                if not config_path or config_path.lower() not in command.lower():
+                    block(root_key, root, "point_command_runtime_config_mismatch", point_id)
                 point_dir = root_path / point_id
                 if not point_dir.is_dir():
                     block(root_key, root, "point_directory_missing", point_id)

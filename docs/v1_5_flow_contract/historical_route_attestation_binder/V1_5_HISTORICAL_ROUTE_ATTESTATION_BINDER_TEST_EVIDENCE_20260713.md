@@ -3,7 +3,7 @@
 ## Validation
 
 ```text
-84 passed, 1 warning in 18.42s
+86 passed, 1 warning in 15.42s
 ```
 
 The compatibility run covered:

@@ -1,11 +1,11 @@
 {
   "schema": "v1_5_historical_route_baseline_attestation_v1",
   "binder_schema": "v1_5_historical_route_attestation_binder_v1",
-  "generated_at": "2026-07-12T23:16:21Z",
+  "generated_at": "2026-07-12T23:24:06Z",
   "overall_status": "blocked",
   "root_count": 3,
   "reviewed_family_count": 0,
-  "blocker_count": 85,
+  "blocker_count": 89,
   "families": [],
   "root_results": [
     {
@@ -33,14 +33,16 @@
       "algorithm_profile_id": "absorption_ratio_shadow",
       "root_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_open_flow_0620_mature_20260627_r1\\co2_r2",
       "status": "blocked",
-      "blocker_count": 45,
+      "blocker_count": 47,
       "blocker_codes": [
         "formal_route_readiness_not_pass",
         "point_component_quality_missing",
         "point_samples_missing",
         "queue_point_count_mismatch",
         "queue_point_not_ok",
+        "queue_point_order_mismatch",
         "queue_point_set_or_uniqueness_mismatch",
+        "queue_source_point_plan_mismatch",
         "queue_summary_not_closed_clean_nowrite"
       ]
     },
@@ -51,13 +53,15 @@
       "algorithm_profile_id": "absorption_ratio_shadow",
       "root_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\h2o_open_flow_0620_mature_20260628_live1",
       "status": "blocked",
-      "blocker_count": 30,
+      "blocker_count": 32,
       "blocker_codes": [
         "formal_route_readiness_not_pass",
         "point_actual_purge_below_minimum",
         "point_component_quality_missing",
         "queue_point_count_mismatch",
+        "queue_point_order_mismatch",
         "queue_point_set_or_uniqueness_mismatch",
+        "queue_source_point_plan_mismatch",
         "queue_summary_not_closed_clean_nowrite"
       ]
     }
@@ -164,6 +168,14 @@
       "family_id": "new_algorithm_shadow_run",
       "route_kind": "co2",
       "root_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_open_flow_0620_mature_20260627_r1\\co2_r2",
+      "code": "queue_point_order_mismatch",
+      "detail": ""
+    },
+    {
+      "root_key": "new_algorithm_shadow_run:co2",
+      "family_id": "new_algorithm_shadow_run",
+      "route_kind": "co2",
+      "root_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_open_flow_0620_mature_20260627_r1\\co2_r2",
       "code": "queue_point_not_ok",
       "detail": "p017_T20_200ppm_fit"
     },
@@ -181,6 +193,14 @@
       "route_kind": "co2",
       "root_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_open_flow_0620_mature_20260627_r1\\co2_r2",
       "code": "formal_route_readiness_not_pass",
+      "detail": ""
+    },
+    {
+      "root_key": "new_algorithm_shadow_run:co2",
+      "family_id": "new_algorithm_shadow_run",
+      "route_kind": "co2",
+      "root_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_open_flow_0620_mature_20260627_r1\\co2_r2",
+      "code": "queue_source_point_plan_mismatch",
       "detail": ""
     },
     {
@@ -524,6 +544,14 @@
       "family_id": "new_algorithm_shadow_run",
       "route_kind": "h2o",
       "root_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\h2o_open_flow_0620_mature_20260628_live1",
+      "code": "queue_point_order_mismatch",
+      "detail": ""
+    },
+    {
+      "root_key": "new_algorithm_shadow_run:h2o",
+      "family_id": "new_algorithm_shadow_run",
+      "route_kind": "h2o",
+      "root_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\h2o_open_flow_0620_mature_20260628_live1",
       "code": "queue_summary_not_closed_clean_nowrite",
       "detail": ""
     },
@@ -533,6 +561,14 @@
       "route_kind": "h2o",
       "root_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\h2o_open_flow_0620_mature_20260628_live1",
       "code": "formal_route_readiness_not_pass",
+      "detail": ""
+    },
+    {
+      "root_key": "new_algorithm_shadow_run:h2o",
+      "family_id": "new_algorithm_shadow_run",
+      "route_kind": "h2o",
+      "root_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\h2o_open_flow_0620_mature_20260628_live1",
+      "code": "queue_source_point_plan_mismatch",
       "detail": ""
     },
     {
@@ -758,6 +794,20 @@
       "path": "D:\\gas_calibrator\\_handoff\\v1_5_formal_route_real_20260624\\current6_20260624_r10_task_direct_continuous_nowrite\\co2\\current6_20260624_r10_co2_continuous_full45_task_direct\\queue_manifest.csv",
       "size_bytes": 77311,
       "sha256": "843fb5877455ab24eff1379778020465a80084097587ef48b7703e4039ce807a"
+    },
+    {
+      "root_key": "mature_0620_legacy_ratio:co2",
+      "role": "queue_source",
+      "path": "D:\\gas_calibrator\\_handoff\\v1_5_formal_queue_migration_20260624\\canonical_open_flow_points\\co2_runner_queue.csv",
+      "size_bytes": 24122,
+      "sha256": "4c0ceb5ddaff0c01b63d488ae09480dbc49dee1532d821d2b3871225a8e99b60"
+    },
+    {
+      "root_key": "mature_0620_legacy_ratio:co2",
+      "role": "runtime_config",
+      "path": "D:\\gas_calibrator\\_handoff\\runtime_configs\\identity_bound_route_runtime_config_current6_20260624_r6_co2_ratio_gate_explicit_draft.json",
+      "size_bytes": 41475,
+      "sha256": "e3830bf62a8e9181c1331482199e0c92a147387aefe4563b126964f152e7c516"
     },
     {
       "root_key": "mature_0620_legacy_ratio:co2",
@@ -1692,6 +1742,20 @@
     },
     {
       "root_key": "new_algorithm_shadow_run:co2",
+      "role": "queue_source",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\logs\\v1_5_next_step_full_flow_plan_com18_20260618\\canonical_open_flow_points\\co2_runner_queue.csv",
+      "size_bytes": 24122,
+      "sha256": "4c0ceb5ddaff0c01b63d488ae09480dbc49dee1532d821d2b3871225a8e99b60"
+    },
+    {
+      "root_key": "new_algorithm_shadow_run:co2",
+      "role": "runtime_config",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_open_flow_0620_mature_20260627_r1\\plan\\runtime_0620_final_policy_current_001_20260627_r1.json",
+      "size_bytes": 32775,
+      "sha256": "4d9469216525837e78394fbd2cc0eb2bdd6f0ee7ab36cbc9ea779412b660cd86"
+    },
+    {
+      "root_key": "new_algorithm_shadow_run:co2",
       "role": "point_sidecar",
       "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_open_flow_0620_mature_20260627_r1\\co2_r2\\p001_T40_0ppm_fit\\formal_open_flow_sidecar_metadata.json",
       "size_bytes": 1200,
@@ -2245,6 +2309,20 @@
     },
     {
       "root_key": "new_algorithm_shadow_run:h2o",
+      "role": "queue_source",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\logs\\v1_5_next_step_full_flow_plan_com18_20260618\\canonical_open_flow_points\\h2o_runner_queue.csv",
+      "size_bytes": 7471,
+      "sha256": "d95068b8285e62e4e5ac5dc56dbf9353b77a38b4f6dced658199cd22db0f9cfa"
+    },
+    {
+      "root_key": "new_algorithm_shadow_run:h2o",
+      "role": "runtime_config",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_resume_20260628\\runtime_0620_final_policy_current_001_COM35_resume_20260628.json",
+      "size_bytes": 33045,
+      "sha256": "bd6113dfec1cc025970da8be07741842e082ec596f736af855a5a72083001eee"
+    },
+    {
+      "root_key": "new_algorithm_shadow_run:h2o",
       "role": "point_sidecar",
       "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\h2o_open_flow_0620_mature_20260628_live1\\p001_T0_HG0C_50RH_h2o\\formal_h2o_open_flow_sidecar_metadata.json",
       "size_bytes": 2081,
@@ -2445,5 +2523,5 @@
   "formal_release_allowed": false,
   "database_import_allowed": false,
   "not_real_acceptance_evidence": true,
-  "evidence_inventory_sha256": "33ffdff33dae28cbcc6938b068f6783bb06a3f5256de9179227734a9bdfeb5b4"
+  "evidence_inventory_sha256": "90fb3a140e402cf1e6a8fc92e99e8d93909e884dc89d5d544f6acb880c863a00"
 }
