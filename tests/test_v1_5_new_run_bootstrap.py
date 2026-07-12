@@ -121,6 +121,47 @@ def test_bootstrap_keeps_mature_route_modules_in_generated_plan(tmp_path: Path) 
     assert by_id["h2o_open_flow_sampling"]["tool_module"] == (
         "gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue"
     )
+    assert "<co2_runner_queue.csv>" not in by_id["co2_open_flow_sampling"]["command"]
+    assert "<h2o_runner_queue.csv>" not in by_id["h2o_open_flow_sampling"]["command"]
+
+
+@pytest.mark.parametrize(
+    ("profile_id", "co2_count", "h2o_count"),
+    [
+        ("legacy_ratio_production", 45, 13),
+        ("absorption_ratio_shadow", 47, 14),
+    ],
+)
+def test_bootstrap_atomically_binds_profile_generated_mature_queue_inputs(
+    tmp_path: Path, profile_id: str, co2_count: int, h2o_count: int
+) -> None:
+    model = _bootstrap(tmp_path, algorithm_profile_id=profile_id)
+    run_root = Path(model["run_root"])
+    assert model["algorithm_profile_id"] == profile_id
+    assert model["co2_point_count"] == co2_count
+    assert model["h2o_point_count"] == h2o_count
+    assert model["queue_source_contract"] == (
+        "generated_from_reviewed_profile_only"
+    )
+    assert Path(model["co2_queue_csv"]).is_file()
+    assert Path(model["h2o_queue_csv"]).is_file()
+    assert Path(model["algorithm_queue_input_manifest_json"]).is_file()
+    assert Path(model["algorithm_profile_snapshot_json"]).is_file()
+    plan = json.loads(
+        (run_root / "v1_5_full_flow_plan.json").read_text(encoding="utf-8")
+    )
+    by_id = {row["step_id"]: row for row in plan["steps"]}
+    assert model["co2_queue_csv"] in by_id["co2_open_flow_sampling"]["command"]
+    assert model["h2o_queue_csv"] in by_id["h2o_open_flow_sampling"]["command"]
+    plan_text = json.dumps(plan, ensure_ascii=False).lower()
+    assert "_handoff" not in plan_text
+    assert "20260624" not in plan_text
+
+
+def test_bootstrap_defaults_to_legacy_mature_45_13(tmp_path: Path) -> None:
+    model = _bootstrap(tmp_path)
+    assert model["algorithm_profile_id"] == "legacy_ratio_production"
+    assert (model["co2_point_count"], model["h2o_point_count"]) == (45, 13)
 
 
 def test_bootstrap_refuses_existing_run_without_changing_it(tmp_path: Path) -> None:

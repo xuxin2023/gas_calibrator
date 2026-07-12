@@ -20,6 +20,13 @@ def test_v1_5_algorithm_profiles_define_legacy_and_absorption_modes() -> None:
     assert profiles["absorption_ratio_shadow"]["production_default"] is False
     assert profiles["legacy_ratio_production"]["algorithm_mode"] == "legacy_ratio_R"
     assert profiles["absorption_ratio_shadow"]["algorithm_mode"] == "absorption_ratio_A"
+    for profile in profiles.values():
+        assert profile["co2_route"]["queue_source"] == (
+            "profile_generated_runtime_artifact:co2_runner_queue.csv"
+        )
+        assert profile["h2o_route"]["queue_source"] == (
+            "profile_generated_runtime_artifact:h2o_runner_queue.csv"
+        )
 
 
 def test_v1_5_algorithm_profiles_keep_mature_route_runners_shared() -> None:

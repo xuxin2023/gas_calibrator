@@ -18,6 +18,12 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--reviewer", required=True)
     parser.add_argument("--approver", required=True)
     parser.add_argument("--analyzer-id", default="multi_device")
+    parser.add_argument(
+        "--algorithm-profile-id",
+        choices=("legacy_ratio_production", "absorption_ratio_shadow"),
+        default="legacy_ratio_production",
+    )
+    parser.add_argument("--algorithm-profile-path", default=None)
     args = parser.parse_args(list(argv) if argv is not None else None)
     model = bootstrap_v1_5_new_run(
         config_path=args.config,
@@ -27,6 +33,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         reviewer=args.reviewer,
         approver=args.approver,
         analyzer_id=args.analyzer_id,
+        algorithm_profile_id=args.algorithm_profile_id,
+        algorithm_profile_path=args.algorithm_profile_path,
     )
     print(
         json.dumps(
@@ -37,6 +45,9 @@ def main(argv: Iterable[str] | None = None) -> int:
                 "current_step_id": model["current_step_id"],
                 "completed_step_ids": model["completed_step_ids"],
                 "physical_capabilities": model["physical_capabilities"],
+                "algorithm_profile_id": model["algorithm_profile_id"],
+                "co2_point_count": model["co2_point_count"],
+                "h2o_point_count": model["h2o_point_count"],
                 "manifest_json": model["manifest_json"],
             },
             ensure_ascii=False,

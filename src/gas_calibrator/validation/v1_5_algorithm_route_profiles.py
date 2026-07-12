@@ -924,6 +924,48 @@ def _h2o_formal_runlist_row(row: Mapping[str, Any], *, route_index: int) -> Dict
     }
 
 
+def build_v1_5_profile_queue_rows(
+    profile_path: str | Path,
+    *,
+    profile_id: str,
+) -> Dict[str, Any]:
+    """Build queue-compatible rows for one reviewed algorithm profile.
+
+    This function only materializes point metadata. Both profiles continue to
+    use the mature CO2/H2O queue modules for every physical point action.
+    """
+
+    tables = build_v1_5_algorithm_formal_point_plan_guard(profile_path)
+    point_plan = [
+        row
+        for row in tables["formal_point_plan"]
+        if str(row.get("profile_id") or "") == profile_id
+    ]
+    if not point_plan:
+        raise ValueError(f"Profile not found or has no formal points: {profile_id}")
+    co2_source = [row for row in point_plan if row["route_kind"] == "co2"]
+    h2o_source = [row for row in point_plan if row["route_kind"] == "h2o"]
+    co2_rows = [
+        _co2_formal_runlist_row(row, route_index=index)
+        for index, row in enumerate(co2_source, start=1)
+    ]
+    h2o_rows = [
+        _h2o_formal_runlist_row(row, route_index=index)
+        for index, row in enumerate(h2o_source, start=1)
+    ]
+    return {
+        "profile_id": profile_id,
+        "algorithm_mode": str(point_plan[0].get("algorithm_mode") or ""),
+        "point_plan_guard_status": tables["manifest"]["status"],
+        "point_plan_guard_blocker_count": tables["manifest"]["blocker_count"],
+        "source_runners": sorted(
+            {str(row.get("source_runner") or "") for row in point_plan}
+        ),
+        "co2_rows": co2_rows,
+        "h2o_rows": h2o_rows,
+    }
+
+
 def build_v1_5_algorithm_formal_runlist_preview(
     profile_path: str | Path,
     *,
@@ -936,19 +978,9 @@ def build_v1_5_algorithm_formal_runlist_preview(
     """
 
     tables = build_v1_5_algorithm_formal_point_plan_guard(profile_path)
-    point_plan = [
-        row for row in tables["formal_point_plan"] if str(row.get("profile_id") or "") == profile_id
-    ]
-    co2_source = [row for row in point_plan if row["route_kind"] == "co2"]
-    h2o_source = [row for row in point_plan if row["route_kind"] == "h2o"]
-    co2_runlist = [
-        _co2_formal_runlist_row(row, route_index=index)
-        for index, row in enumerate(co2_source, start=1)
-    ]
-    h2o_runlist = [
-        _h2o_formal_runlist_row(row, route_index=index)
-        for index, row in enumerate(h2o_source, start=1)
-    ]
+    queue_rows = build_v1_5_profile_queue_rows(profile_path, profile_id=profile_id)
+    co2_runlist = queue_rows["co2_rows"]
+    h2o_runlist = queue_rows["h2o_rows"]
     supplemental_keys = {
         row["source_point_key"]
         for row in [*co2_runlist, *h2o_runlist]
