@@ -374,6 +374,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline last-moment resume execution preflight; revalidates authorization, state, plan, next-step, command hash, expiry, and least-privilege envelope while keeping execution locked")
     elif lower == "export_v1_5_authoritative_resume_offline_candidate_gate":
         notes.append("offline resume candidate classifier; admits only fresh canonical steps with offline mode and no COM, pressure, route, device, coefficient, or database side effects without executing")
+    elif lower == "run_v1_5_authoritative_resume_offline_executor":
+        notes.append("manual-authorized offline-only resume executor; revalidates a fresh candidate, runs one exact Python module with shell disabled, verifies fresh outputs, and never advances authoritative state")
     elif lower == "run_v1_5_formal_readonly_com_minimal_executor":
         notes.append("manual-authorized minimal read-only COM executor; reads SN/GETCO/runtime/CHECK evidence only, never writes analyzer state, database, pressure, or routes")
     elif "formal_archive_closure" in lower:
@@ -563,6 +565,13 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             category = "controlled_state_writer"
             formal_status = "manual_authorized_only"
             risk_level = "state_file_write_risk"
+            opens_com_ports = False
+            controls_routes = False
+            writes_coefficients = False
+        elif lower == "run_v1_5_authoritative_resume_offline_executor":
+            category = "full_flow_orchestration"
+            formal_status = "manual_authorized_offline_resume_only"
+            risk_level = "offline_subprocess_risk"
             opens_com_ports = False
             controls_routes = False
             writes_coefficients = False
