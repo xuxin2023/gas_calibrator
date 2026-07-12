@@ -137,6 +137,10 @@ def build_v1_5_historical_mature_root_discovery(
         selected_number = _number(summary.get("selected_points"))
         selected_points = int(selected_number) if selected_number is not None and selected_number.is_integer() else None
         matching_profiles = _matching_profiles(profile_counts, route_kind, selected_points)
+        queue_source_text = str(summary.get("queue_csv") or "").strip()
+        runtime_config_text = str(summary.get("config_path") or "").strip()
+        queue_source_path = Path(queue_source_text).resolve() if queue_source_text else Path("__missing_queue_source__").resolve()
+        runtime_config_path = Path(runtime_config_text).resolve() if runtime_config_text else Path("__missing_runtime_config__").resolve()
         manifest_path = summary_path.parent / "queue_manifest.csv"
         manifest_rows = _read_csv(manifest_path) if manifest_path.is_file() else []
         point_ids = [str(row.get("point_run_id") or "") for row in manifest_rows if row.get("point_run_id")]
@@ -161,6 +165,10 @@ def build_v1_5_historical_mature_root_discovery(
             reasons.append("dry_run_not_historical_route_evidence")
         if summary.get("no_write") is not True or summary.get("writes_senco") is not False or summary.get("writes_device_id") is not False:
             reasons.append("queue_no_write_boundary_invalid")
+        if not queue_source_text or not queue_source_path.is_file():
+            reasons.append("queue_source_missing")
+        if not runtime_config_text or not runtime_config_path.is_file():
+            reasons.append("runtime_config_missing")
         if not matching_profiles:
             reasons.append("no_profile_matches_selected_point_count")
         elif len(matching_profiles) > 1:
@@ -211,6 +219,10 @@ def build_v1_5_historical_mature_root_discovery(
                 "summary_sha256": _sha256(summary_path),
                 "manifest_path": str(manifest_path.resolve()) if manifest_path.is_file() else "",
                 "manifest_sha256": _sha256(manifest_path) if manifest_path.is_file() else "",
+                "queue_source_path": str(queue_source_path) if queue_source_path.is_file() else queue_source_text,
+                "queue_source_sha256": _sha256(queue_source_path) if queue_source_path.is_file() else "",
+                "runtime_config_path": str(runtime_config_path) if runtime_config_path.is_file() else runtime_config_text,
+                "runtime_config_sha256": _sha256(runtime_config_path) if runtime_config_path.is_file() else "",
                 "output_root": str(output_root),
                 "queue_run_id": str(summary.get("queue_run_id") or ""),
                 "route_kind": route_kind,

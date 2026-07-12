@@ -44,6 +44,8 @@ def _fixture(tmp_path: Path, *, root_name: str = "continuous_route", route_kind:
     }
     summary_dir = root / "queue"
     manifest = _csv(summary_dir / "queue_manifest.csv", [manifest_row])
+    _json(tmp_path / "runtime.json", {"mode": "reviewed"})
+    _csv(tmp_path / "queue.csv", [{"point_run_id": point_id}])
     schema = "v1_5_co2_open_flow_queue_v0" if route_kind == "co2" else "v1_5_h2o_open_flow_queue_v0"
     summary = _json(
         summary_dir / "queue_summary.json",
@@ -128,6 +130,17 @@ def test_missing_point_qc_and_unfinalized_summary_remain_review_required(tmp_pat
     assert "point_component_qc_incomplete" in codes
     assert "queue_summary_not_finalized_clean" in codes
     assert model["attestation_candidate_replay"]["evidence_roots"] == []
+
+
+def test_missing_queue_source_and_runtime_config_are_discovery_gaps(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    (tmp_path / "queue.csv").unlink()
+    (tmp_path / "runtime.json").unlink()
+    model = _build(fixture)
+    codes = set(model["candidates"][0]["blocker_codes"])
+    assert "queue_source_missing" in codes
+    assert "runtime_config_missing" in codes
+    assert model["attestation_input_candidate_count"] == 0
 
 
 def test_duplicate_summaries_for_one_output_root_are_blocked(tmp_path: Path) -> None:

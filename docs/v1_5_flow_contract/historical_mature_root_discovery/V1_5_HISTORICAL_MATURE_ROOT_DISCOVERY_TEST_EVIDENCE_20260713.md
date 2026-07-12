@@ -1,7 +1,7 @@
 # V1.5 Historical Mature-Root Discovery Test Evidence
 
 ```text
-87 passed, 1 warning in 40.35s
+88 passed, 1 warning in 20.67s
 ```
 
 Covered modules:

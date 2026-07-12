@@ -13,6 +13,12 @@ The scan indexed:
 
 No additional queue summary was found in the other gas/calibration directories. No file path in the current project or the reviewed archive contains an original `20260613`, `20260620`, or `20260621` run date. Paths containing `0613`, `0620`, or `0621` are later labels, primarily July fitting reviews, smoke points, and segmented route runs.
 
+The reproducible queue index used by the exporter is produced with:
+
+```powershell
+rg --files D:\gas_calibrator -g 'queue_summary.json' | Sort-Object -Unique
+```
+
 ## Result
 
 ```text
