@@ -50,6 +50,7 @@ def _fixture(tmp_path: Path, profile_id: str) -> dict:
             "ok_points": queue_model["co2_point_count"],
             "failed_points": 0,
             "dry_run": False,
+            "temperature_order": "desc",
             "status": "ok",
         },
     )
@@ -61,6 +62,7 @@ def _fixture(tmp_path: Path, profile_id: str) -> dict:
             "ok_points": queue_model["h2o_point_count"],
             "failed_points": 0,
             "dry_run": False,
+            "temperature_order": "asc",
             "status": "ok",
         },
     )
@@ -75,6 +77,21 @@ def _fixture(tmp_path: Path, profile_id: str) -> dict:
             if route == "co2"
             else ("temp_c", "hgen_temp_c", "hgen_rh_pct", "status")
         )
+        if route == "co2":
+            rows.sort(
+                key=lambda row: (
+                    -float(row["temp_c"]),
+                    float(row["source_nominal_ppm"]),
+                )
+            )
+        else:
+            rows.sort(
+                key=lambda row: (
+                    float(row["temp_c"]),
+                    float(row["hgen_temp_c"]),
+                    float(row["hgen_rh_pct"]),
+                )
+            )
         with manifest_path.open("w", encoding="utf-8-sig", newline="") as handle:
             writer = csv.DictWriter(handle, fieldnames=fields)
             writer.writeheader()

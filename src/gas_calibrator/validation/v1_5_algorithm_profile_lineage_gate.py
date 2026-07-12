@@ -76,6 +76,17 @@ def _point_identities(route: str, rows: Sequence[Mapping[str, Any]]) -> list[tup
     return identities
 
 
+def _expected_execution_order(
+    identities: Sequence[tuple[float, ...]], temperature_order: str
+) -> list[tuple[float, ...]]:
+    order = str(temperature_order or "").lower()
+    if order == "desc":
+        return sorted(identities, key=lambda item: (-item[0], *item[1:]))
+    if order == "asc":
+        return sorted(identities, key=lambda item: item)
+    return list(identities)
+
+
 def _same_path(left: Any, right: Any) -> bool:
     if not left or not right:
         return False
@@ -121,9 +132,12 @@ def _route_check(
         reasons.append(f"{route}_queue_input_count_mismatch")
     queue_identities = _point_identities(route, queue_rows)
     manifest_identities = _point_identities(route, manifest_rows)
+    expected_execution = _expected_execution_order(
+        queue_identities, str(summary.get("temperature_order") or "")
+    )
     if len(manifest_rows) != expected_count:
         reasons.append(f"{route}_point_manifest_count_mismatch")
-    if not manifest_identities or manifest_identities != queue_identities:
+    if not manifest_identities or manifest_identities != expected_execution:
         reasons.append(f"{route}_point_manifest_identity_mismatch")
     if len(set(manifest_identities)) != len(manifest_identities):
         reasons.append(f"{route}_point_manifest_duplicate_identity")
