@@ -629,8 +629,6 @@ def build_full_flow_live_runner_readiness(plan: FullFlowPlan) -> FullFlowLiveRun
                 "database_import",
                 "final_evidence_status_refresh",
                 "algorithm_profile_runner_dry_run_snapshot",
-                "authoritative_resume_offline_state_advance_post_write_verification",
-                "authoritative_resume_offline_state_advance_consumer_readiness",
                 "formal_run_status_snapshot",
             ),
             physical_risk="none during generation; artifacts remain review evidence, not real acceptance",
@@ -2338,85 +2336,6 @@ def build_full_flow_plan(
             ),
             execution_mode="offline_review",
             gate="review_before_final_component_write",
-        )
-    )
-
-    steps.append(
-        FullFlowStep(
-            step_id="authoritative_resume_offline_state_advance_post_write_verification",
-            title="Verify the manually authorized offline resume-state advance",
-            phase="AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_POST_WRITE_VERIFICATION",
-            tool_module=(
-                "gas_calibrator.tools.export_v1_5_authoritative_resume_offline_state_advance_post_write_verification"
-            ),
-            command=_python_module(
-                "gas_calibrator.tools.export_v1_5_authoritative_resume_offline_state_advance_post_write_verification",
-                "--atomic-write-json",
-                authoritative_resume_offline_state_advance_atomic_writer_dir
-                / "v1_5_authoritative_resume_offline_state_advance_atomic_writer.json",
-                "--output-dir",
-                authoritative_resume_offline_state_advance_post_write_verification_dir,
-                "--fail-on-blocker",
-            ),
-            required_inputs=(
-                "manually authorized one-step offline state-advance writer evidence",
-                "authorization, preflight, candidate, final state, and rollback snapshot evidence",
-            ),
-            expected_outputs=(
-                "authoritative_resume_offline_state_advance_post_write_verification/v1_5_authoritative_resume_offline_state_advance_post_write_verification.json",
-                "authoritative_resume_offline_state_advance_post_write_verification/v1_5_authoritative_resume_offline_state_advance_post_write_verification_summary.csv",
-                "authoritative_resume_offline_state_advance_post_write_verification/V1_5_AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_POST_WRITE_VERIFICATION.md",
-            ),
-            physical_meaning=(
-                "After the offline temperature review is complete, independently prove that the manually authorized "
-                "single-step state advance committed the exact candidate, preserved the old state snapshot, and released "
-                "its writer lock before any CO2 route can resume."
-            ),
-            execution_mode="offline_sidecar",
-            gate="required_after_manual_offline_state_advance_before_co2_route",
-            notes=(
-                "This step never invokes the atomic writer and cannot advance state by itself.",
-                "It does not open COM, control pressure/routes, write analyzer state, or connect PostgreSQL.",
-                "Mature 0613 fitting and 0620/0621 physical-route implementations remain unchanged.",
-            ),
-        )
-    )
-
-    steps.append(
-        FullFlowStep(
-            step_id="authoritative_resume_offline_state_advance_consumer_readiness",
-            title="Gate read-only consumption of the offline-advanced resume state",
-            phase="AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_CONSUMER_READINESS",
-            tool_module=(
-                "gas_calibrator.tools.export_v1_5_authoritative_resume_offline_state_advance_consumer_readiness"
-            ),
-            command=_python_module(
-                "gas_calibrator.tools.export_v1_5_authoritative_resume_offline_state_advance_consumer_readiness",
-                "--post-write-verification-json",
-                authoritative_resume_offline_state_advance_post_write_verification_dir
-                / "v1_5_authoritative_resume_offline_state_advance_post_write_verification.json",
-                "--output-dir",
-                authoritative_resume_offline_state_advance_consumer_readiness_dir,
-                "--fail-on-blocker",
-            ),
-            required_inputs=(
-                "ready offline state-advance post-write verification",
-                "canonical full-flow plan and authoritative state",
-            ),
-            expected_outputs=(
-                "authoritative_resume_offline_state_advance_consumer_readiness/v1_5_authoritative_resume_offline_state_advance_consumer_readiness.json",
-            ),
-            physical_meaning=(
-                "Allows only read-only planning consumption of the verified next state. It does not authorize or execute "
-                "the CO2 route, and every later physical action remains behind its existing explicit gate."
-            ),
-            execution_mode="offline_sidecar",
-            gate="required_before_co2_route_resume_planning",
-            notes=(
-                "state_consumption_allowed may become true only for offline planning.",
-                "resume_execution_allowed remains false; no command or route is started.",
-                "Mature 0613 fitting and 0620/0621 physical-route implementations remain unchanged.",
-            ),
         )
     )
 

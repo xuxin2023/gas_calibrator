@@ -6,18 +6,22 @@ rollup.
 
 ## Canonical order
 
-The first resumed offline step after batch closeout is the temperature review.
-Before the mature CO2 route may resume, the plan now requires:
+The canonical `completed_step_ids` sequence remains:
 
 1. `temperature_channel_fast_review`
-2. `authoritative_resume_offline_state_advance_post_write_verification`
-3. `authoritative_resume_offline_state_advance_consumer_readiness`
-4. `co2_open_flow_sampling`
+2. `co2_open_flow_sampling`
 
-The post-write verifier consumes evidence from the separately and manually
-authorized #108 atomic writer. The full-flow plan does not call that writer.
-The consumer gate may set `state_consumption_allowed=true` only for read-only
-planning; `resume_execution_allowed` remains false.
+The manually authorized #108 writer advances the state once from the completed
+temperature review to CO2. Post-write verification and consumer readiness are
+out-of-band evidence gates, not additional state steps. Treating them as steps
+would make verification of a state write require another state write.
+
+The formal-status snapshot consumes their explicit artifact paths before any
+physical continuation decision. The post-write verifier consumes evidence from
+the separately and manually authorized writer; the full-flow plan does not call
+that writer or either sidecar as a canonical step. The consumer gate may set
+`state_consumption_allowed=true` only for read-only planning;
+`resume_execution_allowed` remains false.
 
 ## Formal status behavior
 
@@ -42,6 +46,6 @@ connect PostgreSQL, release a run, or import data. It does not modify the mature
 Recorded on 2026-07-12:
 
 - Full-flow, formal-flow contract, and integration tests: `76 passed, 1 existing marker warning`.
-- Formal-run-status and integration tests: `68 passed`.
-- #109 post-write chain, integration, and mature-route contract tests: `20 passed`.
+- Formal-run-status, #109 post-write chain, and integration tests: `80 passed`.
+- Focused real post-write/consumer chain and out-of-band integration tests: `16 passed`.
 - `py_compile`, Ruff, and `git diff --check` pass.

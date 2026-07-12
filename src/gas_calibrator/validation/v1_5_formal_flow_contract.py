@@ -48,8 +48,6 @@ REQUIRED_STEP_IDS = (
     "authoritative_resume_state_writer_blocked_executor",
     "authoritative_resume_state_controlled_write_preflight",
     "temperature_channel_fast_review",
-    "authoritative_resume_offline_state_advance_post_write_verification",
-    "authoritative_resume_offline_state_advance_consumer_readiness",
     "co2_open_flow_sampling",
     "h2o_open_flow_sampling",
     "fit_input_quality_review",
@@ -104,8 +102,6 @@ REQUIRED_ORDER = (
     "authoritative_resume_state_writer_blocked_executor",
     "authoritative_resume_state_controlled_write_preflight",
     "temperature_channel_fast_review",
-    "authoritative_resume_offline_state_advance_post_write_verification",
-    "authoritative_resume_offline_state_advance_consumer_readiness",
     "co2_open_flow_sampling",
     "h2o_open_flow_sampling",
     "fit_input_quality_review",
@@ -156,6 +152,11 @@ AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_POST_WRITE_VERIFICATION_MODULE = (
 AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_CONSUMER_READINESS_MODULE = (
     "gas_calibrator.tools.export_v1_5_authoritative_resume_offline_state_advance_consumer_readiness"
 )
+OUT_OF_BAND_OFFLINE_STATE_ADVANCE_MODULES = {
+    AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_POST_WRITE_VERIFICATION_MODULE,
+    AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_CONSUMER_READINESS_MODULE,
+    "gas_calibrator.tools.run_v1_5_authoritative_resume_offline_state_advance_atomic_writer",
+}
 RESUME_PREFIX_APPLICATION_REVIEW_FORBIDDEN_FLAGS = (
     "--completed-step",
     "--failed-step",
@@ -219,8 +220,8 @@ FORMAL_PHYSICAL_FLOW = (
     "AUTHORITATIVE_RESUME_STATE_WRITER_BLOCKED_EXECUTOR: prove state target, hash, authorization, execute, and replace inputs remain locked",
     "AUTHORITATIVE_RESUME_STATE_CONTROLLED_WRITE_PREFLIGHT: bind the exact candidate bytes, current-state SHA256, and distinct authorization without writing state",
     "TEMPERATURE: review chamber/case temperature evidence before final approval",
-    "OFFLINE_STATE_ADVANCE_POST_WRITE_VERIFICATION: verify the manually authorized one-step state advance, rollback snapshot, readback, and released lock",
-    "OFFLINE_STATE_ADVANCE_CONSUMER_READINESS: allow read-only planning consumption while resume execution remains locked",
+    "OUT_OF_BAND_STATE_ADVANCE_VERIFICATION: formal status verifies the manually authorized state advance without adding a completed_step_id",
+    "OUT_OF_BAND_STATE_CONSUMER_READINESS: formal status allows read-only planning consumption while resume execution remains locked",
     "CO2_OPEN_FLOW: sample clean dry gas under continuous open flow",
     "H2O_OPEN_FLOW: sample water route under dewpoint/reference evidence",
     "QC: keep raw frames, rejected frames, reasons, and fit-eligible samples",
@@ -706,24 +707,6 @@ def validate_v1_5_formal_flow_contract(
         "database_import",
         issues,
     )
-    _require_before(
-        step_ids,
-        "temperature_channel_fast_review",
-        "authoritative_resume_offline_state_advance_post_write_verification",
-        issues,
-    )
-    _require_before(
-        step_ids,
-        "authoritative_resume_offline_state_advance_post_write_verification",
-        "authoritative_resume_offline_state_advance_consumer_readiness",
-        issues,
-    )
-    _require_before(
-        step_ids,
-        "authoritative_resume_offline_state_advance_consumer_readiness",
-        "co2_open_flow_sampling",
-        issues,
-    )
     _require_before(step_ids, "formal_evidence_sidecar", "zh_calibration_reports", issues)
     _require_before(step_ids, "zh_calibration_reports", "final_evidence_status_refresh", issues)
     _require_before(step_ids, "final_evidence_status_refresh", "automation_control_contract_snapshot", issues)
@@ -738,6 +721,19 @@ def validate_v1_5_formal_flow_contract(
         command = step.get("command") or ()
         writes = bool(step.get("writes_coefficients"))
         controls_route = bool(step.get("controls_gas_route") or step.get("controls_water_route"))
+
+        if module in OUT_OF_BAND_OFFLINE_STATE_ADVANCE_MODULES:
+            issues.append(
+                _issue(
+                    "error",
+                    "offline_state_advance_evidence_must_remain_out_of_band",
+                    (
+                        "Offline state-advance writer/verification/consumer tools must not become canonical "
+                        "completed_step_ids; formal status consumes their evidence out of band."
+                    ),
+                    step_id,
+                )
+            )
 
         if ".v2" in module.lower() or any(".v2" in str(part).lower() for part in command):
             issues.append(_issue("error", "v2_reference_forbidden", "V1.5 formal plan must not reference V2", step_id))

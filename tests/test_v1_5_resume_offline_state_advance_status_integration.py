@@ -1,5 +1,6 @@
 import hashlib
 import json
+import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -120,35 +121,20 @@ def _consumer_payload(verification: Path) -> dict:
     }
 
 
-def test_full_flow_places_read_only_state_advance_gates_before_co2(tmp_path: Path) -> None:
+def test_full_flow_keeps_state_advance_evidence_out_of_canonical_steps(tmp_path: Path) -> None:
     plan = _plan(tmp_path)
     step_ids = [step.step_id for step in plan.steps]
     post_id = "authoritative_resume_offline_state_advance_post_write_verification"
     consumer_id = "authoritative_resume_offline_state_advance_consumer_readiness"
-    assert step_ids.index("temperature_channel_fast_review") < step_ids.index(post_id)
-    assert step_ids.index(post_id) < step_ids.index(consumer_id)
-    assert step_ids.index(consumer_id) < step_ids.index("co2_open_flow_sampling")
+    assert post_id not in step_ids
+    assert consumer_id not in step_ids
+    assert step_ids.index("temperature_channel_fast_review") < step_ids.index(
+        "co2_open_flow_sampling"
+    )
     assert all(
-        step.tool_module
-        != "gas_calibrator.tools.run_v1_5_authoritative_resume_offline_state_advance_atomic_writer"
+        "authoritative_resume_offline_state_advance" not in str(step.tool_module or "")
         for step in plan.steps
     )
-
-    post = next(step for step in plan.steps if step.step_id == post_id)
-    consumer = next(step for step in plan.steps if step.step_id == consumer_id)
-    for step in (post, consumer):
-        assert step.execution_mode == "offline_sidecar"
-        assert step.opens_com_ports is False
-        assert step.controls_gas_route is False
-        assert step.controls_water_route is False
-        assert step.writes_coefficients is False
-        assert step.writes_device_id is False
-        assert not {
-            "--execute",
-            "--write-state",
-            "--replace-state",
-            "--execute-offline-commands",
-        }.intersection(step.command)
 
     status = next(step for step in plan.steps if step.step_id == "formal_run_status_snapshot")
     assert _flag_value(
@@ -171,7 +157,9 @@ def test_full_flow_places_read_only_state_advance_gates_before_co2(tmp_path: Pat
     )
 
 
-def test_formal_flow_contract_rejects_state_advance_unlock_flags(tmp_path: Path) -> None:
+def test_formal_flow_contract_rejects_state_advance_tools_as_canonical_steps(
+    tmp_path: Path,
+) -> None:
     plan = _plan(tmp_path)
     report = validate_v1_5_formal_flow_contract(
         plan,
@@ -181,19 +169,32 @@ def test_formal_flow_contract_rejects_state_advance_unlock_flags(tmp_path: Path)
 
     steps = list(plan.steps)
     index = next(
-        index
-        for index, step in enumerate(steps)
-        if step.step_id == "authoritative_resume_offline_state_advance_consumer_readiness"
+        index for index, step in enumerate(steps) if step.step_id == "temperature_channel_fast_review"
     )
-    steps[index] = replace(steps[index], command=(*steps[index].command, "--execute"))
+    steps[index] = replace(
+        steps[index],
+        step_id="authoritative_resume_offline_state_advance_consumer_readiness",
+        tool_module=(
+            "gas_calibrator.tools.export_v1_5_authoritative_resume_offline_state_advance_consumer_readiness"
+        ),
+        command=(
+            sys.executable,
+            "-m",
+            "gas_calibrator.tools.export_v1_5_authoritative_resume_offline_state_advance_consumer_readiness",
+            "--post-write-verification-json",
+            "verification.json",
+            "--output-dir",
+            "consumer",
+            "--fail-on-blocker",
+        ),
+    )
     blocked = validate_v1_5_formal_flow_contract(
         replace(plan, steps=tuple(steps)),
         inventory_entries=discover_current_v1_5_inventory(anchor_paths=(Path.cwd(),)),
     )
     assert blocked.status == "blocked"
     assert any(
-        issue.code
-        == "authoritative_resume_offline_state_advance_consumer_readiness_forbidden_unlock_flag"
+        issue.code == "offline_state_advance_evidence_must_remain_out_of_band"
         for issue in blocked.issues
     )
 

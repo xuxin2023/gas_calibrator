@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import gas_calibrator.validation.v1_5_formal_run_status as formal_status_module
 from gas_calibrator.tools import (
     export_v1_5_authoritative_resume_offline_state_advance_consumer_readiness as consumer_tool,
 )
@@ -39,6 +40,7 @@ from gas_calibrator.validation.v1_5_authoritative_resume_offline_state_advance_c
     BLOCKED_STATUS as CONSUMER_BLOCKED_STATUS,
     READY_STATUS as CONSUMER_READY_STATUS,
     build_v1_5_authoritative_resume_offline_state_advance_consumer_readiness,
+    write_v1_5_authoritative_resume_offline_state_advance_consumer_readiness,
 )
 from gas_calibrator.validation.v1_5_authoritative_resume_offline_state_advance_post_write_verification import (
     BLOCKED_STATUS,
@@ -462,3 +464,43 @@ def test_post_write_and_consumer_clis_export_offline_evidence(
     )
     assert payload["state_consumption_allowed"] is True
     assert payload["resume_execution_allowed"] is False
+
+
+def test_formal_status_accepts_real_post_write_and_consumer_chain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    writer, _state, _candidate, _packet, _plan, _steps = _bundle(
+        tmp_path, monkeypatch
+    )
+    verification_model = build_v1_5_authoritative_resume_offline_state_advance_post_write_verification(
+        atomic_write_json=writer
+    )
+    verification_path = write_v1_5_authoritative_resume_offline_state_advance_post_write_verification(
+        verification_model,
+        tmp_path / "formal-status-verification",
+    )["json"]
+    consumer_model = build_v1_5_authoritative_resume_offline_state_advance_consumer_readiness(
+        post_write_verification_json=verification_path
+    )
+    consumer_path = write_v1_5_authoritative_resume_offline_state_advance_consumer_readiness(
+        consumer_model,
+        tmp_path / "formal-status-consumer",
+    )
+
+    post_gate = formal_status_module._authoritative_resume_offline_state_advance_post_write_verification_gate(
+        verification_path,
+        verification_model,
+        writer,
+    )
+    consumer_gate = formal_status_module._authoritative_resume_offline_state_advance_consumer_readiness_gate(
+        consumer_path,
+        consumer_model,
+        verification_path,
+    )
+
+    assert post_gate.status == "ready"
+    assert post_gate.blocks_physical_flow is False
+    assert consumer_gate.status == "ready"
+    assert consumer_gate.blocks_physical_flow is False
+    assert consumer_model["state_consumption_allowed"] is True
+    assert consumer_model["resume_execution_allowed"] is False
