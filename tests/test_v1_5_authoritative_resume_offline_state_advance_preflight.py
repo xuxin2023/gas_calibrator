@@ -168,6 +168,27 @@ def test_state_advance_preflight_blocks_stale_current_state(
     assert model["candidate_state_sha256"] == ""
 
 
+def test_state_advance_preflight_blocks_reparse_state_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    verifier_path, verifier, state_path, _output, _step_ids, _index = _fixture(tmp_path)
+    _install_verifier(monkeypatch, verifier)
+    monkeypatch.setattr(
+        module,
+        "_has_reparse_point",
+        lambda path: Path(path).absolute() == state_path.absolute(),
+    )
+    model = build_v1_5_authoritative_resume_offline_state_advance_preflight(
+        offline_post_execution_verifier_json=verifier_path
+    )
+    assert model["overall_status"] == BLOCKED_STATUS
+    assert "authoritative_state_target_or_parent_is_reparse_point" in model[
+        "blocker_reasons"
+    ]
+    assert model["candidate_state"] == {}
+    assert model["candidate_state_sha256"] == ""
+
+
 def test_state_advance_preflight_blocks_changed_verified_output(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

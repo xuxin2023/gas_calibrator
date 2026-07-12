@@ -9,6 +9,8 @@ one completed offline step.
 - Recompute the post-execution verifier from its executor evidence.
 - Require the current state SHA256 to remain exactly equal to the verifier-bound
   SHA256 immediately before any later compare-and-swap writer.
+- Require the recorded state target to be the exact canonical file under the
+  plan root, with neither the target nor its parent being a symlink/reparse point.
 - Require the verified step to be the single next step after the existing exact
   contiguous completed prefix.
 - Require all verified output files and hashes to remain unchanged.
@@ -30,7 +32,7 @@ writer.
 
 Recorded on 2026-07-12:
 
-- Focused state-advance/verifier/executor/consumer/inventory suite: `58 passed, 1 warning`.
+- Focused state-advance/verifier/executor/consumer/inventory suite: `59 passed, 1 warning`.
 - Formal run-status and formal-flow compatibility suite: `103 passed, 1 warning`.
 - Mature-route and full-flow compatibility suite: `38 passed`.
 - Existing state preflight/atomic-writer/post-write suite: `34 passed`.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import stat
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -100,6 +101,17 @@ def _valid_iso_timestamp(value: Any) -> bool:
     return parsed.tzinfo is not None
 
 
+def _has_reparse_point(path: Path) -> bool:
+    try:
+        info = path.lstat()
+    except OSError:
+        return False
+    attributes = int(getattr(info, "st_file_attributes", 0) or 0)
+    return path.is_symlink() or bool(
+        attributes & int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0) or 0)
+    )
+
+
 def _check(name: str, reasons: Sequence[str], **details: Any) -> dict[str, Any]:
     return {
         "check": name,
@@ -164,7 +176,10 @@ def build_v1_5_authoritative_resume_offline_state_advance_preflight(
     )
 
     plan_path = Path(str(verifier.get("full_flow_plan_json") or "")).resolve()
-    state_path = Path(str(verifier.get("authoritative_state_json") or "")).resolve()
+    state_recorded_path = Path(
+        str(verifier.get("authoritative_state_json") or "")
+    ).absolute()
+    state_path = state_recorded_path.resolve()
     plan = _load(plan_path)
     state = _load(state_path)
     plan_root = plan_path.parent
@@ -173,8 +188,13 @@ def build_v1_5_authoritative_resume_offline_state_advance_preflight(
         plan_reasons.append("full_flow_plan_schema_invalid")
     if str(verifier.get("full_flow_plan_sha256") or "") != _sha(plan_path):
         plan_reasons.append("full_flow_plan_sha256_mismatch")
-    if state_path != (plan_root / "v1_5_full_flow_state.json").resolve():
+    canonical_state_path = (plan_root / "v1_5_full_flow_state.json").absolute()
+    if state_recorded_path != canonical_state_path:
         plan_reasons.append("authoritative_state_path_not_canonical_for_plan")
+    if _has_reparse_point(state_recorded_path) or _has_reparse_point(
+        state_recorded_path.parent
+    ):
+        plan_reasons.append("authoritative_state_target_or_parent_is_reparse_point")
     expected_state_sha = str(
         verifier.get("authoritative_state_sha256_current") or ""
     )
@@ -196,7 +216,7 @@ def build_v1_5_authoritative_resume_offline_state_advance_preflight(
             "plan_and_current_state_compare_and_swap_binding",
             plan_reasons,
             full_flow_plan_json=str(plan_path),
-            authoritative_state_json=str(state_path),
+            authoritative_state_json=str(state_recorded_path),
             expected_current_state_sha256=expected_state_sha,
             observed_current_state_sha256=current_state_sha,
         )
@@ -364,7 +384,7 @@ def build_v1_5_authoritative_resume_offline_state_advance_preflight(
         "next_step_id_after_advance": next_step_id,
         "full_flow_plan_json": str(plan_path),
         "full_flow_plan_sha256": _sha(plan_path),
-        "authoritative_state_json": str(state_path),
+        "authoritative_state_json": str(state_recorded_path),
         "expected_current_state_sha256": expected_state_sha,
         "observed_current_state_sha256": current_state_sha,
         "compare_and_swap_required": True,
