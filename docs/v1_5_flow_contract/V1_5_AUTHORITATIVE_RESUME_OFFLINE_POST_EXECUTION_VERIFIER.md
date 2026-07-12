@@ -9,7 +9,8 @@ evidence verifier, not a state writer and not a physical-flow executor.
 - The executor evidence must report the executed status, zero return code,
   fresh expected outputs, no hold reasons, and no authoritative-state advance.
 - The candidate gate SHA256, schema, attempt ID, next step, plan SHA256, exact
-  runtime command, and expected-output path set must remain canonical.
+  runtime command, expected-output path set, and every gate contract field used
+  by the executor must remain canonical under a fresh recomputation.
 - Every output SHA256 must equal the executor-recorded after-execution SHA256
   and differ from its before-execution SHA256.
 - The authorization packet and authoritative resume-state SHA256 must remain
@@ -25,12 +26,13 @@ separate compare-and-swap state-advance preflight bound to this exact evidence.
 ## Verification
 
 Focused tests cover the ready path, output mutation, state mutation, gate
-replacement, executor boundary mutation, offline entrypoint classification,
-and rejection of an `--execute` argument before any artifact is written.
+replacement without test-time gate stubbing, gate-contract drift, executor
+boundary mutation, offline entrypoint classification, and rejection of an
+`--execute` argument before any artifact is written.
 
 Recorded on 2026-07-12:
 
-- Focused verifier/executor/gate/preflight/inventory suite: `61 passed, 1 warning`.
+- Focused verifier/executor/gate/preflight/inventory suite: `62 passed, 1 warning`.
 - Formal run-status and formal-flow compatibility suite: `103 passed, 1 warning`.
 - Mature-route and full-flow compatibility suite: `38 passed`.
 

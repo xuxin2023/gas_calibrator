@@ -17,6 +17,7 @@ from .v1_5_authoritative_resume_offline_candidate_gate import (
 )
 from .v1_5_authoritative_resume_offline_executor import (
     EXECUTED_STATUS,
+    GATE_COMPARE_KEYS,
     SCHEMA as EXECUTOR_SCHEMA,
 )
 
@@ -155,14 +156,20 @@ def build_v1_5_authoritative_resume_offline_post_execution_verifier(
                 execution_preflight_json=gate.get("execution_preflight_json"),
                 now=started_at,
             )
-        except (OSError, ValueError, json.JSONDecodeError):
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
             recomputed_gate = {}
-        if recomputed_gate.get("overall_status") != GATE_READY_STATUS:
+        if not recomputed_gate:
+            reasons.append("offline_executor_gate_recompute_failed")
+        elif recomputed_gate.get("overall_status") != GATE_READY_STATUS:
             reasons.append("offline_executor_gate_not_ready_at_execution")
-        if recomputed_gate.get("attempt_id") != executor.get("attempt_id"):
-            reasons.append("offline_executor_attempt_id_mismatch")
-        if recomputed_gate.get("next_step_id") != executor.get("next_step_id"):
-            reasons.append("offline_executor_next_step_mismatch")
+        else:
+            for key in GATE_COMPARE_KEYS:
+                if gate.get(key) != recomputed_gate.get(key):
+                    reasons.append(f"offline_executor_gate_recompute_mismatch:{key}")
+            if recomputed_gate.get("attempt_id") != executor.get("attempt_id"):
+                reasons.append("offline_executor_attempt_id_mismatch")
+            if recomputed_gate.get("next_step_id") != executor.get("next_step_id"):
+                reasons.append("offline_executor_next_step_mismatch")
 
     step = chain["step"]
     plan_path = chain["plan_path"]
@@ -230,7 +237,14 @@ def build_v1_5_authoritative_resume_offline_post_execution_verifier(
     checks = [
         {
             "check": "executor_and_gate_binding",
-            "status": "ready" if not any("gate" in reason for reason in reasons) else "review_required",
+            "status": (
+                "review_required"
+                if any(
+                    reason.startswith(("offline_executor_", "offline_candidate_gate_"))
+                    for reason in reasons
+                )
+                else "ready"
+            ),
         },
         {
             "check": "canonical_outputs_hash_binding",

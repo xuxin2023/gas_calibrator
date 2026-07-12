@@ -203,11 +203,8 @@ def test_post_execution_verifier_holds_when_state_changes(
     assert model["authoritative_state_advance_allowed"] is False
 
 
-def test_post_execution_verifier_holds_when_gate_is_replaced(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_post_execution_verifier_holds_when_gate_is_replaced(tmp_path: Path) -> None:
     executor_path, gate, _state, _outputs = _fixture(tmp_path)
-    _install_gate(monkeypatch, gate)
     executor = json.loads(executor_path.read_text(encoding="utf-8"))
     gate_path = Path(executor["offline_candidate_gate_json"])
     gate_path.write_text('{"schema": "tampered"}\n', encoding="utf-8")
@@ -217,6 +214,21 @@ def test_post_execution_verifier_holds_when_gate_is_replaced(
     assert model["overall_status"] == REVIEW_STATUS
     assert "offline_candidate_gate_schema_invalid" in model["review_reasons"]
     assert "offline_executor_gate_sha256_mismatch" in model["review_reasons"]
+    assert "offline_executor_gate_recompute_failed" in model["review_reasons"]
+
+
+def test_post_execution_verifier_holds_when_recomputed_gate_contract_differs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    executor_path, gate, _state, _outputs = _fixture(tmp_path)
+    recomputed = dict(gate)
+    recomputed["run_id"] = "different-run"
+    _install_gate(monkeypatch, recomputed)
+    model = build_v1_5_authoritative_resume_offline_post_execution_verifier(
+        offline_executor_json=executor_path
+    )
+    assert model["overall_status"] == REVIEW_STATUS
+    assert "offline_executor_gate_recompute_mismatch:run_id" in model["review_reasons"]
 
 
 def test_post_execution_verifier_holds_on_executor_boundary_tamper(
