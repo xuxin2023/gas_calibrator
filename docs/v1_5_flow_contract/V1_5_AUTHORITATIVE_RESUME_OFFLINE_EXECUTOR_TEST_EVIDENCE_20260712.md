@@ -6,7 +6,7 @@ Date: 2026-07-12
 
 ```text
 python -m pytest tests/test_v1_5_authoritative_resume_offline_executor.py tests/test_v1_5_authoritative_resume_offline_candidate_gate.py tests/test_v1_5_authoritative_resume_execution_preflight.py tests/test_v1_5_authoritative_resume_executor_authorization_validator.py tests/test_v1_5_entrypoint_inventory.py -q
-61 passed, 1 warning in 44.29s
+61 passed, 1 warning in 43.05s
 ```
 
 The first focused run exposed that argparse abbreviated `--execute` to `--execute-offline-step`. The CLI now uses `allow_abbrev=false`; the complete focused suite above passed after that P1 fix.

@@ -22,6 +22,8 @@ This executor may run exactly one canonical offline V1.5 step after explicit aut
 
 Process return code zero is insufficient. Every canonical expected output must be newly created or have a new SHA256. Otherwise execution is held.
 
+The execution artifact stores each expected output's before and after SHA256. A later verifier must reject any output whose current hash no longer matches the recorded after hash.
+
 Successful execution is `offline_step_executed_pending_verification`. It does not advance authoritative state. A separate post-execution verifier must bind outputs before any state transition.
 
 ## Protected Boundary

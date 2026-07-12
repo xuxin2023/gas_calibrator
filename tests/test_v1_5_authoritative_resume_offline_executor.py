@@ -153,6 +153,10 @@ def test_executor_runs_exact_python_module_and_requires_fresh_outputs(
     assert model["offline_step_executed"] is True
     assert model["process_return_code"] == 0
     assert model["expected_outputs_fresh"] is True
+    assert all(model["expected_output_sha256_after"].values())
+    assert set(model["expected_output_sha256_after"]) == {
+        str(path.resolve()) for path in expected
+    }
     assert model["authoritative_state_advanced"] is False
     assert model["opens_com_ports"] is False
     assert model["connects_postgresql"] is False

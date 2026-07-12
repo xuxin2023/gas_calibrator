@@ -281,6 +281,7 @@ def run_v1_5_authoritative_resume_offline_executor(
 
     all_reasons = reasons + output_reasons
     executed_ok = execute_offline_step and process_attempted and not all_reasons
+    after = {str(path): _sha(path) for path in expected_outputs}
     status = (
         EXECUTED_STATUS
         if executed_ok
@@ -311,6 +312,8 @@ def run_v1_5_authoritative_resume_offline_executor(
         "started_at": _iso(started_at),
         "finished_at": _iso(finished_at),
         "expected_output_paths": [str(path) for path in expected_outputs],
+        "expected_output_sha256_before": before,
+        "expected_output_sha256_after": after,
         "expected_outputs_fresh": executed_ok,
         "authoritative_state_advanced": False,
         "execution_supported": True,
