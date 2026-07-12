@@ -382,3 +382,80 @@ def test_fit_input_quality_rejects_blocked_direct_continuity_gate(tmp_path):
     assert summary["fit_input_continuity_gate_status"] == "blocked"
     assert "mature_route_continuity_gate_not_ready" in summary["fit_input_continuity_gate_reason"]
     assert {row["fit_input_grade"] for row in tables["device_quality"]} == {"REJECT"}
+
+
+def test_fit_input_quality_consumes_profile_lineage_and_rejects_mismatch(tmp_path):
+    co2_policy, co2_residuals, h2o_policy, h2o_residuals = _write_good_inputs(tmp_path)
+    continuity_gate = _write_passing_continuity_gate(tmp_path / "continuity.json")
+    lineage = _write_json(
+        tmp_path / "lineage.json",
+        {
+            "overall_status": "blocked",
+            "fit_input_allowed": False,
+            "fit_input_contract": {
+                "profile_id": "absorption_ratio_shadow",
+                "profile_sha256": "profile-sha",
+                "algorithm_mode": "absorption_ratio_A",
+                "co2_fit_input": "A_CO2=-ln(R_CO2/R0_CO2(T))/(P_kPa/100)",
+                "h2o_fit_input": "A_H2O=-ln(R_H2O/R0_H2O(T))/(P_kPa/100)",
+            },
+            "opens_com_ports": False,
+            "controls_water_or_gas_routes": False,
+            "writes_coefficients": False,
+            "connects_postgresql": False,
+        },
+    )
+    tables = build_fit_input_quality_tables(
+        co2_policy_csv=co2_policy,
+        co2_residuals_csv=co2_residuals,
+        h2o_policy_csv=h2o_policy,
+        h2o_residuals_csv=h2o_residuals,
+        mature_route_continuity_gate_json=continuity_gate,
+        algorithm_profile_lineage_json=lineage,
+        cfg=FitInputQualityConfig(target_device_ids=("022",), excluded_device_ids=()),
+    )
+    summary = tables["summary"][0]
+    assert summary["run_status"] == "blocked"
+    assert summary["algorithm_profile_lineage_gate_status"] == "blocked"
+    assert summary["algorithm_profile_id"] == "absorption_ratio_shadow"
+    assert {row["fit_input_grade"] for row in tables["device_quality"]} == {"REJECT"}
+
+
+def test_fit_input_quality_records_passed_profile_fit_variables(tmp_path):
+    co2_policy, co2_residuals, h2o_policy, h2o_residuals = _write_good_inputs(tmp_path)
+    continuity_gate = _write_passing_continuity_gate(tmp_path / "continuity.json")
+    lineage = _write_json(
+        tmp_path / "lineage.json",
+        {
+            "overall_status": "pass",
+            "fit_input_allowed": True,
+            "fit_input_contract": {
+                "profile_id": "legacy_ratio_production",
+                "profile_sha256": "profile-sha",
+                "algorithm_mode": "legacy_ratio_R",
+                "co2_fit_input": "R_CO2_with_chamber_temperature_terms",
+                "h2o_fit_input": "R_H2O_with_chamber_temperature_terms",
+            },
+            "opens_com_ports": False,
+            "controls_water_or_gas_routes": False,
+            "writes_coefficients": False,
+            "connects_postgresql": False,
+        },
+    )
+    tables = build_fit_input_quality_tables(
+        co2_policy_csv=co2_policy,
+        co2_residuals_csv=co2_residuals,
+        h2o_policy_csv=h2o_policy,
+        h2o_residuals_csv=h2o_residuals,
+        mature_route_continuity_gate_json=continuity_gate,
+        algorithm_profile_lineage_json=lineage,
+        cfg=FitInputQualityConfig(target_device_ids=("022",), excluded_device_ids=()),
+    )
+    summary = tables["summary"][0]
+    assert summary["run_status"] == "pass"
+    assert summary["algorithm_profile_lineage_gate_status"] == "pass"
+    assert summary["co2_fit_input_variable"].startswith("R_CO2")
+    assert {row["fit_input_variable"] for row in tables["point_quality"]} == {
+        "R_CO2_with_chamber_temperature_terms",
+        "R_H2O_with_chamber_temperature_terms",
+    }

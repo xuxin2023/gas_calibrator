@@ -500,6 +500,7 @@ def _stage_evidence_contract(step: FullFlowStep) -> dict[str, Any]:
         in {
             "co2_open_flow_sampling",
             "h2o_open_flow_sampling",
+            "algorithm_profile_lineage_gate",
             "fit_input_quality_review",
             "post_run_coefficient_executor",
             "full_flow_closure_readiness",
@@ -729,7 +730,12 @@ def build_full_flow_live_runner_readiness(plan: FullFlowPlan) -> FullFlowLiveRun
             domain="candidate_fit_and_qc",
             status="offline_review_waiting_for_run_artifacts",
             reason="candidate fitting is offline-ready after raw open-flow samples, factory-signal health, and fit-input QC exist",
-            stage_ids=("factory_signal_health_review", "fit_input_quality_review", "co2_candidate_write_review"),
+            stage_ids=(
+                "algorithm_profile_lineage_gate",
+                "factory_signal_health_review",
+                "fit_input_quality_review",
+                "co2_candidate_write_review",
+            ),
             physical_risk="optical saturation, invalid frames, wrong low-end anchors, or unmodeled trims can make offline residuals disagree with real output",
             next_action="use all traceable stable fit-eligible points while keeping CO2 zero gas and H2O dry-gas anchors conceptually separate",
         ),
@@ -1054,6 +1060,7 @@ def build_full_flow_plan(
     pressure_dir = root / "pressure_channel"
     co2_dir = root / "co2_open_flow"
     h2o_dir = root / "h2o_open_flow"
+    algorithm_profile_lineage_dir = root / "algorithm_profile_lineage"
     temp_dir = root / "temperature_channel_review"
     factory_signal_dir = root / "factory_signal_health_review"
     fit_quality_dir = root / "fit_input_quality"
@@ -2426,6 +2433,59 @@ def build_full_flow_plan(
 
     steps.append(
         FullFlowStep(
+            step_id="algorithm_profile_lineage_gate",
+            title="Bind algorithm profile, queue evidence, and fit-input semantics",
+            phase="ALGORITHM_PROFILE_LINEAGE",
+            tool_module="gas_calibrator.tools.export_v1_5_algorithm_profile_lineage_gate",
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_algorithm_profile_lineage_gate",
+                "--bootstrap-json",
+                root / "v1_5_new_run_bootstrap.json",
+                "--queue-inputs-json",
+                root / "queues" / "v1_5_queue_inputs.json",
+                "--co2-queue-summary-json",
+                co2_dir / f"{rid}_co2" / "queue_summary.json",
+                "--h2o-queue-summary-json",
+                h2o_dir / f"{rid}_h2o" / "queue_summary.json",
+                "--co2-queue-manifest-csv",
+                co2_dir / f"{rid}_co2" / "queue_manifest.csv",
+                "--h2o-queue-manifest-csv",
+                h2o_dir / f"{rid}_h2o" / "queue_manifest.csv",
+                "--co2-r0-model-json",
+                root / "algorithm_r0" / "co2_r0_model.json",
+                "--h2o-r0-model-json",
+                root / "algorithm_r0" / "h2o_r0_model.json",
+                "--output-dir",
+                algorithm_profile_lineage_dir,
+                "--fail-on-blocker",
+            ),
+            required_inputs=(
+                "atomic new-run bootstrap manifest",
+                "profile-generated immutable queue inputs",
+                "completed CO2/H2O queue summaries",
+                "completed CO2/H2O point manifests",
+                "R0_CO2(T)/R0_H2O(T) evidence for the absorption profile",
+            ),
+            expected_outputs=(
+                "algorithm_profile_lineage/v1_5_algorithm_profile_lineage_gate.json",
+                "algorithm_profile_lineage/v1_5_algorithm_profile_lineage_checks.csv",
+                "algorithm_profile_lineage/V1_5_ALGORITHM_PROFILE_LINEAGE_GATE.md",
+            ),
+            physical_meaning=(
+                "The selected algorithm must remain identical from bootstrap and queue hashes through fitting: "
+                "legacy devices consume ratio R, while absorption devices consume A with reviewed R0(T)."
+            ),
+            execution_mode="offline_review",
+            gate="required_after_both_routes_before_fit_input_review",
+            notes=(
+                "This gate does not open COM ports, control routes, write coefficients, or connect PostgreSQL.",
+                "CO2 zero-gas and H2O dry-gas anchors remain separate physical evidence roles.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
             step_id="factory_signal_health_review",
             title="Review factory-mode optical reference and signal health",
             phase="FACTORY_SIGNAL_HEALTH_REVIEW",
@@ -2475,10 +2535,16 @@ def build_full_flow_plan(
                 "<h2o_candidate_policy.csv>",
                 "--h2o-residuals-csv",
                 "<h2o_candidate_residuals.csv>",
+                "--algorithm-profile-lineage-json",
+                algorithm_profile_lineage_dir / "v1_5_algorithm_profile_lineage_gate.json",
                 "--output-dir",
                 fit_quality_dir,
             ),
-            required_inputs=("CO2 candidate residuals", "H2O candidate residuals"),
+            required_inputs=(
+                "CO2 candidate residuals",
+                "H2O candidate residuals",
+                "algorithm profile lineage gate",
+            ),
             expected_outputs=(
                 "fit_input_quality.md",
                 "v1_5_fit_input_quality_summary.csv",

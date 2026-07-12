@@ -18,6 +18,7 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--h2o-point-inputs-csv", default="")
     parser.add_argument("--formal-run-status-json", default="")
     parser.add_argument("--mature-route-continuity-gate-json", default="")
+    parser.add_argument("--algorithm-profile-lineage-json", default="")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--target-device-id", action="append", default=[])
     parser.add_argument("--exclude-device-id", action="append", default=[])
@@ -45,6 +46,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             h2o_point_inputs_csv=args.h2o_point_inputs_csv or None,
             formal_run_status_json=args.formal_run_status_json or None,
             mature_route_continuity_gate_json=args.mature_route_continuity_gate_json or None,
+            algorithm_profile_lineage_json=args.algorithm_profile_lineage_json or None,
             output_dir=args.output_dir,
             cfg=cfg,
         )

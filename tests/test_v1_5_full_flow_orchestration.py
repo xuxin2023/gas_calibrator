@@ -157,6 +157,8 @@ def test_full_flow_plan_keeps_pressure_and_temperature_before_components(tmp_pat
     assert step_ids.index("temperature_channel_fast_review") < step_ids.index("h2o_open_flow_sampling")
     assert step_ids.index("co2_open_flow_sampling") < step_ids.index("factory_signal_health_review")
     assert step_ids.index("h2o_open_flow_sampling") < step_ids.index("factory_signal_health_review")
+    assert step_ids.index("h2o_open_flow_sampling") < step_ids.index("algorithm_profile_lineage_gate")
+    assert step_ids.index("algorithm_profile_lineage_gate") < step_ids.index("factory_signal_health_review")
     assert step_ids.index("factory_signal_health_review") < step_ids.index("fit_input_quality_review")
     assert step_ids.index("fit_input_quality_review") < step_ids.index("post_run_coefficient_executor")
     assert step_ids.index("h2o_open_flow_sampling") < step_ids.index("post_run_coefficient_executor")
@@ -966,6 +968,13 @@ def test_full_flow_plan_requires_factory_signal_health_before_fit_review(tmp_pat
     assert fit_review.gate == "requires_factory_signal_health_review"
     assert "v1_5_fit_input_quality_summary.csv" in fit_review.expected_outputs
     assert "v1_5_fit_input_quality_devices.csv" in fit_review.expected_outputs
+    assert "--algorithm-profile-lineage-json" in fit_review.command
+
+    lineage = next(item for item in plan.steps if item.step_id == "algorithm_profile_lineage_gate")
+    assert lineage.tool_module == "gas_calibrator.tools.export_v1_5_algorithm_profile_lineage_gate"
+    assert lineage.execution_mode == "offline_review"
+    assert lineage.opens_com_ports is False
+    assert "--fail-on-blocker" in lineage.command
 
 
 def test_full_flow_plan_binds_final_batch_closeout_before_mature_open_flow(tmp_path):

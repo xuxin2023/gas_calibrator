@@ -235,6 +235,39 @@ def _continuity_consumer_state(
     }
 
 
+def _profile_lineage_state(path: str | Path | None) -> Dict[str, Any]:
+    if not path:
+        return {
+            "configured": False,
+            "ready": True,
+            "reason": "algorithm_profile_lineage_not_configured_legacy_compatibility",
+            "source": "",
+            "contract": {},
+        }
+    source = Path(path).resolve()
+    payload = _read_json(source)
+    contract = payload.get("fit_input_contract") if isinstance(payload.get("fit_input_contract"), Mapping) else {}
+    reasons: List[str] = []
+    if payload.get("overall_status") != "pass":
+        reasons.append("algorithm_profile_lineage_status_not_pass")
+    if payload.get("fit_input_allowed") is not True:
+        reasons.append("algorithm_profile_lineage_fit_input_not_allowed")
+    if not contract.get("profile_id") or not contract.get("profile_sha256"):
+        reasons.append("algorithm_profile_identity_missing")
+    if not contract.get("co2_fit_input") or not contract.get("h2o_fit_input"):
+        reasons.append("algorithm_profile_fit_variables_missing")
+    for key in ("opens_com_ports", "controls_water_or_gas_routes", "writes_coefficients", "connects_postgresql"):
+        if payload.get(key) is not False:
+            reasons.append(f"algorithm_profile_lineage_{key}_must_be_false")
+    return {
+        "configured": True,
+        "ready": not reasons,
+        "reason": ";".join(reasons) if reasons else "algorithm_profile_lineage_passed",
+        "source": str(source),
+        "contract": dict(contract),
+    }
+
+
 def _apply_continuity_block(device_rows: List[Dict[str, Any]], reason: str) -> None:
     for row in device_rows:
         row["fit_input_grade"] = "REJECT"
@@ -358,6 +391,7 @@ def build_fit_input_quality_tables(
     h2o_point_inputs_csv: str | Path | None = None,
     formal_run_status_json: str | Path | None = None,
     mature_route_continuity_gate_json: str | Path | None = None,
+    algorithm_profile_lineage_json: str | Path | None = None,
     cfg: FitInputQualityConfig = FitInputQualityConfig(),
 ) -> Dict[str, List[Dict[str, Any]]]:
     target_devices = {_device_id(item) for item in cfg.target_device_ids}
@@ -371,6 +405,7 @@ def build_fit_input_quality_tables(
         formal_run_status_json=formal_run_status_json,
         mature_route_continuity_gate_json=mature_route_continuity_gate_json,
     )
+    lineage_state = _profile_lineage_state(algorithm_profile_lineage_json)
 
     co2_residuals_by_device = _rows_by_device(co2_residuals)
     h2o_residuals_by_device = _rows_by_device(h2o_residuals)
@@ -394,10 +429,22 @@ def build_fit_input_quality_tables(
             )
         )
 
-    if not continuity_state["ready"]:
-        _apply_continuity_block(device_rows, str(continuity_state["reason"]))
+    input_chain_ready = bool(continuity_state["ready"] and lineage_state["ready"])
+    if not input_chain_ready:
+        _apply_continuity_block(
+            device_rows,
+            ";".join(
+                part
+                for part in (
+                    str(continuity_state["reason"]) if not continuity_state["ready"] else "",
+                    str(lineage_state["reason"]) if not lineage_state["ready"] else "",
+                )
+                if part
+            ),
+        )
 
     point_rows: List[Dict[str, Any]] = []
+    lineage_contract = lineage_state.get("contract") or {}
     quality_by_component_device = {
         (row["component"], row["device_id"]): row["fit_input_grade"] for row in device_rows
     }
@@ -416,6 +463,9 @@ def build_fit_input_quality_tables(
                     "target_value": row.get("target_value") or row.get("reference_h2o_mmol") or "",
                     "ratio": row.get("ratio") or row.get("h2o_ratio_f") or "",
                     "temperature_c": row.get("temperature_c") or row.get("chamber_temp_c") or "",
+                    "algorithm_profile_id": lineage_contract.get("profile_id", ""),
+                    "algorithm_profile_sha256": lineage_contract.get("profile_sha256", ""),
+                    "fit_input_variable": lineage_contract.get(f"{component}_fit_input", ""),
                     "fit_input_grade": grade,
                     "model_error": row.get("error") or row.get("model_error_mmol") or "",
                     "model_error_pct": row.get("model_error_pct") or "",
@@ -459,11 +509,19 @@ def build_fit_input_quality_tables(
     summary = [
         {
             "created_at": _now(),
-            "run_status": "pass" if continuity_state["ready"] and a_count == target_component_count else "blocked",
+            "run_status": "pass" if input_chain_ready and a_count == target_component_count else "blocked",
             "fit_input_continuity_gate_status": "pass" if continuity_state["ready"] else "blocked",
             "fit_input_continuity_gate_reason": continuity_state["reason"],
             "formal_run_status_json": continuity_state["formal_run_status_json"],
             "mature_route_continuity_gate_json": continuity_state["mature_route_continuity_gate_json"],
+            "algorithm_profile_lineage_gate_status": "pass" if lineage_state["ready"] else "blocked",
+            "algorithm_profile_lineage_gate_reason": lineage_state["reason"],
+            "algorithm_profile_lineage_json": lineage_state["source"],
+            "algorithm_profile_id": lineage_contract.get("profile_id", ""),
+            "algorithm_profile_sha256": lineage_contract.get("profile_sha256", ""),
+            "algorithm_mode": lineage_contract.get("algorithm_mode", ""),
+            "co2_fit_input_variable": lineage_contract.get("co2_fit_input", ""),
+            "h2o_fit_input_variable": lineage_contract.get("h2o_fit_input", ""),
             "target_device_ids": ";".join(sorted(target_devices)),
             "excluded_device_ids": ";".join(sorted(excluded_devices)),
             "target_component_count": target_component_count,
@@ -498,6 +556,7 @@ def write_fit_input_quality_report(
     h2o_point_inputs_csv: str | Path | None = None,
     formal_run_status_json: str | Path | None = None,
     mature_route_continuity_gate_json: str | Path | None = None,
+    algorithm_profile_lineage_json: str | Path | None = None,
     cfg: FitInputQualityConfig = FitInputQualityConfig(),
 ) -> Dict[str, Path]:
     output = Path(output_dir).resolve()
@@ -510,6 +569,7 @@ def write_fit_input_quality_report(
         h2o_point_inputs_csv=h2o_point_inputs_csv,
         formal_run_status_json=formal_run_status_json,
         mature_route_continuity_gate_json=mature_route_continuity_gate_json,
+        algorithm_profile_lineage_json=algorithm_profile_lineage_json,
         cfg=cfg,
     )
     paths = {
@@ -541,6 +601,11 @@ def write_fit_input_quality_report(
                     if mature_route_continuity_gate_json
                     else ""
                 ),
+                "algorithm_profile_lineage_json": (
+                    str(Path(algorithm_profile_lineage_json).resolve())
+                    if algorithm_profile_lineage_json
+                    else ""
+                ),
             },
             "config": {
                 "target_device_ids": list(cfg.target_device_ids),
@@ -566,6 +631,9 @@ def _write_markdown(path: Path, tables: Mapping[str, Sequence[Mapping[str, Any]]
         "- Boundary: offline/no-write; no COM, no route control, no SENCO write.",
         f"- Run status: `{summary.get('run_status', '')}`.",
         f"- Mature route continuity gate: `{summary.get('fit_input_continuity_gate_status', '')}`.",
+        f"- Algorithm profile lineage gate: `{summary.get('algorithm_profile_lineage_gate_status', '')}`.",
+        f"- Algorithm profile: `{summary.get('algorithm_profile_id', '')}`.",
+        f"- CO2/H2O fit variables: `{summary.get('co2_fit_input_variable', '')}` / `{summary.get('h2o_fit_input_variable', '')}`.",
         f"- Continuity reason: `{summary.get('fit_input_continuity_gate_reason', '')}`.",
         f"- Target devices: `{summary.get('target_device_ids', '')}`.",
         f"- Excluded devices: `{summary.get('excluded_device_ids', '')}`.",
