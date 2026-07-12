@@ -51,6 +51,11 @@ from .v1_5_authoritative_resume_offline_state_advance_next_step_authorization_pr
     SCHEMA as OFFLINE_STATE_ADVANCE_NEXT_STEP_AUTHORIZATION_SCHEMA,
     build_v1_5_authoritative_resume_offline_state_advance_next_step_authorization_preflight,
 )
+from .v1_5_authoritative_resume_offline_state_advance_next_step_blocked_executor import (
+    BLOCKED_READY_STATUS as OFFLINE_STATE_ADVANCE_NEXT_STEP_BLOCKED_EXECUTOR_READY_STATUS,
+    SCHEMA as OFFLINE_STATE_ADVANCE_NEXT_STEP_BLOCKED_EXECUTOR_SCHEMA,
+    build_v1_5_authoritative_resume_offline_state_advance_next_step_blocked_executor,
+)
 from .v1_5_senco_artifact_authorization import validate_senco_artifact_authorization
 
 
@@ -1501,6 +1506,96 @@ def _authoritative_resume_offline_state_advance_next_step_authorization_prefligh
         reason=reason,
         next_action="Review the exact plan only; a future executor must obtain and revalidate separate physical execution authority.",
         physical_meaning="Records accountable human review of one exact next-step plan without granting COM, pressure, route, write, release, or import authority.",
+        release_gate=False,
+        blocks_release=False,
+        blocks_physical_flow=status != READY,
+    )
+
+
+def _authoritative_resume_offline_state_advance_next_step_blocked_executor_gate(
+    path: Path | None,
+    payload: Mapping[str, Any],
+    authorization_preflight_path: Path | None,
+) -> FormalRunGate:
+    source_status = _source_status(payload)
+    boundary_ok = (
+        payload.get("blocked_executor_ready") is True
+        and payload.get("plan_review_allowed") is True
+        and payload.get("execution_supported") is False
+        and payload.get("next_step_execution_allowed") is False
+        and payload.get("resume_execution_allowed") is False
+        and payload.get("execute_flag_allowed") is False
+        and payload.get("would_execute") is False
+        and all(
+            payload.get(field) is False
+            for field in (
+                "opens_com_ports",
+                "controls_pressure",
+                "controls_water_or_gas_routes",
+                "writes_authoritative_state",
+                "writes_sn",
+                "writes_device_id",
+                "writes_coefficients",
+                "connects_postgresql",
+                "database_written",
+                "formal_release_allowed",
+                "database_import_allowed",
+            )
+        )
+        and payload.get("not_real_acceptance_evidence") is True
+    )
+    declared_preflight = Path(
+        str(payload.get("next_step_authorization_preflight_json") or "")
+    ).resolve()
+    preflight_bound = (
+        authorization_preflight_path is not None
+        and declared_preflight == authorization_preflight_path.resolve()
+        and str(payload.get("next_step_authorization_preflight_sha256") or "")
+        == _artifact_sha256(authorization_preflight_path)
+    )
+    recomputed: dict[str, Any] = {}
+    if preflight_bound:
+        try:
+            recomputed = build_v1_5_authoritative_resume_offline_state_advance_next_step_blocked_executor(
+                next_step_authorization_preflight_json=authorization_preflight_path
+            )
+        except (OSError, RuntimeError, TypeError, ValueError, json.JSONDecodeError):
+            recomputed = {}
+    exact = (
+        bool(recomputed)
+        and {key: value for key, value in payload.items() if key != "generated_at"}
+        == {key: value for key, value in recomputed.items() if key != "generated_at"}
+    )
+    ready = (
+        payload.get("schema") == OFFLINE_STATE_ADVANCE_NEXT_STEP_BLOCKED_EXECUTOR_SCHEMA
+        and source_status == OFFLINE_STATE_ADVANCE_NEXT_STEP_BLOCKED_EXECUTOR_READY_STATUS
+        and int(payload.get("review_required_count") or 0) == 0
+        and not payload.get("review_reasons")
+        and boundary_ok
+        and preflight_bound
+        and exact
+    )
+    if not payload:
+        status, reason = MISSING, "offline next-step blocked executor evidence missing"
+    elif not boundary_ok:
+        status, reason = BLOCKED, "next-step blocked executor boundary is not locked"
+    elif not preflight_bound:
+        status, reason = BLOCKED, "blocked executor is not hash-bound to the detected authorization preflight"
+    elif not exact:
+        status, reason = BLOCKED, "blocked executor differs from independently recomputed lock evidence"
+    elif ready:
+        status, reason = READY, "next-step execution remains unavailable after fresh authorization revalidation"
+    else:
+        status, reason = BLOCKED, f"source_status={source_status or 'unknown'}"
+    return _gate(
+        gate_id="authoritative_resume_offline_state_advance_next_step_blocked_executor",
+        title="Offline next-step blocked executor",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action="Keep execution unavailable; a future separately reviewed executor must revalidate authorization immediately before any physical action.",
+        physical_meaning="Proves that reviewing the next mature V1.5 step cannot open COM, control pressure or routes, write devices, or import data.",
         release_gate=False,
         blocks_release=False,
         blocks_physical_flow=status != READY,
@@ -3244,6 +3339,7 @@ def build_v1_5_formal_run_status(
     authoritative_resume_offline_state_advance_consumer_readiness_json: str | Path | None = None,
     authoritative_resume_offline_state_advance_next_step_plan_json: str | Path | None = None,
     authoritative_resume_offline_state_advance_next_step_authorization_preflight_json: str | Path | None = None,
+    authoritative_resume_offline_state_advance_next_step_blocked_executor_json: str | Path | None = None,
     getco_readiness_json: str | Path | None = None,
     run_evidence_status_json: str | Path | None = None,
     full_flow_closure_readiness_json: str | Path | None = None,
@@ -3403,6 +3499,11 @@ def build_v1_5_formal_run_status(
         authoritative_resume_offline_state_advance_next_step_authorization_preflight_json,
         "v1_5_authoritative_resume_offline_state_advance_next_step_authorization_preflight.json",
     )
+    authoritative_resume_offline_state_advance_next_step_blocked_executor_path = _explicit_or_latest(
+        root,
+        authoritative_resume_offline_state_advance_next_step_blocked_executor_json,
+        "v1_5_authoritative_resume_offline_state_advance_next_step_blocked_executor.json",
+    )
     getco_path = _explicit_or_latest(root, getco_readiness_json, "v1_5_getco_identity_readiness.json")
     run_status_path = _explicit_or_latest(root, run_evidence_status_json, "v1_5_run_evidence_status.json")
     closure_path = _explicit_or_latest(root, full_flow_closure_readiness_json, "v1_5_full_flow_closure_readiness.json")
@@ -3518,6 +3619,9 @@ def build_v1_5_formal_run_status(
     )
     authoritative_resume_offline_state_advance_next_step_authorization_preflight_payload = _load_json(
         authoritative_resume_offline_state_advance_next_step_authorization_preflight_path
+    )
+    authoritative_resume_offline_state_advance_next_step_blocked_executor_payload = _load_json(
+        authoritative_resume_offline_state_advance_next_step_blocked_executor_path
     )
     getco_payload = _load_json(getco_path)
     run_payload = _load_json(run_status_path)
@@ -3747,6 +3851,7 @@ def build_v1_5_formal_run_status(
         or authoritative_resume_offline_state_advance_consumer_readiness_path
         or authoritative_resume_offline_state_advance_next_step_plan_path
         or authoritative_resume_offline_state_advance_next_step_authorization_preflight_path
+        or authoritative_resume_offline_state_advance_next_step_blocked_executor_path
     ):
         gates.append(
             _authoritative_resume_offline_state_advance_post_write_verification_gate(
@@ -3774,6 +3879,13 @@ def build_v1_5_formal_run_status(
                 authoritative_resume_offline_state_advance_next_step_authorization_preflight_path,
                 authoritative_resume_offline_state_advance_next_step_authorization_preflight_payload,
                 authoritative_resume_offline_state_advance_next_step_plan_path,
+            )
+        )
+        gates.append(
+            _authoritative_resume_offline_state_advance_next_step_blocked_executor_gate(
+                authoritative_resume_offline_state_advance_next_step_blocked_executor_path,
+                authoritative_resume_offline_state_advance_next_step_blocked_executor_payload,
+                authoritative_resume_offline_state_advance_next_step_authorization_preflight_path,
             )
         )
     if pressure_s9_readiness_index_path:
@@ -4123,6 +4235,11 @@ def build_v1_5_formal_run_status(
                 authoritative_resume_offline_state_advance_next_step_authorization_preflight_path
             )
             if authoritative_resume_offline_state_advance_next_step_authorization_preflight_path
+            else "",
+            "authoritative_resume_offline_state_advance_next_step_blocked_executor_json": str(
+                authoritative_resume_offline_state_advance_next_step_blocked_executor_path
+            )
+            if authoritative_resume_offline_state_advance_next_step_blocked_executor_path
             else "",
             "getco_readiness_json": str(getco_path) if getco_path else "",
             "run_evidence_status_json": str(run_status_path) if run_status_path else "",

@@ -18,6 +18,10 @@ from gas_calibrator.validation.v1_5_authoritative_resume_offline_state_advance_n
     READY_STATUS as NEXT_STEP_AUTHORIZATION_READY_STATUS,
     SCHEMA as NEXT_STEP_AUTHORIZATION_SCHEMA,
 )
+from gas_calibrator.validation.v1_5_authoritative_resume_offline_state_advance_next_step_blocked_executor import (
+    BLOCKED_READY_STATUS as NEXT_STEP_BLOCKED_EXECUTOR_READY_STATUS,
+    SCHEMA as NEXT_STEP_BLOCKED_EXECUTOR_SCHEMA,
+)
 from gas_calibrator.validation.v1_5_authoritative_resume_offline_state_advance_post_write_verification import (
     READY_STATUS as VERIFICATION_READY_STATUS,
     SCHEMA as VERIFICATION_SCHEMA,
@@ -224,6 +228,55 @@ def _next_step_authorization_payload(next_step: Path, authorization: Path) -> di
     }
 
 
+def _next_step_blocked_executor_payload(authorization_preflight: Path) -> dict:
+    return {
+        "schema": NEXT_STEP_BLOCKED_EXECUTOR_SCHEMA,
+        "generated_at": "2026-07-12T07:03:00Z",
+        "overall_status": NEXT_STEP_BLOCKED_EXECUTOR_READY_STATUS,
+        "blocked_executor_ready": True,
+        "review_required_count": 0,
+        "review_reasons": [],
+        "next_step_authorization_preflight_json": str(
+            authorization_preflight.resolve()
+        ),
+        "next_step_authorization_preflight_sha256": _sha(
+            authorization_preflight
+        ),
+        "authorization_packet_json": "authorization.json",
+        "authorization_packet_sha256": "a" * 64,
+        "authorization_id": "authorization-114",
+        "authorization_expires_at": "2026-07-12T07:15:00Z",
+        "next_step_plan_json": "plan.json",
+        "next_step_plan_sha256": "b" * 64,
+        "run_id": "run-001",
+        "attempt_id": "attempt-001",
+        "verified_step_id": "temperature_channel_fast_review",
+        "next_step_id": "co2_open_flow_sampling",
+        "next_step_tool_module": "gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue",
+        "future_executor_must_recompute_authorization": True,
+        "plan_review_allowed": True,
+        "execution_supported": False,
+        "next_step_execution_allowed": False,
+        "resume_execution_allowed": False,
+        "execute_flag_allowed": False,
+        "would_execute": False,
+        "opens_com_ports": False,
+        "controls_pressure": False,
+        "controls_water_or_gas_routes": False,
+        "writes_authoritative_state": False,
+        "writes_sn": False,
+        "writes_device_id": False,
+        "writes_coefficients": False,
+        "connects_postgresql": False,
+        "database_written": False,
+        "formal_release_allowed": False,
+        "database_import_allowed": False,
+        "not_real_acceptance_evidence": True,
+        "checks": [],
+        "next_action": "Keep execution blocked.",
+    }
+
+
 def test_full_flow_keeps_state_advance_evidence_out_of_canonical_steps(tmp_path: Path) -> None:
     plan = _plan(tmp_path)
     step_ids = [step.step_id for step in plan.steps]
@@ -233,10 +286,14 @@ def test_full_flow_keeps_state_advance_evidence_out_of_canonical_steps(tmp_path:
     authorization_id = (
         "authoritative_resume_offline_state_advance_next_step_authorization_preflight"
     )
+    blocked_executor_id = (
+        "authoritative_resume_offline_state_advance_next_step_blocked_executor"
+    )
     assert post_id not in step_ids
     assert consumer_id not in step_ids
     assert next_step_plan_id not in step_ids
     assert authorization_id not in step_ids
+    assert blocked_executor_id not in step_ids
     assert step_ids.index("temperature_channel_fast_review") < step_ids.index(
         "co2_open_flow_sampling"
     )
@@ -275,6 +332,12 @@ def test_full_flow_keeps_state_advance_evidence_out_of_canonical_steps(tmp_path:
         "--authoritative-resume-offline-state-advance-next-step-authorization-preflight-json",
     ).endswith(
         "authoritative_resume_offline_state_advance_next_step_authorization_preflight\\v1_5_authoritative_resume_offline_state_advance_next_step_authorization_preflight.json"
+    )
+    assert _flag_value(
+        status.command,
+        "--authoritative-resume-offline-state-advance-next-step-blocked-executor-json",
+    ).endswith(
+        "authoritative_resume_offline_state_advance_next_step_blocked_executor\\v1_5_authoritative_resume_offline_state_advance_next_step_blocked_executor.json"
     )
 
 
@@ -351,6 +414,12 @@ def test_formal_status_gates_accept_exact_read_only_chain(tmp_path: Path, monkey
         / "v1_5_authoritative_resume_offline_state_advance_next_step_authorization_preflight.json",
         authorization,
     )
+    blocked_executor = _next_step_blocked_executor_payload(authorization_path)
+    blocked_executor_path = _write(
+        tmp_path
+        / "v1_5_authoritative_resume_offline_state_advance_next_step_blocked_executor.json",
+        blocked_executor,
+    )
     monkeypatch.setattr(
         formal_status_module,
         "build_v1_5_authoritative_resume_offline_state_advance_post_write_verification",
@@ -370,6 +439,11 @@ def test_formal_status_gates_accept_exact_read_only_chain(tmp_path: Path, monkey
         formal_status_module,
         "build_v1_5_authoritative_resume_offline_state_advance_next_step_authorization_preflight",
         lambda **_kwargs: dict(authorization),
+    )
+    monkeypatch.setattr(
+        formal_status_module,
+        "build_v1_5_authoritative_resume_offline_state_advance_next_step_blocked_executor",
+        lambda **_kwargs: dict(blocked_executor),
     )
     post_gate = formal_status_module._authoritative_resume_offline_state_advance_post_write_verification_gate(
         verification_path,
@@ -391,6 +465,11 @@ def test_formal_status_gates_accept_exact_read_only_chain(tmp_path: Path, monkey
         authorization,
         next_step_path,
     )
+    blocked_executor_gate = formal_status_module._authoritative_resume_offline_state_advance_next_step_blocked_executor_gate(
+        blocked_executor_path,
+        blocked_executor,
+        authorization_path,
+    )
     assert post_gate.status == "ready"
     assert post_gate.blocks_physical_flow is False
     assert post_gate.release_gate is False
@@ -403,6 +482,9 @@ def test_formal_status_gates_accept_exact_read_only_chain(tmp_path: Path, monkey
     assert authorization_gate.status == "ready"
     assert authorization_gate.blocks_physical_flow is False
     assert authorization_gate.release_gate is False
+    assert blocked_executor_gate.status == "ready"
+    assert blocked_executor_gate.blocks_physical_flow is False
+    assert blocked_executor_gate.release_gate is False
 
     consumer_path.write_text('{"tampered":true}\n', encoding="utf-8")
     tampered_gate = formal_status_module._authoritative_resume_offline_state_advance_next_step_plan_gate(
@@ -438,6 +520,9 @@ def test_formal_status_blocks_missing_or_execution_capable_consumer(tmp_path: Pa
     ]["status"] == "missing"
     assert gates[
         "authoritative_resume_offline_state_advance_next_step_authorization_preflight"
+    ]["status"] == "missing"
+    assert gates[
+        "authoritative_resume_offline_state_advance_next_step_blocked_executor"
     ]["status"] == "missing"
     assert model["can_continue_physical_flow"] is False
 
@@ -502,3 +587,23 @@ def test_formal_status_blocks_missing_or_execution_capable_consumer(tmp_path: Pa
     )
     assert authorization_gate.status == "blocked"
     assert authorization_gate.blocks_physical_flow is True
+
+    authorization_payload["next_step_execution_allowed"] = False
+    _write(authorization_path, authorization_payload)
+    blocked_executor_payload = _next_step_blocked_executor_payload(
+        authorization_path
+    )
+    blocked_executor_payload["execute_flag_allowed"] = True
+    blocked_executor_path = _write(
+        root
+        / "authoritative_resume_offline_state_advance_next_step_blocked_executor"
+        / "v1_5_authoritative_resume_offline_state_advance_next_step_blocked_executor.json",
+        blocked_executor_payload,
+    )
+    blocked_executor_gate = formal_status_module._authoritative_resume_offline_state_advance_next_step_blocked_executor_gate(
+        blocked_executor_path,
+        blocked_executor_payload,
+        authorization_path,
+    )
+    assert blocked_executor_gate.status == "blocked"
+    assert blocked_executor_gate.blocks_physical_flow is True

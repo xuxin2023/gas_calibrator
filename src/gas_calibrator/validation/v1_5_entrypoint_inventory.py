@@ -394,6 +394,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline advanced resume-state next-step preview; recomputes consumer readiness and binds the exact canonical next command plus authorization envelope without executing it")
     elif lower == "export_v1_5_authoritative_resume_offline_state_advance_next_step_authorization_preflight":
         notes.append("offline next-step review authorization preflight; binds a short-lived three-party packet to the exact plan, consumer, run, attempt, next step, and mature module while keeping execution locked")
+    elif lower == "run_v1_5_authoritative_resume_offline_state_advance_next_step_blocked_executor":
+        notes.append("offline next-step blocked executor; freshly revalidates the review authorization but exposes no execute, COM, route, write, or database path")
     elif lower == "run_v1_5_formal_readonly_com_minimal_executor":
         notes.append("manual-authorized minimal read-only COM executor; reads SN/GETCO/runtime/CHECK evidence only, never writes analyzer state, database, pressure, or routes")
     elif "formal_archive_closure" in lower:
@@ -624,6 +626,7 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             "export_v1_5_authoritative_resume_offline_state_advance_consumer_readiness",
             "export_v1_5_authoritative_resume_offline_state_advance_next_step_plan",
             "export_v1_5_authoritative_resume_offline_state_advance_next_step_authorization_preflight",
+            "run_v1_5_authoritative_resume_offline_state_advance_next_step_blocked_executor",
             "export_v1_5_formal_readonly_com_execution_packet_validator",
             "export_v1_5_formal_readonly_com_execution_plan_preview",
             "export_v1_5_formal_readonly_com_minimal_executor_review",

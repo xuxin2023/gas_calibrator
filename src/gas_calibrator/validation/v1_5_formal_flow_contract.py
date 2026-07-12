@@ -159,11 +159,16 @@ AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_NEXT_STEP_AUTHORIZATION_PREFLIGHT_MOD
     "gas_calibrator.tools."
     "export_v1_5_authoritative_resume_offline_state_advance_next_step_authorization_preflight"
 )
+AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_NEXT_STEP_BLOCKED_EXECUTOR_MODULE = (
+    "gas_calibrator.tools."
+    "run_v1_5_authoritative_resume_offline_state_advance_next_step_blocked_executor"
+)
 OUT_OF_BAND_OFFLINE_STATE_ADVANCE_MODULES = {
     AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_POST_WRITE_VERIFICATION_MODULE,
     AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_CONSUMER_READINESS_MODULE,
     AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_NEXT_STEP_PLAN_MODULE,
     AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_NEXT_STEP_AUTHORIZATION_PREFLIGHT_MODULE,
+    AUTHORITATIVE_RESUME_OFFLINE_STATE_ADVANCE_NEXT_STEP_BLOCKED_EXECUTOR_MODULE,
     "gas_calibrator.tools.run_v1_5_authoritative_resume_offline_state_advance_atomic_writer",
 }
 RESUME_PREFIX_APPLICATION_REVIEW_FORBIDDEN_FLAGS = (
@@ -737,7 +742,7 @@ def validate_v1_5_formal_flow_contract(
                     "error",
                     "offline_state_advance_evidence_must_remain_out_of_band",
                     (
-                        "Offline state-advance writer/verification/consumer/preview/authorization tools must not become canonical "
+                        "Offline state-advance writer/verification/consumer/preview/authorization/blocked-executor tools must not become canonical "
                         "completed_step_ids; dedicated offline review/status paths consume their evidence out of band."
                     ),
                     step_id,
