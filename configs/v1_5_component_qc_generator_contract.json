@@ -1,0 +1,107 @@
+{
+  "schema": "v1_5_component_qc_generator_contract_v1",
+  "contract_version": "2026-07-13",
+  "production_state": "design_only_generation_blocked",
+  "authority_basis": "manual_physical_contract_after_authority_audit_not_historical_writer_recovery",
+  "scope": {
+    "grading_scope": "per_analyzer_independent",
+    "point_summary_is_informational_only": true,
+    "one_analyzer_failure_blocks_other_analyzers": false,
+    "changes_preseal_or_sampling_actions": false,
+    "uses_summary_outlier_filtered_values": false,
+    "ratio_input": "all_raw_sample_window_rows_with_frame_usable_true",
+    "required_sample_count_source": "runtime_route_specific_preseal_min_samples",
+    "default_required_sample_count": 10
+  },
+  "common_grade_contract": {
+    "A_calibration_eligible": {
+      "sample_can_enter_calibration_fit": true,
+      "sample_can_enter_diagnostic_model": true
+    },
+    "B_diagnostic_model_only": {
+      "sample_can_enter_calibration_fit": false,
+      "sample_can_enter_diagnostic_model": true
+    },
+    "C_reject": {
+      "sample_can_enter_calibration_fit": false,
+      "sample_can_enter_diagnostic_model": false
+    }
+  },
+  "frame_count_contract": {
+    "A_requires_usable_count_fraction": 1.0,
+    "B_minimum_usable_count_fraction": 0.9,
+    "below_B_minimum_grade": "C_reject",
+    "missing_or_nonfinite_ratio_grade": "C_reject"
+  },
+  "cadence_and_alignment_contract": {
+    "global_sample_alignment_false_auto_rejects_point": false,
+    "cadence_warning_with_required_rows_grade_ceiling": "B_diagnostic_model_only",
+    "missing_timestamps_or_incomplete_window_grade": "C_reject",
+    "route_critical_evidence_is_evaluated_separately": true
+  },
+  "point_wide_hard_blockers": [
+    "sample_window_missing",
+    "route_not_open_until_sample_end",
+    "sampling_after_route_close",
+    "reference_target_missing_or_invalid",
+    "point_quality_blocked",
+    "route_specific_physical_reference_invalid"
+  ],
+  "routes": {
+    "co2": {
+      "ratio_key_suffix": "co2_ratio_f",
+      "A_ratio_span_max": 0.0005,
+      "B_ratio_span_max": 0.001,
+      "above_B_grade": "C_reject",
+      "ratio_span_comparison": "inclusive_upper_bound",
+      "zero_gas_role": "co2_low_concentration_anchor_only"
+    },
+    "h2o": {
+      "ratio_key_suffix": "h2o_ratio_f",
+      "A_ratio_span_max": 0.001,
+      "B_ratio_span_max": null,
+      "above_A_grade": "B_diagnostic_model_only",
+      "ratio_span_alone_can_assign_C": false,
+      "ratio_span_comparison": "inclusive_upper_bound",
+      "dry_gas_role": "h2o_low_water_anchor_requires_dewpoint_pressure_evidence"
+    }
+  },
+  "output_contract": {
+    "filename": "formal_open_flow_data_quality_by_analyzer.csv",
+    "required_fields": [
+      "label",
+      "prefix",
+      "grade",
+      "ratio_key",
+      "ratio_span",
+      "ratio_a_tol",
+      "ratio_hard_tol",
+      "frame_count",
+      "usable_ratio_count",
+      "reason",
+      "sample_can_enter_calibration_fit",
+      "sample_can_enter_diagnostic_model",
+      "source_samples_sha256",
+      "source_frame_qc_sha256",
+      "source_runtime_config_sha256",
+      "contract_sha256"
+    ],
+    "source_inputs_immutable": true,
+    "idempotent_for_same_input_hashes": true
+  },
+  "locks": {
+    "implementation_available": false,
+    "component_qc_generation_allowed": false,
+    "component_qc_backfill_allowed": false,
+    "historical_fit_allowed": false,
+    "formal_release_allowed": false,
+    "database_import_allowed": false,
+    "opens_com_ports": false,
+    "controls_pressure": false,
+    "controls_water_or_gas_routes": false,
+    "writes_coefficients": false,
+    "writes_sn_or_device_code": false,
+    "connects_postgresql": false,
+    "not_real_acceptance_evidence": true
+  }
+}

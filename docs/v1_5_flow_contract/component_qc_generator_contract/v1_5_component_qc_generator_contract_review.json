@@ -1,0 +1,56 @@
+{
+  "schema": "v1_5_component_qc_generator_contract_review_v1",
+  "generated_at": "2026-07-13T03:20:59Z",
+  "overall_status": "ready_for_component_qc_generator_contract_manual_review",
+  "blocker_codes": [],
+  "authority_audit_path": "D:\\gas_calibrator\\_worktrees\\v1_5_component_qc_generator_contract_20260713\\docs\\v1_5_flow_contract\\component_qc_authority_audit\\v1_5_component_qc_authority_audit.json",
+  "authority_audit_sha256": "0dbf8a478db0a78773074e08c2145722906db349dd5b738cdbbe44bd312720fc",
+  "contract_path": "D:\\gas_calibrator\\_worktrees\\v1_5_component_qc_generator_contract_20260713\\configs\\v1_5_component_qc_generator_contract.json",
+  "contract_sha256": "217cc5fa4feb67d8a52c2c90292a690d9bd9d54393733506edf43d1910834759",
+  "contract_version": "2026-07-13",
+  "p2_candidate_count": 125,
+  "rules": {
+    "grading_scope": "per_analyzer_independent",
+    "one_analyzer_failure_blocks_other_analyzers": false,
+    "co2_a_ratio_span_max": 0.0005,
+    "co2_b_ratio_span_max": 0.001,
+    "h2o_a_ratio_span_max": 0.001,
+    "h2o_ratio_span_alone_can_assign_c": false,
+    "changes_preseal_or_sampling_actions": false
+  },
+  "grade_contract": {
+    "A_calibration_eligible": {
+      "sample_can_enter_calibration_fit": true,
+      "sample_can_enter_diagnostic_model": true
+    },
+    "B_diagnostic_model_only": {
+      "sample_can_enter_calibration_fit": false,
+      "sample_can_enter_diagnostic_model": true
+    },
+    "C_reject": {
+      "sample_can_enter_calibration_fit": false,
+      "sample_can_enter_diagnostic_model": false
+    }
+  },
+  "point_wide_hard_blockers": [
+    "sample_window_missing",
+    "route_not_open_until_sample_end",
+    "sampling_after_route_close",
+    "reference_target_missing_or_invalid",
+    "point_quality_blocked",
+    "route_specific_physical_reference_invalid"
+  ],
+  "implementation_available": false,
+  "component_qc_generation_allowed": false,
+  "component_qc_backfill_allowed": false,
+  "historical_fit_allowed": false,
+  "formal_release_allowed": false,
+  "database_import_allowed": false,
+  "opens_com_ports": false,
+  "controls_pressure": false,
+  "controls_water_or_gas_routes": false,
+  "writes_coefficients": false,
+  "writes_sn_or_device_code": false,
+  "connects_postgresql": false,
+  "not_real_acceptance_evidence": true
+}

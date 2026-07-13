@@ -1,0 +1,5 @@
+﻿metric,value
+overall_status,ready_for_component_qc_generator_contract_manual_review
+p2_candidate_count,125
+implementation_available,False
+component_qc_generation_allowed,False
