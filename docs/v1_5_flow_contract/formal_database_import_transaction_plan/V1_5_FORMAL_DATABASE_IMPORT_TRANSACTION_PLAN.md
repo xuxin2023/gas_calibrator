@@ -1,0 +1,50 @@
+# V1.5 PostgreSQL 18 import transaction plan
+
+This is a deterministic offline plan. It does not emit SQL, read a DSN value, connect PostgreSQL, or import rows.
+
+- overall_status: `ready_for_postgresql18_transaction_plan_review`
+- transaction_plan_contract_ready: `True`
+- production_transaction_package_ready: `False`
+- planned_device_count: `0`
+- connects_postgresql: `False`
+- database_written: `False`
+- database_import_allowed: `False`
+
+Production blockers:
+
+- planned_device_preview_empty
+- archive_closure_missing_or_invalid
+- evidence_bundle_missing_or_invalid
+- formal_database_import_command_contract_not_ready
+- command_contract_database_import_authorization_binding_ready_not_ready
+- command_contract_database_import_preflight_binding_ready_not_ready
+- command_contract_archive_release_ready_not_ready
+- command_contract_archive_closure_index_binding_ready_not_ready
+- command_contract_senco_authorization_archive_binding_ready_not_ready
+- command_contract_evidence_bundle_ready_not_ready
+- command_contract_evidence_bundle_schema_ready_not_ready
+- command_contract_evidence_bundle_binding_ready_not_ready
+- formal_database_import_authorization_sha256_mismatch_with_command_contract
+- formal_database_import_preflight_sha256_mismatch_with_command_contract
+- archive_closure_sha256_mismatch_with_command_contract
+- evidence_bundle_sha256_mismatch_with_command_contract
+- formal_database_import_authorization_path_mismatch_with_command_contract
+- formal_database_import_preflight_path_mismatch_with_command_contract
+- archive_closure_path_mismatch_with_command_contract
+- evidence_bundle_path_mismatch_with_command_contract
+- formal_database_import_authorization_not_ready
+- authorization_database_import_preflight_binding_ready_not_ready
+- authorization_archive_release_ready_not_ready
+- authorization_archive_closure_index_binding_ready_not_ready
+- authorization_senco_authorization_archive_binding_ready_not_ready
+- authorization_database_import_allowed_not_ready
+- formal_database_import_preflight_not_ready
+- formal_database_import_preflight_dsn_not_configured
+- controlled_executor_design_database_import_authorization_binding_ready_not_ready
+- controlled_executor_design_database_import_preflight_binding_ready_not_ready
+- controlled_executor_design_evidence_bundle_schema_ready_not_ready
+- controlled_executor_design_evidence_bundle_binding_ready_not_ready
+- controlled_executor_design_archive_closure_index_binding_ready_not_ready
+- controlled_executor_design_senco_authorization_archive_binding_ready_not_ready
+
+The future executor must use one PostgreSQL 18 transaction, pre-commit identity/count/hash readback, and rollback on mismatch.

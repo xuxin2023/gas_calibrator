@@ -3389,6 +3389,92 @@ def _formal_database_import_controlled_executor_design_gate(path: Path, payload:
     )
 
 
+def _formal_database_import_transaction_plan_gate(path: Path, payload: Mapping[str, Any]) -> FormalRunGate:
+    source_status = _source_status(payload)
+    boundary_ok = (
+        payload.get("transaction_plan_contract_ready") is True
+        and payload.get("connects_postgresql") is False
+        and payload.get("emits_executable_sql") is False
+        and payload.get("applies_migrations") is False
+        and payload.get("database_import_attempted") is False
+        and payload.get("database_written") is False
+        and payload.get("database_import_allowed") is False
+        and payload.get("real_import_execution_allowed") is False
+        and payload.get("execution_supported") is False
+        and payload.get("dsn_value_read") is False
+        and payload.get("production_backend") == "postgresql"
+        and int(payload.get("production_postgresql_major") or 0) == 18
+    )
+    if source_status == "ready_for_postgresql18_transaction_plan_review" and boundary_ok:
+        status = READY
+        reason = "deterministic PostgreSQL 18 transaction plan is ready; production import remains locked"
+    elif not boundary_ok:
+        status = BLOCKED
+        reason = "transaction-plan no-connect/no-SQL/no-write boundary is not clean"
+    else:
+        status = REVIEW_REQUIRED
+        reason = f"transaction plan source_status={source_status or 'missing'} requires review"
+    return _gate(
+        gate_id="formal_database_import_transaction_plan",
+        title="PostgreSQL 18 deterministic import transaction plan",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action=(
+            "Review target tables, natural keys, 1-6 device identity rows, pre-commit readback, and rollback. "
+            "Do not connect PostgreSQL from this plan."
+        ),
+        physical_meaning=(
+            "Freezes how V1.5 identity, run, point, sample, QC, fit, coefficient, report, and artifact records "
+            "would enter one PostgreSQL 18 transaction without executing it."
+        ),
+        release_gate=False,
+        blocks_release=False,
+        blocks_physical_flow=False,
+    )
+
+
+def _formal_database_import_transaction_blocked_executor_gate(
+    path: Path, payload: Mapping[str, Any]
+) -> FormalRunGate:
+    source_status = _source_status(payload)
+    boundary_ok = (
+        payload.get("blocked_executor_ready") is True
+        and payload.get("connects_postgresql") is False
+        and payload.get("emits_executable_sql") is False
+        and payload.get("applies_migrations") is False
+        and payload.get("database_import_attempted") is False
+        and payload.get("database_written") is False
+        and payload.get("database_import_allowed") is False
+        and payload.get("real_import_execution_allowed") is False
+        and payload.get("execution_supported") is False
+        and payload.get("would_execute") is False
+    )
+    if source_status == "blocked_pending_controlled_transaction_executor" and boundary_ok:
+        status = READY
+        reason = "transaction executor surface is present and correctly remains blocked"
+    elif not boundary_ok:
+        status = BLOCKED
+        reason = "transaction blocked-executor boundary is not clean"
+    else:
+        status = REVIEW_REQUIRED
+        reason = f"transaction blocked executor source_status={source_status or 'missing'} requires review"
+    return _gate(
+        gate_id="formal_database_import_transaction_blocked_executor",
+        title="PostgreSQL 18 transaction blocked executor",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action="Keep import locked; implement any real executor in a separate reviewed package.",
+        physical_meaning="Proves the transaction-shaped command surface cannot yet connect or write PostgreSQL.",
+        release_gate=False,
+        blocks_release=False,
+        blocks_physical_flow=False,
+    )
+
+
 def _gap_rows(gates: Iterable[FormalRunGate]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for gate in gates:
@@ -3455,6 +3541,8 @@ def build_v1_5_formal_run_status(
     formal_database_import_command_contract_json: str | Path | None = None,
     formal_database_import_blocked_executor_json: str | Path | None = None,
     formal_database_import_controlled_executor_design_json: str | Path | None = None,
+    formal_database_import_transaction_plan_json: str | Path | None = None,
+    formal_database_import_transaction_blocked_executor_json: str | Path | None = None,
 ) -> dict[str, Any]:
     """Return a top-level formal V1.5 status rollup from existing sidecars."""
 
@@ -3660,6 +3748,16 @@ def build_v1_5_formal_run_status(
         formal_database_import_controlled_executor_design_json,
         "v1_5_formal_database_import_controlled_executor_design.json",
     )
+    formal_database_import_transaction_plan_path = _explicit_or_latest(
+        root,
+        formal_database_import_transaction_plan_json,
+        "v1_5_formal_database_import_transaction_plan.json",
+    )
+    formal_database_import_transaction_blocked_executor_path = _explicit_or_latest(
+        root,
+        formal_database_import_transaction_blocked_executor_json,
+        "v1_5_formal_database_import_transaction_blocked_executor.json",
+    )
 
     init_payload = _load_json(init_path)
     formal_initialization_controlled_executor_design_payload = _load_json(
@@ -3747,6 +3845,12 @@ def build_v1_5_formal_run_status(
     formal_database_import_blocked_executor_payload = _load_json(formal_database_import_blocked_executor_path)
     formal_database_import_controlled_executor_design_payload = _load_json(
         formal_database_import_controlled_executor_design_path
+    )
+    formal_database_import_transaction_plan_payload = _load_json(
+        formal_database_import_transaction_plan_path
+    )
+    formal_database_import_transaction_blocked_executor_payload = _load_json(
+        formal_database_import_transaction_blocked_executor_path
     )
 
     gates = [_initialization_gate(init_path, init_payload)]
@@ -4086,6 +4190,23 @@ def build_v1_5_formal_run_status(
                 formal_database_import_controlled_executor_design_payload,
             )
         )
+    if formal_database_import_transaction_plan_path and formal_database_import_transaction_plan_payload:
+        gates.append(
+            _formal_database_import_transaction_plan_gate(
+                formal_database_import_transaction_plan_path,
+                formal_database_import_transaction_plan_payload,
+            )
+        )
+    if (
+        formal_database_import_transaction_blocked_executor_path
+        and formal_database_import_transaction_blocked_executor_payload
+    ):
+        gates.append(
+            _formal_database_import_transaction_blocked_executor_gate(
+                formal_database_import_transaction_blocked_executor_path,
+                formal_database_import_transaction_blocked_executor_payload,
+            )
+        )
     gates.extend(
         [
             _run_stage_gate(
@@ -4166,6 +4287,15 @@ def build_v1_5_formal_run_status(
     database_import_controlled_executor_design_ready = _database_gate_ready(
         "formal_database_import_controlled_executor_design"
     )
+    database_import_transaction_plan_ready = _database_gate_ready(
+        "formal_database_import_transaction_plan"
+    )
+    database_import_transaction_blocked_executor_ready = _database_gate_ready(
+        "formal_database_import_transaction_blocked_executor"
+    )
+    database_import_transaction_package_ready = bool(
+        formal_database_import_transaction_plan_payload.get("production_transaction_package_ready")
+    )
     database_import_allowed = (
         formal_release_allowed
         and database_dry_run_ready
@@ -4174,6 +4304,9 @@ def build_v1_5_formal_run_status(
         and database_import_command_contract_ready
         and database_import_blocked_executor_ready
         and database_import_controlled_executor_design_ready
+        and database_import_transaction_plan_ready
+        and database_import_transaction_blocked_executor_ready
+        and database_import_transaction_package_ready
     )
     if any(gate.status == BLOCKED for gate in gates):
         overall_status = "blocked"
@@ -4195,6 +4328,7 @@ def build_v1_5_formal_run_status(
         "next_action": current_gate.next_action if current_gate else "Formal release is ready for reviewer sign-off.",
         "formal_release_allowed": formal_release_allowed,
         "database_import_allowed": database_import_allowed,
+        "database_import_transaction_package_ready": database_import_transaction_package_ready,
         "can_continue_physical_flow": not physical_blockers,
         "full_production_auto_allowed": False,
         "senco_artifact_authorization": {
@@ -4397,6 +4531,16 @@ def build_v1_5_formal_run_status(
             )
             if formal_database_import_controlled_executor_design_path
             else "",
+            "formal_database_import_transaction_plan_json": str(
+                formal_database_import_transaction_plan_path
+            )
+            if formal_database_import_transaction_plan_path
+            else "",
+            "formal_database_import_transaction_blocked_executor_json": str(
+                formal_database_import_transaction_blocked_executor_path
+            )
+            if formal_database_import_transaction_blocked_executor_path
+            else "",
         },
         "gates": [gate.to_json() for gate in gates],
         "gaps": _gap_rows(gates),
@@ -4412,6 +4556,7 @@ def render_v1_5_formal_run_status_markdown(model: Mapping[str, Any]) -> str:
         f"- current_stage: `{model.get('current_stage')}`",
         f"- formal_release_allowed: `{model.get('formal_release_allowed')}`",
         f"- database_import_allowed: `{model.get('database_import_allowed')}`",
+        f"- database_import_transaction_package_ready: `{model.get('database_import_transaction_package_ready')}`",
         f"- can_continue_physical_flow: `{model.get('can_continue_physical_flow')}`",
         f"- next_action: {model.get('next_action')}",
         "",
