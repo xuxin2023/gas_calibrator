@@ -1,6 +1,6 @@
 {
   "schema": "v1_5_formal_database_migration_production_controlled_executor_v1",
-  "generated_at": "2026-07-13T17:09:51+00:00",
+  "generated_at": "2026-07-13T19:01:40+00:00",
   "overall_status": "ready_for_postgresql18_migration_execution_authorization_review",
   "blocker_count": 0,
   "review_required_count": 0,
@@ -47,6 +47,8 @@
   "operator_confirmation_template": "v1_5_postgresql18_migration_002_reviewed_v1",
   "three_distinct_actors_required": true,
   "authorization_max_lifetime_seconds": 86400,
+  "authorization_validation_requested": false,
+  "authorization_validated": false,
   "dsn_value_read": false,
   "execution_attempted": false,
   "connects_postgresql": false,
