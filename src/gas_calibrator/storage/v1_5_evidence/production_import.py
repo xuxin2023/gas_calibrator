@@ -66,6 +66,25 @@ def _require_sha256(value: str, role: str) -> str:
     return normalized
 
 
+def _assert_postgresql_system_identifier(
+    connection: Any, expected_system_identifier: str
+) -> str:
+    expected = str(expected_system_identifier or "").strip()
+    if not expected.isdigit():
+        raise ProductionImportError("expected_postgresql_system_identifier_invalid")
+    actual = str(
+        connection.execute(
+            text("SELECT system_identifier::text FROM pg_control_system()")
+        ).scalar_one()
+        or ""
+    ).strip()
+    if not actual.isdigit():
+        raise ProductionImportError("postgresql_system_identifier_invalid")
+    if actual != expected:
+        raise ProductionImportError("postgresql_system_identifier_mismatch")
+    return actual
+
+
 def _assert_production_schema_ready(connection: Any) -> None:
     inspector = inspect(connection)
     schemas = set(inspector.get_schema_names())
@@ -116,6 +135,7 @@ def execute_production_import(
     evidence_bundle_sha256: str,
     promotion_preflight_sha256: str,
     execution_authorization_sha256: str,
+    expected_postgresql_system_identifier: str,
     authorization_id: str,
     operator: str,
     reviewer: str,
@@ -144,6 +164,11 @@ def execute_production_import(
     execution_auth_hash = _require_sha256(
         execution_authorization_sha256, "execution_authorization"
     )
+    expected_system_identifier = str(
+        expected_postgresql_system_identifier or ""
+    ).strip()
+    if not expected_system_identifier.isdigit():
+        raise ProductionImportError("expected_postgresql_system_identifier_invalid")
     safe_dsn = validate_production_dsn(dsn)
     schemas = StagingSchemas(
         core=PRODUCTION_CORE_SCHEMA,
@@ -163,6 +188,9 @@ def execute_production_import(
         transaction = connection.begin()
         transaction_started = True
         server_version_num = _assert_postgresql18(connection)
+        system_identifier = _assert_postgresql_system_identifier(
+            connection, expected_system_identifier
+        )
         _assert_production_schema_ready(connection)
 
         ledger = connection.execute(
@@ -211,6 +239,7 @@ def execute_production_import(
                 "status": "production_import_idempotent_noop",
                 "idempotent": True,
                 "postgresql_server_version_num": server_version_num,
+                "postgresql_system_identifier": system_identifier,
                 "run_id": run_id,
                 "run_db_id": run_db_id,
                 "table_counts": readback_counts,
@@ -305,6 +334,7 @@ def execute_production_import(
                 "status": "production_import_committed",
                 "idempotent": False,
                 "postgresql_server_version_num": server_version_num,
+                "postgresql_system_identifier": system_identifier,
                 "run_id": run_id,
                 "run_db_id": run_db_id,
                 "table_counts": readback_counts,

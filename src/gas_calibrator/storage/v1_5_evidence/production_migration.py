@@ -147,6 +147,7 @@ def _fetch_runtime_state(connection: Any) -> dict[str, Any]:
             """
             SELECT current_database(),
                    current_setting('server_version_num')::integer,
+                   (SELECT system_identifier::text FROM pg_control_system()),
                    (SELECT checksum FROM v1_5_evidence.schema_migrations
                     WHERE version = %s),
                    (SELECT checksum FROM v1_5_evidence.schema_migrations
@@ -155,9 +156,14 @@ def _fetch_runtime_state(connection: Any) -> dict[str, Any]:
             """,
             (MIGRATION_001, MIGRATION_002),
         )
-        database_name, server_version, checksum_001, checksum_002, ledger_regclass = (
-            cursor.fetchone()
-        )
+        (
+            database_name,
+            server_version,
+            system_identifier,
+            checksum_001,
+            checksum_002,
+            ledger_regclass,
+        ) = cursor.fetchone()
 
         columns: list[str] = []
         constraints: list[str] = []
@@ -196,6 +202,7 @@ def _fetch_runtime_state(connection: Any) -> dict[str, Any]:
     return {
         "database_name": str(database_name or ""),
         "postgresql_server_version_num": int(server_version),
+        "postgresql_system_identifier": str(system_identifier or ""),
         "migration_001_checksum": str(checksum_001 or ""),
         "migration_002_checksum": str(checksum_002 or ""),
         "expected_migration_001_checksum": checksums.get(MIGRATION_001, ""),
@@ -218,6 +225,9 @@ def migration_state_reasons(
     server_version = int(state.get("postgresql_server_version_num") or 0)
     if not 180000 <= server_version < 190000:
         reasons.append("migration_postgresql_major_must_be_18")
+    system_identifier = str(state.get("postgresql_system_identifier") or "")
+    if not system_identifier.isdigit():
+        reasons.append("migration_postgresql_system_identifier_invalid")
     if state.get("migration_001_checksum") != state.get(
         "expected_migration_001_checksum"
     ):
@@ -355,6 +365,10 @@ def execute_production_migration_002(
                 "failure_reason": str(exc),
             }
         post_reasons = migration_state_reasons(post_state, require_migration_002=True)
+        if post_state.get("postgresql_system_identifier") != pre_state.get(
+            "postgresql_system_identifier"
+        ):
+            post_reasons.append("migration_postgresql_system_identifier_changed")
         confirmed = not post_reasons
         return {
             "status": (

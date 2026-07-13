@@ -19,7 +19,9 @@ The target is fixed:
 The command does not accept target overrides and never creates databases,
 schemas, tables, or migrations. Migration
 `002_v1_5_production_import_ledger` must already be applied by the existing DBA
-migration path before an import can start.
+migration path before an import can start. The importer requires the confirmed
+migration controlled-executor artifact and binds that artifact's SHA256 into the
+production-import authorization packet.
 
 ## Default locked preview
 
@@ -33,6 +35,7 @@ python -m gas_calibrator.tools.run_v1_5_formal_database_import_production_contro
   --promotion-preflight-json <promotion-preflight.json> \
   --transaction-plan-json <transaction-plan.json> \
   --evidence-bundle-json <evidence-bundle.json> \
+  --migration-execution-json <migration-execution.json> \
   --output-dir <review-output>
 ```
 
@@ -44,11 +47,14 @@ Real execution additionally requires:
 2. a current execution authorization packet with a lifetime no longer than 24 hours;
 3. three distinct actors: operator, reviewer, and approver;
 4. structured confirmation template `v1_5_postgresql18_production_import_reviewed_v1`;
-5. exact path and SHA256 bindings for the promotion preflight, transaction plan, and evidence bundle;
-6. exact fixed production target and explicit no-COM/no-SENCO/no-route/no-migration boundaries.
+5. a confirmed migration 002 execution artifact for the fixed PostgreSQL 18 target, including the PostgreSQL cluster `system_identifier`, exact migration checksums, ledger schema readback, and its own three-party authorization record;
+6. exact path and SHA256 bindings for the promotion preflight, transaction plan, evidence bundle, and migration execution artifact;
+7. exact fixed production target and explicit no-COM/no-SENCO/no-route/no-migration boundaries.
 
 Only after those checks pass may the CLI read `V1_5_POSTGRES_DSN`. The executor
-then revalidates the package once more before starting the transaction.
+then revalidates the package once more before starting the transaction. Before
+any production row write, the transaction reads `pg_control_system()` and
+requires its cluster-wide `system_identifier` to match the migration artifact.
 
 ## Transaction behavior
 
@@ -80,6 +86,7 @@ This implementation was verified without reading `V1_5_POSTGRES_DSN` and
 without connecting or writing the production database. Tests cover locked
 preview, 1-6 device packages, immutable promotion rebuild, expired/rebound
 authorization, three-party identity, fixed production target, no-migration
-source guard, and exact hashes passed into the previously tested atomic import
+source guard, confirmed migration-002 evidence, migration authorization/source
+integrity, and exact hashes passed into the previously tested atomic import
 kernel. A later separately authorized production import remains an operational
 action, not a result of this code review.

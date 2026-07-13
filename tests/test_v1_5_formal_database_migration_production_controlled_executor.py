@@ -40,6 +40,9 @@ from gas_calibrator.validation.v1_5_formal_database_migration_production_control
 )
 
 
+POSTGRESQL_SYSTEM_IDENTIFIER = "7345678901234567890"
+
+
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -117,6 +120,7 @@ def _good_state(*, applied: bool) -> dict:
     return {
         "database_name": "gas_calibrator",
         "postgresql_server_version_num": 180003,
+        "postgresql_system_identifier": POSTGRESQL_SYSTEM_IDENTIFIER,
         "migration_001_checksum": checksums[storage.MIGRATION_001],
         "migration_002_checksum": checksums[storage.MIGRATION_002] if applied else "",
         "expected_migration_001_checksum": checksums[storage.MIGRATION_001],
@@ -388,6 +392,10 @@ def test_migration_state_checks_target_version_checksum_and_shape() -> None:
     assert "migration_postgresql_major_must_be_18" in migration_state_reasons(
         wrong_version, require_migration_002=False
     )
+    missing_system_identifier = {**pre_state, "postgresql_system_identifier": ""}
+    assert "migration_postgresql_system_identifier_invalid" in migration_state_reasons(
+        missing_system_identifier, require_migration_002=False
+    )
     split_state = {
         **pre_state,
         "migration_002_checksum": pre_state["expected_migration_002_checksum"],
@@ -631,6 +639,43 @@ def test_storage_runner_accepts_exact_idempotent_already_applied_state(
     assert model["idempotent"] is True
     assert model["migration_execution_confirmed"] is True
     assert model["database_written"] is False
+
+
+def test_storage_runner_holds_if_postcheck_is_from_another_cluster(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connection = _Connection()
+    pre_state = _good_state(applied=False)
+    post_state = {
+        **_good_state(applied=True),
+        "postgresql_system_identifier": "7000000000000000001",
+    }
+    states = iter((pre_state, post_state))
+    monkeypatch.setattr(storage, "_fetch_runtime_state", lambda connection: next(states))
+    monkeypatch.setattr(storage, "_execute_script", lambda connection, script: [])
+    scripts = _runner_scripts()
+
+    model = execute_production_migration_002(
+        dsn="postgresql+psycopg://user:secret@localhost/gas_calibrator",
+        scripts=scripts,
+        expected_script_sha256={
+            role: hashlib.sha256(value.encode()).hexdigest()
+            for role, value in scripts.items()
+        },
+        readiness_sha256="a" * 64,
+        execution_authorization_sha256="b" * 64,
+        authorization_id="auth",
+        operator="operator",
+        reviewer="reviewer",
+        approver="approver",
+        connect=lambda dsn: connection,
+    )
+
+    assert model["status"] == "production_migration_002_postcheck_hold"
+    assert model["migration_execution_confirmed"] is False
+    assert "migration_postgresql_system_identifier_changed" in model[
+        "postcheck_reasons"
+    ]
 
 
 def test_entrypoint_is_manual_authorized_database_migration_only(tmp_path: Path) -> None:
