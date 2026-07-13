@@ -464,6 +464,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline historical mature-root discovery; ranks exact queue candidates without promoting them to fitting or acceptance evidence")
     elif lower == "export_v1_5_legacy_historical_evidence_catalog":
         notes.append("offline legacy historical evidence catalog; hashes segmented, retry, recovery, and accepted-composite point evidence without promoting it")
+    elif lower == "export_v1_5_legacy_evidence_gap_task_plan":
+        notes.append("offline legacy evidence-gap task plan; revalidates cataloged artifact hashes and schedules manual QC/traceability review without repairing or promoting evidence")
     elif lower == "export_v1_5_automation_control_contract":
         notes.append("offline V1.5 automation control contract; keeps automation as a shell around the 0613/0620/0621 mature core")
     elif lower == "export_v1_5_full_flow_automation_closure":
@@ -693,6 +695,7 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             "export_v1_5_historical_route_attestation_binder",
             "export_v1_5_historical_mature_root_discovery",
             "export_v1_5_legacy_historical_evidence_catalog",
+            "export_v1_5_legacy_evidence_gap_task_plan",
         }:
             category = "formal_review_evidence"
             formal_status = "formal_support"
