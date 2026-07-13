@@ -165,6 +165,14 @@ def test_malformed_sample_row_is_blocked_before_evaluation() -> None:
         evaluate_v1_5_component_qc_reference_fixture(fixture, _contract())
 
 
+@pytest.mark.parametrize("invalid_count", [True, 9.5, 0, -1, "10"])
+def test_required_sample_count_must_be_a_positive_integer(invalid_count: object) -> None:
+    fixture = _fixture()
+    fixture["required_sample_count"] = invalid_count
+    with pytest.raises(ValueError, match="required_sample_count_must_be_positive_integer"):
+        evaluate_v1_5_component_qc_reference_fixture(fixture, _contract())
+
+
 def test_reference_output_is_idempotent_and_keeps_all_production_locks() -> None:
     fixture = _fixture()
     first = evaluate_v1_5_component_qc_reference_fixture(fixture, _contract())
@@ -184,7 +192,10 @@ def test_cli_writes_only_explicit_review_artifacts_and_is_offline(tmp_path: Path
     model = evaluate_v1_5_component_qc_reference_fixture(
         json.loads(FIXTURE_PATH.read_text(encoding="utf-8")), _contract()
     )
-    direct = write_v1_5_component_qc_reference_evaluation(model, tmp_path / "direct")
+    review_suffix = Path("docs/v1_5_flow_contract/component_qc_reference_evaluator")
+    direct_output = tmp_path / "direct" / review_suffix
+    cli_output = tmp_path / "cli" / review_suffix
+    direct = write_v1_5_component_qc_reference_evaluation(model, direct_output)
     rc = main(
         [
             "--fixture-json-path",
@@ -192,7 +203,7 @@ def test_cli_writes_only_explicit_review_artifacts_and_is_offline(tmp_path: Path
             "--contract-json-path",
             str(CONTRACT_PATH),
             "--output-dir",
-            str(tmp_path / "cli"),
+            str(cli_output),
         ]
     )
     entry = classify_v1_5_entrypoint(
@@ -218,6 +229,22 @@ def test_cli_rejects_real_fixture_without_writing_artifacts(tmp_path: Path) -> N
         [
             "--fixture-json-path",
             str(fixture_path),
+            "--contract-json-path",
+            str(CONTRACT_PATH),
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+    assert rc == 2
+    assert not output_dir.exists()
+
+
+def test_cli_rejects_arbitrary_or_historical_output_directory(tmp_path: Path) -> None:
+    output_dir = tmp_path / "historical_point"
+    rc = main(
+        [
+            "--fixture-json-path",
+            str(FIXTURE_PATH),
             "--contract-json-path",
             str(CONTRACT_PATH),
             "--output-dir",

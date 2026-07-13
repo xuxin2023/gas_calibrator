@@ -26,7 +26,7 @@ The fixture must contain all of:
 - `evidence_source=simulated`
 - `not_real_acceptance_evidence=true`
 
-Historical point directories, source sample paths, COM fields, device identity fields, and production source paths are rejected before evaluation. The CLI writes only JSON/CSV/Markdown review artifacts into an explicitly supplied output directory.
+Historical point directories, source sample paths, COM fields, device identity fields, and production source paths are rejected before evaluation. The CLI writes only JSON/CSV/Markdown review artifacts, and the output path must end with `docs/v1_5_flow_contract/component_qc_reference_evaluator`; arbitrary and historical point output directories are rejected.
 
 ## Locks
 

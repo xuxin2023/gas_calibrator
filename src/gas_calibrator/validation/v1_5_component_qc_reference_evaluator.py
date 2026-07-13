@@ -22,6 +22,7 @@ GRADE_A = "A_calibration_eligible"
 GRADE_B = "B_diagnostic_model_only"
 GRADE_C = "C_reject"
 GRADE_RANK = {GRADE_A: 0, GRADE_B: 1, GRADE_C: 2}
+REVIEW_OUTPUT_SUFFIX = ("docs", "v1_5_flow_contract", "component_qc_reference_evaluator")
 
 FORBIDDEN_FIXTURE_KEYS = {
     "point_dir",
@@ -259,13 +260,15 @@ def evaluate_v1_5_component_qc_reference_fixture(
         raise ValueError(";".join(reasons))
 
     component = str(fixture["component"]).lower()
-    required_count = int(
-        fixture.get("required_sample_count")
-        or (contract.get("scope") or {}).get("default_required_sample_count")
-        or 10
-    )
-    if required_count <= 0:
-        raise ValueError("required_sample_count_must_be_positive")
+    required_count = fixture.get("required_sample_count")
+    if required_count is None:
+        required_count = (contract.get("scope") or {}).get("default_required_sample_count")
+    if (
+        isinstance(required_count, bool)
+        or not isinstance(required_count, int)
+        or required_count <= 0
+    ):
+        raise ValueError("required_sample_count_must_be_positive_integer")
 
     sample_rows = fixture.get("sample_rows") or []
     frame_subset = [
@@ -355,7 +358,10 @@ def write_v1_5_component_qc_reference_evaluation(
 ) -> dict[str, Path]:
     """Write review-only artifacts to an explicit output directory."""
 
-    out = Path(output_dir)
+    out = Path(output_dir).resolve()
+    suffix = tuple(part.lower() for part in out.parts[-len(REVIEW_OUTPUT_SUFFIX) :])
+    if suffix != REVIEW_OUTPUT_SUFFIX:
+        raise ValueError("output_dir_must_be_component_qc_reference_review_directory")
     out.mkdir(parents=True, exist_ok=True)
     outputs = {
         "json": out / "v1_5_component_qc_reference_evaluation.json",
@@ -401,6 +407,7 @@ def write_v1_5_component_qc_reference_evaluation(
 
 __all__ = [
     "FIXTURE_SCHEMA",
+    "REVIEW_OUTPUT_SUFFIX",
     "SCHEMA",
     "evaluate_v1_5_component_qc_reference_fixture",
     "validate_synthetic_component_qc_fixture",

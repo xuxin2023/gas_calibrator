@@ -32,10 +32,10 @@ def main(argv: Iterable[str] | None = None) -> int:
             _read_json(args.fixture_json_path),
             _read_json(args.contract_json_path),
         )
+        outputs = write_v1_5_component_qc_reference_evaluation(model, args.output_dir)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(json.dumps({"overall_status": "blocked", "error": str(exc)}, ensure_ascii=False))
         return 2
-    outputs = write_v1_5_component_qc_reference_evaluation(model, args.output_dir)
     print(
         json.dumps(
             {
