@@ -1,0 +1,3 @@
+﻿check,status,reasons,physical_meaning,next_action,details
+migration_sequence,pass,(),Production migration 002 is only meaningful after the exact reviewed migration 001.,Restore the exact ordered 001/002 migration set before DBA review.,"{'expected_versions': ['001_v1_5_evidence_registry', '002_v1_5_production_import_ledger'], 'actual_versions': ['001_v1_5_evidence_registry', '002_v1_5_production_import_ledger']}"
+migration_content,pass,(),The production ledger must bind immutable package and authorization hashes without destructive SQL.,Restore the reviewed ledger DDL and rerun this no-connect exporter.,"{'forbidden_sql': ['DROP', 'TRUNCATE', 'DELETE', 'UPDATE', 'ALTER']}"

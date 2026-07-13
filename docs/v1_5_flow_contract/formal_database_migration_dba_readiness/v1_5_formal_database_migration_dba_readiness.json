@@ -1,0 +1,106 @@
+{
+  "schema": "v1_5_formal_database_migration_dba_readiness_v1",
+  "generated_at": "2026-07-13T16:38:38+00:00",
+  "overall_status": "ready_for_postgresql18_dba_migration_review",
+  "blocker_count": 0,
+  "review_required_count": 1,
+  "dba_packet_ready": true,
+  "production_target": {
+    "backend": "postgresql",
+    "postgresql_major": 18,
+    "database_name": "gas_calibrator",
+    "core_schema": "public",
+    "evidence_schema": "v1_5_evidence",
+    "dsn_env": "V1_5_POSTGRES_DSN"
+  },
+  "migrations": [
+    {
+      "sequence": 1,
+      "version": "001_v1_5_evidence_registry",
+      "source_path": "src/gas_calibrator/storage/v1_5_evidence/migrations/001_v1_5_evidence_registry.sql",
+      "sha256": "fdb8f9d3d3d47ca34633dc757b1fb97741d178bd4fa8dabc18a23c795e0eefbc",
+      "sql_bytes": 10521,
+      "role": "prerequisite"
+    },
+    {
+      "sequence": 2,
+      "version": "002_v1_5_production_import_ledger",
+      "source_path": "src/gas_calibrator/storage/v1_5_evidence/migrations/002_v1_5_production_import_ledger.sql",
+      "sha256": "b2d50313eb22c78f7975c3e77380f5d4ce616e494c928295a76ff5edaf208e31",
+      "sql_bytes": 725,
+      "role": "production_import_ledger"
+    }
+  ],
+  "checks": [
+    {
+      "check": "migration_sequence",
+      "status": "pass",
+      "reasons": [],
+      "physical_meaning": "Production migration 002 is only meaningful after the exact reviewed migration 001.",
+      "next_action": "Restore the exact ordered 001/002 migration set before DBA review.",
+      "details": {
+        "expected_versions": [
+          "001_v1_5_evidence_registry",
+          "002_v1_5_production_import_ledger"
+        ],
+        "actual_versions": [
+          "001_v1_5_evidence_registry",
+          "002_v1_5_production_import_ledger"
+        ]
+      }
+    },
+    {
+      "check": "migration_content",
+      "status": "pass",
+      "reasons": [],
+      "physical_meaning": "The production ledger must bind immutable package and authorization hashes without destructive SQL.",
+      "next_action": "Restore the reviewed ledger DDL and rerun this no-connect exporter.",
+      "details": {
+        "forbidden_sql": [
+          "DROP",
+          "TRUNCATE",
+          "DELETE",
+          "UPDATE",
+          "ALTER"
+        ]
+      }
+    }
+  ],
+  "reasons": [],
+  "scripts": {
+    "precheck_sql": "\\set ON_ERROR_STOP on\n-- V1.5 PostgreSQL 18 DBA precheck. Read-only; run before migration 002.\nSELECT current_database() AS database_name,\n       current_setting('server_version_num')::integer AS server_version_num;\nSELECT version, checksum, applied_at\nFROM v1_5_evidence.schema_migrations\nWHERE version IN (\n    '001_v1_5_evidence_registry',\n    '002_v1_5_production_import_ledger'\n)\nORDER BY version;\nSELECT table_schema, table_name\nFROM information_schema.tables\nWHERE table_schema = 'v1_5_evidence'\n  AND table_name IN ('runs', 'schema_migrations', 'production_import_ledger')\nORDER BY table_name;\n\n-- Expected 001_v1_5_evidence_registry checksum: fdb8f9d3d3d47ca34633dc757b1fb97741d178bd4fa8dabc18a23c795e0eefbc\n-- Expected 002_v1_5_production_import_ledger checksum: b2d50313eb22c78f7975c3e77380f5d4ce616e494c928295a76ff5edaf208e31\n",
+    "apply_sql": "\\set ON_ERROR_STOP on\n-- V1.5 PostgreSQL 18 migration 002 DBA packet.\n-- Review and execute manually with ON_ERROR_STOP enabled.\nBEGIN;\nSET LOCAL lock_timeout = '5s';\nSET LOCAL statement_timeout = '60s';\nLOCK TABLE v1_5_evidence.schema_migrations IN SHARE ROW EXCLUSIVE MODE;\nDO $v1_5_migration_guard$\nDECLARE\n    server_version integer := current_setting('server_version_num')::integer;\nBEGIN\n    IF current_database() <> 'gas_calibrator' THEN\n        RAISE EXCEPTION 'wrong production database: %', current_database();\n    END IF;\n    IF server_version < 180000 OR server_version >= 190000 THEN\n        RAISE EXCEPTION 'PostgreSQL major must be 18: %', server_version;\n    END IF;\n    IF NOT EXISTS (\n        SELECT 1 FROM v1_5_evidence.schema_migrations\n        WHERE version = '001_v1_5_evidence_registry'\n          AND checksum = 'fdb8f9d3d3d47ca34633dc757b1fb97741d178bd4fa8dabc18a23c795e0eefbc'\n    ) THEN\n        RAISE EXCEPTION 'migration 001 missing or checksum mismatch';\n    END IF;\n    IF EXISTS (\n        SELECT 1 FROM v1_5_evidence.schema_migrations\n        WHERE version = '002_v1_5_production_import_ledger'\n          AND checksum <> 'b2d50313eb22c78f7975c3e77380f5d4ce616e494c928295a76ff5edaf208e31'\n    ) THEN\n        RAISE EXCEPTION 'migration 002 checksum mismatch';\n    END IF;\n    IF (EXISTS (\n        SELECT 1 FROM v1_5_evidence.schema_migrations\n        WHERE version = '002_v1_5_production_import_ledger'\n          AND checksum = 'b2d50313eb22c78f7975c3e77380f5d4ce616e494c928295a76ff5edaf208e31'\n    )) <> (to_regclass('v1_5_evidence.production_import_ledger') IS NOT NULL) THEN\n        RAISE EXCEPTION 'migration 002 ledger/table state mismatch';\n    END IF;\nEND\n$v1_5_migration_guard$;\n\nCREATE TABLE IF NOT EXISTS v1_5_evidence.production_import_ledger (\n    run_db_id TEXT PRIMARY KEY REFERENCES v1_5_evidence.runs(id) ON DELETE CASCADE,\n    run_id TEXT NOT NULL UNIQUE,\n    evidence_bundle_sha256 TEXT NOT NULL,\n    transaction_plan_sha256 TEXT NOT NULL,\n    promotion_preflight_sha256 TEXT NOT NULL,\n    execution_authorization_sha256 TEXT NOT NULL,\n    authorization_id TEXT NOT NULL UNIQUE,\n    operator_name TEXT NOT NULL,\n    reviewer_name TEXT NOT NULL,\n    approver_name TEXT NOT NULL,\n    table_counts JSONB NOT NULL,\n    committed_at TIMESTAMPTZ NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS ix_v1_5_evidence_production_import_ledger_run_id\nON v1_5_evidence.production_import_ledger (run_id);\n\nINSERT INTO v1_5_evidence.schema_migrations (version, checksum)\nVALUES ('002_v1_5_production_import_ledger', 'b2d50313eb22c78f7975c3e77380f5d4ce616e494c928295a76ff5edaf208e31')\nON CONFLICT (version) DO NOTHING;\n\nDO $v1_5_migration_verify$\nDECLARE\n    actual_columns text[];\nBEGIN\n    SELECT array_agg(column_name::text ORDER BY ordinal_position)\n    INTO actual_columns\n    FROM information_schema.columns\n    WHERE table_schema = 'v1_5_evidence'\n      AND table_name = 'production_import_ledger';\n    IF actual_columns <> ARRAY['run_db_id', 'run_id', 'evidence_bundle_sha256', 'transaction_plan_sha256', 'promotion_preflight_sha256', 'execution_authorization_sha256', 'authorization_id', 'operator_name', 'reviewer_name', 'approver_name', 'table_counts', 'committed_at']::text[] THEN\n        RAISE EXCEPTION 'production_import_ledger columns mismatch: %', actual_columns;\n    END IF;\n    IF NOT EXISTS (\n        SELECT 1 FROM v1_5_evidence.schema_migrations\n        WHERE version = '002_v1_5_production_import_ledger'\n          AND checksum = 'b2d50313eb22c78f7975c3e77380f5d4ce616e494c928295a76ff5edaf208e31'\n    ) THEN\n        RAISE EXCEPTION 'migration 002 ledger row missing or checksum mismatch';\n    END IF;\n    IF NOT EXISTS (\n        SELECT 1 FROM pg_constraint\n        WHERE conrelid = 'v1_5_evidence.production_import_ledger'::regclass\n          AND contype = 'p'\n          AND pg_get_constraintdef(oid) = 'PRIMARY KEY (run_db_id)'\n    ) THEN\n        RAISE EXCEPTION 'production_import_ledger run_db_id primary key missing';\n    END IF;\n    IF NOT EXISTS (\n        SELECT 1 FROM pg_constraint\n        WHERE conrelid = 'v1_5_evidence.production_import_ledger'::regclass\n          AND contype = 'u'\n          AND pg_get_constraintdef(oid) = 'UNIQUE (run_id)'\n    ) THEN\n        RAISE EXCEPTION 'production_import_ledger run_id unique constraint missing';\n    END IF;\n    IF NOT EXISTS (\n        SELECT 1 FROM pg_constraint\n        WHERE conrelid = 'v1_5_evidence.production_import_ledger'::regclass\n          AND contype = 'u'\n          AND pg_get_constraintdef(oid) = 'UNIQUE (authorization_id)'\n    ) THEN\n        RAISE EXCEPTION 'production_import_ledger authorization_id unique constraint missing';\n    END IF;\n    IF NOT EXISTS (\n        SELECT 1 FROM pg_constraint\n        WHERE conrelid = 'v1_5_evidence.production_import_ledger'::regclass\n          AND contype = 'f'\n          AND pg_get_constraintdef(oid) = 'FOREIGN KEY (run_db_id) REFERENCES v1_5_evidence.runs(id) ON DELETE CASCADE'\n    ) THEN\n        RAISE EXCEPTION 'production_import_ledger run_db_id foreign key missing';\n    END IF;\n    IF to_regclass('v1_5_evidence.ix_v1_5_evidence_production_import_ledger_run_id') IS NULL THEN\n        RAISE EXCEPTION 'production_import_ledger run_id index missing';\n    END IF;\nEND\n$v1_5_migration_verify$;\nCOMMIT;\n",
+    "postcheck_sql": "\\set ON_ERROR_STOP on\n-- V1.5 PostgreSQL 18 migration 002 postcheck. Read-only.\nSELECT current_database() AS database_name,\n       current_setting('server_version_num')::integer AS server_version_num;\nSELECT version, checksum, applied_at\nFROM v1_5_evidence.schema_migrations\nWHERE version = '002_v1_5_production_import_ledger';\nSELECT column_name, data_type, is_nullable, ordinal_position\nFROM information_schema.columns\nWHERE table_schema = 'v1_5_evidence'\n  AND table_name = 'production_import_ledger'\nORDER BY ordinal_position;\nSELECT conname, contype, pg_get_constraintdef(oid) AS definition\nFROM pg_constraint\nWHERE conrelid = 'v1_5_evidence.production_import_ledger'::regclass\nORDER BY contype, conname;\nSELECT indexname, indexdef\nFROM pg_indexes\nWHERE schemaname = 'v1_5_evidence'\n  AND tablename = 'production_import_ledger'\nORDER BY indexname;\n-- Expected migration checksum: b2d50313eb22c78f7975c3e77380f5d4ce616e494c928295a76ff5edaf208e31\n"
+  },
+  "script_sha256": {
+    "precheck_sql": "f3e6f98a3dfd49cd9cdd4a4c915e76c8caa9f28a5fcc462ce60ec322a955bbac",
+    "apply_sql": "18689190b5639cb1396a326423dafcbced5ded555c39b39f17acfc7eb6017e72",
+    "postcheck_sql": "4a393c8b6893a918faa41e9de1337693044828b58fe0e3403d9d060696b3db4a"
+  },
+  "dba_execution_contract": {
+    "manual_dba_execution_required": true,
+    "psql_on_error_stop_required": true,
+    "transactional_apply_required": true,
+    "precheck_review_required": true,
+    "postcheck_capture_required": true,
+    "operator_reviewer_approver_record_required": true,
+    "rollback_before_commit": "transaction_rollback",
+    "post_commit_problem": "DBA_and_reviewer_hold_no_automatic_drop"
+  },
+  "connects_postgresql": false,
+  "dsn_value_read": false,
+  "applies_migrations": false,
+  "migration_execution_allowed": false,
+  "production_import_execution_allowed": false,
+  "database_written": false,
+  "database_import_allowed": false,
+  "formal_release_allowed": false,
+  "opens_com_ports": false,
+  "writes_sn": false,
+  "writes_device_id": false,
+  "writes_coefficients": false,
+  "controls_pressure": false,
+  "controls_water_or_gas_routes": false,
+  "not_real_acceptance_evidence": true,
+  "evidence_source": "repository_migrations_offline_review"
+}

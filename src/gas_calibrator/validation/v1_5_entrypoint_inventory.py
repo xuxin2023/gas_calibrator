@@ -440,6 +440,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("explicit read-only PostgreSQL 18 staging query; looks up SN, device_code, protocol ID, or run without production import/release authority")
     elif lower == "export_v1_5_formal_database_import_production_promotion_preflight":
         notes.append("offline PostgreSQL 18 production-promotion preflight; revalidates staging readback and immutable authorization/archive/evidence bindings without connecting or importing production data")
+    elif lower == "export_v1_5_formal_database_migration_dba_readiness":
+        notes.append("offline PostgreSQL 18 DBA migration packet; freezes migration order, checksums, precheck/apply/postcheck SQL, rollback boundaries, and manual review without reading a DSN or connecting")
     elif lower == "run_v1_5_formal_database_import_production_controlled_executor":
         notes.append("manual-authorized PostgreSQL 18 production import executor; fixed gas_calibrator/public/v1_5_evidence target with immutable promotion hashes, three-party authorization, precommit readback, idempotency ledger, and rollback hold")
     elif lower == "run_v1_5_final_offline_acceptance_suite":
@@ -753,6 +755,7 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             "export_v1_5_formal_database_import_transaction_plan",
             "run_v1_5_formal_database_import_transaction_blocked_executor",
             "export_v1_5_formal_database_import_production_promotion_preflight",
+            "export_v1_5_formal_database_migration_dba_readiness",
             "run_v1_5_final_offline_acceptance_suite",
         }:
             category = "formal_review_evidence"
