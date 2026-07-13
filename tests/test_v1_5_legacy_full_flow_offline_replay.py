@@ -13,7 +13,7 @@ from gas_calibrator.validation.v1_5_legacy_full_flow_offline_replay import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE_MAIN = "661b2b280b43d85df06c81df09e9d3f02165278b"
+SOURCE_MAIN = "d423b15a32c4ef2476a2806f2de7a2414941e47b"
 
 
 def _model() -> dict:
@@ -53,7 +53,10 @@ def test_replay_preserves_real_holds_and_stage_order() -> None:
     assert "no_complete_continuous_mature_route_root" in by_id["mature_route_readiness"]["blocker_codes"]
     assert "co2_composite_not_continuous_route_attestation" in by_id["legacy_co2_45"]["blocker_codes"]
     assert "legacy_h2o_continuous_13_point_root_missing" in by_id["legacy_h2o_13"]["blocker_codes"]
-    assert "production_component_qc_evaluator_missing" in by_id["component_qc_and_0613_fit_review"]["blocker_codes"]
+    fit_blockers = by_id["component_qc_and_0613_fit_review"]["blocker_codes"]
+    assert "production_component_qc_evaluator_missing" not in fit_blockers
+    assert "canonical_0613_multi_strategy_fit_selector_not_closed" not in fit_blockers
+    assert "production_fit_input_not_eligible" in fit_blockers
     assert "post_run_write_package=not_attempted" in by_id["controlled_write_readback"]["blocker_codes"]
     assert "controlled_write_and_reverification=not_attempted" in by_id["post_write_short_reverify"]["blocker_codes"]
     assert any(code.startswith("formal_archive_database_release=") for code in by_id["archive_release_postgresql18"]["blocker_codes"])

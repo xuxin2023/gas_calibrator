@@ -39,3 +39,11 @@ python -m pytest `
 - It does not connect to PostgreSQL or authorize archive release/import.
 - Segmented/retry/composite evidence remains diagnostic and is not promoted to continuous mature-route evidence.
 - `evidence_source=historical_replay` and `not_real_acceptance_evidence=true` remain mandatory.
+
+## 2026-07-13 Component-QC / 0613 Integration Refresh
+
+- replay source origin/main advanced to `d423b15a32c4ef2476a2806f2de7a2414941e47b`.
+- the replay now binds `production_component_qc_fit_matrix` as its thirteenth source artifact.
+- stage 6 no longer reports a missing evaluator or an unclosed strategy selector.
+- stage 6 remains held only because the catalog and current QC packet are not fit-eligible continuous mature-route evidence.
+- integration is covered by the `150 passed, 1 warning in 60.97s` suite recorded in the production component-QC test evidence.

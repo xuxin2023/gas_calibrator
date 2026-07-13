@@ -51,6 +51,10 @@ _SOURCE_PATHS = {
         "docs/v1_5_flow_contract/historical_component_qc_controlled_writer_design/"
         "v1_5_historical_component_qc_controlled_writer_design.json"
     ),
+    "production_component_qc_fit_matrix": Path(
+        "docs/v1_5_flow_contract/production_component_qc_fit_matrix/"
+        "v1_5_production_component_qc_fit_matrix.json"
+    ),
     "formal_run_status": Path(
         "docs/v1_5_flow_contract/final_acceptance_status/v1_5_formal_run_status.json"
     ),
@@ -263,26 +267,38 @@ def _h2o(payloads: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
 
 def _fit(payloads: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
     catalog = payloads.get("legacy_evidence_catalog", {})
-    component = payloads.get("component_qc_writer_design", {})
-    locks = component.get("locks", {}) if isinstance(component, Mapping) else {}
+    matrix = payloads.get("production_component_qc_fit_matrix", {})
     blockers: list[str] = []
-    if not isinstance(locks, Mapping) or locks.get("component_qc_payload_evaluator_available") is not True:
+    if matrix.get("production_component_qc_evaluator_available") is not True:
         blockers.append("production_component_qc_evaluator_missing")
+    if matrix.get("canonical_0613_strategy_matrix_available") is not True:
+        blockers.append("canonical_0613_multi_strategy_fit_selector_not_closed")
+    if matrix.get("production_component_qc_evaluation_complete") is not True:
+        blockers.append("production_component_qc_evaluation_incomplete")
+    if matrix.get("production_fit_allowed") is not True:
+        blockers.append("production_fit_input_not_eligible")
     if catalog.get("historical_fit_allowed") is not True:
         blockers.append("catalog_not_fit_eligible")
-    blockers.append("canonical_0613_multi_strategy_fit_selector_not_closed")
     return _assessment(
         6,
         "component_qc_and_0613_fit_review",
         "component-QC 与 0613 多策略 no-write 拟合",
         blockers,
-        ("legacy_evidence_catalog", "component_qc_writer_design", "historical_replay_contract"),
+        (
+            "legacy_evidence_catalog",
+            "production_component_qc_fit_matrix",
+            "component_qc_writer_design",
+            "historical_replay_contract",
+        ),
         (
             f"catalog_fit_allowed={catalog.get('historical_fit_allowed')}; "
-            f"component_qc_evaluator_available={locks.get('component_qc_payload_evaluator_available') if isinstance(locks, Mapping) else None}"
+            f"component_qc_evaluator_available={matrix.get('production_component_qc_evaluator_available')}; "
+            f"strategy_matrix_available={matrix.get('canonical_0613_strategy_matrix_available')}; "
+            f"evaluated_qc_rows={matrix.get('analyzer_qc_row_count')}; "
+            f"fit_ready_strategies={matrix.get('fit_ready_strategy_count')}"
         ),
         "Fitting must consume per-analyzer physical QC and the 0613 strategy rules, not merely all available points.",
-        "Implement the production component-QC evaluator and 0613 strategy matrix; preserve CO2 zero and H2O dry-gas anchor roles separately.",
+        "Bind a continuous mature 45/13 route root and separate H2O dry-gas anchor evidence, then rerun the now-available no-write matrix.",
     )
 
 
