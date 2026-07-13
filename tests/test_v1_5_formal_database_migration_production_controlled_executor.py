@@ -242,6 +242,8 @@ def test_execute_uses_immutable_script_snapshots_and_keeps_import_locked(
     assert len(calls) == 1
     assert "secret" not in json.dumps(model)
     assert calls[0]["scripts"]["apply_sql"].startswith("\\set ON_ERROR_STOP")
+    assert model["authorization_validation_requested"] is True
+    assert model["authorization_validated"] is True
     assert model["migration_execution_confirmed"] is True
     assert model["database_import_allowed"] is False
     assert model["formal_release_allowed"] is False
