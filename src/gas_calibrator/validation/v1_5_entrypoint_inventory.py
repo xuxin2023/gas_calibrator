@@ -438,6 +438,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("manual-authorized PostgreSQL 18 staging-only transaction executor; writes isolated staging schemas with atomic rollback and keeps production import/release locked")
     elif lower == "query_v1_5_formal_database_import_staging":
         notes.append("explicit read-only PostgreSQL 18 staging query; looks up SN, device_code, protocol ID, or run without production import/release authority")
+    elif lower == "export_v1_5_formal_database_import_production_promotion_preflight":
+        notes.append("offline PostgreSQL 18 production-promotion preflight; revalidates staging readback and immutable authorization/archive/evidence bindings without connecting or importing production data")
     elif lower == "run_v1_5_final_offline_acceptance_suite":
         notes.append("final offline acceptance suite; runs an exact pytest allowlist for V1.5 replay, mature-route, fit, writer, database locks, simulation, parity, and resilience without hardware or database access")
     elif lower == "export_v1_5_historical_replay_contract":
@@ -748,6 +750,7 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             "export_v1_5_historical_component_qc_controlled_writer_design",
             "export_v1_5_formal_database_import_transaction_plan",
             "run_v1_5_formal_database_import_transaction_blocked_executor",
+            "export_v1_5_formal_database_import_production_promotion_preflight",
             "run_v1_5_final_offline_acceptance_suite",
         }:
             category = "formal_review_evidence"
