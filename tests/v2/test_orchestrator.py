@@ -1,12 +1,15 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from gas_calibrator.v2.config import AppConfig
 from gas_calibrator.v2.core.calibration_service import CalibrationService
 from gas_calibrator.v2.core import orchestrator as orchestrator_mod
 from gas_calibrator.v2.core.device_manager import DeviceManager, DeviceStatus
 from gas_calibrator.v2.core.models import CalibrationPoint
 from gas_calibrator.v2.core.stability_checker import StabilityResult, StabilityType
+from gas_calibrator.v2.exceptions import WorkflowValidationError
 
 
 class FakeTemperatureChamber:
@@ -237,3 +240,78 @@ def test_orchestrator_precheck_logs_profile_disabled_devices_as_info(tmp_path: P
 
     assert any("Devices skipped by profile: humidity_generator" in message for message in logs)
     assert not any("Device precheck warnings" in message for message in logs)
+
+
+def test_orchestrator_restores_service_host_contract_bridges(tmp_path: Path) -> None:
+    service = _make_service(_write_points_file(tmp_path))
+    service.config.features.simulation_mode = True
+    point = CalibrationPoint(index=1, temperature_c=25.0, co2_ppm=400.0, route="co2")
+    calls: list[tuple[object, ...]] = []
+    service.orchestrator.valve_routing_service.set_h2o_path = (
+        lambda is_open, observed_point=None: calls.append(("h2o", is_open, observed_point))
+    )
+    service.orchestrator.conditioning_service._verify_co2_preseal_atmosphere_hold_pressure = (
+        lambda observed_point: calls.append(("pressure", observed_point)) or "within_limit"
+    )
+
+    service.orchestrator._set_h2o_path(True, point)
+    assert service.orchestrator._verify_co2_preseal_atmosphere_hold_pressure(point) == "within_limit"
+    assert service.orchestrator._refresh_live_analyzer_snapshots(reason="simulation") is True
+    assert calls == [("h2o", True, point), ("pressure", point)]
+
+
+def test_next_temperature_precondition_host_contract_is_simulation_only(tmp_path: Path) -> None:
+    service = _make_service(_write_points_file(tmp_path))
+    next_group = [CalibrationPoint(index=2, temperature_c=30.0, co2_ppm=400.0, route="co2")]
+
+    service.config.features.simulation_mode = True
+    service._precondition_next_temperature_humidity(next_group)
+    service._precondition_next_temperature_chamber(next_group)
+
+    service.config.features.simulation_mode = False
+    with pytest.raises(WorkflowValidationError, match="not implemented for live execution"):
+        service._precondition_next_temperature_humidity(next_group)
+
+
+@pytest.mark.parametrize(
+    "invoke",
+    (
+        lambda service, point: service.orchestrator._set_h2o_path(True, point),
+    ),
+)
+def test_simulation_host_contract_bridges_fail_closed_for_live_mode(
+    tmp_path: Path,
+    invoke,
+) -> None:
+    service = _make_service(_write_points_file(tmp_path))
+    point = CalibrationPoint(index=1, temperature_c=25.0, co2_ppm=400.0, route="co2")
+
+    with pytest.raises(WorkflowValidationError, match="not implemented for live execution"):
+        invoke(service, point)
+
+
+def test_preseal_pressure_bridge_fails_closed_at_hard_abort(tmp_path: Path) -> None:
+    service = _make_service(_write_points_file(tmp_path))
+    point = CalibrationPoint(index=1, temperature_c=25.0, co2_ppm=400.0, route="co2")
+    service.orchestrator.pressure_control_service._current_high_pressure_first_point_sample = (
+        lambda **kwargs: {"pressure_hpa": 1300.0, "sample_age_s": 0.1, "source": "simulated"}
+    )
+    service.orchestrator._record_workflow_timing = lambda *args, **kwargs: {}
+    service.orchestrator._log = lambda message: None
+
+    with pytest.raises(WorkflowValidationError):
+        service.orchestrator._verify_co2_preseal_atmosphere_hold_pressure(point)
+
+
+def test_preseal_pressure_bridge_returns_ready_decision(tmp_path: Path) -> None:
+    service = _make_service(_write_points_file(tmp_path))
+    point = CalibrationPoint(index=1, temperature_c=25.0, co2_ppm=400.0, route="co2")
+    service.orchestrator.pressure_control_service._current_high_pressure_first_point_sample = (
+        lambda **kwargs: {"pressure_hpa": 1120.0, "sample_age_s": 0.1, "source": "simulated"}
+    )
+    service.orchestrator._record_workflow_timing = lambda *args, **kwargs: {}
+
+    assert (
+        service.orchestrator._verify_co2_preseal_atmosphere_hold_pressure(point)
+        == "positive_preseal_ready_handoff"
+    )
