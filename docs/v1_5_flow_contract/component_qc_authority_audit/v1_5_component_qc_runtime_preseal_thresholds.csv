@@ -1,0 +1,3 @@
+﻿component,preseal_hard_tol,preseal_a_grade_tol,preseal_policy,preseal_min_samples,point_count,authority_role
+co2,0.001,0.0005,reject,10,89,recorded_runtime_pre_sample_gate_not_post_sample_component_qc
+h2o,0.001,0.0005,warn,10,36,recorded_runtime_pre_sample_gate_not_post_sample_component_qc
