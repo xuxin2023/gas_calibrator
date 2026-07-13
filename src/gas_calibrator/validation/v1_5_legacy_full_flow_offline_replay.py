@@ -55,6 +55,10 @@ _SOURCE_PATHS = {
         "docs/v1_5_flow_contract/production_component_qc_fit_matrix/"
         "v1_5_production_component_qc_fit_matrix.json"
     ),
+    "unified_controlled_write_reverify": Path(
+        "docs/v1_5_flow_contract/unified_controlled_write_reverify/"
+        "v1_5_unified_controlled_write_readback_reverify.json"
+    ),
     "formal_run_status": Path(
         "docs/v1_5_flow_contract/final_acceptance_status/v1_5_formal_run_status.json"
     ),
@@ -305,16 +309,34 @@ def _fit(payloads: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
 def _controlled_write(payloads: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
     formal = payloads.get("formal_run_status", {})
     write_gate = _gate(formal, "post_run_write_package")
-    blockers = [] if write_gate.get("status") == "ready" else [
-        f"post_run_write_package={write_gate.get('status') or 'missing'}"
-    ]
+    unified = payloads.get("unified_controlled_write_reverify", {})
+    blockers: list[str] = []
+    if unified.get("unified_contract_available") is not True:
+        blockers.append("unified_controlled_write_contract_missing")
+    if unified.get("operation_plan_ready") is not True:
+        blockers.append(f"unified_operation_plan={unified.get('overall_status') or 'missing'}")
+    if unified.get("write_transaction_status") != "complete":
+        blockers.append(
+            f"unified_write_transaction={unified.get('write_transaction_status') or 'missing'}"
+        )
+    if unified.get("getco_readback_status") != "complete":
+        blockers.append(
+            f"unified_getco_readback={unified.get('getco_readback_status') or 'missing'}"
+        )
+    if write_gate.get("status") != "ready":
+        blockers.append(f"post_run_write_package={write_gate.get('status') or 'missing'}")
     return _assessment(
         7,
         "controlled_write_readback",
         "系数受控写入与 GETCO 读回",
         blockers,
-        ("formal_run_status",),
-        f"post_run_write_package={write_gate.get('status') or 'missing'}",
+        ("unified_controlled_write_reverify", "formal_run_status"),
+        (
+            f"unified_status={unified.get('overall_status') or 'missing'}; "
+            f"operation_plan_count={unified.get('operation_plan_count')}; "
+            f"write={unified.get('write_transaction_status') or 'missing'}; "
+            f"readback={unified.get('getco_readback_status') or 'missing'}"
+        ),
         "Calculation, authorization, old-value snapshot, write, and readback are separate evidence events.",
         "Close the unified S1-S9/SENCOA-B controlled-write bundle without treating a successful write as a successful validation.",
     )
@@ -323,16 +345,28 @@ def _controlled_write(payloads: Mapping[str, Mapping[str, Any]]) -> dict[str, An
 def _reverify(payloads: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
     formal = payloads.get("formal_run_status", {})
     gate = _gate(formal, "controlled_write_and_reverification")
-    blockers = [] if gate.get("status") == "ready" else [
-        f"controlled_write_and_reverification={gate.get('status') or 'missing'}"
-    ]
+    unified = payloads.get("unified_controlled_write_reverify", {})
+    blockers: list[str] = []
+    if unified.get("unified_contract_available") is not True:
+        blockers.append("unified_short_reverify_contract_missing")
+    if unified.get("physical_short_reverify_status") != "complete_pass":
+        blockers.append(
+            "unified_physical_short_reverify="
+            f"{unified.get('physical_short_reverify_status') or 'missing'}"
+        )
+    if gate.get("status") != "ready":
+        blockers.append(f"controlled_write_and_reverification={gate.get('status') or 'missing'}")
     return _assessment(
         8,
         "post_write_short_reverify",
         "写后独立短复验",
         blockers,
-        ("formal_run_status",),
-        f"controlled_write_and_reverification={gate.get('status') or 'missing'}",
+        ("unified_controlled_write_reverify", "formal_run_status"),
+        (
+            "physical_short_reverify="
+            f"{unified.get('physical_short_reverify_status') or 'missing'}; "
+            f"formal_gate={gate.get('status') or 'missing'}"
+        ),
         "Readback proves stored bytes; independent reverify proves the physical calibration result.",
         "Bind component-specific short reverify evidence after every authorized write before archive closure.",
     )

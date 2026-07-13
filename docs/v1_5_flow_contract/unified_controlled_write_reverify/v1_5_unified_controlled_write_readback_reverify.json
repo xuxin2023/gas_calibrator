@@ -1,0 +1,292 @@
+{
+  "schema": "v1_5_unified_controlled_write_readback_reverify_v1",
+  "generated_at": "2026-07-13T10:08:19Z",
+  "overall_status": "blocked_no_fit_approved_candidate",
+  "unified_contract_available": true,
+  "frozen_gap_id": "unified_controlled_write_readback_reverify",
+  "frozen_gap_program_contract_closed": true,
+  "frozen_gap_production_evidence_closed": false,
+  "algorithm_profile_id": "legacy_ratio_production",
+  "fit_baseline": "0613 V1.5 fitting path",
+  "mature_route_baseline": "0620/0621 clean-worktree mature physical route path",
+  "fit_matrix_status": "production_component_qc_evaluated_fit_matrix_blocked_by_continuity",
+  "production_fit_allowed": false,
+  "fit_ready_strategy_count": 0,
+  "candidate_device_count": 0,
+  "candidate_group_count": 0,
+  "operation_plan_ready": false,
+  "operation_plan_count": 0,
+  "write_transaction_status": "not_authorized",
+  "getco_readback_status": "not_authorized",
+  "physical_short_reverify_status": "not_attempted",
+  "write_success_separate_from_validation_success": true,
+  "review_reasons": [
+    "approved_candidate_packet_missing",
+    "authorization_missing",
+    "current_getco_snapshot_missing_or_invalid",
+    "fit_ready_candidate_missing",
+    "production_fit_not_allowed"
+  ],
+  "evidence_bindings": [
+    {
+      "role": "production_fit_matrix",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_unified_controlled_write_reverify_20260713\\docs\\v1_5_flow_contract\\production_component_qc_fit_matrix\\v1_5_production_component_qc_fit_matrix.json",
+      "status": "bound",
+      "sha256": "f14e32694131634461844d0538956ce4e93b80455fc9b9a7de4d10461c36bfc7"
+    },
+    {
+      "role": "approved_candidate_packet",
+      "path": "",
+      "status": "not_supplied",
+      "sha256": ""
+    },
+    {
+      "role": "current_getco_snapshot",
+      "path": "",
+      "status": "not_supplied",
+      "sha256": ""
+    },
+    {
+      "role": "authorization",
+      "path": "",
+      "status": "not_supplied",
+      "sha256": ""
+    },
+    {
+      "role": "write_events",
+      "path": "",
+      "status": "not_supplied",
+      "sha256": ""
+    },
+    {
+      "role": "short_reverify",
+      "path": "",
+      "status": "not_supplied",
+      "sha256": ""
+    }
+  ],
+  "group_contracts": [
+    {
+      "group": "SENCO1",
+      "readback": "GETCO1",
+      "component": "co2",
+      "role": "main_ratio_model",
+      "width": 6,
+      "format": "scientific_5e",
+      "profiles": "legacy_ratio_production;new_absorption_candidate",
+      "neutral_values": "[]"
+    },
+    {
+      "group": "SENCO3",
+      "readback": "GETCO3",
+      "component": "co2",
+      "role": "main_temperature_model_T1",
+      "width": 6,
+      "format": "scientific_5e",
+      "profiles": "legacy_ratio_production;new_absorption_candidate",
+      "neutral_values": "[]"
+    },
+    {
+      "group": "SENCO2",
+      "readback": "GETCO2",
+      "component": "h2o",
+      "role": "main_ratio_model",
+      "width": 6,
+      "format": "scientific_5e",
+      "profiles": "legacy_ratio_production;new_absorption_candidate",
+      "neutral_values": "[]"
+    },
+    {
+      "group": "SENCO4",
+      "readback": "GETCO4",
+      "component": "h2o",
+      "role": "main_temperature_model_T1",
+      "width": 6,
+      "format": "scientific_5e",
+      "profiles": "legacy_ratio_production;new_absorption_candidate",
+      "neutral_values": "[]"
+    },
+    {
+      "group": "SENCO5",
+      "readback": "GETCO5",
+      "component": "co2",
+      "role": "final_affine_output_layer",
+      "width": 2,
+      "format": "decimal_3",
+      "profiles": "legacy_ratio_production;new_absorption_candidate",
+      "composed_layer": true,
+      "clear_command": "CLEARSENCO5",
+      "neutral_values": "[]"
+    },
+    {
+      "group": "SENCO6",
+      "readback": "GETCO6",
+      "component": "h2o",
+      "role": "final_affine_output_layer",
+      "width": 2,
+      "format": "decimal_3",
+      "profiles": "legacy_ratio_production;new_absorption_candidate",
+      "composed_layer": true,
+      "clear_command": "CLEARSENCO6",
+      "neutral_values": "[]"
+    },
+    {
+      "group": "SENCO7",
+      "readback": "GETCO7",
+      "component": "temperature",
+      "role": "temperature_calibration_disabled_neutral_only",
+      "width": 4,
+      "format": "neutral_only",
+      "profiles": "legacy_ratio_production;new_absorption_candidate",
+      "neutral_values": "[0.0, 1.0, 0.0, 0.0]"
+    },
+    {
+      "group": "SENCO8",
+      "readback": "GETCO8",
+      "component": "temperature",
+      "role": "temperature_calibration_disabled_neutral_only",
+      "width": 4,
+      "format": "neutral_only",
+      "profiles": "legacy_ratio_production;new_absorption_candidate",
+      "neutral_values": "[0.0, 1.0, 0.0, 0.0]"
+    },
+    {
+      "group": "SENCO9",
+      "readback": "GETCO9",
+      "component": "pressure",
+      "role": "pressure_model",
+      "width": 4,
+      "format": "decimal_6",
+      "profiles": "legacy_ratio_production;new_absorption_candidate",
+      "default_model": "offset_only",
+      "neutral_values": "[]"
+    },
+    {
+      "group": "SENCOA",
+      "readback": "GETCOA",
+      "component": "co2",
+      "role": "R0_CO2_T",
+      "width": 4,
+      "format": "scientific_5e",
+      "profiles": "new_absorption_candidate",
+      "writer_state": "blocked_design_only",
+      "neutral_values": "[]"
+    },
+    {
+      "group": "SENCOB",
+      "readback": "GETCOB",
+      "component": "h2o",
+      "role": "R0_H2O_T",
+      "width": 4,
+      "format": "scientific_5e",
+      "profiles": "new_absorption_candidate",
+      "writer_state": "blocked_design_only",
+      "neutral_values": "[]"
+    }
+  ],
+  "group_reviews": [],
+  "state_machine": [
+    {
+      "order": 1,
+      "stage": "fit_candidate_approval",
+      "success_proves": "fit candidate reviewed",
+      "does_not_prove": "device write"
+    },
+    {
+      "order": 2,
+      "stage": "old_getco_snapshot",
+      "success_proves": "current device coefficient epoch captured",
+      "does_not_prove": "candidate compatibility"
+    },
+    {
+      "order": 3,
+      "stage": "absolute_payload_derivation",
+      "success_proves": "payload composed against current S5/S6 layer where required",
+      "does_not_prove": "write authorization"
+    },
+    {
+      "order": 4,
+      "stage": "dual_review_authorization",
+      "success_proves": "operator, reviewer, and approver bound exact artifacts",
+      "does_not_prove": "write attempted"
+    },
+    {
+      "order": 5,
+      "stage": "paced_write_attempt",
+      "success_proves": "writer attempted exact reviewed payload",
+      "does_not_prove": "stored coefficients"
+    },
+    {
+      "order": 6,
+      "stage": "getco_readback",
+      "success_proves": "stored coefficients match reviewed target",
+      "does_not_prove": "physical calibration accuracy"
+    },
+    {
+      "order": 7,
+      "stage": "independent_short_reverify",
+      "success_proves": "component-specific physical errors pass limits",
+      "does_not_prove": "formal archive release"
+    },
+    {
+      "order": 8,
+      "stage": "rollback_or_archive_hold",
+      "success_proves": "failure state preserved or successful evidence closed",
+      "does_not_prove": "database import"
+    }
+  ],
+  "operation_plan": [],
+  "failure_holds": [
+    {
+      "trigger": "candidate_or_fit_lineage_invalid",
+      "hold": "no_operation_plan",
+      "rollback": "none"
+    },
+    {
+      "trigger": "old_GETCO_snapshot_missing_or_changed",
+      "hold": "do_not_write",
+      "rollback": "none"
+    },
+    {
+      "trigger": "authorization_invalid_or_artifact_hash_mismatch",
+      "hold": "do_not_write",
+      "rollback": "none"
+    },
+    {
+      "trigger": "first_group_write_or_readback_failure",
+      "hold": "stop_pair",
+      "rollback": "restore_changed_group_from_old_snapshot"
+    },
+    {
+      "trigger": "second_group_write_or_readback_failure",
+      "hold": "pair_incomplete",
+      "rollback": "restore_both_groups_in_reverse_order"
+    },
+    {
+      "trigger": "S5_or_S6_clear_readback_not_neutral",
+      "hold": "do_not_apply_absolute_target",
+      "rollback": "restore_old_affine_layer"
+    },
+    {
+      "trigger": "write_readback_pass_but_short_reverify_fail",
+      "hold": "write_success_validation_failed",
+      "rollback": "reviewed_manual_rollback_only"
+    },
+    {
+      "trigger": "short_reverify_environment_safety_gate",
+      "hold": "write_success_validation_not_completed",
+      "rollback": "none_automatic"
+    }
+  ],
+  "evidence_source": "historical_replay",
+  "not_real_acceptance_evidence": true,
+  "opens_com_ports": false,
+  "controlled_write_allowed": false,
+  "writes_coefficients": false,
+  "writes_sn_or_device_code": false,
+  "connects_postgresql": false,
+  "controls_pressure": false,
+  "controls_water_or_gas_routes": false,
+  "formal_release_allowed": false,
+  "database_import_allowed": false
+}
