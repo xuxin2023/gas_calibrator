@@ -454,6 +454,10 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline profile queue materializer; emits immutable 45/13 or 47/14 inputs for the mature V1.5 CO2/H2O queues without executing them")
     elif lower == "export_v1_5_algorithm_profile_lineage_gate":
         notes.append("offline algorithm-profile lineage gate; binds bootstrap and queue hashes to legacy R or absorption A/R0(T) fit semantics without executing hardware")
+    elif lower == "export_v1_5_new_algorithm_mature_queue_live_handoff":
+        notes.append("offline new-algorithm 47/14 live-handoff contract; binds profile, queue, mature-runner hashes, fit semantics, and future authorization while live execution stays blocked")
+    elif lower == "run_v1_5_new_algorithm_mature_queue_live_handoff_blocked_executor":
+        notes.append("offline new-algorithm mature-queue blocked executor; refuses live queue, COM, route, authorization, device, write, and database inputs")
     elif lower == "export_v1_5_historical_fit_profile_parity":
         notes.append("offline historical fitting parity replay; enforces 0613 fitting plus 0620/0621 route baselines and legacy R versus absorption A/R0(T) without executing hardware")
     elif lower == "export_v1_5_historical_fit_evidence_normalizer":
@@ -710,6 +714,8 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             "export_v1_5_automation_control_contract",
             "export_v1_5_algorithm_mature_queue_inputs",
             "export_v1_5_algorithm_profile_lineage_gate",
+            "export_v1_5_new_algorithm_mature_queue_live_handoff",
+            "run_v1_5_new_algorithm_mature_queue_live_handoff_blocked_executor",
             "export_v1_5_full_flow_automation_closure",
             "export_v1_5_production_entrypoint_gate",
             "export_v1_5_route_physical_recovery_evidence_packet",

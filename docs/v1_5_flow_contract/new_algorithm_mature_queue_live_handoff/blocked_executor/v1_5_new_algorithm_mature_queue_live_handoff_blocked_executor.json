@@ -1,0 +1,23 @@
+{
+  "schema": "v1_5_new_algorithm_mature_queue_live_handoff_blocked_executor_v1",
+  "generated_at": "2026-07-13T10:39:54Z",
+  "overall_status": "blocked_live_queue_executor_not_implemented",
+  "blocked_executor_ready": true,
+  "review_reasons": [],
+  "source_live_handoff_json": "docs\\v1_5_flow_contract\\new_algorithm_mature_queue_live_handoff\\v1_5_new_algorithm_mature_queue_live_handoff.json",
+  "source_live_handoff_sha256": "41d799323961018f7550a8a46a51ba6bdc18d9e4d8c34b40d939dd31cb568387",
+  "execution_supported": false,
+  "execution_attempted": false,
+  "would_execute": false,
+  "live_queue_execution_allowed": false,
+  "opens_com_ports": false,
+  "controls_pressure": false,
+  "controls_water_or_gas_routes": false,
+  "writes_sn_or_device_code": false,
+  "writes_coefficients": false,
+  "connects_postgresql": false,
+  "database_written": false,
+  "formal_release_allowed": false,
+  "database_import_allowed": false,
+  "not_real_acceptance_evidence": true
+}
