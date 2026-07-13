@@ -1,0 +1,8 @@
+﻿sequence,stage,rule
+1,revalidate_inputs,Recompute blocked plan from exact preflight and rehash all source artifacts; any drift holds the batch.
+2,derive_in_isolated_staging,A future reviewed evaluator derives every payload outside historical point directories; current design has no evaluator.
+3,validate_complete_payload_batch,"Validate canonical schema, analyzer coverage, grade semantics, source lineage, and byte hashes for all candidates before creating any target."
+4,recheck_all_targets_absent,Every exact target must still be absent immediately before commit; replacement and overwrite APIs are forbidden.
+5,exclusive_create_commit,Create exact targets with OS-level exclusive create semantics. Cross-directory batch atomicity is not assumed.
+6,fsync_and_readback,"Flush each new file and directory, read exact bytes back, compare SHA256, and parse canonical schema before proceeding."
+7,batch_closeout,Only a complete 125/125 readback ledger may close the write transaction; fitting remains separately blocked.

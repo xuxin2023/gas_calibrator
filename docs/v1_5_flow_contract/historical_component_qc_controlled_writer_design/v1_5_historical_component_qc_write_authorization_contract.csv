@@ -1,0 +1,9 @@
+﻿field,required,rule
+authorization_id_and_nonce,True,Unique one-time authorization identity; reuse is rejected.
+operator_reviewer_approver,True,All identities are recorded; reviewer and approver must be distinct.
+issued_at_expires_at_utc,True,Authorization is time bounded and rejected after expiry.
+blocked_plan_binding,True,"Bind exact blocked-plan path, SHA256, schema, ready status, and candidate count."
+preflight_and_candidate_set_binding,True,Bind preflight SHA256 and the complete ordered candidate-binding-set SHA256.
+reviewed_evaluator_and_payload_bundle_binding,True,Bind a separately reviewed evaluator version plus all staged payload byte hashes; absent today.
+structured_scope_confirmation,True,"Explicitly allow only historical component-QC create-only targets; deny overwrite, fit, release, import, COM, route, identity, and coefficient actions."
+rollback_scope_confirmation,True,Compensating rollback may remove only files created by this authorization whose readback hash matches the transaction ledger.

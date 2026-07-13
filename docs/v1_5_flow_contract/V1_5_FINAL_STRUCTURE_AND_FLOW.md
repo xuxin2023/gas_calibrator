@@ -213,6 +213,7 @@ CO2 和 H2O 的低端锚点不能混成一个概念：
 - `export_v1_5_component_qc_reference_evaluator.py` 是 synthetic-only 组件 QC 参考评估器；它只接受 `evidence_source=simulated` 的内存/fixture 数据，用于验证上述 per-analyzer 分级合同。它不会读取或写回历史点目录，不会把点级最差设备扩散成其它设备的拟合拒绝，也不授权历史 QC 生成、拟合、release、入库、COM 或任何设备动作。
 - `export_v1_5_historical_component_qc_generator_preflight.py` 是历史组件 QC 生成前的 no-write 输入门禁；它只按 P2 已登记清单重验点目录内源工件角色、大小、SHA256、P2 inventory 路径绑定和目标覆盖风险。当前 125 个候选的 697 个源工件均通过完整性检查，但 125 点仍全部保留人工 gate，真正 QC 生成、历史写回、拟合、release、入库和设备动作继续锁定。
 - `export_v1_5_historical_component_qc_blocked_generator_plan.py` 是历史组件 QC 的 blocked plan / would-write preview；它消费并重验上述 preflight，逐点固定目标路径和源包聚合哈希，但 `would_evaluate=false`、`would_write=false`、`overwrite_allowed=false`，不计算 A/B/C、不创建正式 QC 文件。任何上游/源文件漂移或目标已存在都会阻断整份 operation plan，未来 writer 仍需独立授权、原子 create-only、读回和回滚合同。
+- `export_v1_5_historical_component_qc_controlled_writer_design.py` 是历史组件 QC 的受控 writer 设计评审；它重新计算 blocked plan，并固定未来一次性授权、全量 staging、OS 级 exclusive-create、逐文件 SHA/schema 读回和仅限本事务新建文件的补偿回滚合同。当前 evaluator、authorization validator、writer、readback 和 rollback executor 均不存在，生成、写回、拟合、release、入库及设备动作继续锁定。
 - 根目录仍是草稿/污染区，不应直接用于正式生产。
 - `_handoff` 仍有大量历史证据，不应整体合入。
 - 自动化仍需按正式 runner 和受控授权一步步执行；不能因为有 planner 就跳过真实设备 readiness、压力、温度、采样 QC、写入评审和复验。
