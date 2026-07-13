@@ -276,3 +276,11 @@ V1.5 结构整理基本完成前，必须保留一个只读收尾验收包：
 - The executor never creates schemas or applies migrations. Migration `002_v1_5_production_import_ledger` must already exist, otherwise the transaction rolls back and holds.
 - A production transaction writes identity aliases and the evidence bundle atomically, performs precommit identity/table-count readback, records four immutable input hashes, supports exact idempotent replay, and holds conflicts or uncertain commits.
 - Database import does not open COM, write SN/SENCO, control pressure/routes, modify 0613/0620/0621 mature calibration paths, or grant formal calibration release.
+
+## 15. PostgreSQL 18 DBA migration readiness addendum (2026-07-14)
+
+- `export_v1_5_formal_database_migration_dba_readiness.py` creates the no-connect DBA handoff for migrations `001` and `002`.
+- The packet fixes PostgreSQL 18 database `gas_calibrator`, schema `v1_5_evidence`, source migration order, SHA256 checksums, read-only precheck/postcheck SQL, transactional migration 002 SQL, and rollback/hold boundaries.
+- The three SQL artifacts have their own SHA256 bindings, and a template-only execution record reserves operator/reviewer/approver plus precheck/apply/postcheck output hashes; the blank template is not execution evidence.
+- The exporter rejects DSN, connection, execution, apply-migration, and production-import arguments. It does not read `V1_5_POSTGRES_DSN`, connect PostgreSQL, apply a migration, write a row, or grant import/release authority.
+- A DBA must separately review the packet, execute with `ON_ERROR_STOP`, retain the pre/post-check output, and record operator/reviewer/approver approval. The production importer still refuses to create schemas or apply migrations itself.

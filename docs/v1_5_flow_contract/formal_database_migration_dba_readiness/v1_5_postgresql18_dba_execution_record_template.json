@@ -1,0 +1,55 @@
+{
+  "schema": "v1_5_postgresql18_dba_execution_record_v1",
+  "template_only": true,
+  "not_execution_evidence": true,
+  "production_target": {
+    "backend": "postgresql",
+    "postgresql_major": 18,
+    "database_name": "gas_calibrator",
+    "core_schema": "public",
+    "evidence_schema": "v1_5_evidence",
+    "dsn_env": "V1_5_POSTGRES_DSN"
+  },
+  "migration_versions": [
+    "001_v1_5_evidence_registry",
+    "002_v1_5_production_import_ledger"
+  ],
+  "expected_script_sha256": {
+    "precheck_sql": "f3e6f98a3dfd49cd9cdd4a4c915e76c8caa9f28a5fcc462ce60ec322a955bbac",
+    "apply_sql": "18689190b5639cb1396a326423dafcbced5ded555c39b39f17acfc7eb6017e72",
+    "postcheck_sql": "4a393c8b6893a918faa41e9de1337693044828b58fe0e3403d9d060696b3db4a"
+  },
+  "operator": {
+    "name": "",
+    "decision": "",
+    "recorded_at_utc": ""
+  },
+  "reviewer": {
+    "name": "",
+    "decision": "",
+    "recorded_at_utc": ""
+  },
+  "approver": {
+    "name": "",
+    "decision": "",
+    "recorded_at_utc": ""
+  },
+  "precheck": {
+    "output_path": "",
+    "sha256": "",
+    "reviewed": false
+  },
+  "apply": {
+    "output_path": "",
+    "sha256": "",
+    "psql_exit_code": null,
+    "transaction_committed": false
+  },
+  "postcheck": {
+    "output_path": "",
+    "sha256": "",
+    "reviewed": false
+  },
+  "migration_execution_confirmed": false,
+  "production_import_authorized": false
+}
