@@ -271,6 +271,18 @@ def test_duplicate_p2_candidate_point_directory_blocks_preflight(tmp_path: Path)
     )
 
 
+def test_empty_p2_candidate_batch_never_reports_preflight_ready(tmp_path: Path) -> None:
+    bundle = _bundle(tmp_path)
+    p2 = json.loads(bundle["p2"].read_text(encoding="utf-8"))
+    p2["candidates"] = []
+    p2["candidate_count"] = 0
+    _json(bundle["p2"], p2)
+    model = _build(bundle)
+    assert model["overall_status"] == "blocked_historical_component_qc_generator_preflight"
+    assert model["candidate_preflight_ready_count"] == 0
+    assert "p2_candidates_empty" in model["global_blocker_codes"]
+
+
 def test_preflight_model_is_deterministic_for_unchanged_sources(tmp_path: Path) -> None:
     bundle = _bundle(tmp_path)
     assert _build(bundle) == _build(bundle)

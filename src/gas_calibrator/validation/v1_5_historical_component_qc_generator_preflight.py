@@ -108,6 +108,8 @@ def _global_reasons(
     candidates = p2.get("candidates")
     if not isinstance(candidates, list):
         reasons.append("p2_candidates_must_be_list")
+    elif not candidates:
+        reasons.append("p2_candidates_empty")
     elif p2.get("candidate_count") != len(candidates):
         reasons.append("p2_candidate_count_mismatch")
     for key in _P2_FALSE_LOCKS:

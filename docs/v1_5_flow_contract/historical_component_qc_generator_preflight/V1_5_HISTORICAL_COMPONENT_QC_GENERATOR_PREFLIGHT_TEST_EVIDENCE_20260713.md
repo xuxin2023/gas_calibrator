@@ -3,7 +3,7 @@
 ## Focused
 
 ```text
-40 passed in 19.39s
+41 passed in 32.97s
 ```
 
 Covered the new preflight, synthetic reference evaluator, and reviewed generator contract.
@@ -36,7 +36,7 @@ Covered historical mature-route attestation and historical fit evidence normaliz
 ## Total
 
 ```text
-130 passed, 1 existing marker warning
+131 passed, 1 existing marker warning
 ```
 
 No test opened COM, controlled pressure or routes, wrote device identity or coefficients, connected PostgreSQL, generated historical component QC, authorized fitting, or produced real acceptance evidence.

@@ -45,12 +45,12 @@ This package does not modify the 0613 fitting baseline, 0620/0621 mature CO2/H2O
 
 ## Verification
 
-- focused component-QC/preflight tests: `40 passed`
+- focused component-QC/preflight tests: `41 passed`
 - authority/P1/P2/legacy evidence tests: `25 passed`
 - entrypoint inventory tests: `36 passed, 1 existing marker warning`
 - historical route-attestation tests: `16 passed`
 - historical fit-normalizer tests: `13 passed`
-- total distinct tests: `130 passed, 1 existing marker warning`
+- total distinct tests: `131 passed, 1 existing marker warning`
 
 The warning is the existing unregistered `v1_5_formal_gate` pytest marker and is not a functional failure.
 
