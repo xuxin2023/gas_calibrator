@@ -1,0 +1,284 @@
+{
+  "schema": "v1_5_p1_evidence_lineage_audit_v1",
+  "generated_at": "2026-07-13T02:00:54Z",
+  "overall_status": "review_required_p1_lineage_audit_complete",
+  "task_plan_path": "D:\\gas_calibrator\\_worktrees\\v1_5_p1_evidence_lineage_audit_20260713\\docs\\v1_5_flow_contract\\legacy_evidence_gap_task_plan\\v1_5_legacy_evidence_gap_task_plan.json",
+  "task_plan_sha256": "af364c365ce33593aa259356958255f5ea37fc63d4dbcef7efee94ec2eaa257e",
+  "task_plan_blocker_codes": [],
+  "point_count": 2,
+  "recoverable_reference_count": 1,
+  "unrecoverable_count": 1,
+  "conclusion_counts": {
+    "core_gap_resolved_by_same_lineage_retry_reference": 1,
+    "unrecoverable_from_reviewed_lineage": 1
+  },
+  "points": [
+    {
+      "task_id": "legacy_evidence_gap_0116",
+      "point_name": "p017_T20_200ppm_fit",
+      "point_dir": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_open_flow_0620_mature_20260627_r1\\co2_r2\\p017_T20_200ppm_fit",
+      "lineage_root": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_open_flow_0620_mature_20260627_r1",
+      "route_kind": "co2",
+      "audit_conclusion": "unrecoverable_from_reviewed_lineage",
+      "next_action": "retain_failed_attempt_as_raw_diagnostic_only_do_not_borrow_cross_run_samples",
+      "candidate_count": 1,
+      "core_evidence_recovery_candidate_count": 0,
+      "original_attempt_has_samples": false,
+      "original_attempt_io_file_count": 1,
+      "original_sample_window_started": false,
+      "original_sampling_before_route_close": false,
+      "manifest_failure_categories": [
+        "dewpoint_rebound"
+      ],
+      "same_lineage_only": true,
+      "cross_run_search_performed": false,
+      "cross_run_direct_bind_allowed": false,
+      "automatic_file_copy_allowed": false,
+      "automatic_qc_derivation_allowed": false,
+      "continuous_route_attestation_allowed": false,
+      "formal_fit_allowed": false,
+      "formal_release_allowed": false,
+      "database_import_allowed": false
+    },
+    {
+      "task_id": "legacy_evidence_gap_0144",
+      "point_name": "p006_Tm20_1000ppm_fit",
+      "point_dir": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_resume_20260628\\co2_Tm10_Tm20_COM35_r1\\p006_Tm20_1000ppm_fit",
+      "lineage_root": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_resume_20260628",
+      "route_kind": "co2",
+      "audit_conclusion": "core_gap_resolved_by_same_lineage_retry_reference",
+      "next_action": "use_retry_as_explicit_diagnostic_candidate_then_run_separate_component_qc_review",
+      "candidate_count": 2,
+      "core_evidence_recovery_candidate_count": 1,
+      "original_attempt_has_samples": false,
+      "original_attempt_io_file_count": 1,
+      "original_sample_window_started": false,
+      "original_sampling_before_route_close": false,
+      "manifest_failure_categories": [
+        "subprocess_failed"
+      ],
+      "same_lineage_only": true,
+      "cross_run_search_performed": false,
+      "cross_run_direct_bind_allowed": false,
+      "automatic_file_copy_allowed": false,
+      "automatic_qc_derivation_allowed": false,
+      "continuous_route_attestation_allowed": false,
+      "formal_fit_allowed": false,
+      "formal_release_allowed": false,
+      "database_import_allowed": false
+    }
+  ],
+  "candidates": [
+    {
+      "original_point_name": "p017_T20_200ppm_fit",
+      "candidate_point_name": "p017_T20_200ppm_fit",
+      "candidate_point_dir": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_open_flow_0620_mature_20260627_r1\\co2_r2\\p017_T20_200ppm_fit",
+      "same_lineage": true,
+      "same_physical_point": true,
+      "recovery_marker_present": false,
+      "source_run_classification": "same_lineage_real_attempt",
+      "has_samples": false,
+      "has_frame_qc": false,
+      "has_component_qc": false,
+      "has_sidecar": true,
+      "sample_window_completed": false,
+      "core_evidence_recovery_candidate": false,
+      "component_qc_still_required": false,
+      "cross_run_direct_bind_allowed": false,
+      "formal_fit_allowed": false
+    },
+    {
+      "original_point_name": "p006_Tm20_1000ppm_fit",
+      "candidate_point_name": "p006_Tm20_1000ppm_fit",
+      "candidate_point_dir": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_resume_20260628\\co2_Tm10_Tm20_COM35_r1\\p006_Tm20_1000ppm_fit",
+      "same_lineage": true,
+      "same_physical_point": true,
+      "recovery_marker_present": false,
+      "source_run_classification": "same_lineage_real_attempt",
+      "has_samples": false,
+      "has_frame_qc": false,
+      "has_component_qc": false,
+      "has_sidecar": true,
+      "sample_window_completed": false,
+      "core_evidence_recovery_candidate": false,
+      "component_qc_still_required": false,
+      "cross_run_direct_bind_allowed": false,
+      "formal_fit_allowed": false
+    },
+    {
+      "original_point_name": "p006_Tm20_1000ppm_fit",
+      "candidate_point_name": "p006_Tm20_1000ppm_fit_retry1",
+      "candidate_point_dir": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_resume_20260628\\co2_Tm10_Tm20_COM35_r1\\p006_Tm20_1000ppm_fit_retry1",
+      "same_lineage": true,
+      "same_physical_point": true,
+      "recovery_marker_present": true,
+      "source_run_classification": "same_lineage_real_attempt",
+      "has_samples": true,
+      "has_frame_qc": true,
+      "has_component_qc": false,
+      "has_sidecar": true,
+      "sample_window_completed": true,
+      "core_evidence_recovery_candidate": true,
+      "component_qc_still_required": true,
+      "cross_run_direct_bind_allowed": false,
+      "formal_fit_allowed": false
+    }
+  ],
+  "manifest_records": [
+    {
+      "original_point_name": "p017_T20_200ppm_fit",
+      "manifest_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_open_flow_0620_mature_20260627_r1\\co2_r2\\new_algo_001_co2_0620_final_full_continuous_20260627_r2\\queue_manifest.csv",
+      "manifest_point_name": "p017_T20_200ppm_fit",
+      "status": "failed",
+      "returncode": "1",
+      "failure_category": "dewpoint_rebound",
+      "failure_reason": "dewpoint_rebound_detected;max_total_wait_exceeded",
+      "quality_grade": "",
+      "manifest_record_classification": "real_attempt_diagnostic_record",
+      "real_physical_evidence_allowed": false,
+      "same_physical_point": true,
+      "formal_fit_allowed": false
+    },
+    {
+      "original_point_name": "p017_T20_200ppm_fit",
+      "manifest_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_open_flow_0620_mature_20260627_r1\\dry_run\\new_algo_001_co2_0620_final_full_continuous_20260627_r1_dryrun\\queue_manifest.csv",
+      "manifest_point_name": "p017_T20_200ppm_fit",
+      "status": "dry_run",
+      "returncode": "0",
+      "failure_category": "",
+      "failure_reason": "",
+      "quality_grade": "",
+      "manifest_record_classification": "dry_run_reference_only",
+      "real_physical_evidence_allowed": false,
+      "same_physical_point": true,
+      "formal_fit_allowed": false
+    },
+    {
+      "original_point_name": "p006_Tm20_1000ppm_fit",
+      "manifest_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_resume_20260628\\co2_Tm10_Tm20_COM35_r1\\new_algo_001_co2_resume_Tm10_Tm20_COM35_20260628_r1\\queue_manifest.csv",
+      "manifest_point_name": "p006_Tm20_1000ppm_fit",
+      "status": "failed",
+      "returncode": "1",
+      "failure_category": "subprocess_failed",
+      "failure_reason": "Startup preflight: relay_8 states=[False, False, False, False, False, False, False, False] | Pressure controller vent=ON (startup preflight reset) | Pre-seal pressure-gauge fast read failed: NO_RESPONSE; retrying normal read | Atmosphere reference updated (startup preflight reset): pressure_gauge_hpa=1000.585 | CO2 open-flow route opened: valves=[8, 11, 7, 6] | Open-flow purge start: 240s | Formal open-flow sampling failed: OPEN_FLOW_PRESSURE_HARD_LIMIT_EXCEEDED:PACE=1548.543hPa | CO2 open-fl...",
+      "quality_grade": "",
+      "manifest_record_classification": "real_attempt_diagnostic_record",
+      "real_physical_evidence_allowed": false,
+      "same_physical_point": true,
+      "formal_fit_allowed": false
+    }
+  ],
+  "artifact_inventory": [
+    {
+      "point_name": "p017_T20_200ppm_fit",
+      "artifact_role": "sidecar",
+      "artifact_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_open_flow_0620_mature_20260627_r1\\co2_r2\\p017_T20_200ppm_fit\\formal_open_flow_sidecar_metadata.json",
+      "size_bytes": 1204,
+      "sha256": "1ea29882e86bed1119bfbfd2c6851014695660643a219d2c450f7a1d2e233de9"
+    },
+    {
+      "point_name": "p017_T20_200ppm_fit",
+      "artifact_role": "route_timing",
+      "artifact_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_open_flow_0620_mature_20260627_r1\\co2_r2\\p017_T20_200ppm_fit\\formal_open_flow_route_timing.json",
+      "size_bytes": 529,
+      "sha256": "40000c3f937c5e6148fd8af15fe265fbbad6ffed49f14e6e74d2e3c9cd2ab017"
+    },
+    {
+      "point_name": "p017_T20_200ppm_fit",
+      "artifact_role": "raw_io_diagnostic_only",
+      "artifact_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_open_flow_0620_mature_20260627_r1\\co2_r2\\p017_T20_200ppm_fit\\io_20260627_204218.csv",
+      "size_bytes": 554175,
+      "sha256": "016d1be3df22fb445fdb3c50c1f05b1503596721e96a873e8938833bc67dff7d"
+    },
+    {
+      "point_name": "p017_T20_200ppm_fit",
+      "artifact_role": "queue_manifest",
+      "artifact_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_open_flow_0620_mature_20260627_r1\\co2_r2\\new_algo_001_co2_0620_final_full_continuous_20260627_r2\\queue_manifest.csv",
+      "size_bytes": 76478,
+      "sha256": "46ca53453d15bd8630049464bc3a3d245676f58c6cd5be8f176e3f9f8baf7606"
+    },
+    {
+      "point_name": "p017_T20_200ppm_fit",
+      "artifact_role": "queue_manifest",
+      "artifact_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_open_flow_0620_mature_20260627_r1\\dry_run\\new_algo_001_co2_0620_final_full_continuous_20260627_r1_dryrun\\queue_manifest.csv",
+      "size_bytes": 88641,
+      "sha256": "aa631b16baba1f88538320099eefd5e702adc34d66fe04b1b52dd21d534f21a5"
+    },
+    {
+      "point_name": "p006_Tm20_1000ppm_fit",
+      "artifact_role": "sidecar",
+      "artifact_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_resume_20260628\\co2_Tm10_Tm20_COM35_r1\\p006_Tm20_1000ppm_fit\\formal_open_flow_sidecar_metadata.json",
+      "size_bytes": 1207,
+      "sha256": "6500544ba1a164ebda0e3dae59eb6004d008e1a5a0164649d4b09f5d3333e542"
+    },
+    {
+      "point_name": "p006_Tm20_1000ppm_fit",
+      "artifact_role": "route_timing",
+      "artifact_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_resume_20260628\\co2_Tm10_Tm20_COM35_r1\\p006_Tm20_1000ppm_fit\\formal_open_flow_route_timing.json",
+      "size_bytes": 532,
+      "sha256": "00144085442050c6011c7bf702f066a7e20b7934857355d3ed93e7d264626065"
+    },
+    {
+      "point_name": "p006_Tm20_1000ppm_fit",
+      "artifact_role": "raw_io_diagnostic_only",
+      "artifact_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_resume_20260628\\co2_Tm10_Tm20_COM35_r1\\p006_Tm20_1000ppm_fit\\io_20260628_134711.csv",
+      "size_bytes": 13773,
+      "sha256": "8cac1fcd9a1617888f462e9dc3fcad0d9ee5065f2d5a32208d08f97bd2ddcb98"
+    },
+    {
+      "point_name": "p006_Tm20_1000ppm_fit_retry1",
+      "artifact_role": "samples",
+      "artifact_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_resume_20260628\\co2_Tm10_Tm20_COM35_r1\\p006_Tm20_1000ppm_fit_retry1\\samples_machine_readable.csv",
+      "size_bytes": 48356,
+      "sha256": "878fa14d0e23bd631bcf13ded39371d2c2d81f9bded2731881386933bcd5e9b5"
+    },
+    {
+      "point_name": "p006_Tm20_1000ppm_fit_retry1",
+      "artifact_role": "frame_qc",
+      "artifact_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_resume_20260628\\co2_Tm10_Tm20_COM35_r1\\p006_Tm20_1000ppm_fit_retry1\\frame_quality_summary.csv",
+      "size_bytes": 174,
+      "sha256": "34b287cdc845094c885ecc37e19791aba634a34d8c36b17032e45db84484b105"
+    },
+    {
+      "point_name": "p006_Tm20_1000ppm_fit_retry1",
+      "artifact_role": "sidecar",
+      "artifact_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_resume_20260628\\co2_Tm10_Tm20_COM35_r1\\p006_Tm20_1000ppm_fit_retry1\\formal_open_flow_sidecar_metadata.json",
+      "size_bytes": 1214,
+      "sha256": "0d620c18bd2ec7d148744c5e60fc71e81efc0e13b5a6776d81c29b51fd3ae4be"
+    },
+    {
+      "point_name": "p006_Tm20_1000ppm_fit_retry1",
+      "artifact_role": "route_timing",
+      "artifact_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_resume_20260628\\co2_Tm10_Tm20_COM35_r1\\p006_Tm20_1000ppm_fit_retry1\\formal_open_flow_route_timing.json",
+      "size_bytes": 580,
+      "sha256": "4d663b08a2390c49160cace4d886ff078030f79ea326eacb63731558b0c3c236"
+    },
+    {
+      "point_name": "p006_Tm20_1000ppm_fit_retry1",
+      "artifact_role": "raw_io_diagnostic_only",
+      "artifact_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_resume_20260628\\co2_Tm10_Tm20_COM35_r1\\p006_Tm20_1000ppm_fit_retry1\\io_20260628_135452.csv",
+      "size_bytes": 141235,
+      "sha256": "1bc64b0e3eb4c08cf36f139afa2bb230c40db88fcf6df07b0ff31901de3c53a4"
+    },
+    {
+      "point_name": "p006_Tm20_1000ppm_fit",
+      "artifact_role": "queue_manifest",
+      "artifact_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_resume_20260628\\co2_Tm10_Tm20_COM35_r1\\new_algo_001_co2_resume_Tm10_Tm20_COM35_20260628_r1\\queue_manifest.csv",
+      "size_bytes": 12429,
+      "sha256": "b8759718aefa220f8f7f5478a710a28a9c598f381a7c96176143636e2001db29"
+    }
+  ],
+  "opens_com_ports": false,
+  "controls_pressure": false,
+  "controls_water_or_gas_routes": false,
+  "writes_coefficients": false,
+  "writes_sn_or_device_code": false,
+  "connects_postgresql": false,
+  "automatic_file_copy_allowed": false,
+  "automatic_qc_derivation_allowed": false,
+  "continuous_route_attestation_allowed": false,
+  "historical_fit_allowed": false,
+  "formal_release_allowed": false,
+  "database_import_allowed": false,
+  "not_real_acceptance_evidence": true
+}
