@@ -1,0 +1,3 @@
+﻿item_id,reason,resume_condition
+root_pollution_cleanup_and_v1_v2_deletion,根目录继续隔离，不影响 clean V1.5 正式路径。,生产闭环后单独做保留策略和删除评审。
+noncritical_ui_report_polish,非阻塞 UI/报告美化不应打断真实生产门禁。,出现明确生产可用性缺陷或 real acceptance 完成后恢复。
