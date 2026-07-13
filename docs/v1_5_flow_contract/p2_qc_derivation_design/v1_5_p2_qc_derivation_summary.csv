@@ -1,0 +1,9 @@
+﻿metric,value
+overall_status,blocked_missing_reviewed_qc_generator_contract
+candidate_count,125
+source_reference_count,126
+duplicate_source_reference_count,1
+input_complete_count,125
+input_incomplete_count,0
+manual_gate_review_count,125
+classification:input_complete_manual_gate_review_generator_missing,125
