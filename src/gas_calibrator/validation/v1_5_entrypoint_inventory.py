@@ -480,6 +480,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline historical component-QC generator preflight; revalidates P2 source hashes and overwrite boundaries while keeping generation, backfill, fitting, COM, and production promotion locked")
     elif lower == "export_v1_5_historical_component_qc_blocked_generator_plan":
         notes.append("offline historical component-QC blocked generator plan; revalidates the exact preflight and emits only a no-evaluation, no-write, no-overwrite preview")
+    elif lower == "export_v1_5_historical_component_qc_controlled_writer_design":
+        notes.append("offline historical component-QC controlled-writer design; records future authorization, exclusive-create, readback, and compensating-rollback contracts while keeping evaluator and writer absent")
     elif lower == "export_v1_5_automation_control_contract":
         notes.append("offline V1.5 automation control contract; keeps automation as a shell around the 0613/0620/0621 mature core")
     elif lower == "export_v1_5_full_flow_automation_closure":
@@ -717,6 +719,7 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             "export_v1_5_component_qc_reference_evaluator",
             "export_v1_5_historical_component_qc_generator_preflight",
             "export_v1_5_historical_component_qc_blocked_generator_plan",
+            "export_v1_5_historical_component_qc_controlled_writer_design",
         }:
             category = "formal_review_evidence"
             formal_status = "formal_support"
