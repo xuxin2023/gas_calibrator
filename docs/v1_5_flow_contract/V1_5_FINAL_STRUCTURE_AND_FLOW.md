@@ -110,7 +110,7 @@ V1.5 现在已经不是“找不到入口”的状态了。正式路径可以整
 9. 设置 MODE2、1 Hz 主动上传、滤波和启动运行配置。
 10. 新算法设备在腔体温度判稳后读取 `CHECK,YGAS,FFF`，记录两路电压和锁温监控状态；该动作只读。
 11. 生成初始化 bundle、runtime setup result、readiness/evidence index。
-12. 正式数据库写入前必须依次经过 dry-run、preflight、manual authorization、command contract、blocked executor stub、controlled executor design review。生产目标为 PostgreSQL 18，`sn_code/device_code` 是主身份，协议 ID 是兼容 alias；当前仍不允许真实 import。
+12. 正式数据库写入前必须依次经过 dry-run、preflight、manual authorization、command contract、blocked executor stub、controlled executor design review、deterministic transaction plan、transaction blocked executor。生产目标为 PostgreSQL 18，`sn_code/device_code` 是主身份，协议 ID 是兼容 alias；当前仍不允许真实 import。
 13. 初始化 ready 后才允许进入压力、温度、气路、水路。
 
 初始化阶段禁止做这些事：
@@ -200,6 +200,8 @@ CO2 和 H2O 的低端锚点不能混成一个概念：
 - `export_v1_5_formal_database_dry_run.py` 是正式数据库 dry-run contract；它只读代码中的 storage model 和 evidence registry 合同，输出 PostgreSQL 18 schema、identity 唯一键、insert preview、planned-device 唯一性检查和 release/import 边界，不连接 PostgreSQL，也不导入生产数据。
 - `import_v1_5_evidence_package.py` 当前是 PostgreSQL 18 blocked executor stub 和 legacy bundle dry-run 入口；它不再执行真实 import、不应用 migration、不写生产数据库。未来如果要真实入库，必须另做受控 executor 设计并追加双重授权、readback/import 证据。
 - `export_v1_5_formal_database_import_controlled_executor_design.py` 是未来真实 PostgreSQL 18 import executor 的离线设计评审；它定义 `--execute-controlled-import`、operator/reviewer/approver 授权、DSN secret、事务、pre-commit readback、rollback 和 post-commit hold 合同，但当前不连接 PostgreSQL、不写库。
+- `export_v1_5_formal_database_import_transaction_plan.py` 把 schema dry-run 和 controlled executor design 收敛为确定性的事务阶段、目标表、自然键、1-6 台 SN/device_code 身份、pre-commit readback 与 rollback 计划；所有 operation 固定为 `would_execute=false`，不生成可执行 SQL、不读取 DSN 值。
+- `run_v1_5_formal_database_import_transaction_blocked_executor.py` 是事务形状的默认拒绝执行层；它拒绝 execute、DSN、authorization、migration、archive/evidence 等真实解锁参数，只证明 PostgreSQL 18 仍未连接和未写入。
 - `export_v1_5_historical_replay_contract.py` 是历史数据 replay 合同 guard；它只做离线程序级回放解释检查，确认 0620/后续 legacy 数据仍按 R、45/13、QC/拟合/复验/归档角色解释，新算法数据只按 `A=-ln(R/R0(T))/(P_kPa/100)` 和 R0 证据做 shadow 评审，且 replay 通过不能释放归档或 PostgreSQL 18 入库。
 - `export_v1_5_historical_replay_evidence.py` 是历史证据读取/回放绑定器；它只读历史 CSV/JSON 点级证据，识别 CO2/H2O 点序、QC 等级、fit eligibility、reject reason、fit input profile 和 replay 状态。旧算法仍按成熟 45/13 点检查；新算法候选必须按 profile 中的 47 CO2 点 / 14 H2O 点检查，缺 `-20C 600ppm`、`-10C 600ppm` 或 `40C HGEN30C 30RH` 时只能进入 review_required，不修改成熟 runner，也不能授权 release 或入库。
 - `export_v1_5_historical_replay_missing_point_audit.py` 是历史 replay 缺点审计器；它只读 replay evidence 和历史分段/补跑目录，区分可审查绑定的 segmented/retry 质量候选、raw-only 候选、新算法 supplemental 未跑点和需要定点补跑的物理点，不会把缺失物理点提升为拟合合格点。

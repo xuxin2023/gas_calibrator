@@ -226,6 +226,16 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         help="Optional explicit PostgreSQL 18 controlled import executor design JSON.",
     )
     parser.add_argument(
+        "--formal-database-import-transaction-plan-json",
+        default="",
+        help="Optional explicit PostgreSQL 18 deterministic transaction plan JSON.",
+    )
+    parser.add_argument(
+        "--formal-database-import-transaction-blocked-executor-json",
+        default="",
+        help="Optional explicit PostgreSQL 18 transaction blocked-executor JSON.",
+    )
+    parser.add_argument(
         "--fail-on-blocked",
         action="store_true",
         help="Return exit code 2 when the rollup is blocked.",
@@ -346,6 +356,12 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             formal_database_import_controlled_executor_design_json=(
                 args.formal_database_import_controlled_executor_design_json or None
             ),
+            formal_database_import_transaction_plan_json=(
+                args.formal_database_import_transaction_plan_json or None
+            ),
+            formal_database_import_transaction_blocked_executor_json=(
+                args.formal_database_import_transaction_blocked_executor_json or None
+            ),
         )
         outputs = write_v1_5_formal_run_status_outputs(model, Path(args.output_dir))
         result = {
@@ -354,6 +370,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             "next_action": model.get("next_action"),
             "formal_release_allowed": model.get("formal_release_allowed"),
             "database_import_allowed": model.get("database_import_allowed"),
+            "database_import_transaction_package_ready": model.get(
+                "database_import_transaction_package_ready"
+            ),
             "can_continue_physical_flow": model.get("can_continue_physical_flow"),
             "outputs": outputs,
             "physical_boundaries": model.get("physical_boundaries"),

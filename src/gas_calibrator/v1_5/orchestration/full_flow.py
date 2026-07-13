@@ -627,6 +627,8 @@ def build_full_flow_live_runner_readiness(plan: FullFlowPlan) -> FullFlowLiveRun
                 "formal_database_import_command_contract_snapshot",
                 "formal_database_import_blocked_executor_snapshot",
                 "formal_database_import_controlled_executor_design_snapshot",
+                "formal_database_import_transaction_plan_snapshot",
+                "formal_database_import_transaction_blocked_executor_snapshot",
                 "database_import",
                 "final_evidence_status_refresh",
                 "algorithm_profile_runner_dry_run_snapshot",
@@ -1079,6 +1081,10 @@ def build_full_flow_plan(
     formal_database_import_blocked_executor_dir = root / "formal_database_import_blocked_executor"
     formal_database_import_controlled_executor_design_dir = (
         root / "formal_database_import_controlled_executor_design"
+    )
+    formal_database_import_transaction_plan_dir = root / "formal_database_import_transaction_plan"
+    formal_database_import_transaction_blocked_executor_dir = (
+        root / "formal_database_import_transaction_blocked_executor"
     )
     algorithm_profile_path = repo_root / "configs" / "v1_5_algorithm_route_profiles.json"
     runtime_bound_cfg = getco_dir / "runtime_identity_bound_config.json"
@@ -3128,6 +3134,95 @@ def build_full_flow_plan(
 
     steps.append(
         FullFlowStep(
+            step_id="formal_database_import_transaction_plan_snapshot",
+            title="Build deterministic PostgreSQL 18 import transaction plan without SQL or connection",
+            phase="FORMAL_DATABASE_IMPORT_TRANSACTION_PLAN",
+            tool_module="gas_calibrator.tools.export_v1_5_formal_database_import_transaction_plan",
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_formal_database_import_transaction_plan",
+                "--formal-database-dry-run-json",
+                formal_database_dry_run_dir / "v1_5_formal_database_dry_run.json",
+                "--formal-database-import-controlled-executor-design-json",
+                formal_database_import_controlled_executor_design_dir
+                / "v1_5_formal_database_import_controlled_executor_design.json",
+                "--formal-database-import-command-contract-json",
+                formal_database_import_command_contract_dir
+                / "v1_5_formal_database_import_command_contract.json",
+                "--formal-database-import-authorization-json",
+                formal_database_import_authorization_dir
+                / "v1_5_formal_database_import_authorization.json",
+                "--formal-database-import-preflight-json",
+                formal_database_import_preflight_dir / "v1_5_formal_database_import_preflight.json",
+                "--archive-closure-json",
+                root / "formal_archive_closure_from_full_chain" / "v1_5_formal_archive_closure_index.json",
+                "--evidence-bundle-json",
+                root / "formal_archive_closure_from_full_chain" / "evidence_bundle.json",
+                "--output-dir",
+                formal_database_import_transaction_plan_dir,
+                "--fail-on-blocker",
+            ),
+            required_inputs=(
+                "PostgreSQL 18 schema dry-run contract",
+                "controlled executor design",
+                "command/authorization/preflight sidecars",
+                "formal archive closure index and evidence bundle",
+            ),
+            expected_outputs=(
+                "formal_database_import_transaction_plan/v1_5_formal_database_import_transaction_plan.json",
+                "formal_database_import_transaction_plan/v1_5_formal_database_import_transaction_operations.csv",
+                "formal_database_import_transaction_plan/v1_5_formal_database_import_transaction_bindings.csv",
+                "formal_database_import_transaction_plan/V1_5_FORMAL_DATABASE_IMPORT_TRANSACTION_PLAN.md",
+            ),
+            physical_meaning=(
+                "Freeze exact import stages, target tables, natural keys, identity rules, pre-commit readback, "
+                "and rollback semantics before any PostgreSQL connection exists."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_before_database_import_execution",
+            notes=(
+                "This plan emits structured would_execute=false rows and no executable SQL.",
+                "It never reads the DSN value, connects PostgreSQL, applies migrations, or imports evidence.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
+            step_id="formal_database_import_transaction_blocked_executor_snapshot",
+            title="Run blocked PostgreSQL 18 transaction executor surface",
+            phase="FORMAL_DATABASE_IMPORT_TRANSACTION_BLOCKED_EXECUTOR",
+            tool_module=(
+                "gas_calibrator.tools.run_v1_5_formal_database_import_transaction_blocked_executor"
+            ),
+            command=_python_module(
+                "gas_calibrator.tools.run_v1_5_formal_database_import_transaction_blocked_executor",
+                "--transaction-plan-json",
+                formal_database_import_transaction_plan_dir
+                / "v1_5_formal_database_import_transaction_plan.json",
+                "--output-dir",
+                formal_database_import_transaction_blocked_executor_dir,
+                "--fail-on-blocked",
+            ),
+            required_inputs=("reviewed PostgreSQL 18 transaction plan",),
+            expected_outputs=(
+                "formal_database_import_transaction_blocked_executor/v1_5_formal_database_import_transaction_blocked_executor.json",
+                "formal_database_import_transaction_blocked_executor/V1_5_FORMAL_DATABASE_IMPORT_TRANSACTION_BLOCKED_EXECUTOR.md",
+            ),
+            physical_meaning=(
+                "Prove that the new transaction-shaped command surface still rejects all execute, DSN, "
+                "authorization, migration, archive, and evidence inputs before PostgreSQL can be opened."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_before_database_import_execution",
+            notes=(
+                "The blocked surface is not a real importer and intentionally returns non-zero with --fail-on-blocked.",
+                "No COM, analyzer write, pressure, gas route, water route, release, or database side effect is available.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
             step_id="database_import",
             title="Import evidence bundle into V1.5 PostgreSQL registry",
             phase="DATABASE_IMPORT",
@@ -3389,6 +3484,12 @@ def build_full_flow_plan(
                 "--formal-database-import-controlled-executor-design-json",
                 formal_database_import_controlled_executor_design_dir
                 / "v1_5_formal_database_import_controlled_executor_design.json",
+                "--formal-database-import-transaction-plan-json",
+                formal_database_import_transaction_plan_dir
+                / "v1_5_formal_database_import_transaction_plan.json",
+                "--formal-database-import-transaction-blocked-executor-json",
+                formal_database_import_transaction_blocked_executor_dir
+                / "v1_5_formal_database_import_transaction_blocked_executor.json",
                 "--senco-artifact-authorization-json",
                 main_senco_write_precheck_dir / "main_senco_artifact_authorization.json",
             ),
@@ -3523,6 +3624,8 @@ def build_full_flow_plan(
             "formal_database_import_command_contract_before_database_import",
             "formal_database_import_blocked_executor_before_database_import",
             "formal_database_import_controlled_executor_design_before_database_import",
+            "formal_database_import_transaction_plan_before_database_import",
+            "formal_database_import_transaction_blocked_executor_before_database_import",
             "evidence_bundle_database_report",
             "formal_run_status_dashboard",
         ),

@@ -64,6 +64,8 @@ REQUIRED_STEP_IDS = (
     "formal_database_import_command_contract_snapshot",
     "formal_database_import_blocked_executor_snapshot",
     "formal_database_import_controlled_executor_design_snapshot",
+    "formal_database_import_transaction_plan_snapshot",
+    "formal_database_import_transaction_blocked_executor_snapshot",
     "database_import",
     "zh_calibration_reports",
     "final_evidence_status_refresh",
@@ -119,6 +121,8 @@ REQUIRED_ORDER = (
     "formal_database_import_command_contract_snapshot",
     "formal_database_import_blocked_executor_snapshot",
     "formal_database_import_controlled_executor_design_snapshot",
+    "formal_database_import_transaction_plan_snapshot",
+    "formal_database_import_transaction_blocked_executor_snapshot",
     "database_import",
     "zh_calibration_reports",
     "final_evidence_status_refresh",
@@ -747,6 +751,18 @@ def validate_v1_5_formal_flow_contract(
     _require_before(
         step_ids,
         "formal_database_import_controlled_executor_design_snapshot",
+        "formal_database_import_transaction_plan_snapshot",
+        issues,
+    )
+    _require_before(
+        step_ids,
+        "formal_database_import_transaction_plan_snapshot",
+        "formal_database_import_transaction_blocked_executor_snapshot",
+        issues,
+    )
+    _require_before(
+        step_ids,
+        "formal_database_import_transaction_blocked_executor_snapshot",
         "database_import",
         issues,
     )
@@ -2011,6 +2027,94 @@ def validate_v1_5_formal_flow_contract(
                     issues=issues,
                     code="formal_database_import_controlled_executor_design_missing_required_flag",
                     message=f"Formal database import controlled executor design command must include {flag}",
+                )
+
+        if step_id == "formal_database_import_transaction_plan_snapshot":
+            if module != "gas_calibrator.tools.export_v1_5_formal_database_import_transaction_plan":
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_database_import_transaction_plan_wrong_tool",
+                        "Formal database import transaction plan must use the offline transaction-plan exporter",
+                        step_id,
+                    )
+                )
+            if bool(step.get("opens_com_ports")) or bool(step.get("controls_pressure")) or controls_route or writes:
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_database_import_transaction_plan_must_be_offline_no_write",
+                        "Formal database import transaction plan must not open COM, PostgreSQL, routes, pressure, or coefficient writes",
+                        step_id,
+                    )
+                )
+            if not str(step.get("execution_mode") or "").startswith("offline"):
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_database_import_transaction_plan_must_be_offline",
+                        "Formal database import transaction plan execution_mode must be offline",
+                        step_id,
+                    )
+                )
+            for flag in (
+                "--formal-database-dry-run-json",
+                "--formal-database-import-controlled-executor-design-json",
+                "--formal-database-import-command-contract-json",
+                "--formal-database-import-authorization-json",
+                "--formal-database-import-preflight-json",
+                "--archive-closure-json",
+                "--evidence-bundle-json",
+                "--output-dir",
+                "--fail-on-blocker",
+            ):
+                _require_flag(
+                    command,
+                    flag,
+                    step_id=step_id,
+                    issues=issues,
+                    code="formal_database_import_transaction_plan_missing_required_flag",
+                    message=f"Formal database import transaction plan command must include {flag}",
+                )
+
+        if step_id == "formal_database_import_transaction_blocked_executor_snapshot":
+            if module != (
+                "gas_calibrator.tools.run_v1_5_formal_database_import_transaction_blocked_executor"
+            ):
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_database_import_transaction_blocked_executor_wrong_tool",
+                        "Formal database transaction blocked executor must use the default-locked runner",
+                        step_id,
+                    )
+                )
+            if bool(step.get("opens_com_ports")) or bool(step.get("controls_pressure")) or controls_route or writes:
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_database_import_transaction_blocked_executor_must_be_offline_no_write",
+                        "Formal database transaction blocked executor must not open COM, PostgreSQL, routes, pressure, or coefficient writes",
+                        step_id,
+                    )
+                )
+            if not str(step.get("execution_mode") or "").startswith("offline"):
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_database_import_transaction_blocked_executor_must_be_offline",
+                        "Formal database transaction blocked executor execution_mode must be offline",
+                        step_id,
+                    )
+                )
+            for flag in ("--transaction-plan-json", "--output-dir", "--fail-on-blocked"):
+                _require_flag(
+                    command,
+                    flag,
+                    step_id=step_id,
+                    issues=issues,
+                    code="formal_database_import_transaction_blocked_executor_missing_required_flag",
+                    message=f"Formal database transaction blocked executor command must include {flag}",
                 )
 
         if step_id == "formal_run_status_snapshot":
