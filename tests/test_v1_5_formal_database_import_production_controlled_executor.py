@@ -12,6 +12,11 @@ from gas_calibrator.storage.v1_5_evidence.production_import import (
     ProductionImportError,
     validate_production_dsn,
 )
+from gas_calibrator.storage.v1_5_evidence.production_migration import (
+    EXPECTED_CONSTRAINTS,
+    LEDGER_COLUMNS,
+    LEDGER_INDEX,
+)
 from gas_calibrator.storage.v1_5_evidence.schema import load_migrations
 from gas_calibrator.tools import (
     run_v1_5_formal_database_import_production_controlled_executor as cli,
@@ -231,7 +236,85 @@ def _make_package(tmp_path: Path, *, count: int = 2) -> dict[str, Path]:
         evidence_bundle_json=bundle,
     )
     promotion = _write(tmp_path / "promotion_preflight.json", promotion_model)
-    return {"promotion": promotion, "plan": plan, "bundle": bundle, "staging": staging}
+    migration_checksums = {row.version: row.checksum for row in load_migrations()}
+    migration = _write(
+        tmp_path / "migration_execution.json",
+        {
+            "schema": "v1_5_formal_database_migration_production_controlled_executor_v1",
+            "overall_status": "production_migration_002_committed",
+            "execution_attempted": True,
+            "connects_postgresql": True,
+            "applies_migrations": True,
+            "transaction_started": True,
+            "transaction_committed": True,
+            "commit_uncertain": False,
+            "idempotent": False,
+            "migration_execution_confirmed": True,
+            "database_written": True,
+            "database_write_state": "committed",
+            "production_import_execution_allowed": False,
+            "database_import_allowed": False,
+            "formal_release_allowed": False,
+            "opens_com_ports": False,
+            "writes_sn": False,
+            "writes_device_id": False,
+            "writes_coefficients": False,
+            "controls_pressure": False,
+            "controls_water_or_gas_routes": False,
+            "not_real_acceptance_evidence": True,
+            "evidence_source": "postgresql18_migration_002_controlled_execution",
+            "execution_authorization_sha256": "e" * 64,
+            "production_target": {
+                "backend": "postgresql",
+                "postgresql_major": 18,
+                "database_name": "gas_calibrator",
+                "core_schema": "public",
+                "evidence_schema": "v1_5_evidence",
+                "dsn_env": "V1_5_POSTGRES_DSN",
+            },
+            "postcheck_state": {
+                "database_name": "gas_calibrator",
+                "postgresql_server_version_num": 180003,
+                "migration_001_checksum": migration_checksums[
+                    "001_v1_5_evidence_registry"
+                ],
+                "migration_002_checksum": migration_checksums[
+                    "002_v1_5_production_import_ledger"
+                ],
+                "ledger_table_present": True,
+                "ledger_columns": list(LEDGER_COLUMNS),
+                "ledger_constraints": sorted(EXPECTED_CONSTRAINTS),
+                "ledger_indexes": [LEDGER_INDEX],
+            },
+            "source_bindings": [
+                {"role": "dba_readiness", "path": "dba.json", "sha256": "a" * 64},
+                {"role": "precheck_sql", "path": "pre.sql", "sha256": "b" * 64},
+                {"role": "apply_sql", "path": "apply.sql", "sha256": "c" * 64},
+                {"role": "postcheck_sql", "path": "post.sql", "sha256": "d" * 64},
+            ],
+            "authorization_record": {
+                "authorization_id": "migration-auth-001",
+                "operator": "migration-operator",
+                "reviewer": "migration-reviewer",
+                "approver": "migration-approver",
+                "confirmation_matched": True,
+                "authorization_sha256": "e" * 64,
+                "source_sha256": {
+                    "dba_readiness": "a" * 64,
+                    "precheck_sql": "b" * 64,
+                    "apply_sql": "c" * 64,
+                    "postcheck_sql": "d" * 64,
+                },
+            },
+        },
+    )
+    return {
+        "promotion": promotion,
+        "plan": plan,
+        "bundle": bundle,
+        "staging": staging,
+        "migration": migration,
+    }
 
 
 def _authorization(paths: dict[str, Path], *, now: datetime | None = None) -> dict:
@@ -272,6 +355,7 @@ def _authorization(paths: dict[str, Path], *, now: datetime | None = None) -> di
                 ("promotion_preflight", "promotion"),
                 ("transaction_plan", "plan"),
                 ("evidence_bundle", "bundle"),
+                ("migration_execution", "migration"),
             )
         ],
     }
@@ -286,9 +370,11 @@ def test_preview_revalidates_promotion_and_remains_no_connect(
         promotion_preflight_json=paths["promotion"],
         transaction_plan_json=paths["plan"],
         evidence_bundle_json=paths["bundle"],
+        migration_execution_json=paths["migration"],
     )
 
     assert model["production_import_package_ready"] is True
+    assert model["migration_execution_confirmed"] is True
     assert model["planned_device_count"] == count
     assert model["dsn_value_read"] is False
     assert model["connects_postgresql"] is False
@@ -296,6 +382,79 @@ def test_preview_revalidates_promotion_and_remains_no_connect(
     assert model["production_import_execution_allowed"] is False
     assert model["formal_release_allowed"] is False
     assert model["applies_migrations"] is False
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_reason"),
+    [
+        (
+            lambda payload: payload.update(migration_execution_confirmed=False),
+            "migration_execution_confirmed_not_true",
+        ),
+        (
+            lambda payload: payload.update(commit_uncertain=True),
+            "migration_execution_boundary_commit_uncertain_invalid",
+        ),
+        (
+            lambda payload: payload["postcheck_state"].update(
+                migration_002_checksum="0" * 64
+            ),
+            "migration_execution_postcheck_migration_002_invalid",
+        ),
+        (
+            lambda payload: payload["postcheck_state"].update(ledger_columns=[]),
+            "migration_execution_postcheck_columns_invalid",
+        ),
+        (
+            lambda payload: payload["authorization_record"]["source_sha256"].update(
+                apply_sql="0" * 64
+            ),
+            "migration_execution_authorization_sources_mismatch",
+        ),
+    ],
+)
+def test_preview_blocks_unconfirmed_or_malformed_migration_evidence(
+    tmp_path: Path, mutation, expected_reason: str
+) -> None:
+    paths = _make_package(tmp_path)
+    payload = json.loads(paths["migration"].read_text(encoding="utf-8"))
+    mutation(payload)
+    _write(paths["migration"], payload)
+
+    model = build_production_import_preview(
+        promotion_preflight_json=paths["promotion"],
+        transaction_plan_json=paths["plan"],
+        evidence_bundle_json=paths["bundle"],
+        migration_execution_json=paths["migration"],
+    )
+
+    assert model["production_import_package_ready"] is False
+    assert model["migration_execution_confirmed"] is False
+    assert expected_reason in model["reasons"]
+
+
+def test_preview_accepts_confirmed_idempotent_migration_execution(
+    tmp_path: Path,
+) -> None:
+    paths = _make_package(tmp_path)
+    payload = json.loads(paths["migration"].read_text(encoding="utf-8"))
+    payload.update(
+        overall_status="production_migration_002_idempotent_noop",
+        idempotent=True,
+        database_written=False,
+        database_write_state="idempotent_noop",
+    )
+    _write(paths["migration"], payload)
+
+    model = build_production_import_preview(
+        promotion_preflight_json=paths["promotion"],
+        transaction_plan_json=paths["plan"],
+        evidence_bundle_json=paths["bundle"],
+        migration_execution_json=paths["migration"],
+    )
+
+    assert model["production_import_package_ready"] is True
+    assert model["migration_execution_confirmed"] is True
 
 
 def test_preview_blocks_plan_drift_after_promotion(tmp_path: Path) -> None:
@@ -308,6 +467,7 @@ def test_preview_blocks_plan_drift_after_promotion(tmp_path: Path) -> None:
         promotion_preflight_json=paths["promotion"],
         transaction_plan_json=paths["plan"],
         evidence_bundle_json=paths["bundle"],
+        migration_execution_json=paths["migration"],
     )
 
     assert model["production_import_package_ready"] is False
@@ -322,6 +482,7 @@ def test_execution_authorization_binds_exact_files_and_three_distinct_actors(
         promotion_preflight_json=paths["promotion"],
         transaction_plan_json=paths["plan"],
         evidence_bundle_json=paths["bundle"],
+        migration_execution_json=paths["migration"],
     )
     authorization = _write(tmp_path / "execution_authorization.json", _authorization(paths))
 
@@ -331,10 +492,12 @@ def test_execution_authorization_binds_exact_files_and_three_distinct_actors(
         promotion_preflight_json=paths["promotion"],
         transaction_plan_json=paths["plan"],
         evidence_bundle_json=paths["bundle"],
+        migration_execution_json=paths["migration"],
     )
 
     assert record["authorization_id"] == "production-execution-auth-001"
     assert record["three_distinct_actors"] is True
+    assert "migration_execution" in record["source_sha256"]
 
     payload = json.loads(authorization.read_text(encoding="utf-8"))
     payload["approver"] = payload["reviewer"]
@@ -346,6 +509,7 @@ def test_execution_authorization_binds_exact_files_and_three_distinct_actors(
             promotion_preflight_json=paths["promotion"],
             transaction_plan_json=paths["plan"],
             evidence_bundle_json=paths["bundle"],
+            migration_execution_json=paths["migration"],
         )
 
 
@@ -356,6 +520,7 @@ def test_expired_or_rebound_authorization_is_blocked(tmp_path: Path) -> None:
         promotion_preflight_json=paths["promotion"],
         transaction_plan_json=paths["plan"],
         evidence_bundle_json=paths["bundle"],
+        migration_execution_json=paths["migration"],
     )
     payload = _authorization(paths, now=current - timedelta(days=2))
     authorization = _write(tmp_path / "expired.json", payload)
@@ -366,6 +531,7 @@ def test_expired_or_rebound_authorization_is_blocked(tmp_path: Path) -> None:
             promotion_preflight_json=paths["promotion"],
             transaction_plan_json=paths["plan"],
             evidence_bundle_json=paths["bundle"],
+            migration_execution_json=paths["migration"],
             now=current,
         )
 
@@ -379,6 +545,7 @@ def test_expired_or_rebound_authorization_is_blocked(tmp_path: Path) -> None:
             promotion_preflight_json=paths["promotion"],
             transaction_plan_json=paths["plan"],
             evidence_bundle_json=paths["bundle"],
+            migration_execution_json=paths["migration"],
             now=current,
         )
 
@@ -403,6 +570,7 @@ def test_reviewed_execution_passes_exact_hashes_to_atomic_kernel(tmp_path: Path)
         promotion_preflight_json=paths["promotion"],
         transaction_plan_json=paths["plan"],
         evidence_bundle_json=paths["bundle"],
+        migration_execution_json=paths["migration"],
         execution_authorization_json=authorization,
         dsn="postgresql://ignored-for-injected-runner/gas_calibrator",
         transaction_runner=fake_runner,
@@ -438,6 +606,7 @@ def test_failed_transaction_keeps_import_and_release_closed(tmp_path: Path) -> N
         promotion_preflight_json=paths["promotion"],
         transaction_plan_json=paths["plan"],
         evidence_bundle_json=paths["bundle"],
+        migration_execution_json=paths["migration"],
         execution_authorization_json=authorization,
         dsn="postgresql://ignored-for-injected-runner/gas_calibrator",
         transaction_runner=rolled_back_runner,
@@ -482,6 +651,49 @@ def test_source_change_after_authorization_is_blocked_before_transaction(
             promotion_preflight_json=paths["promotion"],
             transaction_plan_json=paths["plan"],
             evidence_bundle_json=paths["bundle"],
+            migration_execution_json=paths["migration"],
+            execution_authorization_json=authorization,
+            dsn="postgresql://must-not-connect/gas_calibrator",
+            transaction_runner=forbidden_runner,
+        )
+    assert runner_called is False
+
+
+def test_migration_evidence_change_after_authorization_is_blocked(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = _make_package(tmp_path)
+    authorization = _write(tmp_path / "execution_authorization.json", _authorization(paths))
+    original_validate = validate_execution_authorization
+    runner_called = False
+
+    def validate_then_mutate(**kwargs):
+        record = original_validate(**kwargs)
+        migration = json.loads(paths["migration"].read_text(encoding="utf-8"))
+        migration["postcheck_state"]["ledger_columns"] = []
+        _write(paths["migration"], migration)
+        return record
+
+    def forbidden_runner(**_kwargs):
+        nonlocal runner_called
+        runner_called = True
+        raise AssertionError("transaction runner must stay closed")
+
+    module = __import__(
+        "gas_calibrator.validation.v1_5_formal_database_import_production_controlled_executor",
+        fromlist=["validate_execution_authorization"],
+    )
+    monkeypatch.setattr(module, "validate_execution_authorization", validate_then_mutate)
+
+    with pytest.raises(
+        ProductionImportError,
+        match="source_changed_after_validation:migration_execution",
+    ):
+        execute_reviewed_production_import(
+            promotion_preflight_json=paths["promotion"],
+            transaction_plan_json=paths["plan"],
+            evidence_bundle_json=paths["bundle"],
+            migration_execution_json=paths["migration"],
             execution_authorization_json=authorization,
             dsn="postgresql://must-not-connect/gas_calibrator",
             transaction_runner=forbidden_runner,
@@ -508,6 +720,7 @@ def test_commit_uncertain_keeps_database_write_state_unknown(tmp_path: Path) -> 
         promotion_preflight_json=paths["promotion"],
         transaction_plan_json=paths["plan"],
         evidence_bundle_json=paths["bundle"],
+        migration_execution_json=paths["migration"],
         execution_authorization_json=authorization,
         dsn="postgresql://ignored-for-injected-runner/gas_calibrator",
         transaction_runner=uncertain_runner,
@@ -538,6 +751,8 @@ def test_cli_preview_and_invalid_authorization_never_read_dsn(
                 str(paths["plan"]),
                 "--evidence-bundle-json",
                 str(paths["bundle"]),
+                "--migration-execution-json",
+                str(paths["migration"]),
                 "--output-dir",
                 str(tmp_path / "preview"),
             ]
@@ -557,6 +772,8 @@ def test_cli_preview_and_invalid_authorization_never_read_dsn(
                 str(paths["plan"]),
                 "--evidence-bundle-json",
                 str(paths["bundle"]),
+                "--migration-execution-json",
+                str(paths["migration"]),
                 "--execution-authorization-json",
                 str(invalid_authorization),
                 "--output-dir",
@@ -576,6 +793,50 @@ def test_cli_preview_and_invalid_authorization_never_read_dsn(
     assert blocked["connects_postgresql"] is False
 
 
+def test_cli_unconfirmed_migration_never_reads_dsn(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = _make_package(tmp_path)
+    migration = json.loads(paths["migration"].read_text(encoding="utf-8"))
+    migration["migration_execution_confirmed"] = False
+    _write(paths["migration"], migration)
+    authorization = _write(
+        tmp_path / "authorization.json", _authorization(paths)
+    )
+
+    def forbidden_read():
+        raise AssertionError("DSN must not be read")
+
+    monkeypatch.setattr(cli, "_read_production_dsn", forbidden_read)
+    result = cli.main(
+        [
+            "--promotion-preflight-json",
+            str(paths["promotion"]),
+            "--transaction-plan-json",
+            str(paths["plan"]),
+            "--evidence-bundle-json",
+            str(paths["bundle"]),
+            "--migration-execution-json",
+            str(paths["migration"]),
+            "--execution-authorization-json",
+            str(authorization),
+            "--output-dir",
+            str(tmp_path / "migration-blocked"),
+            "--execute-production-import",
+        ]
+    )
+    assert result == 2
+    blocked = json.loads(
+        (
+            tmp_path
+            / "migration-blocked/v1_5_formal_database_import_production_controlled_executor.json"
+        ).read_text(encoding="utf-8-sig")
+    )
+    assert blocked["migration_execution_confirmed"] is False
+    assert blocked["dsn_value_read"] is False
+    assert blocked["connects_postgresql"] is False
+
+
 def test_cli_rejects_target_overrides_before_inputs_are_loaded(tmp_path: Path) -> None:
     assert (
         cli.main(
@@ -586,6 +847,8 @@ def test_cli_rejects_target_overrides_before_inputs_are_loaded(tmp_path: Path) -
                 str(tmp_path / "missing-plan.json"),
                 "--evidence-bundle-json",
                 str(tmp_path / "missing-bundle.json"),
+                "--migration-execution-json",
+                str(tmp_path / "missing-migration.json"),
                 "--output-dir",
                 str(tmp_path / "output"),
                 "--database-name",

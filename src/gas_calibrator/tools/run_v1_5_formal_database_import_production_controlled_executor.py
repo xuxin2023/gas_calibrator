@@ -29,6 +29,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--promotion-preflight-json", required=True)
     parser.add_argument("--transaction-plan-json", required=True)
     parser.add_argument("--evidence-bundle-json", required=True)
+    parser.add_argument("--migration-execution-json", required=True)
     parser.add_argument("--execution-authorization-json", default="")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--execute-production-import", action="store_true")
@@ -75,6 +76,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             promotion_preflight_json=args.promotion_preflight_json,
             transaction_plan_json=args.transaction_plan_json,
             evidence_bundle_json=args.evidence_bundle_json,
+            migration_execution_json=args.migration_execution_json,
         )
         model = preview
         if args.execute_production_import:
@@ -90,6 +92,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         promotion_preflight_json=args.promotion_preflight_json,
                         transaction_plan_json=args.transaction_plan_json,
                         evidence_bundle_json=args.evidence_bundle_json,
+                        migration_execution_json=args.migration_execution_json,
                     )
                 except ProductionImportError as exc:
                     model = authorization_blocked_model(preview, str(exc))
@@ -111,6 +114,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                             promotion_preflight_json=args.promotion_preflight_json,
                             transaction_plan_json=args.transaction_plan_json,
                             evidence_bundle_json=args.evidence_bundle_json,
+                            migration_execution_json=args.migration_execution_json,
                             execution_authorization_json=args.execution_authorization_json,
                             dsn=dsn,
                         )

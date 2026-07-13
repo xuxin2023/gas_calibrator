@@ -13,9 +13,18 @@ from ..storage.v1_5_evidence.production_import import (
     PRODUCTION_CORE_SCHEMA,
     PRODUCTION_DATABASE_NAME,
     PRODUCTION_EVIDENCE_SCHEMA,
+    SHA256_RE,
     ProductionImportError,
     execute_production_import,
 )
+from ..storage.v1_5_evidence.production_migration import (
+    EXPECTED_CONSTRAINTS,
+    LEDGER_COLUMNS,
+    LEDGER_INDEX,
+    MIGRATION_001,
+    MIGRATION_002,
+)
+from ..storage.v1_5_evidence.schema import load_migrations
 from ..storage.v1_5_evidence.staging_import import (
     load_json_object,
     sha256_file,
@@ -25,6 +34,9 @@ from .v1_5_formal_database_import_production_promotion_preflight import (
     DEFAULT_PRODUCTION_DSN_ENV,
     READY_STATUS as PROMOTION_READY_STATUS,
     build_v1_5_formal_database_import_production_promotion_preflight,
+)
+from .v1_5_formal_database_migration_production_controlled_executor import (
+    SCHEMA as MIGRATION_EXECUTION_SCHEMA,
 )
 
 
@@ -92,16 +104,165 @@ def _parse_timestamp(value: Any, role: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
+def _migration_execution_reasons(
+    migration_execution_path: Path,
+) -> tuple[list[str], dict[str, Any]]:
+    reasons: list[str] = []
+    payload = _load(migration_execution_path)
+    if payload.get("schema") != MIGRATION_EXECUTION_SCHEMA:
+        reasons.append("migration_execution_schema_invalid")
+    if payload.get("overall_status") not in {
+        "production_migration_002_committed",
+        "production_migration_002_idempotent_noop",
+    }:
+        reasons.append("migration_execution_status_not_confirmed")
+    required_true = (
+        "execution_attempted",
+        "connects_postgresql",
+        "applies_migrations",
+        "transaction_started",
+        "transaction_committed",
+        "migration_execution_confirmed",
+    )
+    for field in required_true:
+        if payload.get(field) is not True:
+            reason_field = field.removeprefix("migration_execution_")
+            reasons.append(f"migration_execution_{reason_field}_not_true")
+    required_false = (
+        "commit_uncertain",
+        "production_import_execution_allowed",
+        "database_import_allowed",
+        "formal_release_allowed",
+        "opens_com_ports",
+        "writes_sn",
+        "writes_device_id",
+        "writes_coefficients",
+        "controls_pressure",
+        "controls_water_or_gas_routes",
+    )
+    for field in required_false:
+        if payload.get(field) is not False:
+            reasons.append(f"migration_execution_boundary_{field}_invalid")
+    expected_target = {
+        "backend": "postgresql",
+        "postgresql_major": 18,
+        "database_name": PRODUCTION_DATABASE_NAME,
+        "core_schema": PRODUCTION_CORE_SCHEMA,
+        "evidence_schema": PRODUCTION_EVIDENCE_SCHEMA,
+        "dsn_env": DEFAULT_PRODUCTION_DSN_ENV,
+    }
+    if payload.get("production_target") != expected_target:
+        reasons.append("migration_execution_production_target_invalid")
+    if payload.get("not_real_acceptance_evidence") is not True:
+        reasons.append("migration_execution_acceptance_boundary_invalid")
+    if payload.get("evidence_source") != (
+        "postgresql18_migration_002_controlled_execution"
+    ):
+        reasons.append("migration_execution_evidence_source_invalid")
+    status = str(payload.get("overall_status") or "")
+    idempotent = payload.get("idempotent")
+    if status == "production_migration_002_committed":
+        if idempotent is not False or payload.get("database_written") is not True:
+            reasons.append("migration_execution_committed_write_state_invalid")
+        if payload.get("database_write_state") != "committed":
+            reasons.append("migration_execution_committed_state_invalid")
+    elif status == "production_migration_002_idempotent_noop":
+        if idempotent is not True or payload.get("database_written") is not False:
+            reasons.append("migration_execution_idempotent_write_state_invalid")
+        if payload.get("database_write_state") != "idempotent_noop":
+            reasons.append("migration_execution_idempotent_state_invalid")
+
+    execution_bindings = _binding_map(payload)
+    expected_binding_roles = {
+        "dba_readiness",
+        "precheck_sql",
+        "apply_sql",
+        "postcheck_sql",
+    }
+    if set(execution_bindings) != expected_binding_roles:
+        reasons.append("migration_execution_source_bindings_invalid")
+    elif any(
+        not SHA256_RE.fullmatch(str(binding.get("sha256") or "").lower())
+        for binding in execution_bindings.values()
+    ):
+        reasons.append("migration_execution_source_binding_sha256_invalid")
+
+    post_state = payload.get("postcheck_state")
+    migrations = {row.version: row.checksum for row in load_migrations()}
+    if not isinstance(post_state, Mapping):
+        reasons.append("migration_execution_postcheck_state_missing")
+    else:
+        if post_state.get("database_name") != PRODUCTION_DATABASE_NAME:
+            reasons.append("migration_execution_postcheck_database_invalid")
+        server_version = int(post_state.get("postgresql_server_version_num") or 0)
+        if not 180000 <= server_version < 190000:
+            reasons.append("migration_execution_postcheck_version_invalid")
+        if post_state.get("migration_001_checksum") != migrations.get(MIGRATION_001):
+            reasons.append("migration_execution_postcheck_migration_001_invalid")
+        if post_state.get("migration_002_checksum") != migrations.get(MIGRATION_002):
+            reasons.append("migration_execution_postcheck_migration_002_invalid")
+        if post_state.get("ledger_table_present") is not True:
+            reasons.append("migration_execution_postcheck_ledger_missing")
+        if tuple(post_state.get("ledger_columns") or ()) != LEDGER_COLUMNS:
+            reasons.append("migration_execution_postcheck_columns_invalid")
+        if not EXPECTED_CONSTRAINTS.issubset(
+            set(str(value) for value in post_state.get("ledger_constraints") or ())
+        ):
+            reasons.append("migration_execution_postcheck_constraints_invalid")
+        if LEDGER_INDEX not in set(
+            str(value) for value in post_state.get("ledger_indexes") or ()
+        ):
+            reasons.append("migration_execution_postcheck_index_invalid")
+
+    authorization = payload.get("authorization_record")
+    if not isinstance(authorization, Mapping):
+        reasons.append("migration_execution_authorization_record_missing")
+    else:
+        actors = [
+            str(authorization.get(field) or "").strip()
+            for field in ("operator", "reviewer", "approver")
+        ]
+        if not all(actors) or len({value.casefold() for value in actors}) != 3:
+            reasons.append("migration_execution_authorization_actors_invalid")
+        if authorization.get("confirmation_matched") is not True:
+            reasons.append("migration_execution_authorization_confirmation_invalid")
+        authorization_sources = authorization.get("source_sha256")
+        if not isinstance(authorization_sources, Mapping):
+            reasons.append("migration_execution_authorization_sources_missing")
+        elif {
+            str(role): str(value).lower()
+            for role, value in authorization_sources.items()
+        } != {
+            role: str(binding.get("sha256") or "").lower()
+            for role, binding in execution_bindings.items()
+        }:
+            reasons.append("migration_execution_authorization_sources_mismatch")
+        authorization_sha256 = str(
+            authorization.get("authorization_sha256") or ""
+        ).lower()
+        if not SHA256_RE.fullmatch(authorization_sha256):
+            reasons.append("migration_execution_authorization_sha256_invalid")
+        if payload.get("execution_authorization_sha256") != authorization_sha256:
+            reasons.append("migration_execution_authorization_sha256_mismatch")
+        if not str(authorization.get("authorization_id") or "").strip():
+            reasons.append("migration_execution_authorization_id_missing")
+    return reasons, payload
+
+
 def _promotion_reasons(
     promotion_path: Path,
     plan_path: Path,
     bundle_path: Path,
+    migration_execution_path: Path,
 ) -> tuple[list[str], dict[str, Any], list[dict[str, str]]]:
     reasons: list[str] = []
     promotion = _load(promotion_path)
     plan = _load(plan_path)
     bundle = _load(bundle_path)
     devices: list[dict[str, str]] = []
+
+    migration_reasons, _ = _migration_execution_reasons(migration_execution_path)
+    reasons.extend(migration_reasons)
 
     if promotion.get("schema") != (
         "v1_5_formal_database_import_production_promotion_preflight_v1"
@@ -181,11 +342,13 @@ def build_production_import_preview(
     promotion_preflight_json: str | Path,
     transaction_plan_json: str | Path,
     evidence_bundle_json: str | Path,
+    migration_execution_json: str | Path,
 ) -> dict[str, Any]:
     paths = {
         "promotion_preflight": Path(promotion_preflight_json).resolve(),
         "transaction_plan": Path(transaction_plan_json).resolve(),
         "evidence_bundle": Path(evidence_bundle_json).resolve(),
+        "migration_execution": Path(migration_execution_json).resolve(),
     }
     reasons: list[str] = []
     promotion: dict[str, Any] = {}
@@ -195,10 +358,18 @@ def build_production_import_preview(
             paths["promotion_preflight"],
             paths["transaction_plan"],
             paths["evidence_bundle"],
+            paths["migration_execution"],
         )
     except Exception as exc:
         reasons.append(f"production_import_input_load_failed:{type(exc).__name__}")
     ready = not reasons
+    migration_evidence_ready = False
+    try:
+        migration_evidence_ready = not _migration_execution_reasons(
+            paths["migration_execution"]
+        )[0]
+    except Exception:
+        pass
     return {
         "schema": SCHEMA,
         "generated_at": _now(),
@@ -224,6 +395,7 @@ def build_production_import_preview(
         "run_id": str(promotion.get("run_id") or ""),
         "run_db_id": str(promotion.get("run_db_id") or ""),
         "table_counts": dict(promotion.get("table_counts") or {}),
+        "migration_execution_confirmed": migration_evidence_ready,
         "source_bindings": [
             {
                 "role": role,
@@ -280,6 +452,7 @@ def validate_execution_authorization(
     promotion_preflight_json: str | Path,
     transaction_plan_json: str | Path,
     evidence_bundle_json: str | Path,
+    migration_execution_json: str | Path,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     if preview.get("production_import_package_ready") is not True:
@@ -352,6 +525,7 @@ def validate_execution_authorization(
         ("promotion_preflight", promotion_preflight_json),
         ("transaction_plan", transaction_plan_json),
         ("evidence_bundle", evidence_bundle_json),
+        ("migration_execution", migration_execution_json),
     ):
         current_path = Path(raw_path).resolve()
         binding = bindings.get(role)
@@ -405,6 +579,7 @@ def execute_reviewed_production_import(
     promotion_preflight_json: str | Path,
     transaction_plan_json: str | Path,
     evidence_bundle_json: str | Path,
+    migration_execution_json: str | Path,
     execution_authorization_json: str | Path,
     dsn: str,
     transaction_runner: Callable[..., dict[str, Any]] = execute_production_import,
@@ -414,6 +589,7 @@ def execute_reviewed_production_import(
         promotion_preflight_json=promotion_preflight_json,
         transaction_plan_json=transaction_plan_json,
         evidence_bundle_json=evidence_bundle_json,
+        migration_execution_json=migration_execution_json,
     )
     authorization = validate_execution_authorization(
         execution_authorization_json=execution_authorization_json,
@@ -421,11 +597,13 @@ def execute_reviewed_production_import(
         promotion_preflight_json=promotion_preflight_json,
         transaction_plan_json=transaction_plan_json,
         evidence_bundle_json=evidence_bundle_json,
+        migration_execution_json=migration_execution_json,
     )
     source_paths = {
         "promotion_preflight": Path(promotion_preflight_json).resolve(),
         "transaction_plan": Path(transaction_plan_json).resolve(),
         "evidence_bundle": Path(evidence_bundle_json).resolve(),
+        "migration_execution": Path(migration_execution_json).resolve(),
     }
     snapshots: dict[str, dict[str, Any]] = {}
     snapshot_sha256: dict[str, str] = {}
@@ -442,6 +620,7 @@ def execute_reviewed_production_import(
         promotion_preflight_json=source_paths["promotion_preflight"],
         transaction_plan_json=source_paths["transaction_plan"],
         evidence_bundle_json=source_paths["evidence_bundle"],
+        migration_execution_json=source_paths["migration_execution"],
     )
     if revalidated_preview.get("production_import_package_ready") is not True:
         raise ProductionImportError("production_import_package_changed_after_authorization")
@@ -540,6 +719,9 @@ def write_production_import_outputs(
             {
                 "overall_status": model.get("overall_status"),
                 "planned_device_count": model.get("planned_device_count"),
+                "migration_execution_confirmed": model.get(
+                    "migration_execution_confirmed"
+                ),
                 "execution_attempted": model.get("execution_attempted"),
                 "transaction_committed": model.get("transaction_committed"),
                 "idempotent": model.get("idempotent"),
@@ -569,6 +751,7 @@ def write_production_import_outputs(
                 "It never grants formal calibration release and never controls analyzers or physical routes.",
                 "",
                 f"- overall_status: `{model.get('overall_status')}`",
+                f"- migration_execution_confirmed: `{model.get('migration_execution_confirmed')}`",
                 f"- execution_attempted: `{model.get('execution_attempted')}`",
                 f"- transaction_committed: `{model.get('transaction_committed')}`",
                 f"- idempotent: `{model.get('idempotent')}`",
@@ -576,7 +759,7 @@ def write_production_import_outputs(
                 f"- formal_release_allowed: `{model.get('formal_release_allowed')}`",
                 "",
                 "The target is fixed to PostgreSQL 18 database gas_calibrator, core schema public, and evidence schema v1_5_evidence.",
-                "The executor never creates schemas or applies migrations.",
+                "The executor never creates schemas or applies migrations; it requires a separately confirmed migration 002 execution artifact.",
             ]
         )
         + "\n",
