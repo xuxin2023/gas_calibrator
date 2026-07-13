@@ -1,0 +1,17 @@
+﻿metric,value
+overall_status,review_required_manual_offline_evidence_tasks
+task_count,181
+artifact_integrity_mismatch_count,0
+priority:P1_core_evidence,2
+priority:P2_quality_traceability,125
+priority:P3_forbidden_reference,47
+priority:P3_superseded_reference,7
+gap:accepted_composite_lineage_not_continuous,34
+gap:accepted_manifest_warning_requires_review,2
+gap:component_qc_missing,138
+gap:forbidden_0624_or_migration_source,47
+gap:frame_qc_missing,9
+gap:point_samples_missing,9
+gap:retry_or_recovery_lineage_not_continuous,13
+gap:same_physical_accepted_composite_alternative_exists,7
+gap:segmented_lineage_not_continuous,87
