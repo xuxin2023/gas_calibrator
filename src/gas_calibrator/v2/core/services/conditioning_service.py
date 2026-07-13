@@ -4,6 +4,8 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Mapping, Optional
 
+from ...exceptions import WorkflowValidationError
+
 
 class ConditioningService:
     """Config accessors and helpers for A2 route conditioning."""
@@ -3588,6 +3590,117 @@ class ConditioningService:
                 }
             )
         return updated, bool(ready_seen or predictive_ready or (urgent_seal_seen and not hard_abort_seen)), hard_abort_seen
+
+    def _verify_co2_preseal_atmosphere_hold_pressure(self, point: "CalibrationPoint") -> str:
+        ready_pressure_hpa = self.host._as_float(
+            self.host._cfg_get("workflow.pressure.preseal_ready_pressure_hpa", 1110.0)
+        )
+        urgent_seal_threshold_hpa = self.host._as_float(
+            self.host._cfg_get(
+                "workflow.pressure.preseal_capture_urgent_seal_threshold_hpa",
+                self.host._cfg_get(
+                    "workflow.pressure.preseal_urgent_seal_threshold_hpa",
+                    self.host._cfg_get("workflow.pressure.preseal_abort_pressure_hpa", 1150.0),
+                ),
+            )
+        )
+        hard_abort_pressure_hpa = self.host._as_float(
+            self.host._cfg_get("workflow.pressure.preseal_capture_hard_abort_pressure_hpa", 1250.0)
+        )
+
+        pressure_hpa = None
+        sample_age_s = None
+        pressure_source = "unknown"
+        sample_reader = getattr(
+            self.host.pressure_control_service,
+            "_current_high_pressure_first_point_sample",
+            None,
+        )
+        if callable(sample_reader):
+            try:
+                sample = sample_reader(
+                    stage="co2_preseal_atmosphere_hold",
+                    point_index=point.index,
+                )
+                if isinstance(sample, dict):
+                    pressure_hpa = self.host._as_float(sample.get("pressure_hpa"))
+                    sample_age_s = self.host._as_float(
+                        sample.get("sample_age_s", sample.get("pressure_sample_age_s"))
+                    )
+                    pressure_source = str(
+                        sample.get("pressure_source_used_for_decision")
+                        or sample.get("pressure_source_selected")
+                        or sample.get("source")
+                        or "digital_pressure_gauge"
+                    )
+            except Exception:
+                pass
+
+        guard_state = {
+            "ready_pressure_hpa": ready_pressure_hpa,
+            "urgent_seal_threshold_hpa": urgent_seal_threshold_hpa,
+            "hard_abort_pressure_hpa": hard_abort_pressure_hpa,
+            "pressure_source": pressure_source,
+            "sample_age_s": sample_age_s,
+        }
+        if pressure_hpa is None:
+            self.host._log(
+                "CO2 preseal atmosphere hold: pressure unavailable "
+                f"for point {point.index}"
+            )
+            self.host._record_workflow_timing(
+                "co2_preseal_atmosphere_hold_pressure_guard",
+                "warning",
+                stage="preseal_soak",
+                point=point,
+                pressure_hpa=None,
+                decision="pressure_unavailable",
+                route_state=guard_state,
+            )
+            return "ok"
+
+        self.host.a2_hooks.preseal_last_pressure_hpa = pressure_hpa
+        if hard_abort_pressure_hpa is not None and float(pressure_hpa) >= float(hard_abort_pressure_hpa):
+            self.host._record_workflow_timing(
+                "co2_preseal_atmosphere_hold_pressure_guard",
+                "fail",
+                stage="preseal_soak",
+                point=point,
+                pressure_hpa=pressure_hpa,
+                decision="hard_abort",
+                route_state=guard_state,
+            )
+            self.host._log(
+                "CO2 preseal atmosphere hold: hard abort - "
+                f"pressure {pressure_hpa} hPa >= {hard_abort_pressure_hpa} hPa "
+                f"at point {point.index}"
+            )
+            raise WorkflowValidationError(
+                "CO2 preseal atmosphere hold: pressure exceeds hard abort threshold",
+                details={
+                    "pressure_hpa": pressure_hpa,
+                    "hard_abort_pressure_hpa": hard_abort_pressure_hpa,
+                    "fail_closed_reason": "preseal_capture_hard_abort_pressure_exceeded",
+                },
+            )
+
+        if urgent_seal_threshold_hpa is not None and float(pressure_hpa) >= float(urgent_seal_threshold_hpa):
+            decision = "positive_preseal_arm_handoff"
+        elif ready_pressure_hpa is not None and float(pressure_hpa) >= float(ready_pressure_hpa):
+            decision = "positive_preseal_ready_handoff"
+        else:
+            decision = "ok"
+        self.host._record_workflow_timing(
+            "co2_preseal_atmosphere_hold_pressure_guard",
+            "info",
+            stage="preseal_soak",
+            point=point,
+            pressure_hpa=pressure_hpa,
+            decision=decision,
+            route_state=guard_state,
+        )
+        return decision
+
     def _a2_conditioning_pressure_sample(self, point: CalibrationPoint, *, phase: str) -> dict[str, Any]:
         stage = "co2_route_conditioning_at_atmosphere"
         pressure_source_mode = self.host._a2_conditioning_pressure_source_mode()

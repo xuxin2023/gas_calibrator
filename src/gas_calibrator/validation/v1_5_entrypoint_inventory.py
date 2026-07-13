@@ -434,6 +434,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline PostgreSQL 18 deterministic transaction plan; freezes stages, natural keys, readback, and rollback without SQL or connection")
     elif lower == "run_v1_5_formal_database_import_transaction_blocked_executor":
         notes.append("offline PostgreSQL 18 transaction blocked executor; refuses execute, DSN, authorization, migration, archive, and evidence inputs")
+    elif lower == "run_v1_5_final_offline_acceptance_suite":
+        notes.append("final offline acceptance suite; runs an exact pytest allowlist for V1.5 replay, mature-route, fit, writer, database locks, simulation, parity, and resilience without hardware or database access")
     elif lower == "export_v1_5_historical_replay_contract":
         notes.append("offline historical replay contract; validates replay interpretation without opening COM or releasing archive/database evidence")
     elif lower == "export_v1_5_historical_replay_evidence":
@@ -742,10 +744,15 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             "export_v1_5_historical_component_qc_controlled_writer_design",
             "export_v1_5_formal_database_import_transaction_plan",
             "run_v1_5_formal_database_import_transaction_blocked_executor",
+            "run_v1_5_final_offline_acceptance_suite",
         }:
             category = "formal_review_evidence"
             formal_status = "formal_support"
-            risk_level = "offline"
+            risk_level = (
+                "offline_subprocess_risk"
+                if lower == "run_v1_5_final_offline_acceptance_suite"
+                else "offline"
+            )
             opens_com_ports = False
             controls_routes = False
             writes_coefficients = False

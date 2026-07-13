@@ -1,0 +1,16 @@
+........................................................................ [ 22%]
+........................................................................ [ 44%]
+........................................................................ [ 66%]
+........................................................................ [ 88%]
+.....................................                                    [100%]
+============================== warnings summary ===============================
+tests\test_v1_5_entrypoint_inventory.py:20
+  D:\gas_calibrator\_worktrees\v1_5_final_offline_acceptance_suite_20260713\tests\test_v1_5_entrypoint_inventory.py:20: PytestUnknownMarkWarning: Unknown pytest.mark.v1_5_formal_gate - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = pytest.mark.v1_5_formal_gate
+
+tests\test_v1_5_formal_flow_contract.py:15
+  D:\gas_calibrator\_worktrees\v1_5_final_offline_acceptance_suite_20260713\tests\test_v1_5_formal_flow_contract.py:15: PytestUnknownMarkWarning: Unknown pytest.mark.v1_5_formal_gate - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = pytest.mark.v1_5_formal_gate
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+325 passed, 2 warnings in 399.25s (0:06:39)

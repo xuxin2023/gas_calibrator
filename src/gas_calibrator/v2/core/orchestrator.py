@@ -3099,11 +3099,50 @@ class WorkflowOrchestrator:
     def _a2_mark_preseal_capture_pressure(self, *args, **kwargs):
         return self.conditioning_service._a2_mark_preseal_capture_pressure(*args, **kwargs)
 
+    def _verify_co2_preseal_atmosphere_hold_pressure(self, point: CalibrationPoint) -> str:
+        return self.conditioning_service._verify_co2_preseal_atmosphere_hold_pressure(point)
+
+    def _refresh_live_analyzer_snapshots(self, *, force: bool = False, reason: str = "") -> bool:
+        return True
+
+    def _precondition_next_temperature_humidity(self, next_group: Any) -> None:
+        self._require_simulation_only_precondition_hook("humidity_generator", next_group)
+
+    def _precondition_next_temperature_chamber(self, next_group: Any) -> None:
+        self._require_simulation_only_precondition_hook("temperature_chamber", next_group)
+
+    def _require_simulation_only_precondition_hook(self, device_role: str, next_group: Any) -> None:
+        self._require_simulation_only_host_contract(
+            "next_temperature_precondition",
+            details={"device_role": device_role, "point_count": len(list(next_group or []))},
+        )
+
+    def _require_simulation_only_host_contract(
+        self,
+        contract_name: str,
+        *,
+        details: Optional[Mapping[str, Any]] = None,
+    ) -> None:
+        if not bool(getattr(getattr(self.config, "features", None), "simulation_mode", False)):
+            raise WorkflowValidationError(
+                f"V2 {contract_name} host contract is not implemented for live execution",
+                details={
+                    **dict(details or {}),
+                    "contract_name": contract_name,
+                    "simulation_only": True,
+                    "not_real_acceptance_evidence": True,
+                },
+            )
+
     def _get_latest_pressure_hpa(self) -> Optional[float]:
         return self.pressure_control_service._get_latest_pressure_hpa()
 
     def _apply_valve_states(self, open_valves):
         return self.valve_routing_service.apply_valve_states(open_valves or [])
+
+    def _set_h2o_path(self, is_open: bool, point: Optional[CalibrationPoint] = None) -> None:
+        self._require_simulation_only_host_contract("h2o_path_bridge")
+        self.valve_routing_service.set_h2o_path(is_open, point)
 
     def _enable_pressure_controller_output(self, *, reason: str = ""):
         return self.pressure_control_service.enable_pressure_controller_output(reason=reason)
