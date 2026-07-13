@@ -1,0 +1,55 @@
+{
+  "schema": "v1_5_formal_database_migration_production_execution_authorization_v1",
+  "template_only": true,
+  "requested_flag": "--execute-postgresql18-migration",
+  "confirmation_template": "v1_5_postgresql18_migration_002_reviewed_v1",
+  "operator_confirmed": false,
+  "authorization_id": "",
+  "operator": "",
+  "reviewer": "",
+  "approver": "",
+  "issued_at": "",
+  "expires_at": "",
+  "production_target": {
+    "backend": "postgresql",
+    "postgresql_major": 18,
+    "database_name": "gas_calibrator",
+    "core_schema": "public",
+    "evidence_schema": "v1_5_evidence",
+    "dsn_env": "V1_5_POSTGRES_DSN"
+  },
+  "boundaries": {
+    "applies_migration_002": true,
+    "production_evidence_import": false,
+    "opens_com_ports": false,
+    "writes_sn": false,
+    "writes_device_id": false,
+    "writes_coefficients": false,
+    "controls_pressure": false,
+    "controls_water_or_gas_routes": false,
+    "grants_database_import": false,
+    "grants_formal_release": false
+  },
+  "source_bindings": [
+    {
+      "role": "dba_readiness",
+      "path": "docs/v1_5_flow_contract/formal_database_migration_dba_readiness/v1_5_formal_database_migration_dba_readiness.json",
+      "sha256": "c7428eb983006e8f580a2ec268e530c70d8cc83307e9a33afcb8262db84b5459"
+    },
+    {
+      "role": "precheck_sql",
+      "path": "docs/v1_5_flow_contract/formal_database_migration_dba_readiness/01_v1_5_postgresql18_migration_precheck.sql",
+      "sha256": "f3e6f98a3dfd49cd9cdd4a4c915e76c8caa9f28a5fcc462ce60ec322a955bbac"
+    },
+    {
+      "role": "apply_sql",
+      "path": "docs/v1_5_flow_contract/formal_database_migration_dba_readiness/02_v1_5_postgresql18_apply_migration_002.sql",
+      "sha256": "18689190b5639cb1396a326423dafcbced5ded555c39b39f17acfc7eb6017e72"
+    },
+    {
+      "role": "postcheck_sql",
+      "path": "docs/v1_5_flow_contract/formal_database_migration_dba_readiness/03_v1_5_postgresql18_migration_postcheck.sql",
+      "sha256": "4a393c8b6893a918faa41e9de1337693044828b58fe0e3403d9d060696b3db4a"
+    }
+  ]
+}

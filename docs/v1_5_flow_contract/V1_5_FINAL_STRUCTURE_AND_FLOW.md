@@ -284,3 +284,12 @@ V1.5 结构整理基本完成前，必须保留一个只读收尾验收包：
 - The three SQL artifacts have their own SHA256 bindings, and a template-only execution record reserves operator/reviewer/approver plus precheck/apply/postcheck output hashes; the blank template is not execution evidence.
 - The exporter rejects DSN, connection, execution, apply-migration, and production-import arguments. It does not read `V1_5_POSTGRES_DSN`, connect PostgreSQL, apply a migration, write a row, or grant import/release authority.
 - A DBA must separately review the packet, execute with `ON_ERROR_STOP`, retain the pre/post-check output, and record operator/reviewer/approver approval. The production importer still refuses to create schemas or apply migrations itself.
+
+## 16. PostgreSQL 18 migration 002 controlled executor addendum (2026-07-14)
+
+- `run_v1_5_formal_database_migration_production_controlled_executor.py` is the only code path allowed to execute migration `002_v1_5_production_import_ledger`; it is not a generic migration runner.
+- Default invocation is a no-DSN/no-connect preview. Real execution requires `--execute-postgresql18-migration`, a fresh three-party authorization, and exact SHA256 bindings for the DBA readiness JSON plus precheck/apply/postcheck SQL.
+- The target is fixed to PostgreSQL 18 database `gas_calibrator`, schema `v1_5_evidence`, and DSN environment `V1_5_POSTGRES_DSN`; target, schema, migration-version, import, and release overrides are rejected.
+- Immediately before execution, the executor re-reads and re-hashes every bound artifact, rebuilds the readiness packet from repository migrations, then checks database/version/migration-001/migration-002/table state before starting the transaction.
+- A successful apply must also pass postcheck readback for the exact ledger columns, primary key, unique constraints, foreign key, and index. SQL failure rolls back when possible; connection-loss ambiguity is held as `commit_uncertain` and is never represented as confirmed no-write.
+- This executor never imports calibration evidence, opens COM, writes SN/device identity/SENCO coefficients, controls pressure/gas/water routes, modifies the 0613/0620/0621 mature calibration paths, grants database import, or grants formal release.
