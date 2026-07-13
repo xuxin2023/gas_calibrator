@@ -136,6 +136,14 @@ def _contract_reasons(contract: Mapping[str, Any]) -> list[str]:
     return sorted(set(reasons))
 
 
+def validate_v1_5_component_qc_generator_contract(
+    contract: Mapping[str, Any],
+) -> list[str]:
+    """Return contract violations without changing the design-only locks."""
+
+    return _contract_reasons(contract)
+
+
 def build_v1_5_component_qc_generator_contract_review(
     *, authority_audit_json_path: str | Path, contract_json_path: str | Path
 ) -> dict[str, Any]:
@@ -254,5 +262,6 @@ __all__ = [
     "CONTRACT_SCHEMA",
     "SCHEMA",
     "build_v1_5_component_qc_generator_contract_review",
+    "validate_v1_5_component_qc_generator_contract",
     "write_v1_5_component_qc_generator_contract_review",
 ]

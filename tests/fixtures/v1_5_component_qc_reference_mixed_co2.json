@@ -1,0 +1,35 @@
+{
+  "schema": "v1_5_component_qc_synthetic_fixture_v1",
+  "synthetic_fixture": true,
+  "evidence_source": "simulated",
+  "not_real_acceptance_evidence": true,
+  "component": "co2",
+  "point_id": "synthetic_mixed_co2_per_analyzer_independence",
+  "required_sample_count": 10,
+  "analyzers": [
+    {
+      "label": "GA01",
+      "prefix": "ga01"
+    },
+    {
+      "label": "GA02",
+      "prefix": "ga02"
+    }
+  ],
+  "temporal_window_complete": true,
+  "cadence_warning": false,
+  "sample_alignment_ok": false,
+  "point_flags": {},
+  "sample_rows": [
+    {"timestamp_s": 0.0, "ga01_frame_usable": true, "ga01_co2_ratio_f": 1.000000, "ga02_frame_usable": true, "ga02_co2_ratio_f": 1.000000},
+    {"timestamp_s": 1.0, "ga01_frame_usable": true, "ga01_co2_ratio_f": 1.000044, "ga02_frame_usable": true, "ga02_co2_ratio_f": 1.000133},
+    {"timestamp_s": 2.0, "ga01_frame_usable": true, "ga01_co2_ratio_f": 1.000089, "ga02_frame_usable": true, "ga02_co2_ratio_f": 1.000267},
+    {"timestamp_s": 3.0, "ga01_frame_usable": true, "ga01_co2_ratio_f": 1.000133, "ga02_frame_usable": true, "ga02_co2_ratio_f": 1.000400},
+    {"timestamp_s": 4.0, "ga01_frame_usable": true, "ga01_co2_ratio_f": 1.000178, "ga02_frame_usable": true, "ga02_co2_ratio_f": 1.000533},
+    {"timestamp_s": 5.0, "ga01_frame_usable": true, "ga01_co2_ratio_f": 1.000222, "ga02_frame_usable": true, "ga02_co2_ratio_f": 1.000667},
+    {"timestamp_s": 6.0, "ga01_frame_usable": true, "ga01_co2_ratio_f": 1.000267, "ga02_frame_usable": true, "ga02_co2_ratio_f": 1.000800},
+    {"timestamp_s": 7.0, "ga01_frame_usable": true, "ga01_co2_ratio_f": 1.000311, "ga02_frame_usable": true, "ga02_co2_ratio_f": 1.000933},
+    {"timestamp_s": 8.0, "ga01_frame_usable": true, "ga01_co2_ratio_f": 1.000356, "ga02_frame_usable": true, "ga02_co2_ratio_f": 1.001067},
+    {"timestamp_s": 9.0, "ga01_frame_usable": true, "ga01_co2_ratio_f": 1.000400, "ga02_frame_usable": true, "ga02_co2_ratio_f": 1.001200}
+  ]
+}
