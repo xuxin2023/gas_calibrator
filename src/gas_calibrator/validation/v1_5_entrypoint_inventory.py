@@ -434,6 +434,10 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline PostgreSQL 18 deterministic transaction plan; freezes stages, natural keys, readback, and rollback without SQL or connection")
     elif lower == "run_v1_5_formal_database_import_transaction_blocked_executor":
         notes.append("offline PostgreSQL 18 transaction blocked executor; refuses execute, DSN, authorization, migration, archive, and evidence inputs")
+    elif lower == "run_v1_5_formal_database_import_staging_executor":
+        notes.append("manual-authorized PostgreSQL 18 staging-only transaction executor; writes isolated staging schemas with atomic rollback and keeps production import/release locked")
+    elif lower == "query_v1_5_formal_database_import_staging":
+        notes.append("explicit read-only PostgreSQL 18 staging query; looks up SN, device_code, protocol ID, or run without production import/release authority")
     elif lower == "run_v1_5_final_offline_acceptance_suite":
         notes.append("final offline acceptance suite; runs an exact pytest allowlist for V1.5 replay, mature-route, fit, writer, database locks, simulation, parity, and resilience without hardware or database access")
     elif lower == "export_v1_5_historical_replay_contract":
@@ -761,6 +765,20 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             formal_status = "manual_authorized_read_only_com_support"
             risk_level = "real_com_read_only_no_write_risk"
             opens_com_ports = True
+            controls_routes = False
+            writes_coefficients = False
+        elif lower == "run_v1_5_formal_database_import_staging_executor":
+            category = "evidence_database"
+            formal_status = "manual_authorized_staging_database_only"
+            risk_level = "staging_database_write_risk"
+            opens_com_ports = False
+            controls_routes = False
+            writes_coefficients = False
+        elif lower == "query_v1_5_formal_database_import_staging":
+            category = "evidence_database"
+            formal_status = "explicit_staging_database_query_only"
+            risk_level = "staging_database_read_risk"
+            opens_com_ports = False
             controls_routes = False
             writes_coefficients = False
         elif lower in FORMAL_INITIALIZATION_SUPPORT_TOOL_NAMES:
