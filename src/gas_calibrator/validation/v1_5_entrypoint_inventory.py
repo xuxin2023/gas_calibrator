@@ -490,6 +490,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline V1.5 full-flow next-action plan; ranks remaining automation handoffs without executing hardware, writes, routes, or database imports")
     elif lower == "export_v1_5_final_production_gap_freeze":
         notes.append("offline V1.5 final production-gap freeze; supersedes stale gap snapshots and fixes the remaining production scope without executing hardware, writes, routes, or database imports")
+    elif lower == "export_v1_5_legacy_full_flow_offline_replay":
+        notes.append("offline V1.5 legacy full-flow offline replay; walks initialization through archive from historical evidence without promoting segmented data or executing hardware")
     elif lower == "export_v1_5_mature_route_continuity_gate":
         notes.append("offline V1.5 mature route continuity gate; blocks segmented, retry, direct-recovery, 0624/migration, diagnostic, worker, and empty manifest route evidence from formal fitting")
     elif lower == "export_v1_5_batch_initialization_closeout_index":
