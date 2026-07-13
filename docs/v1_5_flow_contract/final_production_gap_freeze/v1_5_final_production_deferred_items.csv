@@ -1,0 +1,4 @@
+﻿item_id,reason,resume_condition
+historical_component_qc_backfill_writer,Historical 125-point repair is useful for archaeology but is not required to finish the current production orchestrator.,Only resume by explicit user approval or when a frozen replay blocker cannot be resolved from canonical evidence.
+root_pollution_cleanup_and_v1_v2_deletion,The root worktree remains quarantined; deleting historical folders is not needed for V1.5 production closure.,Handle as a separate retention/cleanup review after production automation closes.
+noncritical_ui_report_polish,"Cosmetic expansion must not displace orchestration, fitting, writing, database, or acceptance work.",Resume after the final offline suite or for a concrete production usability defect.

@@ -1,0 +1,160 @@
+{
+  "schema": "v1_5_final_production_gap_freeze_v1",
+  "generated_at": "2026-07-13T08:06:16Z",
+  "overall_status": "production_gap_scope_frozen_offline_replay_next",
+  "scope_frozen": true,
+  "new_gap_requires_user_approval": true,
+  "source_origin_main_commit": "2dca3bcd67e35268110abd50cf4c3819b8ef330d",
+  "source_snapshot_policy": "latest_origin_main_before_this_freeze_package",
+  "supersedes": [
+    "v1_5_full_flow_automation_closure_v1_generated_20260710",
+    "v1_5_full_flow_next_action_plan_v1_generated_20260710"
+  ],
+  "mature_fitting_baseline": "0613 V1.5 fitting path",
+  "mature_route_baseline": "0620/0621 clean-worktree mature physical route path",
+  "legacy_point_counts": {
+    "co2": 45,
+    "h2o": 13
+  },
+  "new_algorithm_profile_point_counts": {
+    "co2": 47,
+    "h2o": 14
+  },
+  "critical_gap_count": 7,
+  "deferred_item_count": 3,
+  "recommended_next_gap_id": "legacy_full_flow_orchestrator_offline_replay",
+  "review_reasons": [],
+  "source_evidence": [
+    {
+      "role": "mature_route_contract",
+      "path": "docs\\v1_5_flow_contract\\mature_route_contract\\v1_5_mature_route_contract.json",
+      "status": "bound"
+    },
+    {
+      "role": "production_entrypoint_gate",
+      "path": "docs\\v1_5_flow_contract\\production_entrypoint_gate\\v1_5_production_entrypoint_gate.json",
+      "status": "bound"
+    },
+    {
+      "role": "component_qc_controlled_writer_design",
+      "path": "docs\\v1_5_flow_contract\\historical_component_qc_controlled_writer_design\\v1_5_historical_component_qc_controlled_writer_design.json",
+      "status": "bound"
+    },
+    {
+      "role": "algorithm_queue_handoff_preflight",
+      "path": "docs\\v1_5_flow_contract\\algorithm_queue_handoff_preflight\\v1_5_algorithm_queue_handoff_preflight.json",
+      "status": "bound"
+    },
+    {
+      "role": "postgresql18_controlled_import_design",
+      "path": "docs\\v1_5_flow_contract\\formal_database_import_controlled_executor_design\\v1_5_formal_database_import_controlled_executor_design.json",
+      "status": "bound"
+    },
+    {
+      "role": "superseded_full_flow_next_action_plan",
+      "path": "docs\\v1_5_flow_contract\\full_flow_next_action_plan\\v1_5_full_flow_next_action_plan.json",
+      "status": "bound"
+    }
+  ],
+  "critical_gaps": [
+    {
+      "priority": 1,
+      "gap_id": "legacy_full_flow_orchestrator_offline_replay",
+      "title": "旧算法全流程 orchestrator 离线 replay",
+      "status": "next",
+      "production_effect": "Prove that one state machine interprets initialization through archive in the mature order.",
+      "next_package": "Add a historical-replay-only legacy 45/13 orchestrator binder.",
+      "done_when": "A single replay explains every stage, exact evidence consumed, hold reason, and next action without promoting replay to real acceptance.",
+      "execution_boundary": "offline replay only; no COM, route, write, PostgreSQL, release, or import"
+    },
+    {
+      "priority": 2,
+      "gap_id": "production_component_qc_and_0613_fit_matrix",
+      "title": "生产 component-QC evaluator 与 0613 拟合策略矩阵",
+      "status": "pending",
+      "production_effect": "Replace historical/manual QC ambiguity with canonical per-analyzer inputs for CO2/H2O fitting.",
+      "next_package": "Implement reviewed production QC evaluation and the 0613 multi-strategy no-write fit selector.",
+      "done_when": "Every fit input has component-matched QC, physical supersede/reject reasons, anchor roles, and a no-write candidate decision.",
+      "execution_boundary": "calc first; no coefficient write in evaluator or strategy selection"
+    },
+    {
+      "priority": 3,
+      "gap_id": "unified_controlled_write_readback_reverify",
+      "title": "统一系数受控写入、读回与短复验闭环",
+      "status": "pending",
+      "production_effect": "Close the gap between accepted coefficients and per-device post-write evidence.",
+      "next_package": "Unify old-value snapshot, authorization, write, GETCO readback, rollback, and short reverify.",
+      "done_when": "Write success and validation success are reported separately for S1-S9 and SENCOA/B as applicable.",
+      "execution_boundary": "explicit authorization; paced writes; readback required; no implicit overwrite"
+    },
+    {
+      "priority": 4,
+      "gap_id": "new_algorithm_47_14_live_mature_queue_handoff",
+      "title": "新算法 47/14 点 live mature-queue 接入",
+      "status": "pending",
+      "production_effect": "Move the reviewed absorption profile from dry-run handoff to live use without forking the physical route.",
+      "next_package": "Add a separately authorized profile-to-mature-queue live adapter.",
+      "done_when": "47 CO2 and 14 H2O points run through the same 0620/0621 runners; only fit input/R0/write contracts differ.",
+      "execution_boundary": "do not modify legacy 45/13 default or mature point-internal route logic"
+    },
+    {
+      "priority": 5,
+      "gap_id": "postgresql18_controlled_import",
+      "title": "PostgreSQL 18 真实受控入库",
+      "status": "pending",
+      "production_effect": "Persist released calibration evidence with SN/device_code identity and protocol-ID aliases.",
+      "next_package": "Implement the authorized transaction executor behind archive closure and dry-run validation.",
+      "done_when": "Schema, uniqueness, preview, transaction, readback, rollback, and import lineage pass before database_import_allowed becomes true.",
+      "execution_boundary": "no import from route, fit, replay, or no-write evidence alone"
+    },
+    {
+      "priority": 6,
+      "gap_id": "final_offline_acceptance_suite",
+      "title": "最终 simulation/replay/parity/resilience 验收套件",
+      "status": "pending",
+      "production_effect": "Demonstrate program-level closure without confusing offline evidence with real acceptance.",
+      "next_package": "Run the frozen legacy replay plus entrypoint, mature-route, fit-parity, writer, archive, and DB-lock suites.",
+      "done_when": "All offline suites pass and every artifact retains not_real_acceptance_evidence=true.",
+      "execution_boundary": "offline evidence cannot unlock formal release, database import, or live execution"
+    },
+    {
+      "priority": 7,
+      "gap_id": "real_batch_acceptance_when_hardware_available",
+      "title": "真机批次 acceptance（设备可用时）",
+      "status": "hardware_deferred",
+      "production_effect": "Provide the only valid final evidence that the complete production chain works on a real batch.",
+      "next_package": "Run a separately authorized 1-6 analyzer legacy batch, then a new-algorithm batch after its live handoff closes.",
+      "done_when": "Continuous mature routes, fitting, controlled writes, reverify, archive, and PostgreSQL import close with real evidence.",
+      "execution_boundary": "requires explicit hardware authorization; not part of this offline package"
+    }
+  ],
+  "deferred_items": [
+    {
+      "item_id": "historical_component_qc_backfill_writer",
+      "reason": "Historical 125-point repair is useful for archaeology but is not required to finish the current production orchestrator.",
+      "resume_condition": "Only resume by explicit user approval or when a frozen replay blocker cannot be resolved from canonical evidence."
+    },
+    {
+      "item_id": "root_pollution_cleanup_and_v1_v2_deletion",
+      "reason": "The root worktree remains quarantined; deleting historical folders is not needed for V1.5 production closure.",
+      "resume_condition": "Handle as a separate retention/cleanup review after production automation closes."
+    },
+    {
+      "item_id": "noncritical_ui_report_polish",
+      "reason": "Cosmetic expansion must not displace orchestration, fitting, writing, database, or acceptance work.",
+      "resume_condition": "Resume after the final offline suite or for a concrete production usability defect."
+    }
+  ],
+  "evidence_source": "offline_repository_review",
+  "full_production_auto_allowed": false,
+  "live_queue_execution_allowed": false,
+  "formal_release_allowed": false,
+  "database_import_allowed": false,
+  "opens_com_ports": false,
+  "controls_pressure": false,
+  "controls_water_or_gas_routes": false,
+  "writes_coefficients": false,
+  "writes_sn_or_device_code": false,
+  "connects_postgresql": false,
+  "not_real_acceptance_evidence": true
+}
