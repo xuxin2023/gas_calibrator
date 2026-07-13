@@ -1,0 +1,201 @@
+{
+  "schema": "v1_5_final_production_external_gate_freeze_v1",
+  "generated_at": "2026-07-13T18:46:20Z",
+  "overall_status": "program_automation_complete_real_production_evidence_pending",
+  "scope_frozen": true,
+  "source_origin_main_commit": "dbbed56689f2d48bd79339fa9af8bea58775fed4",
+  "supersedes": [
+    "v1_5_final_production_gap_freeze_v1"
+  ],
+  "mature_fitting_baseline": "0613 V1.5 fitting path",
+  "mature_route_baseline": "0620/0621 clean-worktree mature physical route path",
+  "legacy_point_counts": {
+    "co2": 45,
+    "h2o": 13
+  },
+  "new_algorithm_point_counts": {
+    "co2": 47,
+    "h2o": 14
+  },
+  "program_capability_count": 7,
+  "remaining_external_gate_count": 6,
+  "recommended_next_gate_id": "production_postgresql18_migration_002_authorization_and_execution",
+  "program_structure_and_offline_automation_complete": true,
+  "postgresql18_real_staging_integration_verified": true,
+  "real_production_acceptance_complete": false,
+  "review_reasons": [],
+  "source_evidence": [
+    {
+      "role": "previous_gap_freeze",
+      "path": "docs\\v1_5_flow_contract\\final_production_gap_freeze\\v1_5_final_production_gap_freeze.json",
+      "status": "bound"
+    },
+    {
+      "role": "legacy_full_flow_offline_replay",
+      "path": "docs\\v1_5_flow_contract\\legacy_full_flow_offline_replay\\v1_5_legacy_full_flow_offline_replay.json",
+      "status": "bound"
+    },
+    {
+      "role": "production_component_qc_fit_matrix",
+      "path": "docs\\v1_5_flow_contract\\production_component_qc_fit_matrix\\v1_5_production_component_qc_fit_matrix.json",
+      "status": "bound"
+    },
+    {
+      "role": "unified_controlled_write_reverify",
+      "path": "docs\\v1_5_flow_contract\\unified_controlled_write_reverify\\v1_5_unified_controlled_write_readback_reverify.json",
+      "status": "bound"
+    },
+    {
+      "role": "new_algorithm_mature_queue_live_handoff",
+      "path": "docs\\v1_5_flow_contract\\new_algorithm_mature_queue_live_handoff\\v1_5_new_algorithm_mature_queue_live_handoff.json",
+      "status": "bound"
+    },
+    {
+      "role": "final_offline_acceptance_suite",
+      "path": "docs\\v1_5_flow_contract\\final_offline_acceptance_suite\\v1_5_final_offline_acceptance_suite.json",
+      "status": "bound"
+    },
+    {
+      "role": "production_migration_executor",
+      "path": "docs\\v1_5_flow_contract\\formal_database_migration_production_controlled_executor\\v1_5_formal_database_migration_production_controlled_executor.json",
+      "status": "bound"
+    },
+    {
+      "role": "postgresql18_real_staging_integration",
+      "path": "docs\\v1_5_flow_contract\\formal_database_import_staging_executor\\V1_5_FORMAL_DATABASE_IMPORT_STAGING_REAL_INTEGRATION_TEST_EVIDENCE_20260714.md",
+      "status": "bound"
+    }
+  ],
+  "program_capabilities": [
+    {
+      "capability_id": "mature_route_and_entrypoint_protection",
+      "title": "0613 拟合与 0620/0621 成熟物理路径保护",
+      "status": "implemented_and_tested",
+      "evidence_role": "previous_gap_freeze",
+      "production_meaning": "正式流程只认成熟 V1.5 路径，迁移版、0624、diagnostic、worker、V1/V2 均不得升格。"
+    },
+    {
+      "capability_id": "legacy_full_flow_orchestrator_offline_replay",
+      "title": "旧算法 45/13 全流程 orchestrator 离线 replay",
+      "status": "implemented_and_tested_real_evidence_held",
+      "evidence_role": "legacy_full_flow_offline_replay",
+      "production_meaning": "程序可解释初始化到归档的完整顺序，但不会把离线 replay 冒充真机 acceptance。"
+    },
+    {
+      "capability_id": "production_component_qc_and_0613_fit_matrix",
+      "title": "生产 component-QC 与 0613 多策略拟合矩阵",
+      "status": "implemented_and_tested_current_batch_continuity_required",
+      "evidence_role": "production_component_qc_fit_matrix",
+      "production_meaning": "程序已具备逐设备、逐组件 QC 和 no-write 策略评审；真实拟合仍需连续批次证据。"
+    },
+    {
+      "capability_id": "unified_controlled_write_readback_reverify",
+      "title": "统一系数写入、GETCO 读回、回滚和短复验状态机",
+      "status": "implemented_contract_ready_candidate_required",
+      "evidence_role": "unified_controlled_write_reverify",
+      "production_meaning": "写入成功与复验成功已分离建模；没有获批候选时绝不允许写设备。"
+    },
+    {
+      "capability_id": "new_algorithm_47_14_mature_queue_handoff",
+      "title": "新算法 47/14 成熟队列 handoff 合同",
+      "status": "implemented_contract_ready_live_locked",
+      "evidence_role": "new_algorithm_mature_queue_live_handoff",
+      "production_meaning": "新旧算法共用 0620/0621 点内物理路径；新算法 live 执行仍需独立授权与真机 smoke。"
+    },
+    {
+      "capability_id": "postgresql18_staging_migration_import_chain",
+      "title": "PostgreSQL 18 staging、migration 002 与 production import 链",
+      "status": "implemented_and_real_staging_verified_production_locked",
+      "evidence_role": "production_migration_executor",
+      "production_meaning": "真实隔离 staging 已验证原子性、幂等、查询和回滚；生产迁移与入库仍分别授权。"
+    },
+    {
+      "capability_id": "final_offline_acceptance_suite",
+      "title": "最终 simulation/replay/parity/resilience 离线验收",
+      "status": "passed_real_acceptance_locked",
+      "evidence_role": "final_offline_acceptance_suite",
+      "production_meaning": "程序级验收已通过，但所有离线证据继续标记为非 real acceptance。"
+    }
+  ],
+  "remaining_external_gates": [
+    {
+      "priority": 1,
+      "gate_id": "production_postgresql18_migration_002_authorization_and_execution",
+      "title": "生产 PostgreSQL 18 migration 002 三方授权与受控执行",
+      "status": "external_authorization_required",
+      "blocked_by": "current operator/reviewer/approver identities and signed authorization packet",
+      "done_when": "受控 executor 在固定 gas_calibrator/v1_5_evidence 目标执行 migration 002，保留 pre/apply/post、cluster system_identifier 和确认 artifact。",
+      "execution_boundary": "不得虚构三方身份；不得由 production importer 代做 migration；失败或 commit uncertain 必须 hold。"
+    },
+    {
+      "priority": 2,
+      "gate_id": "current_batch_continuous_mature_route_evidence",
+      "title": "当前 1-6 台真实批次连续成熟路径证据",
+      "status": "hardware_required",
+      "blocked_by": "connected analyzers and separately authorized production run",
+      "done_when": "旧算法批次完成连续 45 CO2/13 H2O；新算法批次在获批后完成 47/14，且点内路径均为 0620/0621。",
+      "execution_boundary": "不能用 segmented/retry/direct-recovery/0624/migration 路径拼成连续正式证据。"
+    },
+    {
+      "priority": 3,
+      "gate_id": "current_batch_fit_candidate_approval",
+      "title": "当前批次 QC、0613 多策略拟合与候选批准",
+      "status": "blocked_by_current_batch_evidence",
+      "blocked_by": "gate 2 continuous evidence and reviewer-approved fit candidates",
+      "done_when": "每台设备的 CO2/H2O 输入、剔除/替代原因、低端锚点和最大误差均可追溯，并产生 no-write approved candidate。",
+      "execution_boundary": "CO2 zero gas 与 H2O dry-gas anchor 必须分开；没有候选不得进入写入。"
+    },
+    {
+      "priority": 4,
+      "gate_id": "device_controlled_write_readback_short_reverify",
+      "title": "真实设备受控写入、读回与短复验",
+      "status": "blocked_by_fit_candidate_and_hardware",
+      "blocked_by": "gate 3 approved candidates, live hardware, and explicit write authorization",
+      "done_when": "按槽位快照旧值、节拍写入、GETCO 读回、必要时回滚，并将 write success 与 validation success 分开记录。",
+      "execution_boundary": "不得隐式覆盖；SENCO5 必须基于当前 GETCO5 做组合变换；失败不得刷新 release/import。"
+    },
+    {
+      "priority": 5,
+      "gate_id": "new_algorithm_47_14_live_smoke_and_batch_acceptance",
+      "title": "新算法 47/14 live handoff smoke 与批次 acceptance",
+      "status": "hardware_and_separate_authorization_required",
+      "blocked_by": "new-algorithm hardware, R0/write readiness, and separate live authorization",
+      "done_when": "先以最小 smoke 证明 profile 只改变点表/拟合/R0/write contract，再完成真实 47/14 批次。",
+      "execution_boundary": "不得修改旧算法 45/13 默认队列或 0620/0621 点内物理动作。"
+    },
+    {
+      "priority": 6,
+      "gate_id": "production_evidence_import_archive_and_release",
+      "title": "生产证据入库、读回、归档和正式 release",
+      "status": "blocked_by_migration_real_archive_and_separate_authorization",
+      "blocked_by": "gate 1 migration artifact, real archive closure, and a fresh import authorization packet",
+      "done_when": "production importer 绑定 promotion/plan/bundle/migration 四个哈希和同一 cluster system_identifier，原子入库并查询读回后再刷新归档/状态。",
+      "execution_boundary": "migration、import、formal release 是独立门禁；入库成功本身不等于校准 release。"
+    }
+  ],
+  "deferred_items": [
+    {
+      "item_id": "root_pollution_cleanup_and_v1_v2_deletion",
+      "reason": "根目录继续隔离，不影响 clean V1.5 正式路径。",
+      "resume_condition": "生产闭环后单独做保留策略和删除评审。"
+    },
+    {
+      "item_id": "noncritical_ui_report_polish",
+      "reason": "非阻塞 UI/报告美化不应打断真实生产门禁。",
+      "resume_condition": "出现明确生产可用性缺陷或 real acceptance 完成后恢复。"
+    }
+  ],
+  "full_production_auto_allowed": false,
+  "live_queue_execution_allowed": false,
+  "formal_release_allowed": false,
+  "database_import_allowed": false,
+  "production_database_migrated": false,
+  "production_database_written": false,
+  "opens_com_ports": false,
+  "controls_pressure": false,
+  "controls_water_or_gas_routes": false,
+  "writes_coefficients": false,
+  "writes_sn_or_device_code": false,
+  "connects_postgresql": false,
+  "not_real_acceptance_evidence": true
+}
