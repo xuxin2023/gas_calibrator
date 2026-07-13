@@ -292,7 +292,12 @@ def build_v1_5_historical_component_qc_generator_preflight(
     candidates: list[dict[str, Any]] = []
     artifact_checks: list[dict[str, Any]] = []
     seen_candidate_paths: set[str] = set()
-    for candidate in p2.get("candidates") or []:
+    raw_candidates = p2.get("candidates")
+    candidate_rows = raw_candidates if isinstance(raw_candidates, list) else []
+    for row_index, candidate in enumerate(candidate_rows, start=1):
+        if not isinstance(candidate, Mapping):
+            global_reasons.append(f"p2_candidate_row_not_object:row_{row_index}")
+            continue
         point_key = _path_key(candidate.get("point_dir"))
         if point_key in seen_candidate_paths:
             global_reasons.append(f"duplicate_p2_candidate_point_dir:{point_key}")
