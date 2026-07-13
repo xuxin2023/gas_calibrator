@@ -470,6 +470,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline P1 evidence lineage audit; searches only bounded same-run siblings for retry evidence without copying files, deriving QC, or binding cross-run data")
     elif lower == "export_v1_5_p2_qc_derivation_design":
         notes.append("offline P2 component-QC derivation design; validates same-point input structure while keeping QC generation and fit promotion blocked until a reviewed mature generator exists")
+    elif lower == "export_v1_5_component_qc_authority_audit":
+        notes.append("offline component-QC authority audit; separates mature pre-sample stability gates from the untracked 0624/migration writer and keeps QC backfill blocked")
     elif lower == "export_v1_5_automation_control_contract":
         notes.append("offline V1.5 automation control contract; keeps automation as a shell around the 0613/0620/0621 mature core")
     elif lower == "export_v1_5_full_flow_automation_closure":
@@ -702,6 +704,7 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             "export_v1_5_legacy_evidence_gap_task_plan",
             "export_v1_5_p1_evidence_lineage_audit",
             "export_v1_5_p2_qc_derivation_design",
+            "export_v1_5_component_qc_authority_audit",
         }:
             category = "formal_review_evidence"
             formal_status = "formal_support"

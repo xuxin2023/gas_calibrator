@@ -1,0 +1,7 @@
+﻿metric,value
+overall_status,blocked_no_reviewed_mature_component_qc_authority
+p2_candidate_count,125
+p2_manual_gate_review_count,125
+historical_component_qc_artifact_count,43
+tracked_component_qc_writer_present,False
+component_qc_generation_allowed,False

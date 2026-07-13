@@ -1,0 +1,111 @@
+{
+  "schema": "v1_5_component_qc_authority_audit_v1",
+  "generated_at": "2026-07-13T03:06:14Z",
+  "overall_status": "blocked_no_reviewed_mature_component_qc_authority",
+  "upstream_blocker_codes": [],
+  "authority_gap_codes": [
+    "all_observed_component_qc_artifacts_are_0624_or_migration",
+    "component_qc_writer_absent_from_git_history",
+    "h2o_historical_component_qc_examples_missing",
+    "tracked_mature_component_qc_writer_missing"
+  ],
+  "repo_root": "D:\\gas_calibrator\\_worktrees\\v1_5_component_qc_authority_audit_20260713",
+  "repo_head": "ae412c30e6eeef467fa98f350962f78002ea56f2",
+  "p2_design_path": "D:\\gas_calibrator\\_worktrees\\v1_5_component_qc_authority_audit_20260713\\docs\\v1_5_flow_contract\\p2_qc_derivation_design\\v1_5_p2_qc_derivation_design.json",
+  "p2_design_sha256": "bb60704f87cb5e3e01f924e6166f451b145fc57c8b0499fdd4860a19a6916075",
+  "legacy_catalog_path": "D:\\gas_calibrator\\_worktrees\\v1_5_component_qc_authority_audit_20260713\\docs\\v1_5_flow_contract\\legacy_historical_evidence_catalog\\v1_5_legacy_historical_evidence_catalog.json",
+  "legacy_catalog_sha256": "c8d3b75540788f71803ca7c3934c5fc107988f2067db6a4b6c40dfec14d3a28a",
+  "p2_candidate_count": 125,
+  "p2_manual_gate_review_count": 125,
+  "mature_sampler_reviews": [
+    {
+      "authority_role": "mature_pre_sample_stability_contract",
+      "component": "co2",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_component_qc_authority_audit_20260713\\src\\gas_calibrator\\tools\\run_v1_5_formal_open_flow_sampling.py",
+      "tracked_at_head": true,
+      "sha256": "ba449d548c9be08df3892e31c0e7132f914b0a0fb701a28ef0bb352398383ee3",
+      "preseal_hard_tolerance_marker": true,
+      "preseal_a_grade_tolerance_marker": true,
+      "preseal_min_samples_marker": true,
+      "component_qc_writer_imported": false,
+      "component_qc_filename_present": false,
+      "is_component_qc_writer_authority": false
+    },
+    {
+      "authority_role": "mature_pre_sample_stability_contract",
+      "component": "h2o",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_component_qc_authority_audit_20260713\\src\\gas_calibrator\\tools\\run_v1_5_formal_h2o_open_flow_sampling.py",
+      "tracked_at_head": true,
+      "sha256": "b7ccfa6deac7749341308550ee90ac8cb3d801951999e8d18d1f4092800772a7",
+      "preseal_hard_tolerance_marker": true,
+      "preseal_a_grade_tolerance_marker": true,
+      "preseal_min_samples_marker": true,
+      "component_qc_writer_imported": false,
+      "component_qc_filename_present": false,
+      "is_component_qc_writer_authority": false
+    }
+  ],
+  "tracked_component_qc_writer_present": false,
+  "tracked_component_qc_writer_history_commits": [],
+  "polluted_writer_review": {
+    "authority_role": "polluted_root_migration_writer_schema_reference_only",
+    "path": "D:\\gas_calibrator\\src\\gas_calibrator\\validation\\v1_5_open_flow_quality.py",
+    "exists": true,
+    "tracked_in_polluted_root": false,
+    "sha256": "07a63eb31ef5e6701d0b0257c699ecc3049e09cd981e1a6e512f52b17833ef0e",
+    "has_grade_tokens": true,
+    "writes_expected_csv": true,
+    "has_ratio_tol_fields": true,
+    "co2_sampler_imports_writer": true,
+    "h2o_sampler_imports_writer": true,
+    "is_mature_threshold_authority": false
+  },
+  "runtime_preseal_threshold_inventory": [
+    {
+      "component": "co2",
+      "preseal_hard_tol": 0.001,
+      "preseal_a_grade_tol": 0.0005,
+      "preseal_policy": "reject",
+      "preseal_min_samples": 10,
+      "point_count": 89,
+      "authority_role": "recorded_runtime_pre_sample_gate_not_post_sample_component_qc"
+    },
+    {
+      "component": "h2o",
+      "preseal_hard_tol": 0.001,
+      "preseal_a_grade_tol": 0.0005,
+      "preseal_policy": "warn",
+      "preseal_min_samples": 10,
+      "point_count": 36,
+      "authority_role": "recorded_runtime_pre_sample_gate_not_post_sample_component_qc"
+    }
+  ],
+  "historical_component_qc_artifact_count": 43,
+  "historical_component_qc_artifact_hash_mismatch_count": 0,
+  "historical_component_qc_root_classification_counts": {
+    "forbidden_0624_or_migration": 43
+  },
+  "historical_component_qc_route_counts": {
+    "co2": 43
+  },
+  "interpretation_contract": {
+    "preseal_stability_thresholds_are_component_qc_threshold_authority": false,
+    "0624_or_migration_qc_is_schema_reference_only": true,
+    "polluted_root_writer_may_be_promoted_without_review": false,
+    "co2_zero_gas_and_h2o_dry_gas_roles_remain_distinct": true,
+    "next_allowed_step": "reviewed_component_qc_generator_contract_design_only"
+  },
+  "opens_com_ports": false,
+  "controls_pressure": false,
+  "controls_water_or_gas_routes": false,
+  "writes_coefficients": false,
+  "writes_sn_or_device_code": false,
+  "connects_postgresql": false,
+  "component_qc_generation_allowed": false,
+  "component_qc_backfill_allowed": false,
+  "historical_fit_allowed": false,
+  "formal_release_allowed": false,
+  "database_import_allowed": false,
+  "not_real_acceptance_evidence": true,
+  "historical_component_qc_inventory_csv": "v1_5_component_qc_historical_artifacts.csv"
+}
