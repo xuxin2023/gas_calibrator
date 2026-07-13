@@ -204,6 +204,7 @@ CO2 和 H2O 的低端锚点不能混成一个概念：
 - `export_v1_5_historical_replay_evidence.py` 是历史证据读取/回放绑定器；它只读历史 CSV/JSON 点级证据，识别 CO2/H2O 点序、QC 等级、fit eligibility、reject reason、fit input profile 和 replay 状态。旧算法仍按成熟 45/13 点检查；新算法候选必须按 profile 中的 47 CO2 点 / 14 H2O 点检查，缺 `-20C 600ppm`、`-10C 600ppm` 或 `40C HGEN30C 30RH` 时只能进入 review_required，不修改成熟 runner，也不能授权 release 或入库。
 - `export_v1_5_historical_replay_missing_point_audit.py` 是历史 replay 缺点审计器；它只读 replay evidence 和历史分段/补跑目录，区分可审查绑定的 segmented/retry 质量候选、raw-only 候选、新算法 supplemental 未跑点和需要定点补跑的物理点，不会把缺失物理点提升为拟合合格点。
 - `export_v1_5_historical_replay_qc_gap_audit.py` 是历史 replay 缺 QC 点审计器；它只读 replay evidence、同轮 queue manifest、raw IO 和跨轮参考质量文件，区分同轮 `C_reject` 可补追溯证据、跨轮质量只能参考、raw-only 仍需 QC 派生或定点补跑，不会把缺 QC 点提升为拟合合格点。
+- `export_v1_5_legacy_historical_evidence_catalog.py` 是旧格式历史点证据目录；它对 segmented/retry/direct-recovery、accepted composite manifest、sidecar、samples 和 QC 做只读哈希与来源分类，但固定禁止把这些零散点提升为连续 0613/0620/0621 route attestation、正式拟合、release 或数据库入库证据。CO2 zero gas 与 H2O dry-gas anchor 继续保持物理口径分离。
 - 根目录仍是草稿/污染区，不应直接用于正式生产。
 - `_handoff` 仍有大量历史证据，不应整体合入。
 - 自动化仍需按正式 runner 和受控授权一步步执行；不能因为有 planner 就跳过真实设备 readiness、压力、温度、采样 QC、写入评审和复验。
