@@ -442,6 +442,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline PostgreSQL 18 production-promotion preflight; revalidates staging readback and immutable authorization/archive/evidence bindings without connecting or importing production data")
     elif lower == "export_v1_5_formal_database_migration_dba_readiness":
         notes.append("offline PostgreSQL 18 DBA migration packet; freezes migration order, checksums, precheck/apply/postcheck SQL, rollback boundaries, and manual review without reading a DSN or connecting")
+    elif lower == "run_v1_5_formal_database_migration_production_controlled_executor":
+        notes.append("manual-authorized PostgreSQL 18 migration 002 executor; fixed gas_calibrator/v1_5_evidence target with immutable DBA packet hashes, three-party authorization, transactional apply, postcheck, and conservative commit-uncertain hold")
     elif lower == "run_v1_5_formal_database_import_production_controlled_executor":
         notes.append("manual-authorized PostgreSQL 18 production import executor; fixed gas_calibrator/public/v1_5_evidence target with immutable promotion hashes, three-party authorization, precommit readback, idempotency ledger, and rollback hold")
     elif lower == "run_v1_5_final_offline_acceptance_suite":
@@ -793,6 +795,13 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             category = "evidence_database"
             formal_status = "manual_authorized_production_database_only"
             risk_level = "production_database_write_risk"
+            opens_com_ports = False
+            controls_routes = False
+            writes_coefficients = False
+        elif lower == "run_v1_5_formal_database_migration_production_controlled_executor":
+            category = "evidence_database"
+            formal_status = "manual_authorized_production_database_migration_only"
+            risk_level = "production_database_migration_risk"
             opens_com_ports = False
             controls_routes = False
             writes_coefficients = False

@@ -1,0 +1,2 @@
+﻿overall_status,execution_attempted,connects_postgresql,transaction_started,transaction_committed,commit_uncertain,idempotent,migration_execution_confirmed,database_written,database_import_allowed
+ready_for_postgresql18_migration_execution_authorization_review,False,False,,,,,False,False,False

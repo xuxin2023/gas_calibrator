@@ -1,0 +1,67 @@
+{
+  "schema": "v1_5_formal_database_migration_production_controlled_executor_v1",
+  "generated_at": "2026-07-13T17:09:51+00:00",
+  "overall_status": "ready_for_postgresql18_migration_execution_authorization_review",
+  "blocker_count": 0,
+  "review_required_count": 0,
+  "migration_execution_package_ready": true,
+  "export_status": "ok",
+  "production_state": "migration_execution_locked_pending_fresh_authorization",
+  "production_target": {
+    "backend": "postgresql",
+    "postgresql_major": 18,
+    "database_name": "gas_calibrator",
+    "core_schema": "public",
+    "evidence_schema": "v1_5_evidence",
+    "dsn_env": "V1_5_POSTGRES_DSN"
+  },
+  "migration_versions": [
+    "001_v1_5_evidence_registry",
+    "002_v1_5_production_import_ledger"
+  ],
+  "source_bindings": [
+    {
+      "role": "dba_readiness",
+      "path": "docs/v1_5_flow_contract/formal_database_migration_dba_readiness/v1_5_formal_database_migration_dba_readiness.json",
+      "sha256": "c7428eb983006e8f580a2ec268e530c70d8cc83307e9a33afcb8262db84b5459"
+    },
+    {
+      "role": "precheck_sql",
+      "path": "docs/v1_5_flow_contract/formal_database_migration_dba_readiness/01_v1_5_postgresql18_migration_precheck.sql",
+      "sha256": "f3e6f98a3dfd49cd9cdd4a4c915e76c8caa9f28a5fcc462ce60ec322a955bbac"
+    },
+    {
+      "role": "apply_sql",
+      "path": "docs/v1_5_flow_contract/formal_database_migration_dba_readiness/02_v1_5_postgresql18_apply_migration_002.sql",
+      "sha256": "18689190b5639cb1396a326423dafcbced5ded555c39b39f17acfc7eb6017e72"
+    },
+    {
+      "role": "postcheck_sql",
+      "path": "docs/v1_5_flow_contract/formal_database_migration_dba_readiness/03_v1_5_postgresql18_migration_postcheck.sql",
+      "sha256": "4a393c8b6893a918faa41e9de1337693044828b58fe0e3403d9d060696b3db4a"
+    }
+  ],
+  "reasons": [],
+  "execute_flag_required": "--execute-postgresql18-migration",
+  "execution_authorization_schema": "v1_5_formal_database_migration_production_execution_authorization_v1",
+  "operator_confirmation_template": "v1_5_postgresql18_migration_002_reviewed_v1",
+  "three_distinct_actors_required": true,
+  "authorization_max_lifetime_seconds": 86400,
+  "dsn_value_read": false,
+  "execution_attempted": false,
+  "connects_postgresql": false,
+  "applies_migrations": false,
+  "migration_execution_confirmed": false,
+  "production_import_execution_allowed": false,
+  "database_written": false,
+  "database_import_allowed": false,
+  "formal_release_allowed": false,
+  "opens_com_ports": false,
+  "writes_sn": false,
+  "writes_device_id": false,
+  "writes_coefficients": false,
+  "controls_pressure": false,
+  "controls_water_or_gas_routes": false,
+  "not_real_acceptance_evidence": true,
+  "evidence_source": "postgresql18_migration_locked_preview"
+}
