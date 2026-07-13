@@ -329,6 +329,13 @@ def execute_production_import(
             except Exception as rollback_exc:  # pragma: no cover - connection loss
                 rollback_error = f"{type(rollback_exc).__name__}:{rollback_exc}"
         commit_uncertain = commit_attempted and not rollback_confirmed
+        database_write_state = (
+            "unknown_commit_uncertain"
+            if commit_uncertain
+            else "rolled_back"
+            if rollback_confirmed
+            else "not_committed"
+        )
         return {
             "status": (
                 "production_import_commit_uncertain_hold"
@@ -342,7 +349,8 @@ def execute_production_import(
             "run_db_id": run_db_id,
             "failure_type": type(exc).__name__,
             "failure_reason": str(exc),
-            "production_database_written": False,
+            "production_database_written": None if commit_uncertain else False,
+            "production_database_write_state": database_write_state,
             "transaction_committed": False,
             "commit_attempted": commit_attempted,
             "commit_uncertain": commit_uncertain,

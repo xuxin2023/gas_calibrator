@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,6 +50,22 @@ def _display_path(path: Path) -> str:
 
 def _load(path: Path) -> dict[str, Any]:
     return load_json_object(path)
+
+
+def _load_json_snapshot(path: Path, role: str) -> tuple[dict[str, Any], str]:
+    """Read one immutable JSON byte snapshot and return its matching digest."""
+
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise ProductionImportError(f"{role}_read_failed") from exc
+    try:
+        payload = json.loads(raw.decode("utf-8-sig"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ProductionImportError(f"{role}_json_invalid") from exc
+    if not isinstance(payload, dict):
+        raise ProductionImportError(f"{role}_json_object_required")
+    return payload, hashlib.sha256(raw).hexdigest()
 
 
 def _binding_map(payload: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
@@ -268,7 +285,9 @@ def validate_execution_authorization(
     if preview.get("production_import_package_ready") is not True:
         raise ProductionImportError("production_import_package_not_ready")
     path = Path(execution_authorization_json).resolve()
-    payload = _load(path)
+    payload, authorization_sha256 = _load_json_snapshot(
+        path, "execution_authorization"
+    )
     if payload.get("schema") != AUTHORIZATION_SCHEMA:
         raise ProductionImportError("execution_authorization_schema_invalid")
     if payload.get("requested_flag") != EXECUTE_FLAG:
@@ -328,6 +347,7 @@ def validate_execution_authorization(
         raise ProductionImportError("execution_authorization_boundaries_invalid")
 
     bindings = _binding_map(payload)
+    source_sha256: dict[str, str] = {}
     for role, raw_path in (
         ("promotion_preflight", promotion_preflight_json),
         ("transaction_plan", transaction_plan_json),
@@ -347,12 +367,14 @@ def validate_execution_authorization(
             raise ProductionImportError(
                 f"execution_authorization_source_sha256_mismatch:{role}"
             )
+        source_sha256[role] = str(binding.get("sha256") or "").lower()
     return {
         **identity,
         "issued_at": issued_at.isoformat(),
         "expires_at": expires_at.isoformat(),
         "authorization_path": str(path),
-        "authorization_sha256": sha256_file(path),
+        "authorization_sha256": authorization_sha256,
+        "source_sha256": source_sha256,
         "confirmation_matched": True,
         "three_distinct_actors": True,
     }
@@ -400,16 +422,47 @@ def execute_reviewed_production_import(
         transaction_plan_json=transaction_plan_json,
         evidence_bundle_json=evidence_bundle_json,
     )
-    plan_path = Path(transaction_plan_json).resolve()
-    bundle_path = Path(evidence_bundle_json).resolve()
-    promotion_path = Path(promotion_preflight_json).resolve()
+    source_paths = {
+        "promotion_preflight": Path(promotion_preflight_json).resolve(),
+        "transaction_plan": Path(transaction_plan_json).resolve(),
+        "evidence_bundle": Path(evidence_bundle_json).resolve(),
+    }
+    snapshots: dict[str, dict[str, Any]] = {}
+    snapshot_sha256: dict[str, str] = {}
+    for role, path in source_paths.items():
+        payload, digest = _load_json_snapshot(path, role)
+        if digest != authorization["source_sha256"][role]:
+            raise ProductionImportError(
+                f"execution_authorization_source_changed_after_validation:{role}"
+            )
+        snapshots[role] = payload
+        snapshot_sha256[role] = digest
+
+    revalidated_preview = build_production_import_preview(
+        promotion_preflight_json=source_paths["promotion_preflight"],
+        transaction_plan_json=source_paths["transaction_plan"],
+        evidence_bundle_json=source_paths["evidence_bundle"],
+    )
+    if revalidated_preview.get("production_import_package_ready") is not True:
+        raise ProductionImportError("production_import_package_changed_after_authorization")
+    revalidated_hashes = {
+        str(row.get("role") or ""): str(row.get("sha256") or "").lower()
+        for row in revalidated_preview.get("source_bindings") or []
+        if isinstance(row, Mapping)
+    }
+    if any(
+        revalidated_hashes.get(role) != digest
+        for role, digest in snapshot_sha256.items()
+    ):
+        raise ProductionImportError("production_import_source_changed_during_revalidation")
+
     result = transaction_runner(
         dsn=dsn,
-        transaction_plan=_load(plan_path),
-        evidence_bundle=_load(bundle_path),
-        transaction_plan_sha256=sha256_file(plan_path),
-        evidence_bundle_sha256=sha256_file(bundle_path),
-        promotion_preflight_sha256=sha256_file(promotion_path),
+        transaction_plan=snapshots["transaction_plan"],
+        evidence_bundle=snapshots["evidence_bundle"],
+        transaction_plan_sha256=snapshot_sha256["transaction_plan"],
+        evidence_bundle_sha256=snapshot_sha256["evidence_bundle"],
+        promotion_preflight_sha256=snapshot_sha256["promotion_preflight"],
         execution_authorization_sha256=authorization["authorization_sha256"],
         authorization_id=authorization["authorization_id"],
         operator=authorization["operator"],
@@ -419,7 +472,7 @@ def execute_reviewed_production_import(
     )
     committed = result.get("transaction_committed") is True
     return {
-        **preview,
+        **revalidated_preview,
         **result,
         "generated_at": _now(),
         "overall_status": str(result.get("status") or "production_import_failed"),
@@ -436,7 +489,7 @@ def execute_reviewed_production_import(
         "production_import_execution_allowed": committed,
         "execution_attempted": True,
         "connects_postgresql": True,
-        "database_written": result.get("production_database_written") is True,
+        "database_written": result.get("production_database_written"),
         "database_import_allowed": committed,
         "formal_release_allowed": False,
         "not_real_acceptance_evidence": True,

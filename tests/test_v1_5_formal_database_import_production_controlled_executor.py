@@ -451,6 +451,75 @@ def test_failed_transaction_keeps_import_and_release_closed(tmp_path: Path) -> N
     assert model["formal_release_allowed"] is False
 
 
+def test_source_change_after_authorization_is_blocked_before_transaction(
+    tmp_path: Path, monkeypatch
+) -> None:
+    paths = _make_package(tmp_path)
+    authorization = _write(tmp_path / "execution_authorization.json", _authorization(paths))
+    original_validate = validate_execution_authorization
+    runner_called = False
+
+    def validate_then_mutate(**kwargs):
+        record = original_validate(**kwargs)
+        plan = json.loads(paths["plan"].read_text(encoding="utf-8"))
+        plan["planned_devices"][0]["port"] = "COM99"
+        _write(paths["plan"], plan)
+        return record
+
+    def forbidden_runner(**_kwargs):
+        nonlocal runner_called
+        runner_called = True
+        raise AssertionError("transaction runner must stay closed")
+
+    module = __import__(
+        "gas_calibrator.validation.v1_5_formal_database_import_production_controlled_executor",
+        fromlist=["validate_execution_authorization"],
+    )
+    monkeypatch.setattr(module, "validate_execution_authorization", validate_then_mutate)
+
+    with pytest.raises(ProductionImportError, match="source_changed_after_validation"):
+        execute_reviewed_production_import(
+            promotion_preflight_json=paths["promotion"],
+            transaction_plan_json=paths["plan"],
+            evidence_bundle_json=paths["bundle"],
+            execution_authorization_json=authorization,
+            dsn="postgresql://must-not-connect/gas_calibrator",
+            transaction_runner=forbidden_runner,
+        )
+    assert runner_called is False
+
+
+def test_commit_uncertain_keeps_database_write_state_unknown(tmp_path: Path) -> None:
+    paths = _make_package(tmp_path)
+    authorization = _write(tmp_path / "execution_authorization.json", _authorization(paths))
+
+    def uncertain_runner(**_kwargs):
+        return {
+            "status": "production_import_commit_uncertain_hold",
+            "transaction_committed": False,
+            "production_database_written": None,
+            "production_database_write_state": "unknown_commit_uncertain",
+            "failure_reason": "connection_lost_during_commit",
+            "commit_attempted": True,
+            "commit_uncertain": True,
+        }
+
+    model = execute_reviewed_production_import(
+        promotion_preflight_json=paths["promotion"],
+        transaction_plan_json=paths["plan"],
+        evidence_bundle_json=paths["bundle"],
+        execution_authorization_json=authorization,
+        dsn="postgresql://ignored-for-injected-runner/gas_calibrator",
+        transaction_runner=uncertain_runner,
+    )
+
+    assert model["overall_status"] == "production_import_commit_uncertain_hold"
+    assert model["production_database_written"] is None
+    assert model["database_written"] is None
+    assert model["database_import_allowed"] is False
+    assert model["formal_release_allowed"] is False
+
+
 def test_cli_preview_and_invalid_authorization_never_read_dsn(
     tmp_path: Path, monkeypatch
 ) -> None:
