@@ -478,6 +478,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline synthetic-only component-QC reference evaluator; exercises the reviewed per-analyzer contract without historical writes, fitting, COM, or production promotion")
     elif lower == "export_v1_5_production_component_qc_fit_matrix":
         notes.append("offline production-semantics component-QC evaluator and canonical 0613 no-write strategy matrix; reads immutable point evidence without backfilling history or executing fits")
+    elif lower == "export_v1_5_unified_controlled_write_reverify":
+        notes.append("offline unified S1-S9/SENCOA-B write, GETCO readback, rollback, and independent short-reverify contract; never executes a writer or route")
     elif lower == "export_v1_5_historical_component_qc_generator_preflight":
         notes.append("offline historical component-QC generator preflight; revalidates P2 source hashes and overwrite boundaries while keeping generation, backfill, fitting, COM, and production promotion locked")
     elif lower == "export_v1_5_historical_component_qc_blocked_generator_plan":
@@ -724,6 +726,7 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             "export_v1_5_component_qc_generator_contract",
             "export_v1_5_component_qc_reference_evaluator",
             "export_v1_5_production_component_qc_fit_matrix",
+            "export_v1_5_unified_controlled_write_reverify",
             "export_v1_5_historical_component_qc_generator_preflight",
             "export_v1_5_historical_component_qc_blocked_generator_plan",
             "export_v1_5_historical_component_qc_controlled_writer_design",

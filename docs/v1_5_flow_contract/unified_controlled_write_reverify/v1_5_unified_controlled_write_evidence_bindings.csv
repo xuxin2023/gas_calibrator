@@ -1,0 +1,7 @@
+﻿role,path,status,sha256
+production_fit_matrix,D:\gas_calibrator\_worktrees\v1_5_unified_controlled_write_reverify_20260713\docs\v1_5_flow_contract\production_component_qc_fit_matrix\v1_5_production_component_qc_fit_matrix.json,bound,f14e32694131634461844d0538956ce4e93b80455fc9b9a7de4d10461c36bfc7
+approved_candidate_packet,,not_supplied,
+current_getco_snapshot,,not_supplied,
+authorization,,not_supplied,
+write_events,,not_supplied,
+short_reverify,,not_supplied,

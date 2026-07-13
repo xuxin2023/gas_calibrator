@@ -57,8 +57,14 @@ def test_replay_preserves_real_holds_and_stage_order() -> None:
     assert "production_component_qc_evaluator_missing" not in fit_blockers
     assert "canonical_0613_multi_strategy_fit_selector_not_closed" not in fit_blockers
     assert "production_fit_input_not_eligible" in fit_blockers
-    assert "post_run_write_package=not_attempted" in by_id["controlled_write_readback"]["blocker_codes"]
-    assert "controlled_write_and_reverification=not_attempted" in by_id["post_write_short_reverify"]["blocker_codes"]
+    write_blockers = by_id["controlled_write_readback"]["blocker_codes"]
+    assert "unified_operation_plan=blocked_no_fit_approved_candidate" in write_blockers
+    assert "unified_write_transaction=not_authorized" in write_blockers
+    assert "unified_getco_readback=not_authorized" in write_blockers
+    assert "post_run_write_package=not_attempted" in write_blockers
+    reverify_blockers = by_id["post_write_short_reverify"]["blocker_codes"]
+    assert "unified_physical_short_reverify=not_attempted" in reverify_blockers
+    assert "controlled_write_and_reverification=not_attempted" in reverify_blockers
     assert any(code.startswith("formal_archive_database_release=") for code in by_id["archive_release_postgresql18"]["blocker_codes"])
 
 

@@ -1,0 +1,12 @@
+﻿group,readback,component,role,width,format,profiles,neutral_values,composed_layer,clear_command,default_model,writer_state
+SENCO1,GETCO1,co2,main_ratio_model,6,scientific_5e,legacy_ratio_production;new_absorption_candidate,[],,,,
+SENCO3,GETCO3,co2,main_temperature_model_T1,6,scientific_5e,legacy_ratio_production;new_absorption_candidate,[],,,,
+SENCO2,GETCO2,h2o,main_ratio_model,6,scientific_5e,legacy_ratio_production;new_absorption_candidate,[],,,,
+SENCO4,GETCO4,h2o,main_temperature_model_T1,6,scientific_5e,legacy_ratio_production;new_absorption_candidate,[],,,,
+SENCO5,GETCO5,co2,final_affine_output_layer,2,decimal_3,legacy_ratio_production;new_absorption_candidate,[],True,CLEARSENCO5,,
+SENCO6,GETCO6,h2o,final_affine_output_layer,2,decimal_3,legacy_ratio_production;new_absorption_candidate,[],True,CLEARSENCO6,,
+SENCO7,GETCO7,temperature,temperature_calibration_disabled_neutral_only,4,neutral_only,legacy_ratio_production;new_absorption_candidate,"[0.0, 1.0, 0.0, 0.0]",,,,
+SENCO8,GETCO8,temperature,temperature_calibration_disabled_neutral_only,4,neutral_only,legacy_ratio_production;new_absorption_candidate,"[0.0, 1.0, 0.0, 0.0]",,,,
+SENCO9,GETCO9,pressure,pressure_model,4,decimal_6,legacy_ratio_production;new_absorption_candidate,[],,,offset_only,
+SENCOA,GETCOA,co2,R0_CO2_T,4,scientific_5e,new_absorption_candidate,[],,,,blocked_design_only
+SENCOB,GETCOB,h2o,R0_H2O_T,4,scientific_5e,new_absorption_candidate,[],,,,blocked_design_only

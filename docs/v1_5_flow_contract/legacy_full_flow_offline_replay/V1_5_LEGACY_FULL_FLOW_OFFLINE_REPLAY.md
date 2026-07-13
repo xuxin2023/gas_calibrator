@@ -1,6 +1,6 @@
 # V1.5 旧算法全流程 Orchestrator 离线 Replay
 
-- source origin/main: `d423b15a32c4ef2476a2806f2de7a2414941e47b`
+- source origin/main: `2a9c8c8b85820b1cc9f3fd88ea55f73fba7dca6b`
 - overall_status: `legacy_full_flow_replay_complete_production_evidence_incomplete`
 - orchestrator_replay_complete: `true`
 - production_flow_complete: `false`
@@ -20,8 +20,8 @@
 | 4 | `legacy_co2_45` | `hold` | `blocked_by_previous_stage` | accepted_composite_members=45; co2_points=145; missing_component_qc=102 | co2_component_qc_missing=102; co2_composite_not_continuous_route_attestation; co2_historical_fit_not_allowed |
 | 5 | `legacy_h2o_13` | `hold` | `blocked_by_previous_stage` | cataloged_h2o_points=36; missing_component_qc=36; complete_mature_roots=0 | h2o_component_qc_missing=36; h2o_historical_fit_not_allowed; legacy_h2o_continuous_13_point_root_missing |
 | 6 | `component_qc_and_0613_fit_review` | `hold` | `blocked_by_previous_stage` | catalog_fit_allowed=False; component_qc_evaluator_available=True; strategy_matrix_available=True; evaluated_qc_rows=460; fit_ready_strategies=0 | catalog_not_fit_eligible; production_fit_input_not_eligible |
-| 7 | `controlled_write_readback` | `hold` | `blocked_by_previous_stage` | post_run_write_package=not_attempted | post_run_write_package=not_attempted |
-| 8 | `post_write_short_reverify` | `hold` | `blocked_by_previous_stage` | controlled_write_and_reverification=not_attempted | controlled_write_and_reverification=not_attempted |
+| 7 | `controlled_write_readback` | `hold` | `blocked_by_previous_stage` | unified_status=blocked_no_fit_approved_candidate; operation_plan_count=0; write=not_authorized; readback=not_authorized | post_run_write_package=not_attempted; unified_getco_readback=not_authorized; unified_operation_plan=blocked_no_fit_approved_candidate; unified_write_transaction=not_authorized |
+| 8 | `post_write_short_reverify` | `hold` | `blocked_by_previous_stage` | physical_short_reverify=not_attempted; formal_gate=not_attempted | controlled_write_and_reverification=not_attempted; unified_physical_short_reverify=not_attempted |
 | 9 | `archive_release_postgresql18` | `hold` | `blocked_by_previous_stage` | archive_gate=missing; db_execution_supported=False; database_import_allowed=False | formal_archive_database_release=missing; postgresql18_database_import_allowed=false; postgresql18_execution_supported=false; postgresql18_real_import_execution_allowed=false |
 
 ## Conclusion

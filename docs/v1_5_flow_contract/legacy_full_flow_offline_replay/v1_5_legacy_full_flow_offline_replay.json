@@ -1,8 +1,8 @@
 {
   "schema": "v1_5_legacy_full_flow_offline_replay_v1",
-  "generated_at": "2026-07-13T09:26:25Z",
+  "generated_at": "2026-07-13T10:08:21Z",
   "overall_status": "legacy_full_flow_replay_complete_production_evidence_incomplete",
-  "source_origin_main_commit": "d423b15a32c4ef2476a2806f2de7a2414941e47b",
+  "source_origin_main_commit": "2a9c8c8b85820b1cc9f3fd88ea55f73fba7dca6b",
   "algorithm_profile_id": "legacy_ratio_production",
   "mature_fitting_baseline": "0613 V1.5 fitting path",
   "mature_route_baseline": "0620/0621 clean-worktree mature physical route path",
@@ -11,7 +11,7 @@
     "h2o": 13
   },
   "state_machine_stage_count": 9,
-  "source_evidence_count": 13,
+  "source_evidence_count": 14,
   "source_review_reasons": [],
   "orchestrator_replay_complete": true,
   "production_flow_complete": false,
@@ -105,6 +105,12 @@
       "relative_path": "docs\\v1_5_flow_contract\\production_component_qc_fit_matrix\\v1_5_production_component_qc_fit_matrix.json",
       "status": "bound",
       "sha256": "f14e32694131634461844d0538956ce4e93b80455fc9b9a7de4d10461c36bfc7"
+    },
+    {
+      "role": "unified_controlled_write_reverify",
+      "relative_path": "docs\\v1_5_flow_contract\\unified_controlled_write_reverify\\v1_5_unified_controlled_write_readback_reverify.json",
+      "status": "bound",
+      "sha256": "5489af942cdce8ae1099c707d49fea2735205c8a249003b107da2e690ac90f14"
     },
     {
       "role": "formal_run_status",
@@ -245,12 +251,16 @@
       "evidence_status": "hold",
       "effective_status": "blocked_by_previous_stage",
       "blocker_codes": [
-        "post_run_write_package=not_attempted"
+        "post_run_write_package=not_attempted",
+        "unified_getco_readback=not_authorized",
+        "unified_operation_plan=blocked_no_fit_approved_candidate",
+        "unified_write_transaction=not_authorized"
       ],
       "evidence_roles": [
+        "unified_controlled_write_reverify",
         "formal_run_status"
       ],
-      "observed": "post_run_write_package=not_attempted",
+      "observed": "unified_status=blocked_no_fit_approved_candidate; operation_plan_count=0; write=not_authorized; readback=not_authorized",
       "physical_meaning": "Calculation, authorization, old-value snapshot, write, and readback are separate evidence events.",
       "next_action": "Close the unified S1-S9/SENCOA-B controlled-write bundle without treating a successful write as a successful validation."
     },
@@ -261,12 +271,14 @@
       "evidence_status": "hold",
       "effective_status": "blocked_by_previous_stage",
       "blocker_codes": [
-        "controlled_write_and_reverification=not_attempted"
+        "controlled_write_and_reverification=not_attempted",
+        "unified_physical_short_reverify=not_attempted"
       ],
       "evidence_roles": [
+        "unified_controlled_write_reverify",
         "formal_run_status"
       ],
-      "observed": "controlled_write_and_reverification=not_attempted",
+      "observed": "physical_short_reverify=not_attempted; formal_gate=not_attempted",
       "physical_meaning": "Readback proves stored bytes; independent reverify proves the physical calibration result.",
       "next_action": "Bind component-specific short reverify evidence after every authorized write before archive closure."
     },

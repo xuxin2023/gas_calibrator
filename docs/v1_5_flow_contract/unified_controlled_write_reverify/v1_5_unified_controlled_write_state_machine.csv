@@ -1,0 +1,9 @@
+﻿order,stage,success_proves,does_not_prove
+1,fit_candidate_approval,fit candidate reviewed,device write
+2,old_getco_snapshot,current device coefficient epoch captured,candidate compatibility
+3,absolute_payload_derivation,payload composed against current S5/S6 layer where required,write authorization
+4,dual_review_authorization,"operator, reviewer, and approver bound exact artifacts",write attempted
+5,paced_write_attempt,writer attempted exact reviewed payload,stored coefficients
+6,getco_readback,stored coefficients match reviewed target,physical calibration accuracy
+7,independent_short_reverify,component-specific physical errors pass limits,formal archive release
+8,rollback_or_archive_hold,failure state preserved or successful evidence closed,database import
