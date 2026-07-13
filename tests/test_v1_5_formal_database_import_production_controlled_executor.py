@@ -10,6 +10,7 @@ from gas_calibrator.storage.v1_5_evidence.bundle import TABLE_NAMES
 from gas_calibrator.storage.v1_5_evidence.production_import import (
     PRODUCTION_DATABASE_NAME,
     ProductionImportError,
+    _assert_postgresql_system_identifier,
     validate_production_dsn,
 )
 from gas_calibrator.storage.v1_5_evidence.production_migration import (
@@ -33,6 +34,9 @@ from gas_calibrator.validation.v1_5_formal_database_import_production_controlled
 from gas_calibrator.validation.v1_5_formal_database_import_production_promotion_preflight import (
     build_v1_5_formal_database_import_production_promotion_preflight,
 )
+
+
+POSTGRESQL_SYSTEM_IDENTIFIER = "7345678901234567890"
 
 
 def _write(path: Path, payload: dict) -> Path:
@@ -275,6 +279,7 @@ def _make_package(tmp_path: Path, *, count: int = 2) -> dict[str, Path]:
             "postcheck_state": {
                 "database_name": "gas_calibrator",
                 "postgresql_server_version_num": 180003,
+                "postgresql_system_identifier": POSTGRESQL_SYSTEM_IDENTIFIER,
                 "migration_001_checksum": migration_checksums[
                     "001_v1_5_evidence_registry"
                 ],
@@ -404,6 +409,12 @@ def test_preview_revalidates_promotion_and_remains_no_connect(
         (
             lambda payload: payload["postcheck_state"].update(ledger_columns=[]),
             "migration_execution_postcheck_columns_invalid",
+        ),
+        (
+            lambda payload: payload["postcheck_state"].update(
+                postgresql_system_identifier=""
+            ),
+            "migration_execution_postcheck_system_identifier_invalid",
         ),
         (
             lambda payload: payload["authorization_record"]["source_sha256"].update(
@@ -579,6 +590,10 @@ def test_reviewed_execution_passes_exact_hashes_to_atomic_kernel(tmp_path: Path)
     assert captured["promotion_preflight_sha256"] == _sha256(paths["promotion"])
     assert captured["transaction_plan_sha256"] == _sha256(paths["plan"])
     assert captured["evidence_bundle_sha256"] == _sha256(paths["bundle"])
+    assert (
+        captured["expected_postgresql_system_identifier"]
+        == POSTGRESQL_SYSTEM_IDENTIFIER
+    )
     assert captured["operator"] == "operator-a"
     assert model["overall_status"] == "production_import_committed"
     assert model["production_import_execution_authorized"] is True
@@ -586,6 +601,37 @@ def test_reviewed_execution_passes_exact_hashes_to_atomic_kernel(tmp_path: Path)
     assert model["database_written"] is True
     assert model["database_import_allowed"] is True
     assert model["formal_release_allowed"] is False
+
+
+class _SystemIdentifierResult:
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+    def scalar_one(self) -> str:
+        return self.value
+
+
+class _SystemIdentifierConnection:
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+    def execute(self, _statement) -> _SystemIdentifierResult:
+        return _SystemIdentifierResult(self.value)
+
+
+def test_atomic_kernel_requires_matching_postgresql_system_identifier() -> None:
+    assert (
+        _assert_postgresql_system_identifier(
+            _SystemIdentifierConnection(POSTGRESQL_SYSTEM_IDENTIFIER),
+            POSTGRESQL_SYSTEM_IDENTIFIER,
+        )
+        == POSTGRESQL_SYSTEM_IDENTIFIER
+    )
+    with pytest.raises(ProductionImportError, match="system_identifier_mismatch"):
+        _assert_postgresql_system_identifier(
+            _SystemIdentifierConnection("7000000000000000001"),
+            POSTGRESQL_SYSTEM_IDENTIFIER,
+        )
 
 
 def test_failed_transaction_keeps_import_and_release_closed(tmp_path: Path) -> None:

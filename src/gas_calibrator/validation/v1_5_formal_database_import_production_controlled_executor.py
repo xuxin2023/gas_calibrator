@@ -197,6 +197,11 @@ def _migration_execution_reasons(
         server_version = int(post_state.get("postgresql_server_version_num") or 0)
         if not 180000 <= server_version < 190000:
             reasons.append("migration_execution_postcheck_version_invalid")
+        system_identifier = str(
+            post_state.get("postgresql_system_identifier") or ""
+        )
+        if not system_identifier.isdigit():
+            reasons.append("migration_execution_postcheck_system_identifier_invalid")
         if post_state.get("migration_001_checksum") != migrations.get(MIGRATION_001):
             reasons.append("migration_execution_postcheck_migration_001_invalid")
         if post_state.get("migration_002_checksum") != migrations.get(MIGRATION_002):
@@ -364,10 +369,17 @@ def build_production_import_preview(
         reasons.append(f"production_import_input_load_failed:{type(exc).__name__}")
     ready = not reasons
     migration_evidence_ready = False
+    migration_system_identifier = ""
     try:
-        migration_evidence_ready = not _migration_execution_reasons(
+        migration_reasons, migration_payload = _migration_execution_reasons(
             paths["migration_execution"]
-        )[0]
+        )
+        migration_evidence_ready = not migration_reasons
+        migration_postcheck = migration_payload.get("postcheck_state")
+        if isinstance(migration_postcheck, Mapping):
+            migration_system_identifier = str(
+                migration_postcheck.get("postgresql_system_identifier") or ""
+            )
     except Exception:
         pass
     return {
@@ -396,6 +408,7 @@ def build_production_import_preview(
         "run_db_id": str(promotion.get("run_db_id") or ""),
         "table_counts": dict(promotion.get("table_counts") or {}),
         "migration_execution_confirmed": migration_evidence_ready,
+        "migration_postgresql_system_identifier": migration_system_identifier,
         "source_bindings": [
             {
                 "role": role,
@@ -643,6 +656,17 @@ def execute_reviewed_production_import(
         evidence_bundle_sha256=snapshot_sha256["evidence_bundle"],
         promotion_preflight_sha256=snapshot_sha256["promotion_preflight"],
         execution_authorization_sha256=authorization["authorization_sha256"],
+        expected_postgresql_system_identifier=str(
+            (
+                snapshots["migration_execution"].get("postcheck_state")
+                if isinstance(
+                    snapshots["migration_execution"].get("postcheck_state"),
+                    Mapping,
+                )
+                else {}
+            ).get("postgresql_system_identifier")
+            or ""
+        ),
         authorization_id=authorization["authorization_id"],
         operator=authorization["operator"],
         reviewer=authorization["reviewer"],

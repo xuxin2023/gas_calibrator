@@ -291,6 +291,7 @@ V1.5 结构整理基本完成前，必须保留一个只读收尾验收包：
 - Default invocation is a no-DSN/no-connect preview. Real execution requires `--execute-postgresql18-migration`, a fresh three-party authorization, and exact SHA256 bindings for the DBA readiness JSON plus precheck/apply/postcheck SQL.
 - The target is fixed to PostgreSQL 18 database `gas_calibrator`, schema `v1_5_evidence`, and DSN environment `V1_5_POSTGRES_DSN`; target, schema, migration-version, import, and release overrides are rejected.
 - Immediately before execution, the executor re-reads and re-hashes every bound artifact, rebuilds the readiness packet from repository migrations, then checks database/version/migration-001/migration-002/table state before starting the transaction.
+- Migration precheck and postcheck record the cluster-wide PostgreSQL `system_identifier`; a changed or invalid identifier prevents the migration artifact from becoming confirmed evidence.
 - A successful apply must also pass postcheck readback for the exact ledger columns, primary key, unique constraints, foreign key, and index. SQL failure rolls back when possible; connection-loss ambiguity is held as `commit_uncertain` and is never represented as confirmed no-write.
 - This executor never imports calibration evidence, opens COM, writes SN/device identity/SENCO coefficients, controls pressure/gas/water routes, modifies the 0613/0620/0621 mature calibration paths, grants database import, or grants formal release.
 
@@ -298,5 +299,6 @@ V1.5 结构整理基本完成前，必须保留一个只读收尾验收包：
 
 - The production import preview now requires a confirmed migration-002 controlled-executor artifact before the import package can become ready.
 - The migration artifact must prove the fixed PostgreSQL 18 target, repository migration 001/002 checksums, exact production-import ledger columns/constraints/indexes, committed or exact idempotent state, and a distinct three-party migration authorization record.
+- The migration artifact must also carry the PostgreSQL cluster `system_identifier`. The later import transaction reads the live identifier before any row write and holds if it does not match, so a migration artifact from another PostgreSQL cluster cannot authorize this import.
 - The production-import authorization packet must bind the exact migration artifact path and SHA256 together with the promotion preflight, transaction plan, and evidence bundle. Replacing or changing any one of these four inputs holds before the CLI reads `V1_5_POSTGRES_DSN`.
 - The importer still never applies migrations. This gate only allows a separately confirmed migration to become a prerequisite for a later separately authorized evidence import; it does not connect PostgreSQL, import evidence, or grant formal release by itself.
