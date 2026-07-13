@@ -1,8 +1,8 @@
 {
   "schema": "v1_5_legacy_full_flow_offline_replay_v1",
-  "generated_at": "2026-07-13T08:21:45Z",
+  "generated_at": "2026-07-13T09:26:25Z",
   "overall_status": "legacy_full_flow_replay_complete_production_evidence_incomplete",
-  "source_origin_main_commit": "661b2b280b43d85df06c81df09e9d3f02165278b",
+  "source_origin_main_commit": "d423b15a32c4ef2476a2806f2de7a2414941e47b",
   "algorithm_profile_id": "legacy_ratio_production",
   "mature_fitting_baseline": "0613 V1.5 fitting path",
   "mature_route_baseline": "0620/0621 clean-worktree mature physical route path",
@@ -11,7 +11,7 @@
     "h2o": 13
   },
   "state_machine_stage_count": 9,
-  "source_evidence_count": 12,
+  "source_evidence_count": 13,
   "source_review_reasons": [],
   "orchestrator_replay_complete": true,
   "production_flow_complete": false,
@@ -99,6 +99,12 @@
       "relative_path": "docs\\v1_5_flow_contract\\historical_component_qc_controlled_writer_design\\v1_5_historical_component_qc_controlled_writer_design.json",
       "status": "bound",
       "sha256": "dfaa33579eed28f1bacb3ea108b8c78e992e6d11865b44d5c0bd9a1327fb233d"
+    },
+    {
+      "role": "production_component_qc_fit_matrix",
+      "relative_path": "docs\\v1_5_flow_contract\\production_component_qc_fit_matrix\\v1_5_production_component_qc_fit_matrix.json",
+      "status": "bound",
+      "sha256": "f14e32694131634461844d0538956ce4e93b80455fc9b9a7de4d10461c36bfc7"
     },
     {
       "role": "formal_run_status",
@@ -219,18 +225,18 @@
       "evidence_status": "hold",
       "effective_status": "blocked_by_previous_stage",
       "blocker_codes": [
-        "canonical_0613_multi_strategy_fit_selector_not_closed",
         "catalog_not_fit_eligible",
-        "production_component_qc_evaluator_missing"
+        "production_fit_input_not_eligible"
       ],
       "evidence_roles": [
         "legacy_evidence_catalog",
+        "production_component_qc_fit_matrix",
         "component_qc_writer_design",
         "historical_replay_contract"
       ],
-      "observed": "catalog_fit_allowed=False; component_qc_evaluator_available=False",
+      "observed": "catalog_fit_allowed=False; component_qc_evaluator_available=True; strategy_matrix_available=True; evaluated_qc_rows=460; fit_ready_strategies=0",
       "physical_meaning": "Fitting must consume per-analyzer physical QC and the 0613 strategy rules, not merely all available points.",
-      "next_action": "Implement the production component-QC evaluator and 0613 strategy matrix; preserve CO2 zero and H2O dry-gas anchor roles separately."
+      "next_action": "Bind a continuous mature 45/13 route root and separate H2O dry-gas anchor evidence, then rerun the now-available no-write matrix."
     },
     {
       "order": 7,
