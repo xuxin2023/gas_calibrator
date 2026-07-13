@@ -302,3 +302,10 @@ V1.5 结构整理基本完成前，必须保留一个只读收尾验收包：
 - The migration artifact must also carry the PostgreSQL cluster `system_identifier`. The later import transaction reads the live identifier before any row write and holds if it does not match, so a migration artifact from another PostgreSQL cluster cannot authorize this import.
 - The production-import authorization packet must bind the exact migration artifact path and SHA256 together with the promotion preflight, transaction plan, and evidence bundle. Replacing or changing any one of these four inputs holds before the CLI reads `V1_5_POSTGRES_DSN`.
 - The importer still never applies migrations. This gate only allows a separately confirmed migration to become a prerequisite for a later separately authorized evidence import; it does not connect PostgreSQL, import evidence, or grant formal release by itself.
+
+## 18. PostgreSQL 18 real staging integration addendum (2026-07-14)
+
+- The explicitly gated staging integration test has now run against a temporary dedicated PostgreSQL 18 test database; it is no longer an unexecuted/skip-only test assumption.
+- The test verified atomic staging import, exact idempotency, SN/device_code/protocol-ID/run-ID readback, changed-payload conflict hold, injected rollback, CLI import/query, and schema cleanup.
+- The complete database-chain run with the staging DSN enabled passed `226` tests with no skip. The remaining warning is the existing pytest marker registration warning.
+- The temporary test database was dropped after verification. No production `gas_calibrator` migration/import, COM/device action, route control, or calibration release was performed.
