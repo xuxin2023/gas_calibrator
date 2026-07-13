@@ -1,0 +1,301 @@
+{
+  "schema": "v1_5_legacy_full_flow_offline_replay_v1",
+  "generated_at": "2026-07-13T08:21:45Z",
+  "overall_status": "legacy_full_flow_replay_complete_production_evidence_incomplete",
+  "source_origin_main_commit": "661b2b280b43d85df06c81df09e9d3f02165278b",
+  "algorithm_profile_id": "legacy_ratio_production",
+  "mature_fitting_baseline": "0613 V1.5 fitting path",
+  "mature_route_baseline": "0620/0621 clean-worktree mature physical route path",
+  "expected_point_counts": {
+    "co2": 45,
+    "h2o": 13
+  },
+  "state_machine_stage_count": 9,
+  "source_evidence_count": 12,
+  "source_review_reasons": [],
+  "orchestrator_replay_complete": true,
+  "production_flow_complete": false,
+  "frozen_gap_assessment": "program_level_replay_complete_not_production_complete",
+  "current_stage_id": "initialization_identity_runtime",
+  "current_status": "hold",
+  "evidence_hold_stage_ids": [
+    "initialization_identity_runtime",
+    "pressure_s9_readiness",
+    "mature_route_readiness",
+    "legacy_co2_45",
+    "legacy_h2o_13",
+    "component_qc_and_0613_fit_review",
+    "controlled_write_readback",
+    "post_write_short_reverify",
+    "archive_release_postgresql18"
+  ],
+  "effective_blocked_stage_ids": [
+    "pressure_s9_readiness",
+    "mature_route_readiness",
+    "legacy_co2_45",
+    "legacy_h2o_13",
+    "component_qc_and_0613_fit_review",
+    "controlled_write_readback",
+    "post_write_short_reverify",
+    "archive_release_postgresql18"
+  ],
+  "source_evidence": [
+    {
+      "role": "production_gap_freeze",
+      "relative_path": "docs\\v1_5_flow_contract\\final_production_gap_freeze\\v1_5_final_production_gap_freeze.json",
+      "status": "bound",
+      "sha256": "3fc73e53cdb617f6a5ef95ceae9b664f176cf3803f124179d146e8f9d8032d08"
+    },
+    {
+      "role": "full_flow_plan",
+      "relative_path": "docs\\v1_5_flow_contract\\v1_5_full_flow_plan.json",
+      "status": "bound",
+      "sha256": "e24c376d89c65a72c5aa1b9b62be08eb2ee7c7c4d4001019c8c127f99e4c9ea9"
+    },
+    {
+      "role": "batch_initialization_closeout",
+      "relative_path": "docs\\v1_5_flow_contract\\batch_initialization_closeout_index\\v1_5_batch_initialization_closeout_index.json",
+      "status": "bound",
+      "sha256": "0017691c7862369eb02af0937debb228f44f4741d3c2fc47c39fef806f9aa8b7"
+    },
+    {
+      "role": "pressure_s9_readiness",
+      "relative_path": "docs\\v1_5_flow_contract\\pressure_s9_readiness_index\\v1_5_pressure_s9_readiness_index.json",
+      "status": "bound",
+      "sha256": "5aef7e0c8253e4d4b9240fa18cb0404158730cc0fde56f97a2b2904052ac6897"
+    },
+    {
+      "role": "production_entrypoint_gate",
+      "relative_path": "docs\\v1_5_flow_contract\\production_entrypoint_gate\\v1_5_production_entrypoint_gate.json",
+      "status": "bound",
+      "sha256": "c689d3883fc8c40f3e4a1d1908fb86daf368ae454b9b447832beef115d5680a1"
+    },
+    {
+      "role": "mature_route_contract",
+      "relative_path": "docs\\v1_5_flow_contract\\mature_route_contract\\v1_5_mature_route_contract.json",
+      "status": "bound",
+      "sha256": "7f40a81ca97d8f09c6dd0d1593d615c498823760c38f849dd8c5b6a6ac03d359"
+    },
+    {
+      "role": "historical_replay_contract",
+      "relative_path": "docs\\v1_5_flow_contract\\historical_replay_contract\\v1_5_historical_replay_contract.json",
+      "status": "bound",
+      "sha256": "693722af369a8bd00e46a05991c278f88f03e97253ce6ab01d1fff6fbe83ef21"
+    },
+    {
+      "role": "legacy_evidence_catalog",
+      "relative_path": "docs\\v1_5_flow_contract\\legacy_historical_evidence_catalog\\v1_5_legacy_historical_evidence_catalog.json",
+      "status": "bound",
+      "sha256": "c8d3b75540788f71803ca7c3934c5fc107988f2067db6a4b6c40dfec14d3a28a"
+    },
+    {
+      "role": "historical_mature_root_discovery",
+      "relative_path": "docs\\v1_5_flow_contract\\historical_mature_root_discovery\\v1_5_historical_mature_root_discovery.json",
+      "status": "bound",
+      "sha256": "7e357c7c6caa8bc7e15adb83245723d012844f82c387abd92c4e39ad05193309"
+    },
+    {
+      "role": "component_qc_writer_design",
+      "relative_path": "docs\\v1_5_flow_contract\\historical_component_qc_controlled_writer_design\\v1_5_historical_component_qc_controlled_writer_design.json",
+      "status": "bound",
+      "sha256": "dfaa33579eed28f1bacb3ea108b8c78e992e6d11865b44d5c0bd9a1327fb233d"
+    },
+    {
+      "role": "formal_run_status",
+      "relative_path": "docs\\v1_5_flow_contract\\final_acceptance_status\\v1_5_formal_run_status.json",
+      "status": "bound",
+      "sha256": "ea35b214d630da22bb8a2b9ce15fc886b9a1d34ccbcffe78ce7bafdb21fb19a4"
+    },
+    {
+      "role": "postgresql18_import_design",
+      "relative_path": "docs\\v1_5_flow_contract\\formal_database_import_controlled_executor_design\\v1_5_formal_database_import_controlled_executor_design.json",
+      "status": "bound",
+      "sha256": "09915de44989c32d69bb5c5a2edf0b2c0c00de36de0a2e3094c318f4d7064693"
+    }
+  ],
+  "stages": [
+    {
+      "order": 1,
+      "stage_id": "initialization_identity_runtime",
+      "title": "初始化、身份、GETCO 与 runtime closeout",
+      "evidence_status": "hold",
+      "effective_status": "hold",
+      "blocker_codes": [
+        "active_device_count=0_outside_1_to_6",
+        "active_device_count_not_1_to_6",
+        "one_or_more_device_closeout_rows_not_ready",
+        "pressure_s9_evidence_missing",
+        "readonly_com_executor_evidence_missing",
+        "route_readiness_evidence_missing"
+      ],
+      "evidence_roles": [
+        "batch_initialization_closeout"
+      ],
+      "observed": "overall_status=review_required; device_count=0",
+      "physical_meaning": "A replay batch must bind 1-6 analyzers to SN/device_code, protocol ID, GETCO1-9, and neutral runtime state.",
+      "next_action": "Bind a concrete historical or future batch initialization closeout artifact; do not infer identity from route files."
+    },
+    {
+      "order": 2,
+      "stage_id": "pressure_s9_readiness",
+      "title": "压力/S9 no-write、写入读回与复验",
+      "evidence_status": "hold",
+      "effective_status": "blocked_by_previous_stage",
+      "blocker_codes": [
+        "active_pressure_s9_device_count=0_outside_1_to_6",
+        "one_or_more_devices_missing_no_write_fit_basis",
+        "one_or_more_devices_missing_post_write_pressure_reverify",
+        "one_or_more_devices_missing_senco9_readback",
+        "pressure_device_count_not_1_to_6"
+      ],
+      "evidence_roles": [
+        "pressure_s9_readiness"
+      ],
+      "observed": "overall_status=review_required; device_count=0",
+      "physical_meaning": "Pressure must be traceable before gas or water fitting so S1-S4 do not absorb pressure bias.",
+      "next_action": "Bind per-device mature pressure evidence, including any explicit linear-S9 exception and post-write reverify."
+    },
+    {
+      "order": 3,
+      "stage_id": "mature_route_readiness",
+      "title": "0613/0620/0621 成熟入口与连续 route 根",
+      "evidence_status": "hold",
+      "effective_status": "blocked_by_previous_stage",
+      "blocker_codes": [
+        "no_complete_continuous_mature_route_root"
+      ],
+      "evidence_roles": [
+        "production_entrypoint_gate",
+        "mature_route_contract",
+        "historical_mature_root_discovery"
+      ],
+      "observed": "entrypoint=pass; mature_contract=pass; root_discovery=blocked_no_complete_mature_root; complete_roots=0",
+      "physical_meaning": "The queue and point-internal route contract may pass while the historical evidence still lacks one continuous mature run root.",
+      "next_action": "Keep the mature runners unchanged; bind one fresh continuous queue root rather than promoting segmented or recovery evidence."
+    },
+    {
+      "order": 4,
+      "stage_id": "legacy_co2_45",
+      "title": "旧算法成熟 CO2 45 点",
+      "evidence_status": "hold",
+      "effective_status": "blocked_by_previous_stage",
+      "blocker_codes": [
+        "co2_component_qc_missing=102",
+        "co2_composite_not_continuous_route_attestation",
+        "co2_historical_fit_not_allowed"
+      ],
+      "evidence_roles": [
+        "legacy_evidence_catalog",
+        "mature_route_contract"
+      ],
+      "observed": "accepted_composite_members=45; co2_points=145; missing_component_qc=102",
+      "physical_meaning": "A 45-point accepted composite can support diagnosis but cannot prove that one continuous mature queue completed.",
+      "next_action": "Use one continuous 45-point mature queue for production; keep the historical composite diagnostic-only."
+    },
+    {
+      "order": 5,
+      "stage_id": "legacy_h2o_13",
+      "title": "旧算法成熟 H2O 13 湿点",
+      "evidence_status": "hold",
+      "effective_status": "blocked_by_previous_stage",
+      "blocker_codes": [
+        "h2o_component_qc_missing=36",
+        "h2o_historical_fit_not_allowed",
+        "legacy_h2o_continuous_13_point_root_missing"
+      ],
+      "evidence_roles": [
+        "legacy_evidence_catalog",
+        "historical_mature_root_discovery",
+        "mature_route_contract"
+      ],
+      "observed": "cataloged_h2o_points=36; missing_component_qc=36; complete_mature_roots=0",
+      "physical_meaning": "Segmented wet points are not equivalent to one mature 13-point H2O queue, and CO2 zero gas is not an interchangeable H2O dry-gas anchor.",
+      "next_action": "Bind one continuous mature 13-point H2O root with component-matched QC and separately traceable dry-gas anchor evidence."
+    },
+    {
+      "order": 6,
+      "stage_id": "component_qc_and_0613_fit_review",
+      "title": "component-QC 与 0613 多策略 no-write 拟合",
+      "evidence_status": "hold",
+      "effective_status": "blocked_by_previous_stage",
+      "blocker_codes": [
+        "canonical_0613_multi_strategy_fit_selector_not_closed",
+        "catalog_not_fit_eligible",
+        "production_component_qc_evaluator_missing"
+      ],
+      "evidence_roles": [
+        "legacy_evidence_catalog",
+        "component_qc_writer_design",
+        "historical_replay_contract"
+      ],
+      "observed": "catalog_fit_allowed=False; component_qc_evaluator_available=False",
+      "physical_meaning": "Fitting must consume per-analyzer physical QC and the 0613 strategy rules, not merely all available points.",
+      "next_action": "Implement the production component-QC evaluator and 0613 strategy matrix; preserve CO2 zero and H2O dry-gas anchor roles separately."
+    },
+    {
+      "order": 7,
+      "stage_id": "controlled_write_readback",
+      "title": "系数受控写入与 GETCO 读回",
+      "evidence_status": "hold",
+      "effective_status": "blocked_by_previous_stage",
+      "blocker_codes": [
+        "post_run_write_package=not_attempted"
+      ],
+      "evidence_roles": [
+        "formal_run_status"
+      ],
+      "observed": "post_run_write_package=not_attempted",
+      "physical_meaning": "Calculation, authorization, old-value snapshot, write, and readback are separate evidence events.",
+      "next_action": "Close the unified S1-S9/SENCOA-B controlled-write bundle without treating a successful write as a successful validation."
+    },
+    {
+      "order": 8,
+      "stage_id": "post_write_short_reverify",
+      "title": "写后独立短复验",
+      "evidence_status": "hold",
+      "effective_status": "blocked_by_previous_stage",
+      "blocker_codes": [
+        "controlled_write_and_reverification=not_attempted"
+      ],
+      "evidence_roles": [
+        "formal_run_status"
+      ],
+      "observed": "controlled_write_and_reverification=not_attempted",
+      "physical_meaning": "Readback proves stored bytes; independent reverify proves the physical calibration result.",
+      "next_action": "Bind component-specific short reverify evidence after every authorized write before archive closure."
+    },
+    {
+      "order": 9,
+      "stage_id": "archive_release_postgresql18",
+      "title": "归档、release 与 PostgreSQL 18 受控入库",
+      "evidence_status": "hold",
+      "effective_status": "blocked_by_previous_stage",
+      "blocker_codes": [
+        "formal_archive_database_release=missing",
+        "postgresql18_database_import_allowed=false",
+        "postgresql18_execution_supported=false",
+        "postgresql18_real_import_execution_allowed=false"
+      ],
+      "evidence_roles": [
+        "formal_run_status",
+        "postgresql18_import_design"
+      ],
+      "observed": "archive_gate=missing; db_execution_supported=False; database_import_allowed=False",
+      "physical_meaning": "Database import is the last transaction after traceable archive release, never a side effect of route, fitting, replay, or coefficient writing.",
+      "next_action": "Implement the controlled PostgreSQL 18 transaction only after archive, identity, readback, and reverify evidence close."
+    }
+  ],
+  "next_action": "Bind a concrete historical or future batch initialization closeout artifact; do not infer identity from route files.",
+  "evidence_source": "historical_replay",
+  "full_production_auto_allowed": false,
+  "live_queue_execution_allowed": false,
+  "formal_release_allowed": false,
+  "database_import_allowed": false,
+  "opens_com_ports": false,
+  "controls_pressure": false,
+  "controls_water_or_gas_routes": false,
+  "writes_coefficients": false,
+  "writes_sn_or_device_code": false,
+  "connects_postgresql": false,
+  "not_real_acceptance_evidence": true
+}
