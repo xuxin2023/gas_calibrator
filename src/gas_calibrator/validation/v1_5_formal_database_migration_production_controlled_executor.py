@@ -506,6 +506,8 @@ def execute_reviewed_production_migration(
         **revalidated,
         **result,
         "generated_at": _now(),
+        "authorization_validation_requested": True,
+        "authorization_validated": True,
         "overall_status": str(result.get("status") or "migration_execution_failed"),
         "production_state": (
             "migration_002_execution_confirmed"
