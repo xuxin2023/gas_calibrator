@@ -32,6 +32,9 @@ AUTHORIZATION_SCHEMA = (
 )
 CONFIRMATION_TEMPLATE = "v1_5_postgresql18_migration_002_reviewed_v1"
 EXECUTE_FLAG = "--execute-postgresql18-migration"
+AUTHORIZATION_PREFLIGHT_STATUS = (
+    "ready_for_postgresql18_migration_execution_operator_handoff"
+)
 MAX_AUTHORIZATION_LIFETIME_SECONDS = 24 * 60 * 60
 
 
@@ -222,6 +225,8 @@ def build_migration_execution_preview(
         "operator_confirmation_template": CONFIRMATION_TEMPLATE,
         "three_distinct_actors_required": True,
         "authorization_max_lifetime_seconds": MAX_AUTHORIZATION_LIFETIME_SECONDS,
+        "authorization_validation_requested": False,
+        "authorization_validated": False,
         "dsn_value_read": False,
         "execution_attempted": False,
         "connects_postgresql": False,
@@ -359,6 +364,8 @@ def authorization_blocked_model(
         "export_status": "error",
         "blocker_count": 1,
         "reasons": list(preview.get("reasons") or []) + [reason],
+        "authorization_validation_requested": True,
+        "authorization_validated": False,
         "dsn_value_read": False,
         "execution_attempted": False,
         "connects_postgresql": False,
@@ -366,6 +373,36 @@ def authorization_blocked_model(
         "migration_execution_confirmed": False,
         "database_written": False,
         "database_import_allowed": False,
+    }
+
+
+def authorization_validated_model(
+    preview: Mapping[str, Any], authorization: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Record a fresh authorization review without reading a DSN or connecting."""
+
+    return {
+        **dict(preview),
+        "generated_at": _now(),
+        "overall_status": AUTHORIZATION_PREFLIGHT_STATUS,
+        "production_state": "migration_execution_authorization_validated_no_connect",
+        "export_status": "ok",
+        "blocker_count": 0,
+        "reasons": [],
+        "authorization_validation_requested": True,
+        "authorization_validated": True,
+        "authorization_record": dict(authorization),
+        "dsn_value_read": False,
+        "execution_attempted": False,
+        "connects_postgresql": False,
+        "applies_migrations": False,
+        "migration_execution_confirmed": False,
+        "database_written": False,
+        "production_import_execution_allowed": False,
+        "database_import_allowed": False,
+        "formal_release_allowed": False,
+        "not_real_acceptance_evidence": True,
+        "evidence_source": "postgresql18_migration_authorization_no_connect_preflight",
     }
 
 
@@ -538,6 +575,7 @@ def write_migration_execution_outputs(
         [
             {
                 "overall_status": model.get("overall_status"),
+                "authorization_validated": model.get("authorization_validated"),
                 "execution_attempted": model.get("execution_attempted"),
                 "connects_postgresql": model.get("connects_postgresql"),
                 "transaction_started": model.get("transaction_started"),
@@ -602,6 +640,7 @@ def write_migration_execution_outputs(
                 "# V1.5 PostgreSQL 18 migration 002 controlled executor",
                 "",
                 f"- overall_status: `{model.get('overall_status')}`",
+                f"- authorization_validated: `{model.get('authorization_validated')}`",
                 f"- execution_attempted: `{model.get('execution_attempted')}`",
                 f"- connects_postgresql: `{model.get('connects_postgresql')}`",
                 f"- transaction_committed: `{model.get('transaction_committed')}`",
@@ -611,6 +650,7 @@ def write_migration_execution_outputs(
                 f"- formal_release_allowed: `{model.get('formal_release_allowed')}`",
                 "",
                 "The executor is fixed to PostgreSQL 18 database gas_calibrator and migration 002.",
+                "Authorization-only validation never reads the DSN and never opens a database connection.",
                 "It never imports calibration evidence and never controls analyzers or routes.",
             ]
         )

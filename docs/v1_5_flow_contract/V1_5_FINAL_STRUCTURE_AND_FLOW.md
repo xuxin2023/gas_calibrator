@@ -289,6 +289,7 @@ V1.5 结构整理基本完成前，必须保留一个只读收尾验收包：
 
 - `run_v1_5_formal_database_migration_production_controlled_executor.py` is the only code path allowed to execute migration `002_v1_5_production_import_ledger`; it is not a generic migration runner.
 - Default invocation is a no-DSN/no-connect preview. Real execution requires `--execute-postgresql18-migration`, a fresh three-party authorization, and exact SHA256 bindings for the DBA readiness JSON plus precheck/apply/postcheck SQL.
+- `--validate-authorization-only` validates the completed three-party packet, freshness, fixed target, boundaries, paths, and hashes without reading `V1_5_POSTGRES_DSN` or opening PostgreSQL. It is mutually exclusive with the real execution flag.
 - The target is fixed to PostgreSQL 18 database `gas_calibrator`, schema `v1_5_evidence`, and DSN environment `V1_5_POSTGRES_DSN`; target, schema, migration-version, import, and release overrides are rejected.
 - Immediately before execution, the executor re-reads and re-hashes every bound artifact, rebuilds the readiness packet from repository migrations, then checks database/version/migration-001/migration-002/table state before starting the transaction.
 - Migration precheck and postcheck record the cluster-wide PostgreSQL `system_identifier`; a changed or invalid identifier prevents the migration artifact from becoming confirmed evidence.

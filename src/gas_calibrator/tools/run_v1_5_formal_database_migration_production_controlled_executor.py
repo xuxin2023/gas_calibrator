@@ -14,6 +14,7 @@ from ..validation.v1_5_formal_database_migration_dba_readiness import (
 )
 from ..validation.v1_5_formal_database_migration_production_controlled_executor import (
     authorization_blocked_model,
+    authorization_validated_model,
     build_migration_execution_preview,
     execution_preconnect_hold_model,
     execute_reviewed_production_migration,
@@ -35,6 +36,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--postcheck-sql", required=True)
     parser.add_argument("--execution-authorization-json", default="")
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--validate-authorization-only", action="store_true")
     parser.add_argument("--execute-postgresql18-migration", action="store_true")
     parser.add_argument("--fail-on-blocker", action="store_true")
 
@@ -71,6 +73,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
+    if args.validate_authorization_only and args.execute_postgresql18_migration:
+        print(
+            "Authorization-only validation and migration execution are mutually exclusive.",
+            file=sys.stderr,
+        )
+        return 2
 
     try:
         source_paths = {
@@ -86,7 +94,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             postcheck_sql=args.postcheck_sql,
         )
         model = preview
-        if args.execute_postgresql18_migration:
+        if args.validate_authorization_only:
+            if not args.execution_authorization_json:
+                model = authorization_blocked_model(
+                    preview, "migration_execution_authorization_json_required"
+                )
+            else:
+                try:
+                    authorization = validate_migration_execution_authorization(
+                        execution_authorization_json=args.execution_authorization_json,
+                        preview=preview,
+                        source_paths=source_paths,
+                    )
+                except ProductionMigrationError as exc:
+                    model = authorization_blocked_model(preview, str(exc))
+                else:
+                    model = authorization_validated_model(preview, authorization)
+        elif args.execute_postgresql18_migration:
             if not args.execution_authorization_json:
                 model = authorization_blocked_model(
                     preview, "migration_execution_authorization_json_required"
@@ -135,6 +159,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             json.dumps(
                 {
                     "overall_status": model.get("overall_status"),
+                    "authorization_validated": model.get("authorization_validated"),
                     "execution_attempted": model.get("execution_attempted"),
                     "dsn_value_read": model.get("dsn_value_read"),
                     "connects_postgresql": model.get("connects_postgresql"),
@@ -154,6 +179,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         if (
             args.execute_postgresql18_migration
             and model.get("migration_execution_confirmed") is not True
+        ):
+            return 2
+        if (
+            args.validate_authorization_only
+            and model.get("authorization_validated") is not True
         ):
             return 2
         if model.get("blocker_count") and args.fail_on_blocker:

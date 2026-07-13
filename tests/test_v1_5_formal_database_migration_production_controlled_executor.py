@@ -331,6 +331,109 @@ def test_cli_default_and_invalid_authorization_never_read_dsn(
     assert template["source_bindings"]
 
 
+def test_cli_authorization_only_preflight_never_reads_dsn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths = _make_packet(tmp_path)
+    authorization = _make_authorization(tmp_path, paths)
+    output_dir = tmp_path / "authorization_preflight"
+
+    def forbidden_dsn_read() -> str:
+        raise AssertionError("authorization preflight must not read DSN")
+
+    monkeypatch.setattr(cli, "_read_production_dsn", forbidden_dsn_read)
+    monkeypatch.setattr(
+        cli,
+        "execute_reviewed_production_migration",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("authorization preflight must not execute migration")
+        ),
+    )
+    result = cli.main(
+        [
+            "--dba-readiness-json",
+            str(paths["dba_readiness"]),
+            "--precheck-sql",
+            str(paths["precheck_sql"]),
+            "--apply-sql",
+            str(paths["apply_sql"]),
+            "--postcheck-sql",
+            str(paths["postcheck_sql"]),
+            "--execution-authorization-json",
+            str(authorization),
+            "--output-dir",
+            str(output_dir),
+            "--validate-authorization-only",
+        ]
+    )
+    model = json.loads(
+        (
+            output_dir
+            / "v1_5_formal_database_migration_production_controlled_executor.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert result == 0
+    assert model["overall_status"] == (
+        "ready_for_postgresql18_migration_execution_operator_handoff"
+    )
+    assert model["authorization_validation_requested"] is True
+    assert model["authorization_validated"] is True
+    assert model["authorization_record"]["authorization_id"] == "migration-auth-001"
+    assert model["dsn_value_read"] is False
+    assert model["execution_attempted"] is False
+    assert model["connects_postgresql"] is False
+    assert model["applies_migrations"] is False
+    assert model["database_written"] is False
+    assert model["database_import_allowed"] is False
+
+
+def test_cli_authorization_only_rejects_invalid_or_execute_combination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths = _make_packet(tmp_path)
+    invalid_authorization = _make_authorization(
+        tmp_path,
+        paths,
+        reviewer="same-person",
+        approver="same-person",
+    )
+
+    def forbidden_dsn_read() -> str:
+        raise AssertionError("authorization preflight must not read DSN")
+
+    monkeypatch.setattr(cli, "_read_production_dsn", forbidden_dsn_read)
+    base_args = [
+        "--dba-readiness-json",
+        str(paths["dba_readiness"]),
+        "--precheck-sql",
+        str(paths["precheck_sql"]),
+        "--apply-sql",
+        str(paths["apply_sql"]),
+        "--postcheck-sql",
+        str(paths["postcheck_sql"]),
+        "--execution-authorization-json",
+        str(invalid_authorization),
+        "--output-dir",
+        str(tmp_path / "authorization_rejected"),
+    ]
+
+    assert cli.main(base_args + ["--validate-authorization-only"]) == 2
+    blocked = json.loads(
+        (
+            tmp_path
+            / "authorization_rejected"
+            / "v1_5_formal_database_migration_production_controlled_executor.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert blocked["authorization_validated"] is False
+    assert blocked["connects_postgresql"] is False
+    assert cli.main(
+        base_args
+        + ["--validate-authorization-only", "--execute-postgresql18-migration"]
+    ) == 2
+
+
 def test_cli_records_preconnect_hold_after_valid_authorization(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
