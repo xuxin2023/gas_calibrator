@@ -13,7 +13,7 @@ from typing import List
 
 
 SCHEMA_NAME = "v1_5_evidence"
-MIGRATION_VERSION = "001_v1_5_evidence_registry"
+MIGRATION_VERSION = "002_v1_5_production_import_ledger"
 
 
 @dataclass(frozen=True)

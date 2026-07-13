@@ -268,3 +268,11 @@ V1.5 结构整理基本完成前，必须保留一个只读收尾验收包：
 - `export_v1_5_formal_database_import_production_promotion_preflight.py` revalidates the exact staging transaction, transaction plan, evidence bundle, production authorization, archive closure, command contract, executor design, identities, and table counts before a future production executor may be reviewed.
 - A passing promotion preflight does not connect to the production database and does not authorize import. `production_import_execution_allowed`, `database_import_allowed`, and `formal_release_allowed` remain false.
 - Production database execution must remain a separate, explicitly authorized implementation with transaction readback, rollback, conflict hold, and commit-uncertain handling.
+
+## 14. PostgreSQL 18 production controlled executor addendum (2026-07-13)
+
+- `run_v1_5_formal_database_import_production_controlled_executor.py` is the separate manual production executor. Default invocation is a no-DSN/no-connect preview; real execution requires `--execute-production-import` and a fresh three-party authorization packet bound to the exact promotion preflight, transaction plan, and evidence bundle hashes.
+- The target is not configurable: PostgreSQL 18 database `gas_calibrator`, core schema `public`, evidence schema `v1_5_evidence`, and DSN environment `V1_5_POSTGRES_DSN`.
+- The executor never creates schemas or applies migrations. Migration `002_v1_5_production_import_ledger` must already exist, otherwise the transaction rolls back and holds.
+- A production transaction writes identity aliases and the evidence bundle atomically, performs precommit identity/table-count readback, records four immutable input hashes, supports exact idempotent replay, and holds conflicts or uncertain commits.
+- Database import does not open COM, write SN/SENCO, control pressure/routes, modify 0613/0620/0621 mature calibration paths, or grant formal calibration release.

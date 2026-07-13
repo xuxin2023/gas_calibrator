@@ -304,15 +304,21 @@ def _upsert_core_identity(
     run_id: str,
     devices: Sequence[Mapping[str, str]],
     operator: str,
+    import_scope: str = "staging",
 ) -> None:
+    if import_scope not in {"staging", "production"}:
+        raise StagingImportError("import_scope_invalid")
+    staging_only = import_scope == "staging"
+    source_name = f"v1_5_postgresql18_{import_scope}_import"
+    run_mode = "v1_5_staging_import" if staging_only else source_name
     translated = connection.execution_options(schema_translate_map={None: schemas.core})
     run_uuid = stable_uuid("run", run_id)
     run_stmt = postgresql_insert(RunRecord.__table__).values(
         id=run_uuid,
         status="completed",
-        run_mode="v1_5_staging_import",
+        run_mode=run_mode,
         route_mode="none",
-        profile_name="v1_5_postgresql18_staging",
+        profile_name=f"v1_5_postgresql18_{import_scope}",
         operator=operator,
         total_points=0,
         successful_points=0,
@@ -322,8 +328,11 @@ def _upsert_core_identity(
         notes=json.dumps(
             {
                 "source_run_id": run_id,
-                "staging_only": True,
+                "import_scope": import_scope,
+                "staging_only": staging_only,
+                "production_import": not staging_only,
                 "not_real_acceptance_evidence": True,
+                "does_not_grant_formal_release": True,
             },
             ensure_ascii=False,
         ),
@@ -344,7 +353,9 @@ def _upsert_core_identity(
             "protocol_device_id_at_run": row["protocol_device_id"],
             "slot_id": row["slot"],
             "port_at_run": row["port"],
-            "staging_only": True,
+            "import_scope": import_scope,
+            "staging_only": staging_only,
+            "production_import": not staging_only,
         }
         sensor_stmt = postgresql_insert(SensorRecord.__table__).values(
             sensor_id=sensor_uuid,
@@ -386,7 +397,7 @@ def _upsert_core_identity(
                 observed_at=observed_at,
                 valid_from=observed_at,
                 valid_to=None,
-                metadata={"source": "v1_5_postgresql18_staging_import"},
+                metadata={"source": source_name},
             )
             translated.execute(
                 alias_stmt.on_conflict_do_update(
@@ -394,12 +405,13 @@ def _upsert_core_identity(
                     set_={"observed_at": observed_at, "valid_from": observed_at},
                 )
             )
-        event_id = stable_uuid("device_event", run_uuid, sn_code, "v1_5_staging_identity_import")
+        event_type = f"v1_5_{import_scope}_identity_import"
+        event_id = stable_uuid("device_event", run_uuid, sn_code, event_type)
         event_stmt = postgresql_insert(DeviceEventRecord.__table__).values(
             id=event_id,
             run_id=run_uuid,
             device_name=sn_code,
-            event_type="v1_5_staging_identity_import",
+            event_type=event_type,
             event_data={**metadata, "not_real_acceptance_evidence": True},
             timestamp=observed_at,
         )
