@@ -474,6 +474,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline component-QC authority audit; separates mature pre-sample stability gates from the untracked 0624/migration writer and keeps QC backfill blocked")
     elif lower == "export_v1_5_component_qc_generator_contract":
         notes.append("offline component-QC generator contract review; fixes per-analyzer physical grading semantics while keeping implementation and backfill disabled")
+    elif lower == "export_v1_5_component_qc_reference_evaluator":
+        notes.append("offline synthetic-only component-QC reference evaluator; exercises the reviewed per-analyzer contract without historical writes, fitting, COM, or production promotion")
     elif lower == "export_v1_5_automation_control_contract":
         notes.append("offline V1.5 automation control contract; keeps automation as a shell around the 0613/0620/0621 mature core")
     elif lower == "export_v1_5_full_flow_automation_closure":
@@ -708,6 +710,7 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             "export_v1_5_p2_qc_derivation_design",
             "export_v1_5_component_qc_authority_audit",
             "export_v1_5_component_qc_generator_contract",
+            "export_v1_5_component_qc_reference_evaluator",
         }:
             category = "formal_review_evidence"
             formal_status = "formal_support"
