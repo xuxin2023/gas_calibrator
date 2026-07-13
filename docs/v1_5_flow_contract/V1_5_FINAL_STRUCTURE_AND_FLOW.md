@@ -211,6 +211,7 @@ CO2 和 H2O 的低端锚点不能混成一个概念：
 - `export_v1_5_component_qc_authority_audit.py` 是组件 QC 权威来源审计器；它明确分离成熟采样前 ratio 判稳门禁与采样后 per-analyzer QC，证明当前 git 历史没有 0613/0620/0621 组件 QC writer，现有 43 个组件 QC 文件全部属于禁止的 0624/migration CO2 证据，根目录未跟踪 writer 只能作为 schema/诊断参考。因此 QC 生成、历史回填和拟合继续阻塞。
 - `export_v1_5_component_qc_generator_contract.py` 是 design-only 组件 QC 合同评审器；它固定 per-analyzer 独立分级、CO2 `0.0005/0.001`、H2O A=`0.001`、公共物理失败才整点拒绝、raw usable ratio 不得被 summary outlier filter 掩盖，以及 A/B/C 的 fit/diagnostic 语义。当前只允许人工合同评审，不代表 writer 已实现，也不允许回填 125 个历史点。
 - `export_v1_5_component_qc_reference_evaluator.py` 是 synthetic-only 组件 QC 参考评估器；它只接受 `evidence_source=simulated` 的内存/fixture 数据，用于验证上述 per-analyzer 分级合同。它不会读取或写回历史点目录，不会把点级最差设备扩散成其它设备的拟合拒绝，也不授权历史 QC 生成、拟合、release、入库、COM 或任何设备动作。
+- `export_v1_5_historical_component_qc_generator_preflight.py` 是历史组件 QC 生成前的 no-write 输入门禁；它只按 P2 已登记清单重验点目录内源工件角色、大小、SHA256、P2 inventory 路径绑定和目标覆盖风险。当前 125 个候选的 697 个源工件均通过完整性检查，但 125 点仍全部保留人工 gate，真正 QC 生成、历史写回、拟合、release、入库和设备动作继续锁定。
 - 根目录仍是草稿/污染区，不应直接用于正式生产。
 - `_handoff` 仍有大量历史证据，不应整体合入。
 - 自动化仍需按正式 runner 和受控授权一步步执行；不能因为有 planner 就跳过真实设备 readiness、压力、温度、采样 QC、写入评审和复验。
