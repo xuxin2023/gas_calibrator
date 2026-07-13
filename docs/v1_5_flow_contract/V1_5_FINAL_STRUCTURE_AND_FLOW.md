@@ -315,6 +315,7 @@ V1.5 结构整理基本完成前，必须保留一个只读收尾验收包：
 - `export_v1_5_final_production_external_gate_freeze.py` 取代旧的七项程序缺口快照作为当前完成度口径，但保留旧快照供 historical replay 继续绑定。
 - V1.5 已完成的程序能力包括成熟入口保护、旧算法 45/13 全流程离线 replay、生产 component-QC/0613 拟合矩阵、统一受控写入状态机、新算法 47/14 handoff 合同、PostgreSQL 18 staging/migration/import 链和最终离线验收。
 - “程序能力已完成”不等于“真实生产已放行”。当前仍需真实批次连续路径证据、拟合候选批准、设备写后复验、新算法 live smoke、生产 migration 002 和生产入库/归档/release。
+- 因此当前只能宣称“程序结构与离线自动化完成”，不能宣称 live 生产自动化完成；`live_production_automation_complete=false`。
 - PostgreSQL 18 staging 已用真实隔离数据库验证；生产 `gas_calibrator` 从未执行 migration 002 或 evidence import。
 - 下一可执行门禁是收集真实 operator/reviewer/approver 身份并审核 migration 002 授权包。程序不得虚构三方身份，也不得把 staging 证据提升为生产授权。
 - `full_production_auto_allowed=false`、`live_queue_execution_allowed=false`、`formal_release_allowed=false`、`database_import_allowed=false`，直到对应真实门禁逐项闭环。

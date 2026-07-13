@@ -1,7 +1,7 @@
 # V1.5 最终生产外部门禁冻结清单
 
 - source origin/main: `dbbed56689f2d48bd79339fa9af8bea58775fed4`
-- overall_status: `program_automation_complete_real_production_evidence_pending`
+- overall_status: `program_structure_and_offline_automation_complete_live_production_gates_pending`
 - program capability count: `7`
 - remaining external gate count: `6`
 - recommended next gate: `production_postgresql18_migration_002_authorization_and_execution`
@@ -36,6 +36,7 @@
 ## 当前结论
 
 - V1.5 程序结构和离线自动化能力已经完成，不再把已实现的小包列为待开发。
+- live 生产自动化尚未完成；真实批次、写后复验、新算法 live、生产迁移/入库/release 仍是硬门禁。
 - 生产 PostgreSQL 18 staging 已真实验证；生产 migration 002 和 production import 从未执行。
 - 当前没有真机批次证据时，不允许拟合候选、写系数、live queue、入库或 release。
 - 下一项是收集真实 operator/reviewer/approver 身份并审核 migration 002 授权包；不得由程序虚构身份。

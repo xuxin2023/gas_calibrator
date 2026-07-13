@@ -12,7 +12,7 @@ from typing import Any, Mapping, Sequence
 
 
 SCHEMA = "v1_5_final_production_external_gate_freeze_v1"
-READY_STATUS = "program_automation_complete_real_production_evidence_pending"
+READY_STATUS = "program_structure_and_offline_automation_complete_live_production_gates_pending"
 REVIEW_STATUS = "final_production_external_gate_freeze_review_required"
 
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -352,6 +352,7 @@ def build_v1_5_final_production_external_gate_freeze(
         "remaining_external_gate_count": len(REMAINING_EXTERNAL_GATES),
         "recommended_next_gate_id": REMAINING_EXTERNAL_GATES[0].gate_id,
         "program_structure_and_offline_automation_complete": not reasons,
+        "live_production_automation_complete": False,
         "postgresql18_real_staging_integration_verified": not reasons,
         "real_production_acceptance_complete": False,
         "review_reasons": reasons,
@@ -429,6 +430,7 @@ def _markdown(model: Mapping[str, Any]) -> str:
             "## 当前结论",
             "",
             "- V1.5 程序结构和离线自动化能力已经完成，不再把已实现的小包列为待开发。",
+            "- live 生产自动化尚未完成；真实批次、写后复验、新算法 live、生产迁移/入库/release 仍是硬门禁。",
             "- 生产 PostgreSQL 18 staging 已真实验证；生产 migration 002 和 production import 从未执行。",
             "- 当前没有真机批次证据时，不允许拟合候选、写系数、live queue、入库或 release。",
             "- 下一项是收集真实 operator/reviewer/approver 身份并审核 migration 002 授权包；不得由程序虚构身份。",

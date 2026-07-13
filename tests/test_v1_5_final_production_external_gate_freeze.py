@@ -27,6 +27,7 @@ def test_external_gate_freeze_separates_program_closure_from_real_production() -
     assert model["overall_status"] == READY_STATUS
     assert model["scope_frozen"] is True
     assert model["program_structure_and_offline_automation_complete"] is True
+    assert model["live_production_automation_complete"] is False
     assert model["real_production_acceptance_complete"] is False
     assert model["program_capability_count"] == len(PROGRAM_CAPABILITIES) == 7
     assert model["remaining_external_gate_count"] == len(REMAINING_EXTERNAL_GATES) == 6
