@@ -1,0 +1,11 @@
+﻿order,requirement,value,purpose
+1,exact_profile_and_queue_hashes,profile plus CO2-47 and H2O-14 CSV SHA256,prevent point-plan substitution
+2,exact_mature_runner_hashes,CO2/H2O queue and sampling-worker SHA256,prevent route-kernel substitution
+3,active_analyzers,1-6 devices with unique 8-digit SN/device_code and reviewed COM/GA/protocol-ID mapping,bind physical devices
+4,current_readiness,"initialization, S9 pressure, route, certificates, runtime and CHECK policy pass",prevent stale readiness reuse
+5,three_party_authorization,"operator, reviewer, approver; reviewer != approver",separate operation and approval
+6,explicit_confirmation,AUTHORIZE_V1_5_NEW_ALGORITHM_47_14_MATURE_QUEUE_HANDOFF,avoid implicit live execution
+7,serial_pacing,minimum command and retry gap >= 1.0 s,protect analyzer serial timing
+8,route_order,"CO2 47 first, H2O 14 second",preserve mature production order
+9,fit_and_write_separation,A/R0(T) fitting and SENCOA/B writes remain outside route adapter,do not mix acquisition and coefficient writes
+10,legacy_default_unchanged,legacy_ratio_production remains 45/13 default,protect existing production fallback

@@ -1,0 +1,269 @@
+{
+  "schema": "v1_5_new_algorithm_mature_queue_live_handoff_v1",
+  "generated_at": "2026-07-13T10:39:50Z",
+  "overall_status": "offline_contract_ready_live_execution_blocked",
+  "contract_blocker_count": 0,
+  "production_blocker_count": 6,
+  "offline_handoff_contract_ready": true,
+  "production_live_gap_closed": false,
+  "profile_id": "absorption_ratio_shadow",
+  "legacy_default_profile_id": "legacy_ratio_production",
+  "legacy_default_preserved": true,
+  "algorithm_mode": "absorption_ratio_A",
+  "fit_input_contract": {
+    "formula": "A=-ln(R/R0(T))/(P_kPa/100)",
+    "co2": "A_CO2_from_R_CO2_and_R0_CO2_T",
+    "h2o": "A_H2O_from_R_H2O_and_R0_H2O_T",
+    "temperature_source": "per_analyzer_chamber_T1",
+    "pressure_sequence": "SENCO9_first",
+    "temperature_coefficients": "SENCO7_SENCO8_neutral",
+    "co2_zero_and_h2o_dry_anchor_are_separate": true
+  },
+  "queue_contract": {
+    "legacy_counts": {
+      "co2": 45,
+      "h2o": 13
+    },
+    "new_algorithm_counts": {
+      "co2": 47,
+      "h2o": 14
+    },
+    "co2_rows_content_sha256": "491728cd7ee41f240b8f8f1733b05a67b81bdd453cc6b3c0bcecebbe84cb54ad",
+    "h2o_rows_content_sha256": "f44ee9e00ce9f6ac9c4576b9b2d45484ef46387e5c81980e25c66906630a5c34",
+    "co2_queue_runner": "gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue",
+    "h2o_queue_runner": "gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue",
+    "route_order": [
+      "co2",
+      "h2o"
+    ],
+    "profile_declared_queue_source_is_not_consumed": true,
+    "mature_point_execution_is_not_copied_or_modified": true,
+    "co2_queue_csv": "docs/v1_5_flow_contract/new_algorithm_mature_queue_live_handoff/co2_new_algorithm_47_runner_queue.csv",
+    "h2o_queue_csv": "docs/v1_5_flow_contract/new_algorithm_mature_queue_live_handoff/h2o_new_algorithm_14_runner_queue.csv",
+    "co2_queue_csv_sha256": "9700535fc06092732b0a822736beb21380c87e62dbee4c0075e996cfe154f979",
+    "h2o_queue_csv_sha256": "8af815ab6ee7c7c75734496f43c01071819a024b1bd7504d399609cac85fbf18"
+  },
+  "runner_source_bindings": [
+    {
+      "role": "co2_queue",
+      "path": "src/gas_calibrator/tools/run_v1_5_formal_co2_open_flow_queue.py",
+      "sha256": "b8f34fcf1f5c60e25f7fe19762d27a247b7e6f01af232c70a362cf2ecf995e8d"
+    },
+    {
+      "role": "h2o_queue",
+      "path": "src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_queue.py",
+      "sha256": "cbd763c4de1a9d867d1f5de4559b3c98063c525e26bde69b04d4573641319ba1"
+    },
+    {
+      "role": "co2_sampling_worker",
+      "path": "src/gas_calibrator/tools/run_v1_5_formal_open_flow_sampling.py",
+      "sha256": "ba449d548c9be08df3892e31c0e7132f914b0a0fb701a28ef0bb352398383ee3"
+    },
+    {
+      "role": "h2o_sampling_worker",
+      "path": "src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_sampling.py",
+      "sha256": "b7ccfa6deac7749341308550ee90ac8cb3d801951999e8d18d1f4092800772a7"
+    }
+  ],
+  "authorization_requirements": [
+    {
+      "order": 1,
+      "requirement": "exact_profile_and_queue_hashes",
+      "value": "profile plus CO2-47 and H2O-14 CSV SHA256",
+      "purpose": "prevent point-plan substitution"
+    },
+    {
+      "order": 2,
+      "requirement": "exact_mature_runner_hashes",
+      "value": "CO2/H2O queue and sampling-worker SHA256",
+      "purpose": "prevent route-kernel substitution"
+    },
+    {
+      "order": 3,
+      "requirement": "active_analyzers",
+      "value": "1-6 devices with unique 8-digit SN/device_code and reviewed COM/GA/protocol-ID mapping",
+      "purpose": "bind physical devices"
+    },
+    {
+      "order": 4,
+      "requirement": "current_readiness",
+      "value": "initialization, S9 pressure, route, certificates, runtime and CHECK policy pass",
+      "purpose": "prevent stale readiness reuse"
+    },
+    {
+      "order": 5,
+      "requirement": "three_party_authorization",
+      "value": "operator, reviewer, approver; reviewer != approver",
+      "purpose": "separate operation and approval"
+    },
+    {
+      "order": 6,
+      "requirement": "explicit_confirmation",
+      "value": "AUTHORIZE_V1_5_NEW_ALGORITHM_47_14_MATURE_QUEUE_HANDOFF",
+      "purpose": "avoid implicit live execution"
+    },
+    {
+      "order": 7,
+      "requirement": "serial_pacing",
+      "value": "minimum command and retry gap >= 1.0 s",
+      "purpose": "protect analyzer serial timing"
+    },
+    {
+      "order": 8,
+      "requirement": "route_order",
+      "value": "CO2 47 first, H2O 14 second",
+      "purpose": "preserve mature production order"
+    },
+    {
+      "order": 9,
+      "requirement": "fit_and_write_separation",
+      "value": "A/R0(T) fitting and SENCOA/B writes remain outside route adapter",
+      "purpose": "do not mix acquisition and coefficient writes"
+    },
+    {
+      "order": 10,
+      "requirement": "legacy_default_unchanged",
+      "value": "legacy_ratio_production remains 45/13 default",
+      "purpose": "protect existing production fallback"
+    }
+  ],
+  "production_blockers": [
+    {
+      "blocker": "separate_live_adapter_not_implemented",
+      "next_action": "implement in a separately reviewed hardware-authorized package"
+    },
+    {
+      "blocker": "live_authorization_packet_not_supplied",
+      "next_action": "bind exact hashes and three-party authorization"
+    },
+    {
+      "blocker": "active_analyzer_and_port_inventory_not_supplied",
+      "next_action": "bind 1-6 current devices before live execution"
+    },
+    {
+      "blocker": "current_pre_gas_pressure_route_readiness_not_supplied",
+      "next_action": "generate fresh live readiness evidence"
+    },
+    {
+      "blocker": "sencoa_sencob_r0_writer_not_production_ready",
+      "next_action": "complete controlled SENCOA/SENCOB write, readback, rollback and reverify"
+    },
+    {
+      "blocker": "h2o_absorption_firmware_input_scale_not_confirmed",
+      "next_action": "confirm the firmware H2O absorption input variable and scale before any production write"
+    }
+  ],
+  "checks": [
+    {
+      "check_id": "immutable_profile_queue_materialization",
+      "status": "pass",
+      "reasons": [],
+      "physical_meaning": "The live handoff may consume only fresh profile-generated queues, never stale _handoff or 0624/migration queue files.",
+      "details": {
+        "legacy_profile": "legacy_ratio_production",
+        "new_profile": "absorption_ratio_shadow",
+        "profile_declared_queue_source_is_not_consumed": true
+      }
+    },
+    {
+      "check_id": "legacy_45_13_and_new_47_14_point_contract",
+      "status": "pass",
+      "reasons": [],
+      "physical_meaning": "New-algorithm supplemental points run inside their mature temperature segments without changing the legacy 45/13 default.",
+      "details": {
+        "legacy_counts": {
+          "co2": 45,
+          "h2o": 13
+        },
+        "new_counts": {
+          "co2": 47,
+          "h2o": 14
+        },
+        "co2_supplements": [
+          [
+            -20.0,
+            600.0
+          ],
+          [
+            -10.0,
+            600.0
+          ]
+        ],
+        "h2o_supplements": [
+          [
+            40.0,
+            30.0,
+            30.0
+          ]
+        ]
+      }
+    },
+    {
+      "check_id": "algorithm_fit_input_and_physics_contract",
+      "status": "pass",
+      "reasons": [],
+      "physical_meaning": "The physical route stays mature; only fitting changes from R to A/R0(T), with pressure calibrated first and temperature coefficients neutral.",
+      "details": {
+        "formula": "A=-ln(R/R0(T))/(P_kPa/100)",
+        "pressure_sequence": "SENCO9_first",
+        "temperature_coefficients": "neutral_by_default_for_both_algorithms",
+        "co2_zero_and_h2o_dry_anchor_are_separate": true
+      }
+    },
+    {
+      "check_id": "migration_and_noncanonical_entrypoint_exclusion",
+      "status": "pass",
+      "reasons": [],
+      "physical_meaning": "The handoff must not consume _handoff, root migration, 0624, diagnostic, or worker-as-top-level queue sources.",
+      "details": {
+        "profile_declared_queue_source_is_not_consumed": true,
+        "top_level_runners": [
+          "gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue",
+          "gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue"
+        ]
+      }
+    },
+    {
+      "check_id": "mature_0620_0621_runner_binding",
+      "status": "pass",
+      "reasons": [],
+      "physical_meaning": "Both algorithms use the same reviewed 0620/0621 queue and point-worker implementation; the profile does not fork physical actions.",
+      "details": {
+        "route_behavior": "preserve_mature_v1_5_0620_route_timing_and_quality_gates",
+        "co2_runner": "gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue",
+        "h2o_runner": "gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue",
+        "protected_source_count": 4
+      }
+    },
+    {
+      "check_id": "route_adapter_has_no_side_effects",
+      "status": "pass",
+      "reasons": [],
+      "physical_meaning": "This package is an offline contract only and cannot open COM, control routes, write analyzers, import PostgreSQL, or release a run.",
+      "details": {
+        "opens_com_ports": false,
+        "controls_water_or_gas_routes": false,
+        "writes_coefficients": false,
+        "connects_postgresql": false
+      }
+    }
+  ],
+  "source_bindings": {
+    "profile_path": "configs/v1_5_algorithm_route_profiles.json",
+    "profile_sha256": "5f34c5b38dd5d18bb7a7d6f8bfebe2472c4bebc9544b995241f232c1a1d39456",
+    "mature_route_contract_json": "docs/v1_5_flow_contract/mature_route_contract/v1_5_mature_route_contract.json",
+    "mature_route_contract_sha256": "7f40a81ca97d8f09c6dd0d1593d615c498823760c38f849dd8c5b6a6ac03d359"
+  },
+  "execution_supported": false,
+  "live_queue_execution_allowed": false,
+  "opens_com_ports": false,
+  "controls_pressure": false,
+  "controls_water_or_gas_routes": false,
+  "writes_sn_or_device_code": false,
+  "writes_coefficients": false,
+  "connects_postgresql": false,
+  "database_written": false,
+  "formal_release_allowed": false,
+  "database_import_allowed": false,
+  "not_real_acceptance_evidence": true
+}
