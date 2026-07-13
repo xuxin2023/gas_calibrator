@@ -261,3 +261,10 @@ V1.5 结构整理基本完成前，必须保留一个只读收尾验收包：
 10. 拟合时按算法 profile 选择 legacy ratio 或 absorption 输入。
 11. 写入前必须有 no-write 评审、旧值快照、授权、读回和 rollback 计划。
 12. 写后必须复验，再归档、入库、出报告。
+
+## 13. PostgreSQL 18 staging-to-production promotion addendum (2026-07-13)
+
+- `run_v1_5_formal_database_import_staging_executor.py` is the only current database writer. It is limited to a dedicated staging/test database and `v1_5_core_staging*` / `v1_5_evidence_staging*` schemas.
+- `export_v1_5_formal_database_import_production_promotion_preflight.py` revalidates the exact staging transaction, transaction plan, evidence bundle, production authorization, archive closure, command contract, executor design, identities, and table counts before a future production executor may be reviewed.
+- A passing promotion preflight does not connect to the production database and does not authorize import. `production_import_execution_allowed`, `database_import_allowed`, and `formal_release_allowed` remain false.
+- Production database execution must remain a separate, explicitly authorized implementation with transaction readback, rollback, conflict hold, and commit-uncertain handling.
