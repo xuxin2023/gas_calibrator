@@ -238,6 +238,39 @@ def assess_pressure_senco9_no_write_config(config: Optional[Mapping[str, Any]]) 
     if not (_enabled_device(config, "pressure_controller") or _enabled_device(config, "pace")):
         warnings.append("pace_pressure_controller_not_enabled")
 
+    devices = config.get("devices") if isinstance(config, Mapping) else {}
+    if not isinstance(devices, Mapping):
+        reasons.append("devices_config_missing")
+        devices = {}
+    for key in (
+        "humidity_generator",
+        "dewpoint_meter",
+        "temperature_chamber",
+        "thermometer",
+        "relay",
+        "relay_8",
+    ):
+        if not isinstance(devices.get(key), Mapping):
+            reasons.append(f"devices.{key}_config_missing")
+
+    controller_key = "pressure_controller" if isinstance(devices.get("pressure_controller"), Mapping) else "pace"
+    controller = devices.get(controller_key)
+    if isinstance(controller, Mapping) and controller.get("enabled", True):
+        for key in ("port", "baud", "in_limits_pct", "in_limits_time_s"):
+            if controller.get(key) in (None, ""):
+                reasons.append(f"devices.{controller_key}.{key}_missing")
+        pressure_queries = controller.get("pressure_queries")
+        if not isinstance(pressure_queries, Sequence) or isinstance(pressure_queries, (str, bytes)):
+            reasons.append(f"devices.{controller_key}.pressure_queries_missing")
+        elif ":SENS:PRES:INL?" not in {str(item).strip().upper() for item in pressure_queries}:
+            reasons.append(f"devices.{controller_key}.pressure_queries_missing_inl")
+
+    pressure_gauge = devices.get("pressure_gauge")
+    if isinstance(pressure_gauge, Mapping) and pressure_gauge.get("enabled", True):
+        for key in ("port", "baud"):
+            if pressure_gauge.get(key) in (None, ""):
+                reasons.append(f"devices.pressure_gauge.{key}_missing")
+
     active_labels = [
         str(item.get("name") or "")
         for item in analyzers

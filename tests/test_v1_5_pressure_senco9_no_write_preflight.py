@@ -17,12 +17,21 @@ ROOT = Path(__file__).resolve().parents[1]
 def _write_no_write_config(path, analyzers):
     payload = {
         "devices": {
-            "pressure_gauge": {"enabled": True},
-            "pressure_controller": {"enabled": True},
+            "pressure_gauge": {"enabled": True, "port": "COM22", "baud": 9600},
+            "pressure_controller": {
+                "enabled": True,
+                "port": "COM23",
+                "baud": 9600,
+                "in_limits_pct": 0.02,
+                "in_limits_time_s": 10,
+                "pressure_queries": [":SENS:PRES:INL?", ":SENS:PRES?"],
+            },
             "relay": {"enabled": False},
             "relay_8": {"enabled": False},
             "humidity_generator": {"enabled": False},
             "dewpoint_meter": {"enabled": False},
+            "temperature_chamber": {"enabled": False},
+            "thermometer": {"enabled": False},
             "gas_analyzers": analyzers,
         },
         "workflow": {
@@ -118,6 +127,27 @@ def test_pressure_senco9_no_write_config_blocks_known_write_paths():
     assert "metadata.writes_senco_enabled" in reasons
     assert "metadata.writes_device_id_enabled" in reasons
     assert "active_send_enabled_for_ga01" in warnings
+
+
+def test_pressure_senco9_no_write_config_blocks_incomplete_runtime_device_structure():
+    status, reasons, _warnings = assess_pressure_senco9_no_write_config(
+        {
+            "devices": {
+                "pressure_gauge": {"enabled": True},
+                "pressure_controller": {"enabled": True},
+                "gas_analyzers": [
+                    {"name": "ga01", "device_id": "001", "port": "COM35", "enabled": True}
+                ],
+            }
+        }
+    )
+
+    assert status == "fail"
+    assert "devices.temperature_chamber_config_missing" in reasons
+    assert "devices.thermometer_config_missing" in reasons
+    assert "devices.pressure_controller.in_limits_pct_missing" in reasons
+    assert "devices.pressure_controller.pressure_queries_missing" in reasons
+    assert "devices.pressure_gauge.port_missing" in reasons
 
 
 def test_pressure_senco9_no_write_plan_passes_for_formal_4ch_config(tmp_path):
