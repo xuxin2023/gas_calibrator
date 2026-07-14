@@ -11,7 +11,7 @@ import hashlib
 import json
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, List, Mapping
 
 
 RUN_STATES_LOCKING_CRITICAL_PARAMETERS = {
@@ -110,8 +110,8 @@ PARAMETERS: Dict[str, ParameterDefinition] = {
     # D: controlled device working parameters.
     "MODE": ParameterDefinition("MODE", "D", "分析仪模式", ("engineer", "admin"), requires_approval=True, device_write=True, readback_required=True, rollback_required=True),
     "FTD": ParameterDefinition("FTD", "D", "主动发送频率", ("engineer", "admin"), requires_approval=True, device_write=True, readback_required=True, rollback_required=True),
-    "AVERAGE1": ParameterDefinition("AVERAGE1", "D", "H2O 平均/滤波参数", ("engineer", "admin"), requires_approval=True, device_write=True, readback_required=True, rollback_required=True),
-    "AVERAGE2": ParameterDefinition("AVERAGE2", "D", "CO2 平均/滤波参数", ("engineer", "admin"), requires_approval=True, device_write=True, readback_required=True, rollback_required=True),
+    "AVERAGE1": ParameterDefinition("AVERAGE1", "D", "CO2 平均/滤波参数", ("engineer", "admin"), requires_approval=True, device_write=True, readback_required=True, rollback_required=True),
+    "AVERAGE2": ParameterDefinition("AVERAGE2", "D", "H2O 平均/滤波参数", ("engineer", "admin"), requires_approval=True, device_write=True, readback_required=True, rollback_required=True),
     "SENTEMP1": ParameterDefinition("SENTEMP1", "D", "校准温度点 1", ("engineer", "admin"), requires_approval=True, device_write=True, readback_required=True, rollback_required=True),
     "SENTEMP2": ParameterDefinition("SENTEMP2", "D", "校准温度点 2", ("engineer", "admin"), requires_approval=True, device_write=True, readback_required=True, rollback_required=True),
     "TIMEOUT": ParameterDefinition("TIMEOUT", "D", "通信超时", ("engineer", "admin"), requires_approval=True, device_write=True, readback_required=True, rollback_required=True),

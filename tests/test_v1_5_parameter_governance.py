@@ -20,8 +20,8 @@ def test_parameter_surface_hides_high_risk_by_default():
 
 
 def test_average_parameter_labels_match_analyzer_manual_channels():
-    assert classify_parameter("AVERAGE1").label == "H2O 平均/滤波参数"
-    assert classify_parameter("AVERAGE2").label == "CO2 平均/滤波参数"
+    assert classify_parameter("AVERAGE1").label == "CO2 平均/滤波参数"
+    assert classify_parameter("AVERAGE2").label == "H2O 平均/滤波参数"
 
 
 def test_operator_can_change_run_parameter_when_not_running_with_audit():

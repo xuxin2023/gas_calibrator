@@ -294,6 +294,30 @@ def test_validate_offline_run_generates_expected_tables(tmp_path: Path) -> None:
     assert (out_dir / "fit_input_overview.csv").exists()
 
 
+def test_pressure_only_report_does_not_run_component_fit() -> None:
+    tables = validate_pressure_only._mark_component_fit_not_applicable_for_pressure_only(
+        {
+            "frame_quality_summary": [
+                {"Analyzer": "GA01", "ValidRatio": "1.0"},
+                {"Analyzer": "GA02", "ValidRatio": "0.9"},
+            ],
+            "summary_alignment_check": [],
+            "pressure_source_check": [{"status": "fit_error"}],
+            "fit_input_overview": [{"status": "fit_error"}],
+            "per_analyzer_comparison": [{"status": "fit_error"}],
+            "conclusion_summary": [{"risk_level": "fail", "fit_error_count": 2}],
+        }
+    )
+
+    conclusion = tables["conclusion_summary"][0]
+    assert conclusion["risk_level"] == "not_applicable_pressure_only_component_fit"
+    assert conclusion["fit_error_count"] == 0
+    assert conclusion["analyzer_count"] == 2
+    assert conclusion["worst_valid_ratio"] == 0.9
+    assert tables["fit_input_overview"][0]["status"] == "not_applicable_pressure_only"
+    assert tables["pressure_source_check"] == []
+
+
 def test_merged_sidecar_merge_keeps_gas_and_water_separate() -> None:
     older = Path("D:/old")
     newer = Path("D:/new")

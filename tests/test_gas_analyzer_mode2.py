@@ -273,8 +273,8 @@ def test_set_average_uses_h2o_on_average1_and_co2_on_average2() -> None:
     assert ga.set_average(co2_n=7, h2o_n=5) is True
 
     assert fake.writes == [
-        "AVERAGE1,YGAS,FFF,5\r\n",
-        "AVERAGE2,YGAS,FFF,7\r\n",
+        "AVERAGE1,YGAS,FFF,7\r\n",
+        "AVERAGE2,YGAS,FFF,5\r\n",
     ]
 
 

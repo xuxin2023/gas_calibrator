@@ -300,18 +300,9 @@ class GasAnalyzer:
         return self.set_average_with_ack(co2_n=co2_n, h2o_n=h2o_n, require_ack=True)
 
     def set_average_with_ack(self, co2_n: int, h2o_n: int, *, require_ack: bool = True) -> bool:
-        # Per bench manual: AVERAGE1 controls H2O channel, AVERAGE2 controls CO2 channel.
-        payload_h2o = self._average_cmd(1, h2o_n)
-        payload_co2 = self._average_cmd(2, co2_n)
-        ack_h2o = self._send_config_with_retries(
-            payload_h2o,
-            broadcast=True,
-            require_ack=require_ack,
-            attempts=1 + max(0, int(self.CONFIG_ACK_RETRY_COUNT)),
-            retry_delay_s=self.CONFIG_ACK_RETRY_DELAY_S,
-        )
-        if require_ack and not ack_h2o:
-            self._log_no_ack(payload_h2o)
+        # Per bench manual: AVERAGE1 controls CO2, AVERAGE2 controls H2O.
+        payload_co2 = self._average_cmd(1, co2_n)
+        payload_h2o = self._average_cmd(2, h2o_n)
         ack_co2 = self._send_config_with_retries(
             payload_co2,
             broadcast=True,
@@ -321,6 +312,15 @@ class GasAnalyzer:
         )
         if require_ack and not ack_co2:
             self._log_no_ack(payload_co2)
+        ack_h2o = self._send_config_with_retries(
+            payload_h2o,
+            broadcast=True,
+            require_ack=require_ack,
+            attempts=1 + max(0, int(self.CONFIG_ACK_RETRY_COUNT)),
+            retry_delay_s=self.CONFIG_ACK_RETRY_DELAY_S,
+        )
+        if require_ack and not ack_h2o:
+            self._log_no_ack(payload_h2o)
         return ack_h2o and ack_co2
 
     def set_average_filter(self, window_n: int) -> bool:

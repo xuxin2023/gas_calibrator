@@ -39,6 +39,50 @@ def _log(message: str) -> None:
     print(message, flush=True)
 
 
+def _mark_component_fit_not_applicable_for_pressure_only(
+    tables: Dict[str, List[Dict[str, Any]]],
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Keep pressure-only evidence out of the CO2/H2O component-fit verdict."""
+
+    frame_rows = list(tables.get("frame_quality_summary") or [])
+    valid_ratios: List[float] = []
+    for row in frame_rows:
+        try:
+            valid_ratios.append(float(row.get("ValidRatio")))
+        except (TypeError, ValueError):
+            continue
+    analyzers = {
+        str(row.get("Analyzer") or "").strip()
+        for row in frame_rows
+        if str(row.get("Analyzer") or "").strip()
+    }
+    tables["pressure_source_check"] = []
+    tables["fit_input_overview"] = [
+        {
+            "mode": "pressure_only",
+            "gas": "not_applicable",
+            "Analyzer": "",
+            "status": "not_applicable_pressure_only",
+            "fit_error": "",
+        }
+    ]
+    tables["per_analyzer_comparison"] = []
+    tables["conclusion_summary"] = [
+        {
+            "risk_level": "not_applicable_pressure_only_component_fit",
+            "analyzer_count": len(analyzers),
+            "worst_valid_ratio": min(valid_ratios) if valid_ratios else "",
+            "fit_error_count": 0,
+            "component_fit_status": "not_applicable_pressure_only",
+            "advice": (
+                "Use pressure_senco9_fit_evaluation for pressure/SENCO9 readiness; "
+                "do not run CO2/H2O component fitting on pressure-only rows."
+            ),
+        }
+    ]
+    return tables
+
+
 def _parse_pressure_points(raw: str | None) -> List[Optional[float]]:
     if not raw:
         return [None]
@@ -2036,6 +2080,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             gas="both",
             modes=("current",),
         )
+        tables = _mark_component_fit_not_applicable_for_pressure_only(tables)
         metadata = ValidationMetadata(
             tool_name="validate_pressure_only",
             analyzers=sorted({str(row.get("Analyzer") or "") for row in tables["frame_quality_summary"] if row.get("Analyzer")}),
