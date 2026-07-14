@@ -279,8 +279,12 @@ class GasAnalyzer:
     def set_active_freq(self, hz: int) -> bool:
         return self.set_active_freq_with_ack(hz, require_ack=True)
 
+    @staticmethod
+    def _format_ftd_value(hz: int) -> str:
+        return f"{max(1, int(hz)):02d}"
+
     def set_active_freq_with_ack(self, hz: int, *, require_ack: bool = True) -> bool:
-        payload = self._cmd_with_args("FTD", int(hz)).strip()
+        payload = self._cmd_with_args("FTD", self._format_ftd_value(hz)).strip()
         acked = self._send_config_with_retries(
             payload,
             broadcast=True,

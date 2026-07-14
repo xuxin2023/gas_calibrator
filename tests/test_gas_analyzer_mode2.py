@@ -209,10 +209,12 @@ def test_set_mode_and_ftd_use_manual_argument_order() -> None:
     ga.ser = fake
 
     assert ga.set_mode(2) is True
+    assert ga.set_active_freq(1) is True
     assert ga.set_active_freq(10) is True
 
     assert fake.writes == [
         "MODE,YGAS,FFF,2\r\n",
+        "FTD,YGAS,FFF,01\r\n",
         "FTD,YGAS,FFF,10\r\n",
     ]
 
