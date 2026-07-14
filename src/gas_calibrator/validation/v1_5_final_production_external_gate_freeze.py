@@ -50,6 +50,35 @@ _STAGING_INTEGRATION_EVIDENCE = Path(
     "docs/v1_5_flow_contract/formal_database_import_staging_executor/"
     "V1_5_FORMAL_DATABASE_IMPORT_STAGING_REAL_INTEGRATION_TEST_EVIDENCE_20260714.md"
 )
+_MIGRATION_EXECUTION_SCHEMA = (
+    "v1_5_formal_database_migration_production_controlled_executor_v1"
+)
+_EXPECTED_MIGRATION_TARGET = {
+    "backend": "postgresql",
+    "postgresql_major": 18,
+    "database_name": "gas_calibrator",
+    "core_schema": "public",
+    "evidence_schema": "v1_5_evidence",
+    "dsn_env": "V1_5_POSTGRES_DSN",
+}
+_EXPECTED_MIGRATION_VERSIONS = [
+    "001_v1_5_evidence_registry",
+    "002_v1_5_production_import_ledger",
+]
+_EXPECTED_LEDGER_COLUMNS = {
+    "run_db_id",
+    "run_id",
+    "evidence_bundle_sha256",
+    "transaction_plan_sha256",
+    "promotion_preflight_sha256",
+    "execution_authorization_sha256",
+    "authorization_id",
+    "operator_name",
+    "reviewer_name",
+    "approver_name",
+    "table_counts",
+    "committed_at",
+}
 
 
 @dataclass(frozen=True)
@@ -215,7 +244,106 @@ def _read_json(path: Path) -> dict[str, Any]:
     return payload
 
 
-def _evidence_checks(repo_root: Path) -> tuple[list[dict[str, Any]], list[str]]:
+def _migration_execution_reasons(payload: Mapping[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    if payload.get("schema") != _MIGRATION_EXECUTION_SCHEMA:
+        reasons.append("production_migration_execution_schema_invalid")
+    if payload.get("overall_status") not in {
+        "production_migration_002_committed",
+        "production_migration_002_idempotent_noop",
+    }:
+        reasons.append("production_migration_execution_status_not_confirmed")
+    required_true = (
+        "authorization_validation_requested",
+        "authorization_validated",
+        "execution_attempted",
+        "connects_postgresql",
+        "applies_migrations",
+        "transaction_committed",
+        "migration_execution_confirmed",
+        "not_real_acceptance_evidence",
+    )
+    for key in required_true:
+        if payload.get(key) is not True:
+            reasons.append(f"production_migration_execution_flag_not_true:{key}")
+    if payload.get("commit_uncertain") is not False:
+        reasons.append("production_migration_execution_commit_uncertain_not_false")
+    required_false = (
+        "production_import_execution_allowed",
+        "database_import_allowed",
+        "formal_release_allowed",
+        "opens_com_ports",
+        "writes_sn",
+        "writes_device_id",
+        "writes_coefficients",
+        "controls_pressure",
+        "controls_water_or_gas_routes",
+    )
+    for key in required_false:
+        if payload.get(key) is not False:
+            reasons.append(f"production_migration_execution_scope_lock_not_false:{key}")
+    if payload.get("evidence_source") != "postgresql18_migration_002_controlled_execution":
+        reasons.append("production_migration_execution_evidence_source_invalid")
+    if payload.get("production_target") != _EXPECTED_MIGRATION_TARGET:
+        reasons.append("production_migration_execution_target_invalid")
+    if payload.get("migration_versions") != _EXPECTED_MIGRATION_VERSIONS:
+        reasons.append("production_migration_execution_versions_invalid")
+
+    authorization = payload.get("authorization_record")
+    if not isinstance(authorization, Mapping):
+        reasons.append("production_migration_execution_authorization_record_missing")
+    else:
+        actors = {
+            str(authorization.get(key) or "").strip().casefold()
+            for key in ("operator", "reviewer", "approver")
+        }
+        actors.discard("")
+        if len(actors) != 3:
+            reasons.append("production_migration_execution_three_distinct_actors_missing")
+        if not str(authorization.get("authorization_id") or "").strip():
+            reasons.append("production_migration_execution_authorization_id_missing")
+        if authorization.get("three_distinct_actors") is not True:
+            reasons.append("production_migration_execution_actor_confirmation_missing")
+        if authorization.get("confirmation_matched") is not True:
+            reasons.append("production_migration_execution_confirmation_not_matched")
+
+    postcheck = payload.get("postcheck_state")
+    if not isinstance(postcheck, Mapping):
+        reasons.append("production_migration_execution_postcheck_missing")
+        return reasons
+    if postcheck.get("database_name") != "gas_calibrator":
+        reasons.append("production_migration_execution_database_name_invalid")
+    version = postcheck.get("postgresql_server_version_num")
+    if not isinstance(version, int) or not 180000 <= version < 190000:
+        reasons.append("production_migration_execution_postgresql18_not_confirmed")
+    if not str(postcheck.get("postgresql_system_identifier") or "").strip():
+        reasons.append("production_migration_execution_system_identifier_missing")
+    if postcheck.get("migration_001_checksum") != postcheck.get(
+        "expected_migration_001_checksum"
+    ):
+        reasons.append("production_migration_execution_migration_001_checksum_mismatch")
+    if postcheck.get("migration_002_checksum") != postcheck.get(
+        "expected_migration_002_checksum"
+    ):
+        reasons.append("production_migration_execution_migration_002_checksum_mismatch")
+    if postcheck.get("ledger_table_present") is not True:
+        reasons.append("production_migration_execution_ledger_table_missing")
+    columns = {str(value) for value in postcheck.get("ledger_columns") or []}
+    missing_columns = sorted(_EXPECTED_LEDGER_COLUMNS - columns)
+    if missing_columns:
+        reasons.append(
+            "production_migration_execution_ledger_columns_missing:"
+            + ",".join(missing_columns)
+        )
+    if payload.get("postcheck_reasons") not in ([], ()):
+        reasons.append("production_migration_execution_postcheck_has_reasons")
+    return reasons
+
+
+def _evidence_checks(
+    repo_root: Path,
+    production_migration_execution_json: str | Path | None = None,
+) -> tuple[list[dict[str, Any]], list[str], bool, dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     reasons: list[str] = []
     payloads: dict[str, Mapping[str, Any]] = {}
@@ -318,18 +446,76 @@ def _evidence_checks(repo_root: Path) -> tuple[list[dict[str, Any]], list[str]]:
     for key in ("connects_postgresql", "applies_migrations", "migration_execution_confirmed"):
         if migration.get(key) is not False:
             reasons.append(f"production_migration_preview_lock_not_false:{key}")
-    return rows, sorted(set(reasons))
+    migration_completed = False
+    migration_summary: dict[str, Any] = {}
+    if production_migration_execution_json:
+        execution_path = Path(production_migration_execution_json).resolve()
+        if not execution_path.is_file():
+            reasons.append("production_migration_execution_evidence_missing")
+            rows.append(
+                {
+                    "role": "production_migration_execution",
+                    "path": str(execution_path),
+                    "status": "missing",
+                }
+            )
+        else:
+            try:
+                execution = _read_json(execution_path)
+            except (OSError, ValueError, json.JSONDecodeError):
+                reasons.append("production_migration_execution_evidence_invalid")
+                rows.append(
+                    {
+                        "role": "production_migration_execution",
+                        "path": str(execution_path),
+                        "status": "invalid",
+                    }
+                )
+            else:
+                migration_reasons = _migration_execution_reasons(execution)
+                reasons.extend(migration_reasons)
+                migration_completed = not migration_reasons
+                postcheck = execution.get("postcheck_state") or {}
+                migration_summary = {
+                    "path": str(execution_path),
+                    "overall_status": execution.get("overall_status"),
+                    "authorization_id": (
+                        execution.get("authorization_record") or {}
+                    ).get("authorization_id"),
+                    "postgresql_server_version_num": postcheck.get(
+                        "postgresql_server_version_num"
+                    ),
+                    "postgresql_system_identifier": postcheck.get(
+                        "postgresql_system_identifier"
+                    ),
+                    "migration_002_checksum": postcheck.get(
+                        "migration_002_checksum"
+                    ),
+                }
+                rows.append(
+                    {
+                        "role": "production_migration_execution",
+                        "path": str(execution_path),
+                        "status": "bound" if migration_completed else "invalid",
+                    }
+                )
+    return rows, sorted(set(reasons)), migration_completed, migration_summary
 
 
 def build_v1_5_final_production_external_gate_freeze(
-    *, repository_root: str | Path, source_origin_main_commit: str
+    *,
+    repository_root: str | Path,
+    source_origin_main_commit: str,
+    production_migration_execution_json: str | Path | None = None,
 ) -> dict[str, Any]:
     repo_root = Path(repository_root).resolve()
     source_commit = source_origin_main_commit.strip().lower()
     reasons: list[str] = []
     if not _SHA_RE.fullmatch(source_commit):
         reasons.append("source_origin_main_commit_invalid")
-    evidence_rows, evidence_reasons = _evidence_checks(repo_root)
+    evidence_rows, evidence_reasons, migration_completed, migration_summary = (
+        _evidence_checks(repo_root, production_migration_execution_json)
+    )
     reasons.extend(evidence_reasons)
     priorities = [row.priority for row in REMAINING_EXTERNAL_GATES]
     if priorities != list(range(1, len(REMAINING_EXTERNAL_GATES) + 1)):
@@ -337,6 +523,19 @@ def build_v1_5_final_production_external_gate_freeze(
     if REMAINING_EXTERNAL_GATES[0].gate_id != "production_postgresql18_migration_002_authorization_and_execution":
         reasons.append("production_migration_not_first_executable_external_gate")
     reasons = sorted(set(reasons))
+    gates = REMAINING_EXTERNAL_GATES[1:] if migration_completed else REMAINING_EXTERNAL_GATES
+    remaining_gates: list[dict[str, Any]] = []
+    for priority, gate in enumerate(gates, start=1):
+        row = gate.to_json()
+        row["original_priority"] = gate.priority
+        row["priority"] = priority
+        remaining_gates.append(row)
+    completed_gates: list[dict[str, Any]] = []
+    if migration_completed:
+        completed = REMAINING_EXTERNAL_GATES[0].to_json()
+        completed["status"] = "completed_real_production_evidence"
+        completed["completion_evidence"] = migration_summary
+        completed_gates.append(completed)
     return {
         "schema": SCHEMA,
         "generated_at": _now(),
@@ -349,22 +548,25 @@ def build_v1_5_final_production_external_gate_freeze(
         "legacy_point_counts": {"co2": 45, "h2o": 13},
         "new_algorithm_point_counts": {"co2": 47, "h2o": 14},
         "program_capability_count": len(PROGRAM_CAPABILITIES),
-        "remaining_external_gate_count": len(REMAINING_EXTERNAL_GATES),
-        "recommended_next_gate_id": REMAINING_EXTERNAL_GATES[0].gate_id,
+        "completed_external_gate_count": len(completed_gates),
+        "remaining_external_gate_count": len(remaining_gates),
+        "recommended_next_gate_id": remaining_gates[0]["gate_id"],
         "program_structure_and_offline_automation_complete": not reasons,
         "live_production_automation_complete": False,
         "postgresql18_real_staging_integration_verified": not reasons,
         "real_production_acceptance_complete": False,
         "review_reasons": reasons,
         "source_evidence": evidence_rows,
+        "production_migration_execution": migration_summary,
         "program_capabilities": [row.to_json() for row in PROGRAM_CAPABILITIES],
-        "remaining_external_gates": [row.to_json() for row in REMAINING_EXTERNAL_GATES],
+        "completed_external_gates": completed_gates,
+        "remaining_external_gates": remaining_gates,
         "deferred_items": list(DEFERRED_ITEMS),
         "full_production_auto_allowed": False,
         "live_queue_execution_allowed": False,
         "formal_release_allowed": False,
         "database_import_allowed": False,
-        "production_database_migrated": False,
+        "production_database_migrated": migration_completed,
         "production_database_written": False,
         "opens_com_ports": False,
         "controls_pressure": False,
@@ -411,6 +613,32 @@ def _markdown(model: Mapping[str, Any]) -> str:
         lines.append(
             f"| `{row['capability_id']}` | `{row['status']}` | {row['title']} | {row['production_meaning']} |"
         )
+    if model.get("completed_external_gates"):
+        lines.extend(
+            [
+                "",
+                "## 已完成的真实生产外部门禁",
+                "",
+                "| gate_id | 状态 | 完成证据 |",
+                "|---|---|---|",
+            ]
+        )
+        for row in model["completed_external_gates"]:
+            evidence = row.get("completion_evidence") or {}
+            lines.append(
+                f"| `{row['gate_id']}` | `{row['status']}` | "
+                f"`{evidence.get('overall_status', '')}` |"
+            )
+    migration_line = (
+        "- 生产 PostgreSQL 18 migration 002 已由绑定的真实执行 artifact 确认；生产证据入库和 formal release 仍是独立门禁。"
+        if model.get("production_database_migrated") is True
+        else "- 生产 PostgreSQL 18 staging 已真实验证；生产 migration 002 和 production import 从未执行。"
+    )
+    next_line = (
+        "- 下一项是当前 1-6 台设备使用 0613 拟合和 0620/0621 物理路径形成连续成熟批次证据。"
+        if model.get("production_database_migrated") is True
+        else "- 下一项是收集真实 operator/reviewer/approver 身份并审核 migration 002 授权包；不得由程序虚构身份。"
+    )
     lines.extend(
         [
             "",
@@ -431,9 +659,9 @@ def _markdown(model: Mapping[str, Any]) -> str:
             "",
             "- V1.5 程序结构和离线自动化能力已经完成，不再把已实现的小包列为待开发。",
             "- live 生产自动化尚未完成；真实批次、写后复验、新算法 live、生产迁移/入库/release 仍是硬门禁。",
-            "- 生产 PostgreSQL 18 staging 已真实验证；生产 migration 002 和 production import 从未执行。",
+            migration_line,
             "- 当前没有真机批次证据时，不允许拟合候选、写系数、live queue、入库或 release。",
-            "- 下一项是收集真实 operator/reviewer/approver 身份并审核 migration 002 授权包；不得由程序虚构身份。",
+            next_line,
             "- `full_production_auto_allowed=false`、`formal_release_allowed=false`、`database_import_allowed=false`。",
             "- 本包不开 COM、不控压力/气水路、不写设备、不连接生产 PostgreSQL。",
             "- `not_real_acceptance_evidence=true`。",
@@ -448,23 +676,30 @@ def _markdown(model: Mapping[str, Any]) -> str:
 
 
 def write_v1_5_final_production_external_gate_freeze(
-    *, output_dir: str | Path, repository_root: str | Path, source_origin_main_commit: str
+    *,
+    output_dir: str | Path,
+    repository_root: str | Path,
+    source_origin_main_commit: str,
+    production_migration_execution_json: str | Path | None = None,
 ) -> dict[str, Path]:
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     model = build_v1_5_final_production_external_gate_freeze(
         repository_root=repository_root,
         source_origin_main_commit=source_origin_main_commit,
+        production_migration_execution_json=production_migration_execution_json,
     )
     paths = {
         "manifest": out / "v1_5_final_production_external_gate_freeze.json",
         "program_capabilities": out / "v1_5_final_production_program_capabilities.csv",
+        "completed_external_gates": out / "v1_5_final_production_completed_external_gates.csv",
         "remaining_external_gates": out / "v1_5_final_production_remaining_external_gates.csv",
         "deferred_items": out / "v1_5_final_production_deferred_items.csv",
         "markdown": out / "V1_5_FINAL_PRODUCTION_EXTERNAL_GATE_FREEZE.md",
     }
     paths["manifest"].write_text(json.dumps(model, ensure_ascii=False, indent=2), encoding="utf-8")
     _write_csv(paths["program_capabilities"], model["program_capabilities"])
+    _write_csv(paths["completed_external_gates"], model["completed_external_gates"])
     _write_csv(paths["remaining_external_gates"], model["remaining_external_gates"])
     _write_csv(paths["deferred_items"], model["deferred_items"])
     paths["markdown"].write_text(_markdown(model), encoding="utf-8")

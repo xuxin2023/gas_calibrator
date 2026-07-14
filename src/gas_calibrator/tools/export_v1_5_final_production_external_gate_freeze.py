@@ -19,6 +19,7 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument("--repository-root", default=str(Path.cwd()))
     parser.add_argument("--source-origin-main-commit", required=True)
+    parser.add_argument("--production-migration-execution-json", default="")
     parser.add_argument("--output-dir", required=True)
     return parser.parse_args(list(argv) if argv is not None else None)
 
@@ -30,6 +31,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             output_dir=args.output_dir,
             repository_root=args.repository_root,
             source_origin_main_commit=args.source_origin_main_commit,
+            production_migration_execution_json=(
+                args.production_migration_execution_json or None
+            ),
         )
     except Exception as exc:  # pragma: no cover - CLI guardrail
         print(f"ERROR: {exc}", file=sys.stderr)

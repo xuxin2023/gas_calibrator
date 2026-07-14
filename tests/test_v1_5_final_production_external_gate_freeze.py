@@ -17,6 +17,79 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_MAIN = "dbbed56689f2d48bd79339fa9af8bea58775fed4"
 
 
+def _write_confirmed_migration(path: Path, *, authorization_validated: bool = True) -> Path:
+    payload = {
+        "schema": "v1_5_formal_database_migration_production_controlled_executor_v1",
+        "overall_status": "production_migration_002_idempotent_noop",
+        "authorization_validation_requested": True,
+        "authorization_validated": authorization_validated,
+        "execution_attempted": True,
+        "connects_postgresql": True,
+        "applies_migrations": True,
+        "transaction_committed": True,
+        "commit_uncertain": False,
+        "migration_execution_confirmed": True,
+        "production_import_execution_allowed": False,
+        "database_import_allowed": False,
+        "formal_release_allowed": False,
+        "opens_com_ports": False,
+        "writes_sn": False,
+        "writes_device_id": False,
+        "writes_coefficients": False,
+        "controls_pressure": False,
+        "controls_water_or_gas_routes": False,
+        "not_real_acceptance_evidence": True,
+        "evidence_source": "postgresql18_migration_002_controlled_execution",
+        "production_target": {
+            "backend": "postgresql",
+            "postgresql_major": 18,
+            "database_name": "gas_calibrator",
+            "core_schema": "public",
+            "evidence_schema": "v1_5_evidence",
+            "dsn_env": "V1_5_POSTGRES_DSN",
+        },
+        "migration_versions": [
+            "001_v1_5_evidence_registry",
+            "002_v1_5_production_import_ledger",
+        ],
+        "postcheck_reasons": [],
+        "authorization_record": {
+            "authorization_id": "auth-migration-002",
+            "operator": "operator",
+            "reviewer": "reviewer",
+            "approver": "approver",
+            "three_distinct_actors": True,
+            "confirmation_matched": True,
+        },
+        "postcheck_state": {
+            "database_name": "gas_calibrator",
+            "postgresql_server_version_num": 180003,
+            "postgresql_system_identifier": "7619229688891748052",
+            "migration_001_checksum": "a" * 64,
+            "migration_002_checksum": "b" * 64,
+            "expected_migration_001_checksum": "a" * 64,
+            "expected_migration_002_checksum": "b" * 64,
+            "ledger_table_present": True,
+            "ledger_columns": [
+                "run_db_id",
+                "run_id",
+                "evidence_bundle_sha256",
+                "transaction_plan_sha256",
+                "promotion_preflight_sha256",
+                "execution_authorization_sha256",
+                "authorization_id",
+                "operator_name",
+                "reviewer_name",
+                "approver_name",
+                "table_counts",
+                "committed_at",
+            ],
+        },
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
 def test_external_gate_freeze_separates_program_closure_from_real_production() -> None:
     model = build_v1_5_final_production_external_gate_freeze(
         repository_root=ROOT,
@@ -93,6 +166,81 @@ def test_external_gate_freeze_keeps_every_real_action_locked() -> None:
     assert model["not_real_acceptance_evidence"] is True
 
 
+def test_confirmed_migration_advances_only_the_migration_external_gate(
+    tmp_path: Path,
+) -> None:
+    migration = _write_confirmed_migration(tmp_path / "migration.json")
+
+    model = build_v1_5_final_production_external_gate_freeze(
+        repository_root=ROOT,
+        source_origin_main_commit=SOURCE_MAIN,
+        production_migration_execution_json=migration,
+    )
+
+    assert model["overall_status"] == READY_STATUS
+    assert model["completed_external_gate_count"] == 1
+    assert model["remaining_external_gate_count"] == 5
+    assert model["production_database_migrated"] is True
+    assert model["production_database_written"] is False
+    assert model["recommended_next_gate_id"] == (
+        "current_batch_continuous_mature_route_evidence"
+    )
+    assert model["completed_external_gates"][0]["gate_id"] == (
+        "production_postgresql18_migration_002_authorization_and_execution"
+    )
+    assert model["remaining_external_gates"][0]["original_priority"] == 2
+    assert model["remaining_external_gates"][0]["priority"] == 1
+    assert model["database_import_allowed"] is False
+    assert model["formal_release_allowed"] is False
+    assert model["connects_postgresql"] is False
+
+
+def test_invalid_migration_artifact_does_not_advance_the_gate(tmp_path: Path) -> None:
+    migration = _write_confirmed_migration(
+        tmp_path / "migration.json", authorization_validated=False
+    )
+
+    model = build_v1_5_final_production_external_gate_freeze(
+        repository_root=ROOT,
+        source_origin_main_commit=SOURCE_MAIN,
+        production_migration_execution_json=migration,
+    )
+
+    assert model["overall_status"] != READY_STATUS
+    assert model["production_database_migrated"] is False
+    assert model["completed_external_gate_count"] == 0
+    assert model["remaining_external_gate_count"] == 6
+    assert model["recommended_next_gate_id"] == (
+        "production_postgresql18_migration_002_authorization_and_execution"
+    )
+    assert (
+        "production_migration_execution_flag_not_true:authorization_validated"
+        in model["review_reasons"]
+    )
+
+
+def test_migration_artifact_with_unlocked_scope_does_not_advance_the_gate(
+    tmp_path: Path,
+) -> None:
+    migration = _write_confirmed_migration(tmp_path / "migration.json")
+    payload = json.loads(migration.read_text(encoding="utf-8"))
+    payload["database_import_allowed"] = True
+    migration.write_text(json.dumps(payload), encoding="utf-8")
+
+    model = build_v1_5_final_production_external_gate_freeze(
+        repository_root=ROOT,
+        source_origin_main_commit=SOURCE_MAIN,
+        production_migration_execution_json=migration,
+    )
+
+    assert model["production_database_migrated"] is False
+    assert model["completed_external_gate_count"] == 0
+    assert (
+        "production_migration_execution_scope_lock_not_false:database_import_allowed"
+        in model["review_reasons"]
+    )
+
+
 def test_external_gate_freeze_reviews_invalid_commit_or_missing_evidence(tmp_path: Path) -> None:
     model = build_v1_5_final_production_external_gate_freeze(
         repository_root=tmp_path,
@@ -133,6 +281,30 @@ def test_external_gate_freeze_writer_cli_and_entrypoint(tmp_path: Path) -> None:
         ]
     ) == 0
     assert (cli_dir / "v1_5_final_production_external_gate_freeze.json").is_file()
+
+    migrated_cli_dir = tmp_path / "migrated_cli"
+    migration = _write_confirmed_migration(tmp_path / "migration.json")
+    assert cli_main(
+        [
+            "--repository-root",
+            str(ROOT),
+            "--source-origin-main-commit",
+            SOURCE_MAIN,
+            "--production-migration-execution-json",
+            str(migration),
+            "--output-dir",
+            str(migrated_cli_dir),
+        ]
+    ) == 0
+    migrated = json.loads(
+        (migrated_cli_dir / "v1_5_final_production_external_gate_freeze.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert migrated["production_database_migrated"] is True
+    assert migrated["recommended_next_gate_id"] == (
+        "current_batch_continuous_mature_route_evidence"
+    )
 
     entry = classify_v1_5_entrypoint(
         ROOT / "src/gas_calibrator/tools/export_v1_5_final_production_external_gate_freeze.py",

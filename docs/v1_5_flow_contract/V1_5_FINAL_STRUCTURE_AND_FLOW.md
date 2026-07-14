@@ -294,6 +294,7 @@ V1.5 结构整理基本完成前，必须保留一个只读收尾验收包：
 - Immediately before execution, the executor re-reads and re-hashes every bound artifact, rebuilds the readiness packet from repository migrations, then checks database/version/migration-001/migration-002/table state before starting the transaction.
 - Migration precheck and postcheck record the cluster-wide PostgreSQL `system_identifier`; a changed or invalid identifier prevents the migration artifact from becoming confirmed evidence.
 - A successful apply must also pass postcheck readback for the exact ledger columns, primary key, unique constraints, foreign key, and index. SQL failure rolls back when possible; connection-loss ambiguity is held as `commit_uncertain` and is never represented as confirmed no-write.
+- `export_v1_5_final_production_external_gate_freeze --production-migration-execution-json <artifact>` may bind a confirmed controlled-executor artifact and move only the migration gate to completed; it does not authorize production evidence import, formal release, live queue execution, or any device operation.
 - This executor never imports calibration evidence, opens COM, writes SN/device identity/SENCO coefficients, controls pressure/gas/water routes, modifies the 0613/0620/0621 mature calibration paths, grants database import, or grants formal release.
 
 ## 17. Production import migration-evidence gate addendum (2026-07-14)
