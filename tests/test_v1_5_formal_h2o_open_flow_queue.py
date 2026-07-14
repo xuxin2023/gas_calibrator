@@ -68,6 +68,61 @@ def _write_queue(path):
         writer.writerows(rows)
 
 
+def test_formal_h2o_queue_stops_on_shared_point_failure_by_default(tmp_path):
+    base = [
+        "--config",
+        "config.json",
+        "--queue-csv",
+        "queue.csv",
+        "--output-dir",
+        str(tmp_path),
+    ]
+
+    assert _parse_args(base).stop_on_point_fail is True
+    assert _parse_args([*base, "--continue-on-point-fail"]).stop_on_point_fail is False
+
+
+def test_formal_h2o_queue_does_not_start_second_point_after_shared_failure(tmp_path, monkeypatch):
+    queue_path = tmp_path / "h2o_runner_queue.csv"
+    _write_queue(queue_path)
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"paths": {"output_dir": str(tmp_path / "logs")}}), encoding="utf-8")
+    calls = []
+
+    monkeypatch.setattr(h2o_queue_module, "_prewarm_humidity_generator_for_group", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(h2o_queue_module, "_settle_temperature_group", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(h2o_queue_module, "_safe_stop_humidity_generator_after_queue", lambda *_args, **_kwargs: True)
+
+    def fake_run(*args, **kwargs):
+        calls.append((args, kwargs))
+        return types.SimpleNamespace(returncode=1)
+
+    monkeypatch.setattr(h2o_queue_module.subprocess, "run", fake_run)
+
+    rc = main(
+        [
+            "--config",
+            str(config_path),
+            "--queue-csv",
+            str(queue_path),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--run-id",
+            "queue_shared_failure",
+            "--no-prompt",
+        ]
+    )
+
+    assert rc == 1
+    assert len(calls) == 1
+    with (tmp_path / "out" / "queue_shared_failure" / "queue_manifest.csv").open(
+        encoding="utf-8-sig", newline=""
+    ) as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 1
+    assert rows[0]["status"] == "failed"
+
+
 def test_h2o_queue_loader_filters_to_h2o_and_orders_temperature_asc(tmp_path):
     queue_path = tmp_path / "h2o_runner_queue.csv"
     _write_queue(queue_path)

@@ -262,6 +262,23 @@ def test_formal_flow_contract_blocks_formal_open_flow_skip_and_diagnostic_flags(
     assert sum(issue.code == "formal_open_flow_forbidden_flag" for issue in report.issues) == 2
 
 
+def test_formal_flow_contract_requires_shared_point_failure_stop_for_both_routes(tmp_path):
+    plan = build_full_flow_plan(config_path=_config(tmp_path), output_dir=tmp_path / "flow", run_id="demo")
+    steps = list(plan.steps)
+    for step_id in ("co2_open_flow_sampling", "h2o_open_flow_sampling"):
+        index = [step.step_id for step in steps].index(step_id)
+        command = tuple(part for part in steps[index].command if part != "--stop-on-point-fail")
+        steps[index] = replace(steps[index], command=command)
+
+    report = validate_v1_5_formal_flow_contract(
+        replace(plan, steps=tuple(steps)),
+        inventory_entries=_inventory_for_plan(),
+    )
+
+    assert report.status == "blocked"
+    assert sum(issue.code == "formal_open_flow_missing_shared_failure_stop" for issue in report.issues) == 2
+
+
 def test_formal_flow_contract_blocks_relaxed_co2_ratio_gate_policy(tmp_path):
     plan = build_full_flow_plan(config_path=_config(tmp_path), output_dir=tmp_path / "flow", run_id="demo")
     co2_index = [step.step_id for step in plan.steps].index("co2_open_flow_sampling")

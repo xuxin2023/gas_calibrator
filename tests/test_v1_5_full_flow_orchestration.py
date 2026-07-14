@@ -377,6 +377,8 @@ def test_full_flow_plan_preserves_validated_co2_h2o_route_contracts(tmp_path):
     assert _flag_value(co2_command, "--analyzer-acquisition") == "active_stream_1hz"
     assert _flag_value(h2o_command, "--analyzer-acquisition") == "active_stream_1hz"
     assert _flag_value(h2o_command, "--h2o-pressure-presample-policy") == "skip"
+    assert "--stop-on-point-fail" in co2_command
+    assert "--stop-on-point-fail" in h2o_command
     assert "--skip-stability-gate" not in co2_command
     assert "--co2-ratio-f-preseal-policy" not in co2_command
     assert "--skip-dewpoint-gate" not in h2o_command

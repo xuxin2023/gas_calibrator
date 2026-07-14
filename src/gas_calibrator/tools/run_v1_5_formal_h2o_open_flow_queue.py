@@ -119,7 +119,22 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--temperature-analyzer-window-s", type=float, default=None)
     parser.add_argument("--temperature-analyzer-timeout-s", type=float, default=None)
     parser.add_argument("--max-points", type=int, default=None)
-    parser.add_argument("--stop-on-point-fail", action="store_true")
+    parser.add_argument(
+        "--stop-on-point-fail",
+        dest="stop_on_point_fail",
+        action="store_true",
+        default=True,
+        help=(
+            "Stop the formal queue when a point sidecar fails a shared physical gate. "
+            "Per-analyzer quality grading remains independent through min-valid-analyzers."
+        ),
+    )
+    parser.add_argument(
+        "--continue-on-point-fail",
+        dest="stop_on_point_fail",
+        action="store_false",
+        help="Diagnostic-only override that continues after a failed point sidecar.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--no-prompt", action="store_true")
     return parser.parse_args(list(argv) if argv is not None else None)

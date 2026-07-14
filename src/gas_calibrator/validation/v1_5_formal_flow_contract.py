@@ -104,6 +104,7 @@ FORMAL_H2O_FORBIDDEN_FLAGS = {
     "--pace-vent-after-valve-diagnostic",
     "--no-control-temperature",
 }
+FORMAL_QUEUE_REQUIRED_FLAGS = {"--stop-on-point-fail"}
 
 FORMAL_PHYSICAL_FLOW = (
     "LOAD_PLAN: freeze plan, certificates, config hash, and run identity",
@@ -1054,6 +1055,16 @@ def validate_v1_5_formal_flow_contract(
                         step_id,
                     )
                 )
+            for flag in FORMAL_QUEUE_REQUIRED_FLAGS:
+                if not _command_has_flag(command, flag):
+                    issues.append(
+                        _issue(
+                            "error",
+                            "formal_open_flow_missing_shared_failure_stop",
+                            f"CO2 formal queue must include {flag} so a shared physical gate failure stops the run",
+                            step_id,
+                        )
+                    )
 
         if step_id == "h2o_open_flow_sampling":
             _require_temperature_order(
@@ -1068,6 +1079,16 @@ def validate_v1_5_formal_flow_contract(
                 step_id=step_id,
                 issues=issues,
             )
+            for flag in FORMAL_QUEUE_REQUIRED_FLAGS:
+                if not _command_has_flag(command, flag):
+                    issues.append(
+                        _issue(
+                            "error",
+                            "formal_open_flow_missing_shared_failure_stop",
+                            f"H2O formal queue must include {flag} so a shared physical gate failure stops the run",
+                            step_id,
+                        )
+                    )
 
         if writes:
             if module or command:

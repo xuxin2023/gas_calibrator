@@ -238,8 +238,19 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--skip-stability-gate", action="store_true")
     parser.add_argument(
         "--stop-on-point-fail",
+        dest="stop_on_point_fail",
         action="store_true",
-        help="Stop the queue when a single point sidecar fails.",
+        default=True,
+        help=(
+            "Stop the formal queue when a point sidecar fails a shared physical gate. "
+            "Per-analyzer quality grading remains independent through min-valid-analyzers."
+        ),
+    )
+    parser.add_argument(
+        "--continue-on-point-fail",
+        dest="stop_on_point_fail",
+        action="store_false",
+        help="Diagnostic-only override that continues after a failed point sidecar.",
     )
     parser.add_argument(
         "--dry-run",
