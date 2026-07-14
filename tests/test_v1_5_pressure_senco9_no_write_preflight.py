@@ -241,6 +241,9 @@ def test_pressure_senco9_mature_seven_point_matrix_does_not_require_ambient(tmp_
     assert ambient_check["ambient_required"] is False
     assert ambient_check["mature_seven_point_matrix"] is True
     assert ambient_check["policy"] == "mature_seven_point_matrix_does_not_require_ambient"
+    assert "--require-continuous-atmosphere-hold" not in context["collection_command"]
+    assert "--pressure-control-stable-s 10" in context["collection_command"]
+    assert "--pressure-control-post-stable-wait-s 5" in context["collection_command"]
 
 
 def test_pressure_senco9_non_mature_matrix_without_ambient_remains_blocked(tmp_path):
