@@ -30158,6 +30158,23 @@ class CalibrationRunner:
             float(self._wf("workflow.stability.analyzer_gate_dewpoint_monitor_max_gap_s", 15.0) or 15.0),
         )
 
+    def _analyzer_gate_dewpoint_monitor_gap_policy(self) -> str:
+        policy = str(
+            self._wf("workflow.stability.analyzer_gate_dewpoint_monitor_gap_policy", "reject")
+            or "reject"
+        ).strip().lower()
+        if policy in {
+            "warn",
+            "warning",
+            "warning_only",
+            "soft",
+            "diagnostic",
+            "off",
+            "warn_after_dry_gate",
+        }:
+            return "warn_after_dry_gate"
+        return "reject"
+
     @staticmethod
     def _iso_ts_from_wall(value: Any) -> str:
         try:
@@ -30194,6 +30211,7 @@ class CalibrationRunner:
             "enabled": bool(enabled),
             "interval_s": self._analyzer_gate_dewpoint_monitor_interval_s(),
             "max_gap_s": self._analyzer_gate_dewpoint_monitor_max_gap_s(),
+            "gap_policy": self._analyzer_gate_dewpoint_monitor_gap_policy(),
             "max_age_s": self._preseal_dewpoint_freshness_max_age_s(),
             "max_delta_c": self._preseal_dewpoint_freshness_max_delta_c(),
             "rebound_warning_only": self._gas_route_analyzer_gate_rebound_warning_only(),
@@ -30228,6 +30246,7 @@ class CalibrationRunner:
             "dry_enough_terminal": False,
             "failed": False,
             "failure_reason": "",
+            "gap_warning": False,
         }
 
     def _summarize_analyzer_gate_dewpoint_monitor(self, state: Mapping[str, Any]) -> Dict[str, Any]:
@@ -30284,6 +30303,8 @@ class CalibrationRunner:
         return {
             "analyzer_gate_dewpoint_monitor_enabled": bool(state.get("enabled")),
             "analyzer_gate_dewpoint_monitor_interval_s": state.get("interval_s"),
+            "analyzer_gate_dewpoint_monitor_gap_policy": str(state.get("gap_policy") or "reject"),
+            "analyzer_gate_dewpoint_gap_warning": bool(state.get("gap_warning")),
             "analyzer_gate_dewpoint_monitor_begin_ts": self._iso_ts_from_wall(state.get("begin_ts")),
             "analyzer_gate_dewpoint_monitor_end_ts": self._iso_ts_from_wall(state.get("end_ts") or time.time()),
             "analyzer_gate_dewpoint_live_sample_count": sample_count,
@@ -30367,6 +30388,29 @@ class CalibrationRunner:
         )
         return False
 
+    def _handle_analyzer_gate_dewpoint_sample_gap(
+        self,
+        point: CalibrationPoint,
+        state: Dict[str, Any],
+        *,
+        reason: str,
+    ) -> bool:
+        if str(state.get("gap_policy") or "reject").strip().lower() == "warn_after_dry_gate":
+            state["gap_warning"] = True
+            state["gate_effect"] = "warning_only"
+            fields = self._summarize_analyzer_gate_dewpoint_monitor(state)
+            self._set_point_runtime_fields(point, phase="co2", **fields)
+            self.log(
+                "CO2 analyzer gate dewpoint live monitor gap warning: "
+                f"{reason}; continue because dry gate already passed"
+            )
+            return True
+        return self._fail_analyzer_gate_dewpoint_monitor(
+            point,
+            state,
+            reason=reason,
+        )
+
     def _poll_analyzer_gate_dewpoint_monitor(
         self,
         point: CalibrationPoint,
@@ -30391,14 +30435,14 @@ class CalibrationRunner:
             samples = list(state.get("samples") or [])
             last_sample_ts = self._as_float(samples[-1].get("wall_ts")) if samples else None
             if last_sample_ts is not None and (time.time() - last_sample_ts) > float(state.get("max_gap_s") or 15.0):
-                return self._fail_analyzer_gate_dewpoint_monitor(
+                return self._handle_analyzer_gate_dewpoint_sample_gap(
                     point,
                     state,
                     reason="dewpoint_live_sample_gap_exceeded",
                 )
             gate_ts = self._as_float(state.get("gate_ts"))
             if gate_ts is not None and not samples and (time.time() - gate_ts) > float(state.get("max_age_s") or 60.0):
-                return self._fail_analyzer_gate_dewpoint_monitor(
+                return self._handle_analyzer_gate_dewpoint_sample_gap(
                     point,
                     state,
                     reason="dewpoint_age_since_gate_exceeded_without_fresh_sample",
@@ -30414,11 +30458,12 @@ class CalibrationRunner:
             if prev_ts is not None and (sample_ts - float(prev_ts)) > float(state.get("max_gap_s") or 15.0):
                 samples.append(sample)
                 state["samples"] = samples
-                return self._fail_analyzer_gate_dewpoint_monitor(
+                if not self._handle_analyzer_gate_dewpoint_sample_gap(
                     point,
                     state,
                     reason="dewpoint_live_sample_gap_exceeded",
-                )
+                ):
+                    return False
         samples.append(sample)
         state["samples"] = samples
         gate_value_c = self._as_float(state.get("gate_value_c"))

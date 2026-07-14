@@ -845,6 +845,75 @@ def test_analyzer_gate_dewpoint_live_monitor_records_timeline(tmp_path: Path) ->
     assert state["analyzer_gate_dewpoint_trend"] == "rising"
 
 
+def test_analyzer_gate_dewpoint_live_gap_can_warn_after_dry_gate(tmp_path: Path) -> None:
+    runner, logger, _pace, _dewpoint, point = _prepare_analyzer_gate_dewpoint_runner(
+        tmp_path,
+        dewpoints=[-32.50, -32.55],
+        gate_value=-32.50,
+    )
+    runner.cfg["workflow"]["stability"].update(
+        {
+            "analyzer_gate_dewpoint_monitor_max_gap_s": 0.1,
+            "analyzer_gate_dewpoint_monitor_gap_policy": "warn_after_dry_gate",
+            "gas_route_dewpoint_gate_require_dry_enough": True,
+            "gas_route_dewpoint_gate_dry_enough_c": -28.0,
+            "analyzer_gate_dry_enough_violation_policy": "sustained_or_margin",
+        }
+    )
+
+    def _stable_with_live_gap_warning(*_args, **kwargs):
+        callback = kwargs["loop_callback"]
+        assert callback() is True
+        time.sleep(0.22)
+        assert callback() is True
+        return True
+
+    runner._wait_primary_sensor_stable = MagicMock(side_effect=_stable_with_live_gap_warning)
+
+    assert runner._wait_co2_preseal_primary_sensor_gate(point) is True
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["analyzer_gate_dewpoint_monitor_gap_policy"] == "warn_after_dry_gate"
+    assert state["analyzer_gate_dewpoint_gap_warning"] is True
+    assert state["analyzer_gate_dewpoint_gate_effect"] == "warning_only"
+    assert state["analyzer_gate_dewpoint_fail_reason"] == ""
+    assert not getattr(runner, "_controlled_exit_final_decision", "")
+
+
+def test_analyzer_gate_dewpoint_live_gap_still_checks_returned_wet_sample(tmp_path: Path) -> None:
+    runner, logger, _pace, _dewpoint, point = _prepare_analyzer_gate_dewpoint_runner(
+        tmp_path,
+        dewpoints=[-32.50, -26.00],
+        gate_value=-32.50,
+    )
+    runner.cfg["workflow"]["stability"].update(
+        {
+            "analyzer_gate_dewpoint_monitor_max_gap_s": 0.1,
+            "analyzer_gate_dewpoint_monitor_gap_policy": "warn_after_dry_gate",
+            "gas_route_dewpoint_gate_require_dry_enough": True,
+            "gas_route_dewpoint_gate_dry_enough_c": -28.0,
+            "analyzer_gate_dry_enough_violation_policy": "sustained_or_margin",
+        }
+    )
+
+    def _fail_on_gap_then_wet_sample(*_args, **kwargs):
+        callback = kwargs["loop_callback"]
+        assert callback() is True
+        time.sleep(0.22)
+        assert callback() is False
+        return False
+
+    runner._wait_primary_sensor_stable = MagicMock(side_effect=_fail_on_gap_then_wet_sample)
+
+    assert runner._wait_co2_preseal_primary_sensor_gate(point) is False
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["analyzer_gate_dewpoint_gap_warning"] is True
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_DEWPOINT_NOT_DRY_ENOUGH_DURING_ANALYZER_GATE"
+
+
 def test_analyzer_gate_small_rebound_below_dry_enough_warns_not_fail(tmp_path: Path) -> None:
     runner, logger, _pace, _dewpoint, point = _prepare_analyzer_gate_dewpoint_runner(
         tmp_path,
@@ -1065,13 +1134,14 @@ def test_analyzer_gate_dewpoint_rise_fails_closed(tmp_path: Path) -> None:
         {
             "gas_route_dewpoint_gate_require_dry_enough": True,
             "gas_route_dewpoint_gate_dry_enough_c": -30.0,
+            "analyzer_gate_dry_enough_violation_policy": "sustained_or_margin",
         }
     )
 
     def _fail_on_live_dewpoint_rise(*_args, **kwargs):
         callback = kwargs["loop_callback"]
         assert callback() is True
-        time.sleep(0.11)
+        time.sleep(0.22)
         assert callback() is False
         return False
 
@@ -1096,13 +1166,14 @@ def test_analyzer_gate_dewpoint_failure_does_not_send_vent0(tmp_path: Path) -> N
         {
             "gas_route_dewpoint_gate_require_dry_enough": True,
             "gas_route_dewpoint_gate_dry_enough_c": -30.0,
+            "analyzer_gate_dry_enough_violation_policy": "sustained_or_margin",
         }
     )
 
     def _fail_on_live_dewpoint_rise(*_args, **kwargs):
         callback = kwargs["loop_callback"]
         assert callback() is True
-        time.sleep(0.11)
+        time.sleep(0.22)
         assert callback() is False
         return False
 
@@ -1184,13 +1255,14 @@ def test_analyzer_gate_dewpoint_failure_final_decision_not_overwritten(tmp_path:
         {
             "gas_route_dewpoint_gate_require_dry_enough": True,
             "gas_route_dewpoint_gate_dry_enough_c": -30.0,
+            "analyzer_gate_dry_enough_violation_policy": "sustained_or_margin",
         }
     )
 
     def _fail_on_live_dewpoint_rise(*_args, **kwargs):
         callback = kwargs["loop_callback"]
         assert callback() is True
-        time.sleep(0.11)
+        time.sleep(0.22)
         assert callback() is False
         logger.log_raw_serial_tap(
             port="COM23",
@@ -1240,6 +1312,7 @@ def test_analyzer_rebound_uses_tail_reference_not_pass_snapshot(tmp_path: Path) 
         {
             "gas_route_dewpoint_gate_require_dry_enough": True,
             "gas_route_dewpoint_gate_dry_enough_c": -30.0,
+            "analyzer_gate_dry_enough_violation_policy": "sustained_or_margin",
         }
     )
 

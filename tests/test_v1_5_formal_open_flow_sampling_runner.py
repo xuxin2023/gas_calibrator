@@ -674,15 +674,46 @@ def test_prepare_runtime_cfg_accepts_strict_co2_ratio_gate_for_required_analyzer
 
     sensor_cfg = out["workflow"]["stability"]["sensor"]
     assert sensor_cfg["co2_ratio_f_preseal_tol"] == 0.0002
+    assert sensor_cfg["co2_ratio_f_preseal_a_grade_tol"] == 0.0002
     assert sensor_cfg["co2_ratio_f_preseal_window_s"] == 120.0
     assert sensor_cfg["co2_ratio_f_preseal_timeout_s"] == 900.0
     assert sensor_cfg["co2_ratio_f_preseal_min_samples"] == 20
     assert sensor_cfg["co2_ratio_f_preseal_policy"] == "warn"
     stability = out["workflow"]["stability"]
+    assert stability["analyzer_gate_dewpoint_monitor_gap_policy"] == "warn_after_dry_gate"
     assert stability["analyzer_gate_required_labels"] == ["ga02", "ga04"]
     assert stability["analyzer_gate_optional_labels"] == ["ga01", "ga03"]
     assert stability["analyzer_gate_min_valid_analyzers"] == 2
     assert stability["analyzer_gate_max_wait_s"] == 900.0
+
+
+def test_prepare_runtime_cfg_keeps_a_grade_stricter_than_hard_gate():
+    cfg = {
+        "devices": {"gas_analyzers": [{"name": "ga01"}]},
+        "workflow": {
+            "stability": {
+                "sensor": {
+                    "co2_ratio_f_preseal_tol": 0.001,
+                    "co2_ratio_f_preseal_a_grade_tol": 0.0005,
+                }
+            }
+        },
+        "paths": {"output_dir": "logs/example"},
+    }
+
+    out = _prepare_runtime_cfg(
+        cfg,
+        output_dir=None,
+        sample_count=10,
+        sample_interval_s=1.0,
+        sensor_read_interval_s=5.0,
+        min_valid_analyzers=1,
+        co2_ratio_f_preseal_tol=0.001,
+    )
+
+    sensor_cfg = out["workflow"]["stability"]["sensor"]
+    assert sensor_cfg["co2_ratio_f_preseal_tol"] == 0.001
+    assert sensor_cfg["co2_ratio_f_preseal_a_grade_tol"] == 0.0005
 
 
 def test_configured_analyzer_labels_fall_back_to_stable_names():

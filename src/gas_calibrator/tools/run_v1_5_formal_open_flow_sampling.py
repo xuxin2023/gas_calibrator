@@ -611,6 +611,8 @@ def _prepare_runtime_cfg(
     stability_cfg = runtime_cfg["workflow"].setdefault("stability", {})
     if gas_route_dewpoint_gate_enabled is not None:
         stability_cfg["gas_route_dewpoint_gate_enabled"] = bool(gas_route_dewpoint_gate_enabled)
+    if bool(stability_cfg.get("gas_route_dewpoint_gate_enabled", True)):
+        stability_cfg["analyzer_gate_dewpoint_monitor_gap_policy"] = "warn_after_dry_gate"
     if gas_route_dewpoint_gate_policy is not None:
         stability_cfg["gas_route_dewpoint_gate_policy"] = str(gas_route_dewpoint_gate_policy).strip().lower()
     if gas_route_dewpoint_require_dry_enough is not None:
