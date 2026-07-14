@@ -29,6 +29,16 @@ DEFAULT_PRESSURE_POINTS: tuple[str | float, ...] = (
     500.0,
 )
 
+MATURE_SEVEN_POINT_PRESSURE_MATRIX_HPA: tuple[float, ...] = (
+    500.0,
+    600.0,
+    700.0,
+    800.0,
+    900.0,
+    1000.0,
+    1100.0,
+)
+
 
 def _compact_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
@@ -119,6 +129,15 @@ def _pressure_span(points: Sequence[float]) -> Optional[float]:
     if not points:
         return None
     return float(max(points) - min(points))
+
+
+def _is_mature_seven_point_pressure_matrix(points: Sequence[float]) -> bool:
+    unique_points = sorted(set(float(item) for item in points))
+    expected_points = list(MATURE_SEVEN_POINT_PRESSURE_MATRIX_HPA)
+    return len(unique_points) == len(expected_points) and all(
+        math.isclose(actual, expected, rel_tol=0.0, abs_tol=1e-6)
+        for actual, expected in zip(unique_points, expected_points)
+    )
 
 
 def _enabled_device(config: Mapping[str, Any], name: str) -> bool:
@@ -241,7 +260,7 @@ def build_pressure_senco9_no_write_plan_tables(
     interval_s: float = 1.0,
     min_numeric_points: int = 3,
     min_pressure_span_hpa: float = 300.0,
-    require_ambient: bool = True,
+    require_ambient: Optional[bool] = None,
     require_traceable_pressure_reference: bool = True,
     today: Any = None,
 ) -> tuple[Dict[str, List[Dict[str, Any]]], Dict[str, Any]]:
@@ -251,6 +270,8 @@ def build_pressure_senco9_no_write_plan_tables(
     numeric_points = _numeric_pressure_points(points)
     unique_numeric = sorted(set(float(item) for item in numeric_points))
     span = _pressure_span(unique_numeric)
+    mature_seven_point_matrix = _is_mature_seven_point_pressure_matrix(unique_numeric)
+    ambient_required = bool(require_ambient) if require_ambient is not None else not mature_seven_point_matrix
     analyzers = _enabled_analyzers(config)
     config_status, config_reasons, config_warnings = assess_pressure_senco9_no_write_config(config)
     traceability = validate_pressure_reference_traceability(pressure_reference or {}, today=today)
@@ -305,8 +326,17 @@ def build_pressure_senco9_no_write_plan_tables(
     )
     add_check(
         "ambient_reference_point",
-        "pass" if _has_ambient(points) or not require_ambient else "fail",
-        [] if _has_ambient(points) or not require_ambient else ["ambient_point_missing"],
+        "pass" if _has_ambient(points) or not ambient_required else "fail",
+        [] if _has_ambient(points) or not ambient_required else ["ambient_point_missing"],
+        ambient_required=ambient_required,
+        mature_seven_point_matrix=mature_seven_point_matrix,
+        policy=(
+            "explicit"
+            if require_ambient is not None
+            else "mature_seven_point_matrix_does_not_require_ambient"
+            if mature_seven_point_matrix
+            else "ambient_required_for_non_mature_matrix"
+        ),
     )
     add_check(
         "sample_count_per_point",

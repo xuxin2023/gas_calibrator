@@ -206,7 +206,7 @@ def _planned_commands(contract: Mapping[str, Any]) -> list[dict[str, Any]]:
             "args": [1, int(contract["average1_target"])],
             "command_preview": f"AVERAGE1,YGAS,FFF,{int(contract['average1_target'])}",
             "category": "runtime_setup",
-            "physical_channel": "H2O",
+            "physical_channel": "CO2",
         },
         {
             "step": 5,
@@ -215,7 +215,7 @@ def _planned_commands(contract: Mapping[str, Any]) -> list[dict[str, Any]]:
             "args": [2, int(contract["average2_target"])],
             "command_preview": f"AVERAGE2,YGAS,FFF,{int(contract['average2_target'])}",
             "category": "runtime_setup",
-            "physical_channel": "CO2",
+            "physical_channel": "H2O",
         },
     ]
     if bool(contract["active_send"]):

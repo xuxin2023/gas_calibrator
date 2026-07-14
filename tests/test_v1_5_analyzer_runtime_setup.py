@@ -204,6 +204,9 @@ def test_build_plan_lists_only_runtime_setup_commands():
     ]
     assert "set_senco" in plan["forbidden_actions"]
     assert "sampling" in plan["forbidden_actions"]
+    commands = {row["action"]: row for row in plan["commands"]}
+    assert commands["set_average1_filter"]["physical_channel"] == "CO2"
+    assert commands["set_average2_filter"]["physical_channel"] == "H2O"
 
 
 def test_build_plan_accepts_mature_devices_gas_analyzers_shape():

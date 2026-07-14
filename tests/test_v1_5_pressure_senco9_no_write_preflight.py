@@ -218,6 +218,57 @@ def test_pressure_senco9_5ch_active_config_is_no_write_and_keeps_average_filter(
     assert tables["pressure_senco9_no_write_summary"][0]["analyzer_count"] == 5
 
 
+def test_pressure_senco9_mature_seven_point_matrix_does_not_require_ambient(tmp_path):
+    cfg_path = _write_no_write_config(
+        tmp_path / "site_v1_5_pressure_senco9_no_write_mature_7point.json",
+        [{"name": "ga01", "device_id": "001", "port": "COM35", "enabled": True}],
+    )
+    cfg = load_config(cfg_path)
+
+    tables, context = build_pressure_senco9_no_write_plan_tables(
+        config=cfg,
+        config_path=cfg_path,
+        pressure_reference=_pressure_reference(),
+        pressure_points="1100,1000,900,800,700,600,500",
+        sample_count=10,
+        today="2026-05-24",
+    )
+
+    assert context["preflight_status"] == "pass"
+    checks = {row["check"]: row for row in tables["pressure_senco9_no_write_checks"]}
+    ambient_check = checks["ambient_reference_point"]
+    assert ambient_check["status"] == "pass"
+    assert ambient_check["ambient_required"] is False
+    assert ambient_check["mature_seven_point_matrix"] is True
+    assert ambient_check["policy"] == "mature_seven_point_matrix_does_not_require_ambient"
+
+
+def test_pressure_senco9_non_mature_matrix_without_ambient_remains_blocked(tmp_path):
+    cfg_path = _write_no_write_config(
+        tmp_path / "site_v1_5_pressure_senco9_no_write_non_mature.json",
+        [{"name": "ga01", "device_id": "001", "port": "COM35", "enabled": True}],
+    )
+    cfg = load_config(cfg_path)
+
+    tables, context = build_pressure_senco9_no_write_plan_tables(
+        config=cfg,
+        config_path=cfg_path,
+        pressure_reference=_pressure_reference(),
+        pressure_points="1100,800,500",
+        sample_count=10,
+        today="2026-05-24",
+    )
+
+    assert context["preflight_status"] == "fail"
+    checks = {row["check"]: row for row in tables["pressure_senco9_no_write_checks"]}
+    ambient_check = checks["ambient_reference_point"]
+    assert ambient_check["status"] == "fail"
+    assert ambient_check["reasons"] == "ambient_point_missing"
+    assert ambient_check["ambient_required"] is True
+    assert ambient_check["mature_seven_point_matrix"] is False
+    assert ambient_check["policy"] == "ambient_required_for_non_mature_matrix"
+
+
 def test_pressure_senco9_no_write_plan_blocks_short_matrix_and_missing_reference(tmp_path):
     cfg_path = _write_no_write_config(
         tmp_path / "site_v1_5_formal_open_flow_4ch_no_write_900ppm.json",
