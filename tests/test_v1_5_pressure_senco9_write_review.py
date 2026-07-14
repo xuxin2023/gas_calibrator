@@ -113,7 +113,7 @@ def test_pressure_senco9_write_review_can_be_ready_for_one_selected_device_witho
         fit_summary_rows=_fit_summary_rows(),
         point_mean_rows=_point_rows(),
         selected_analyzer_device_id="023",
-        old_getco_snapshot={"023": {"GETCO9": "GETCO9,YGAS,023,1.0,2.0,3.0,4.0"}},
+        old_getco_snapshot={"023": {"GETCO9_before": [1.0, 1.0, 0.0, 0.0]}},
         reviewer="reviewer-a",
         approver="approver-b",
     )
@@ -129,7 +129,9 @@ def test_pressure_senco9_write_review_can_be_ready_for_one_selected_device_witho
     assert summary["execution_command_generated"] is False
     assert summary["write_allowed_by_this_tool"] is False
     assert all(row["status"] == "pass" for row in checks.values())
-    assert selected[0]["old_getco9_snapshot"].startswith("GETCO9")
+    assert json.loads(selected[0]["old_getco9_values"]) == [1.0, 1.0, 0.0, 0.0]
+    assert json.loads(selected[0]["composed_target_senco9_values"]) == [1.704736, 1.0, 0.0, 0.0]
+    assert json.loads(summary["selected_composed_target_senco9_values"]) == [1.704736, 1.0, 0.0, 0.0]
     assert tables["rollback_plan"][0]["rollback_available"] is True
 
 

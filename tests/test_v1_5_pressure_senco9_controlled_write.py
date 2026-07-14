@@ -227,6 +227,8 @@ def test_controlled_senco9_write_all_supported_is_sequential_and_restores_runtim
     assert rows[0]["old_senco9_c0"] == "1.0"
     assert rows[0]["target_senco9_c0"] == "1.704736"
     assert rows[0]["candidate_offset_mode"] == "add-to-current-c0"
+    detail_rows = _read_csv(out_dir / "senco9_write_detail.csv")
+    assert json.loads(detail_rows[0]["coeff_target_json"]) == [1.704736, 1.0, 0.0, 0.0]
     assert ("ftd", 1, False) not in ga01.calls
     assert ("avg", 49, False) in ga01.calls
     assert ("comm", True, False) in ga01.calls

@@ -523,7 +523,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 "identity_before_json": json.dumps(identity_before, ensure_ascii=False, default=str),
                 "identity_after_json": json.dumps(identity_after, ensure_ascii=False, default=str),
                 "coeff_before_json": json.dumps(coeff_before, ensure_ascii=False),
-                "coeff_target_json": json.dumps([float(offset), 1.0, 0.0, 0.0], ensure_ascii=False),
+                "coeff_target_json": json.dumps(coeffs, ensure_ascii=False),
                 "coeff_readback_json": json.dumps(coeff_readback, ensure_ascii=False),
                 "verify_result_json": json.dumps(verify_result, ensure_ascii=False, default=str),
                 "runtime_restore_json": json.dumps(restore, ensure_ascii=False, default=str),

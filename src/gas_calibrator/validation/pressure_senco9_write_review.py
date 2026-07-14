@@ -59,7 +59,14 @@ def _extract_old_getco9(snapshot: Mapping[str, Any], device_id: str = "") -> str
         for key in (device_id, f"device_{device_id}", f"YGAS_{device_id}"):
             value = snapshot.get(key)
             if isinstance(value, Mapping):
-                candidates.extend([value.get("GETCO9"), value.get("SENCO9"), value.get("9")])
+                candidates.extend(
+                    [
+                        value.get("GETCO9_before"),
+                        value.get("GETCO9"),
+                        value.get("SENCO9"),
+                        value.get("9"),
+                    ]
+                )
     candidates.extend(
         [
             snapshot.get("GETCO9"),
@@ -79,6 +86,31 @@ def _extract_old_getco9(snapshot: Mapping[str, Any], device_id: str = "") -> str
                 return ",".join(str(item) for item in value)
             return str(value)
     return ""
+
+
+def _parse_getco9_values(value: Any) -> List[float]:
+    if isinstance(value, Mapping):
+        values = [_safe_float(value.get(f"C{idx}")) for idx in range(4)]
+        return [float(item) for item in values] if all(item is not None for item in values) else []
+    if isinstance(value, (list, tuple)):
+        values = [_safe_float(item) for item in value[:4]]
+        return [float(item) for item in values] if len(values) == 4 and all(item is not None for item in values) else []
+
+    numeric_tokens: List[float] = []
+    for token in str(value or "").replace("<", "").replace(">", "").split(","):
+        candidate = token.split(":", 1)[-1].strip()
+        numeric = _safe_float(candidate)
+        if numeric is not None:
+            numeric_tokens.append(float(numeric))
+    return numeric_tokens[-4:] if len(numeric_tokens) >= 4 else []
+
+
+def _compose_senco9_target(old_values: Sequence[float], offset_delta_kpa: Optional[float]) -> List[float]:
+    if len(old_values) != 4 or offset_delta_kpa is None:
+        return []
+    target = [float(value) for value in old_values]
+    target[0] += float(offset_delta_kpa)
+    return target
 
 
 def _candidate_supported(row: Mapping[str, Any]) -> bool:
@@ -131,6 +163,9 @@ def build_pressure_senco9_write_review_tables(
             selected_rows.append(row)
         device_id = str(row.get("analyzer_device_id") or "").strip()
         old_getco9 = _extract_old_getco9(old_snapshot, device_id) if is_selected else ""
+        old_getco9_values = _parse_getco9_values(old_getco9)
+        candidate_offset_kpa = _safe_float(row.get("offset_only_offset_kpa"))
+        composed_target = _compose_senco9_target(old_getco9_values, candidate_offset_kpa)
         candidate_rows.append(
             {
                 "analyzer_prefix": str(row.get("analyzer_prefix") or ""),
@@ -150,6 +185,9 @@ def build_pressure_senco9_write_review_tables(
                 "candidate_command": row.get("senco9_candidate_command", ""),
                 "candidate_command_scope": "review_only_not_execution_do_not_broadcast_fff",
                 "old_getco9_snapshot": old_getco9,
+                "old_getco9_values": _table_value(old_getco9_values),
+                "composed_target_senco9_values": _table_value(composed_target),
+                "composed_target_scope": "final_target_review_only_live_writer_must_reread_getco9",
                 "write_allowed_by_evaluation_artifact": bool(_truthy(row.get("write_allowed"))),
                 "write_allowed_by_this_tool": False,
             }
@@ -157,6 +195,8 @@ def build_pressure_senco9_write_review_tables(
 
     selected_supported = [row for row in selected_rows if _candidate_supported(row)]
     old_getco9_selected = ""
+    old_getco9_values_selected: List[float] = []
+    composed_target_selected: List[float] = []
     selected_device = ""
     selected_channel = ""
     selected_command = ""
@@ -166,6 +206,11 @@ def build_pressure_senco9_write_review_tables(
         selected_channel = str(selected.get("analyzer_prefix") or "").strip()
         selected_command = str(selected.get("senco9_candidate_command") or "").strip()
         old_getco9_selected = _extract_old_getco9(old_snapshot, selected_device)
+        old_getco9_values_selected = _parse_getco9_values(old_getco9_selected)
+        composed_target_selected = _compose_senco9_target(
+            old_getco9_values_selected,
+            _safe_float(selected.get("offset_only_offset_kpa")),
+        )
 
     checks: List[Dict[str, Any]] = []
 
@@ -200,8 +245,10 @@ def build_pressure_senco9_write_review_tables(
     )
     add_check(
         "old_getco9_snapshot",
-        "pass" if bool(old_getco9_selected) else "fail",
-        [] if old_getco9_selected else ["old_getco9_snapshot_missing_for_rollback"],
+        "pass" if len(old_getco9_values_selected) == 4 else "fail",
+        []
+        if len(old_getco9_values_selected) == 4
+        else ["old_getco9_snapshot_missing_or_invalid_for_rollback_and_composition"],
     )
     add_check(
         "reviewer_approver",
@@ -263,6 +310,9 @@ def build_pressure_senco9_write_review_tables(
             "selected_candidate_command_is_review_only": True,
             "execution_command_generated": False,
             "old_getco9_snapshot_present": bool(old_getco9_selected),
+            "old_getco9_values": _table_value(old_getco9_values_selected),
+            "selected_composed_target_senco9_values": _table_value(composed_target_selected),
+            "composed_target_is_review_only": True,
             "reviewer": reviewer_name,
             "approver": approver_name,
             "write_allowed_by_this_tool": False,
@@ -356,6 +406,7 @@ def build_pressure_senco9_write_review_tables(
         "selected_analyzer_device_id": selected_device,
         "selected_analyzer_prefix": selected_channel,
         "selected_candidate_command": selected_command,
+        "selected_composed_target_senco9_values": composed_target_selected,
     }
     return tables, context
 
