@@ -133,6 +133,7 @@ def _active_analyzers_json(
                     "check_capable": check_capable,
                     "check_required": check_required,
                     "runtime_evidence": {
+                        "mode": 2,
                         "ftd_hz": 1.0,
                         "average1": "AVERAGE1",
                         "average2": "AVERAGE2",
@@ -385,6 +386,7 @@ def test_minimal_executor_reads_six_legacy_devices_without_check(tmp_path: Path)
     assert all(row["auxiliary_neutrality"]["GETCO6"] == "neutral" for row in model["identity_getco_snapshots"])
     assert all(row["auxiliary_neutrality"]["GETCO7"] == "neutral" for row in model["identity_getco_snapshots"])
     assert all(row["auxiliary_neutrality"]["GETCO8"] == "neutral" for row in model["identity_getco_snapshots"])
+    assert all(row["runtime_evidence"]["mode"] == 2 for row in model["identity_getco_snapshots"])
 
 
 def test_minimal_executor_holds_legacy_check_capable_before_opening_com(tmp_path: Path) -> None:

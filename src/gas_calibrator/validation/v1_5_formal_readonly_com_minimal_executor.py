@@ -499,6 +499,7 @@ def _neutral_status(group: str, values: Sequence[float]) -> str:
 def _runtime_evidence(row: Mapping[str, Any]) -> dict[str, Any]:
     runtime = row.get("runtime_evidence") if isinstance(row.get("runtime_evidence"), Mapping) else {}
     return {
+        "mode": runtime.get("mode", row.get("mode", row.get("target_mode"))),
         "ftd_hz": runtime.get("ftd_hz", row.get("ftd_hz", row.get("runtime_hz", row.get("mode2_upload_hz")))),
         "average1": runtime.get("average1", row.get("average1", row.get("average1_setting"))),
         "average2": runtime.get("average2", row.get("average2", row.get("average2_setting"))),

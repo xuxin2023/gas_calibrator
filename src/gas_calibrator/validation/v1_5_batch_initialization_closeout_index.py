@@ -80,7 +80,7 @@ def _load_json(path: str | Path | None) -> dict[str, Any]:
     source = Path(path)
     if not source.exists():
         raise FileNotFoundError(f"JSON file not found: {source}")
-    payload = json.loads(source.read_text(encoding="utf-8"))
+    payload = json.loads(source.read_text(encoding="utf-8-sig"))
     if not isinstance(payload, dict):
         raise ValueError(f"JSON file must contain an object: {source}")
     return payload

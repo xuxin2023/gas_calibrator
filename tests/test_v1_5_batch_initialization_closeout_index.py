@@ -245,6 +245,25 @@ def test_batch_initialization_closeout_writer_cli_and_entrypoint(tmp_path: Path)
     assert any("batch initialization closeout index" in note for note in entry.notes)
 
 
+def test_batch_initialization_closeout_accepts_utf8_bom_json_evidence(tmp_path: Path) -> None:
+    readonly_path = tmp_path / "readonly_bom.json"
+    readonly_path.write_text(
+        json.dumps(_readonly_payload(), ensure_ascii=False),
+        encoding="utf-8-sig",
+    )
+    pressure_path = _write_json(tmp_path / "pressure.json", _pressure_payload())
+    route_path = _write_json(tmp_path / "route.json", _route_payload())
+
+    model = build_v1_5_batch_initialization_closeout_index(
+        readonly_com_executor_json=readonly_path,
+        pressure_readiness_json=pressure_path,
+        route_readiness_json=route_path,
+    )
+
+    assert model["overall_status"] == READY_STATUS
+    assert model["ready_for_mature_open_flow_from_initialization_index"] is True
+
+
 def test_batch_initialization_closeout_cli_fails_closed_before_route_readiness(tmp_path: Path) -> None:
     readonly_path = _write_json(tmp_path / "readonly.json", _readonly_payload())
     pressure_path = _write_json(tmp_path / "pressure.json", _pressure_payload())
