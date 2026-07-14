@@ -18,7 +18,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Optional
 
-from ..devices import GasAnalyzer
 from ..tools._analyzer_serial_pacing import (
     MIN_ANALYZER_SERIAL_COMMAND_GAP_S,
     _enforce_serial_command_gap,
@@ -86,6 +85,7 @@ def _sn_policy(config: Mapping[str, Any]) -> dict[str, Any]:
         "command_gap_s": max(MIN_ANALYZER_SERIAL_COMMAND_GAP_S, float(raw.get("command_gap_s", 1.2))),
         "sn_read_timeout_s": float(raw.get("sn_read_timeout_s", 1.2)),
         "mode2_verify_required": bool(raw.get("mode2_verify_required", True)),
+        "quiet_active_stream_before_write": bool(raw.get("quiet_active_stream_before_write", True)),
     }
 
 
@@ -438,23 +438,44 @@ def execute_sn_identity_initialization(
                     raise SnIdentityInitializationError(
                         f"protocol id mismatch read={identity.get('id')} expected={expected_id}"
                     )
-                mode_ok = _call_optional_ack(getattr(analyzer, "set_mode_with_ack", None), 2)
-                result_row["events"].append({"action": "set_mode2", "ok": bool(mode_ok)})
-                if bool(policy.get("mode2_verify_required", True)) and not mode_ok:
-                    raise SnIdentityInitializationError("MODE2 was not acknowledged before SN write")
-                if not _send_sn_write(analyzer, str(item.get("write_command") or "")):
-                    raise SnIdentityInitializationError("SN write command was not accepted by sender")
-                result_row["events"].append({"action": "write_sn", "ok": True})
-                readback1, raw1 = _read_sn(analyzer, timeout_s=float(policy.get("sn_read_timeout_s", 1.2)))
-                readback2, raw2 = _read_sn(analyzer, timeout_s=float(policy.get("sn_read_timeout_s", 1.2)))
-                result_row["readback1_sn"] = readback1
-                result_row["readback1_raw"] = raw1
-                result_row["readback2_sn"] = readback2
-                result_row["readback2_raw"] = raw2
-                if readback1 != item.get("target_sn") or readback2 != item.get("target_sn"):
-                    raise SnIdentityInitializationError(
-                        f"SN readback mismatch readback1={readback1} readback2={readback2} expected={item.get('target_sn')}"
-                    )
+                quiet_stream = bool(policy.get("quiet_active_stream_before_write", True))
+                stream_quieted = False
+                operation_error: Optional[Exception] = None
+                restore_ok = True
+                try:
+                    if quiet_stream:
+                        quiet_ok = _call_optional_ack(getattr(analyzer, "set_comm_way_with_ack", None), False)
+                        result_row["events"].append({"action": "set_comm_way_inactive", "ok": bool(quiet_ok)})
+                        if not quiet_ok:
+                            raise SnIdentityInitializationError("active upload could not be paused before SN write")
+                        stream_quieted = True
+                    mode_ok = _call_optional_ack(getattr(analyzer, "set_mode_with_ack", None), 2)
+                    result_row["events"].append({"action": "set_mode2", "ok": bool(mode_ok)})
+                    if bool(policy.get("mode2_verify_required", True)) and not mode_ok:
+                        raise SnIdentityInitializationError("MODE2 was not acknowledged before SN write")
+                    if not _send_sn_write(analyzer, str(item.get("write_command") or "")):
+                        raise SnIdentityInitializationError("SN write command was not accepted by sender")
+                    result_row["events"].append({"action": "write_sn", "ok": True})
+                    readback1, raw1 = _read_sn(analyzer, timeout_s=float(policy.get("sn_read_timeout_s", 1.2)))
+                    readback2, raw2 = _read_sn(analyzer, timeout_s=float(policy.get("sn_read_timeout_s", 1.2)))
+                    result_row["readback1_sn"] = readback1
+                    result_row["readback1_raw"] = raw1
+                    result_row["readback2_sn"] = readback2
+                    result_row["readback2_raw"] = raw2
+                    if readback1 != item.get("target_sn") or readback2 != item.get("target_sn"):
+                        raise SnIdentityInitializationError(
+                            f"SN readback mismatch readback1={readback1} readback2={readback2} expected={item.get('target_sn')}"
+                        )
+                except Exception as exc:
+                    operation_error = exc
+                finally:
+                    if stream_quieted:
+                        restore_ok = _call_optional_ack(getattr(analyzer, "set_comm_way_with_ack", None), True)
+                        result_row["events"].append({"action": "set_comm_way_active", "ok": bool(restore_ok)})
+                if operation_error is not None:
+                    raise operation_error
+                if not restore_ok:
+                    raise SnIdentityInitializationError("active upload could not be restored after SN write")
                 result_row["status"] = "sn_write_verified_mode2"
         except Exception as exc:
             result_row["status"] = "failed"

@@ -89,6 +89,10 @@ class _FakeAnalyzer:
         self.calls.append(("set_mode_with_ack", int(mode), bool(require_ack)))
         return int(mode) == 2
 
+    def set_comm_way_with_ack(self, active, require_ack=False):
+        self.calls.append(("set_comm_way_with_ack", bool(active), bool(require_ack)))
+        return True
+
 
 def test_build_plan_allocates_hwver_yymm_sequence():
     plan = sn_init.build_sn_identity_initialization_plan(_config(), run_id="sn_plan")
@@ -168,3 +172,47 @@ def test_execute_writes_sn_and_verifies_double_readback(tmp_path):
     assert result["results"][0]["readback2_sn"] == "01260601"
     assert "SN,YGAS,FFF,01260601" in analyzers["GA01"].ser.writes
     assert ("set_mode_with_ack", 2, False) in analyzers["GA01"].calls
+    assert ("set_comm_way_with_ack", False, False) in analyzers["GA01"].calls
+    assert ("set_comm_way_with_ack", True, False) in analyzers["GA01"].calls
+    assert analyzers["GA01"].calls.index(("set_comm_way_with_ack", False, False)) < analyzers[
+        "GA01"
+    ].calls.index(("set_mode_with_ack", 2, False))
+
+
+def test_execute_restores_active_stream_when_sn_write_is_not_applied(tmp_path):
+    config = _config()
+    config["analyzers"] = config["analyzers"][:1]
+    plan = sn_init.build_sn_identity_initialization_plan(config, run_id="sn_plan")
+    analyzers = {}
+
+    def factory(item):
+        analyzer = _FakeAnalyzer(item)
+        original_write = analyzer.ser.write
+
+        def reject_sn_write(text):
+            payload = str(text).strip()
+            parts = [part.strip() for part in payload.split(",")]
+            if len(parts) == 4 and parts[0] == "SN" and parts[1] == "YGAS":
+                analyzer.ser.writes.append(payload)
+                return
+            original_write(text)
+
+        analyzer.ser.write = reject_sn_write
+        analyzers[str(item["slot"])] = analyzer
+        return analyzer
+
+    result = sn_init.execute_sn_identity_initialization(
+        plan,
+        output_dir=tmp_path,
+        analyzer_factory=factory,
+        execute=True,
+        acknowledge_sn_write=True,
+        run_id="sn_execute_rejected",
+        sleep_fn=lambda _seconds: None,
+    )
+
+    assert result["status"] == "partial"
+    assert result["results"][0]["status"] == "failed"
+    assert "SN readback mismatch" in result["results"][0]["error"]
+    assert ("set_comm_way_with_ack", False, False) in analyzers["GA01"].calls
+    assert ("set_comm_way_with_ack", True, False) in analyzers["GA01"].calls
