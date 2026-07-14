@@ -252,6 +252,7 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default="",
         help=f"Must equal {CONFIRMATION_TEXT!r}.",
     )
+    parser.add_argument("--operator", required=True)
     parser.add_argument("--reviewer", required=True)
     parser.add_argument("--approver", required=True)
     parser.add_argument("--stop-on-failure", action="store_true", default=True)
@@ -330,11 +331,14 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     if not args.enable_senco9_write or args.operator_confirmation != CONFIRMATION_TEXT:
         _log("Refusing SENCO9 write: pass --enable-senco9-write and the exact operator confirmation text.")
         return 2
-    if not str(args.reviewer or "").strip() or not str(args.approver or "").strip():
-        _log("Refusing SENCO9 write: reviewer and approver are required.")
+    operator_name = str(args.operator or "").strip()
+    reviewer_name = str(args.reviewer or "").strip()
+    approver_name = str(args.approver or "").strip()
+    if not operator_name or not reviewer_name or not approver_name:
+        _log("Refusing SENCO9 write: operator, reviewer, and approver are required.")
         return 2
-    if str(args.reviewer).strip() == str(args.approver).strip():
-        _log("Refusing SENCO9 write: reviewer and approver must differ.")
+    if len({operator_name, reviewer_name, approver_name}) != 3:
+        _log("Refusing SENCO9 write: operator, reviewer, and approver must be three distinct people.")
         return 2
 
     cfg_path = Path(args.config).resolve()
@@ -511,6 +515,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 "controls_water_or_gas_routes": False,
                 "writes_device_id": False,
                 "writes_senco9": status == "written_readback_verified",
+                "operator": operator_name,
                 "reviewer": str(args.reviewer),
                 "approver": str(args.approver),
             }
@@ -565,6 +570,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         config_summary={
             "write_all_supported": bool(args.write_all_supported),
             "device_ids": [_device_id(item) for item in args.device_id],
+            "operator": operator_name,
             "reviewer": str(args.reviewer),
             "approver": str(args.approver),
             "controls_water_or_gas_routes": False,

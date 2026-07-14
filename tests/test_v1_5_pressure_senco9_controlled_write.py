@@ -167,6 +167,8 @@ def test_controlled_senco9_write_requires_explicit_unlock(tmp_path):
             "--output-dir",
             str(tmp_path / "out"),
             "--write-all-supported",
+            "--operator",
+            "operator-c",
             "--reviewer",
             "reviewer-a",
             "--approver",
@@ -205,6 +207,8 @@ def test_controlled_senco9_write_all_supported_is_sequential_and_restores_runtim
             "--enable-senco9-write",
             "--operator-confirmation",
             writer.CONFIRMATION_TEXT,
+            "--operator",
+            "operator-c",
             "--reviewer",
             "reviewer-a",
             "--approver",
@@ -219,6 +223,7 @@ def test_controlled_senco9_write_all_supported_is_sequential_and_restores_runtim
     assert {row["controls_water_or_gas_routes"] for row in rows} == {"False"}
     assert {row["writes_device_id"] for row in rows} == {"False"}
     assert {row["writes_senco9"] for row in rows} == {"True"}
+    assert {row["operator"] for row in rows} == {"operator-c"}
     assert (out_dir / "old_getco9_snapshot.json").exists()
     ga01 = _FakeGasAnalyzer.instances["COM35"]
     assert ga01.COEFFICIENT_COMM_QUIET_DELAY_S == 3.0
@@ -258,6 +263,8 @@ def test_controlled_senco9_write_can_restore_active_freq_when_explicitly_request
             "--enable-senco9-write",
             "--operator-confirmation",
             writer.CONFIRMATION_TEXT,
+            "--operator",
+            "operator-c",
             "--reviewer",
             "reviewer-a",
             "--approver",
