@@ -96,6 +96,34 @@ def _make_h2o_run(tmp_path: Path) -> Path:
     return root
 
 
+def _make_physically_monotonic_h2o_run(tmp_path: Path) -> Path:
+    root = _make_h2o_run(tmp_path)
+    manifest_path = root / "h2o_mt_no_write_r1" / "queue_manifest.csv"
+    with manifest_path.open("r", encoding="utf-8-sig", newline="") as handle:
+        manifest_rows = [dict(row) for row in csv.DictReader(handle)]
+
+    reference_by_point: dict[str, float] = {}
+    for point_dir in sorted(path for path in root.glob("p*") if path.is_dir()):
+        summary_path = next(
+            path for path in sorted(point_dir.glob("*.csv")) if path.name != "samples_machine_readable.csv"
+        )
+        with summary_path.open("r", encoding="utf-8-sig", newline="") as handle:
+            rows = [dict(row) for row in csv.DictReader(handle)]
+        base_ratio = float(rows[0]["R_H2O"])
+        chamber_temp_c = float(rows[0]["T1"])
+        reference = 30.0 - 28.0 * base_ratio + 0.035 * chamber_temp_c
+        reference_by_point[point_dir.name] = reference
+        for row in rows:
+            row["ppm_H2O_Dew"] = reference
+            row["ppm_H2O"] = reference + 0.05
+        _write_csv(summary_path, rows)
+
+    for row in manifest_rows:
+        row["reference_h2o_mmol"] = reference_by_point[str(row["point_run_id"])]
+    _write_csv(manifest_path, manifest_rows)
+    return root
+
+
 def _make_co2_dry_anchor_run(tmp_path: Path) -> Path:
     root = tmp_path / "co2_dry_anchor_run"
     for idx, temp in enumerate((0.0, 20.0), start=1):
@@ -466,6 +494,108 @@ def test_h2o_senco24_candidate_can_filter_dry_anchors_by_temperature_and_relativ
     policies = {row["analyzer_device_id"]: row for row in tables["h2o_senco24_device_policy"]}
     assert policies["022"]["complete_dry_anchor_count"] == 1
     assert policies["022"]["fit_objective"] == "relative_mmol_floor"
+
+
+def test_h2o_senco24_candidate_supports_monotonic_minimax_relative_objective(tmp_path):
+    run_dir = _make_physically_monotonic_h2o_run(tmp_path)
+
+    tables, context = build_h2o_senco24_candidate_tables(
+        run_dir=run_dir,
+        cfg=H2OSenco24CandidateConfig(
+            min_points=8,
+            fit_max_abs_error_mmol=1.0,
+            design_max_relative_error_pct=2.0,
+            relative_error_min_reference_mmol=1.0,
+            fit_objective="minimax_relative_mmol_floor_monotonic",
+        ),
+    )
+
+    assert context["fit_objective"] == "minimax_relative_mmol_floor_monotonic"
+    policies = {row["analyzer_device_id"]: row for row in tables["h2o_senco24_device_policy"]}
+    for device_id in ("022", "051"):
+        policy = policies[device_id]
+        assert policy["fit_solver"] == "scipy_highs_linear_program"
+        assert policy["fit_basis"] == "centered_R_T_transformed_to_firmware_absolute_terms"
+        assert policy["fit_objective_bound_pct_pre_firmware_quantization"] < 1.0e-6
+        assert policy["coefficients_quantized_for_firmware"] is True
+        assert policy["fit_max_abs_relative_error_pct"] < 0.01
+        assert policy["monotonic_decreasing_over_fit_envelope"] is True
+        assert policy["monotonic_derivative_violation_count"] == 0
+        assert policy["maximum_d_concentration_d_ratio"] < 0.0
+        assert policy["fit_design_qc"] == "pass"
+
+    payloads = tables["h2o_senco24_payload_preview"]
+    assert payloads
+    assert all(row["auto_write_allowed"] is False for row in payloads)
+    assert all(row["fit_objective"] == "minimax_relative_mmol_floor_monotonic" for row in payloads)
+
+
+def test_h2o_senco24_design_failure_is_not_hidden_by_pinned_output(tmp_path):
+    run_dir = _make_h2o_run(tmp_path)
+    cfg = H2OSenco24CandidateConfig(
+        min_points=8,
+        fit_max_abs_error_mmol=100.0,
+        design_max_relative_error_pct=2.0,
+        relative_error_min_reference_mmol=1.0,
+        fit_objective="minimax_relative_mmol_floor_monotonic",
+    )
+
+    tables, _ = build_h2o_senco24_candidate_tables(
+        run_dir=run_dir,
+        cfg=cfg,
+    )
+
+    policy = {row["analyzer_device_id"]: row for row in tables["h2o_senco24_device_policy"]}[
+        "051"
+    ]
+    assert policy["final_output_pinned"] is True
+    assert policy["fit_max_abs_relative_error_pct"] > 2.0
+    assert policy["candidate_status"] == "candidate_fit_review_required"
+
+    outputs = write_h2o_senco24_candidate_report(
+        run_dir=run_dir,
+        output_dir=tmp_path / "design_failure_sidecar",
+        cfg=cfg,
+    )
+    sidecar = json.loads(outputs["database_sidecar"].read_text(encoding="utf-8"))
+    qc_row = next(
+        row
+        for row in sidecar["suggested_rows"]
+        if row["record_key"] == "h2o_senco2_senco4_qc_051"
+    )
+    assert qc_row["status"] == "fail"
+    assert sidecar["connects_postgresql"] is False
+
+
+def test_h2o_senco24_cli_accepts_monotonic_minimax_relative_objective(tmp_path):
+    run_dir = _make_physically_monotonic_h2o_run(tmp_path)
+    output_dir = tmp_path / "minimax_cli"
+
+    rc = cli_main(
+        [
+            "--run-dir",
+            str(run_dir),
+            "--output-dir",
+            str(output_dir),
+            "--fit-objective",
+            "minimax_relative_mmol_floor_monotonic",
+            "--relative-error-min-reference-mmol",
+            "1.0",
+        ]
+    )
+
+    assert rc == 0
+    metadata = json.loads(
+        (output_dir / "h2o_senco24_candidate_review_meta.json").read_text(encoding="utf-8")
+    )
+    assert metadata["config_summary"]["fit_objective"] == (
+        "minimax_relative_mmol_floor_monotonic"
+    )
+    sidecar = json.loads(
+        (output_dir / "h2o_senco24_database_sidecar.json").read_text(encoding="utf-8")
+    )
+    assert sidecar["no_write"] is True
+    assert sidecar["connects_postgresql"] is False
 
 
 def test_h2o_senco24_candidate_merges_extra_h2o_root_and_maps_real_device_id(tmp_path):

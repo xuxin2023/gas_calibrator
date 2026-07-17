@@ -144,11 +144,18 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--fit-objective",
-        choices=("absolute_mmol", "sqrt_relative_mmol_floor", "relative_mmol_floor"),
+        choices=(
+            "absolute_mmol",
+            "sqrt_relative_mmol_floor",
+            "relative_mmol_floor",
+            "minimax_relative_mmol_floor_monotonic",
+        ),
         default="absolute_mmol",
         help=(
-            "Least-squares objective for SENCO2/SENCO4. Use relative_mmol_floor when the review "
-            "must minimize relative H2O error above the configured reference floor."
+            "Fit objective for SENCO2/SENCO4. Use relative_mmol_floor when the review "
+            "must minimize squared relative H2O error above the configured reference floor. Use "
+            "minimax_relative_mmol_floor_monotonic to minimize the maximum relative error while "
+            "enforcing the physical decreasing concentration-versus-ratio response."
         ),
     )
     parser.add_argument(

@@ -34,6 +34,8 @@ H2O_TERMS: Tuple[str, ...] = ("intercept", "R", "R2", "R3", "T", "T2", "RT")
 PRESSURE_TERMS: Tuple[str, ...] = ("P", "RP", "RTP")
 SENCO6_SEPARATE_LAYER_CONTRACT = "senco6_separate_final_affine_layer_do_not_fold_into_senco24"
 SENCO24_MAIN_CHAIN_CONTRACT = "senco24_h2o_ratio_temperature_main_chain_only"
+MINIMAX_RELATIVE_MONOTONIC_OBJECTIVE = "minimax_relative_mmol_floor_monotonic"
+MINIMAX_MONOTONIC_DERIVATIVE_LIMIT = -1.0e-8
 
 
 @dataclass(frozen=True)
@@ -568,6 +570,287 @@ def _scaled_weighted_lstsq(
     return np.asarray(scaled_coeffs, dtype=float) / scales, rank, condition
 
 
+def _centered_feature_value(
+    term: str,
+    ratio: float,
+    temp_c: float,
+    ratio_center: float,
+    temp_k_center: float,
+) -> float:
+    ratio_delta = ratio - ratio_center
+    temp_k_delta = temp_c + 273.15 - temp_k_center
+    values = {
+        "intercept": 1.0,
+        "R": ratio_delta,
+        "R2": ratio_delta**2,
+        "R3": ratio_delta**3,
+        "T": temp_k_delta,
+        "T2": temp_k_delta**2,
+        "RT": ratio_delta * temp_k_delta,
+    }
+    try:
+        return float(values[term])
+    except KeyError as exc:
+        raise ValueError(f"Unsupported H2O SENCO2/4 term: {term}") from exc
+
+
+def _centered_derivative_value(
+    term: str,
+    ratio: float,
+    temp_c: float,
+    ratio_center: float,
+    temp_k_center: float,
+) -> float:
+    ratio_delta = ratio - ratio_center
+    temp_k_delta = temp_c + 273.15 - temp_k_center
+    values = {
+        "intercept": 0.0,
+        "R": 1.0,
+        "R2": 2.0 * ratio_delta,
+        "R3": 3.0 * ratio_delta**2,
+        "T": 0.0,
+        "T2": 0.0,
+        "RT": temp_k_delta,
+    }
+    try:
+        return float(values[term])
+    except KeyError as exc:
+        raise ValueError(f"Unsupported H2O SENCO2/4 term: {term}") from exc
+
+
+def _centered_matrix(
+    rows: Sequence[Mapping[str, Any]],
+    terms: Sequence[str],
+    ratio_center: float,
+    temp_k_center: float,
+) -> np.ndarray:
+    return np.asarray(
+        [
+            [
+                _centered_feature_value(
+                    term,
+                    float(row["h2o_ratio_f"]),
+                    float(row["chamber_temp_c"]),
+                    ratio_center,
+                    temp_k_center,
+                )
+                for term in terms
+            ]
+            for row in rows
+        ],
+        dtype=float,
+    )
+
+
+def _centered_derivative_matrix(
+    rows: Sequence[Mapping[str, Any]],
+    terms: Sequence[str],
+    ratio_center: float,
+    temp_k_center: float,
+) -> np.ndarray:
+    return np.asarray(
+        [
+            [
+                _centered_derivative_value(
+                    term,
+                    float(row["h2o_ratio_f"]),
+                    float(row["chamber_temp_c"]),
+                    ratio_center,
+                    temp_k_center,
+                )
+                for term in terms
+            ]
+            for row in rows
+        ],
+        dtype=float,
+    )
+
+
+def _centered_to_absolute_coefficients(
+    terms: Sequence[str],
+    values: Sequence[float],
+    ratio_center: float,
+    temp_k_center: float,
+) -> np.ndarray:
+    centered = {term: 0.0 for term in H2O_TERMS}
+    centered.update({term: float(value) for term, value in zip(terms, values)})
+    absolute = {
+        "intercept": (
+            centered["intercept"]
+            - ratio_center * centered["R"]
+            + ratio_center**2 * centered["R2"]
+            - ratio_center**3 * centered["R3"]
+            - temp_k_center * centered["T"]
+            + temp_k_center**2 * centered["T2"]
+            + ratio_center * temp_k_center * centered["RT"]
+        ),
+        "R": (
+            centered["R"]
+            - 2.0 * ratio_center * centered["R2"]
+            + 3.0 * ratio_center**2 * centered["R3"]
+            - temp_k_center * centered["RT"]
+        ),
+        "R2": centered["R2"] - 3.0 * ratio_center * centered["R3"],
+        "R3": centered["R3"],
+        "T": (
+            centered["T"]
+            - 2.0 * temp_k_center * centered["T2"]
+            - ratio_center * centered["RT"]
+        ),
+        "T2": centered["T2"],
+        "RT": centered["RT"],
+    }
+    return np.asarray([absolute[term] for term in terms], dtype=float)
+
+
+def _firmware_quantize_coefficients(values: Sequence[float]) -> np.ndarray:
+    return np.asarray(
+        [float(format_senco_values([float(value)])[0]) for value in values],
+        dtype=float,
+    )
+
+
+def _monotonic_grid_rows(rows: Sequence[Mapping[str, Any]]) -> List[Dict[str, float]]:
+    ratios = [float(row["h2o_ratio_f"]) for row in rows]
+    temperatures = [float(row["chamber_temp_c"]) for row in rows]
+    ratio_grid = (
+        np.linspace(min(ratios), max(ratios), 31)
+        if _span(ratios) > 0.0
+        else np.asarray([ratios[0]])
+    )
+    temperature_grid = (
+        np.linspace(min(temperatures), max(temperatures), 17)
+        if _span(temperatures) > 0.0
+        else np.asarray([temperatures[0]])
+    )
+    return [
+        {"h2o_ratio_f": float(ratio), "chamber_temp_c": float(temperature)}
+        for ratio in ratio_grid
+        for temperature in temperature_grid
+    ]
+
+
+def _absolute_derivative(
+    ratio: float,
+    temp_c: float,
+    coefficients: Mapping[str, float],
+) -> float:
+    temp_k = float(temp_c) + 273.15
+    return float(
+        float(coefficients.get("R", 0.0))
+        + 2.0 * float(coefficients.get("R2", 0.0)) * float(ratio)
+        + 3.0 * float(coefficients.get("R3", 0.0)) * float(ratio) ** 2
+        + float(coefficients.get("RT", 0.0)) * temp_k
+    )
+
+
+def _monotonicity_audit(
+    rows: Sequence[Mapping[str, Any]],
+    coefficients: Mapping[str, float],
+) -> Dict[str, Any]:
+    grid_rows = _monotonic_grid_rows(rows)
+    derivatives = [
+        _absolute_derivative(
+            float(row["h2o_ratio_f"]),
+            float(row["chamber_temp_c"]),
+            coefficients,
+        )
+        for row in grid_rows
+    ]
+    violation_count = sum(value >= 0.0 for value in derivatives)
+    return {
+        "monotonic_grid_point_count": len(grid_rows),
+        "monotonic_derivative_violation_count": int(violation_count),
+        "minimum_d_concentration_d_ratio": min(derivatives) if derivatives else "",
+        "maximum_d_concentration_d_ratio": max(derivatives) if derivatives else "",
+        "monotonic_decreasing_over_fit_envelope": bool(derivatives) and violation_count == 0,
+    }
+
+
+def _fit_coefficients(
+    rows: Sequence[Mapping[str, Any]],
+    terms: Sequence[str],
+    target: np.ndarray,
+    cfg: H2OSenco24CandidateConfig,
+) -> tuple[np.ndarray, int, float, Dict[str, Any]]:
+    objective = str(cfg.fit_objective or "absolute_mmol").strip().lower()
+    if objective != MINIMAX_RELATIVE_MONOTONIC_OBJECTIVE:
+        matrix = _matrix(rows, terms)
+        coefficients, rank, condition = _scaled_weighted_lstsq(matrix, target, cfg)
+        return coefficients, rank, condition, {
+            "fit_solver": "scaled_weighted_least_squares",
+            "fit_basis": "firmware_absolute_terms",
+            "fit_objective_bound_pct_pre_firmware_quantization": "",
+            "coefficients_quantized_for_firmware": False,
+        }
+
+    try:
+        from scipy.optimize import linprog
+    except ImportError as exc:
+        raise RuntimeError(
+            "The minimax H2O review objective requires scipy.optimize.linprog; "
+            "install scipy before using this optional offline objective."
+        ) from exc
+
+    ratio_center = float(mean(float(row["h2o_ratio_f"]) for row in rows))
+    temp_k_center = float(mean(float(row["chamber_temp_c"]) + 273.15 for row in rows))
+    centered = _centered_matrix(rows, terms, ratio_center, temp_k_center)
+    scales = np.linalg.norm(centered, axis=0)
+    scales = np.where(np.isfinite(scales) & (scales > 0.0), scales, 1.0)
+    scaled = centered / scales
+    rank = int(np.linalg.matrix_rank(scaled))
+    condition = float(np.linalg.cond(scaled))
+
+    floor = max(float(cfg.relative_error_min_reference_mmol), 1.0e-12)
+    denominator = np.maximum(np.abs(target.astype(float)), floor)
+    constraint_rows: List[np.ndarray] = []
+    constraint_limits: List[float] = []
+    for design_row, expected, divisor in zip(scaled, target, denominator):
+        constraint_rows.append(np.r_[design_row, -divisor])
+        constraint_limits.append(float(expected))
+        constraint_rows.append(np.r_[-design_row, -divisor])
+        constraint_limits.append(float(-expected))
+
+    monotonic_rows = _monotonic_grid_rows(rows)
+    derivative_matrix = _centered_derivative_matrix(
+        monotonic_rows,
+        terms,
+        ratio_center,
+        temp_k_center,
+    ) / scales
+    for derivative_row in derivative_matrix:
+        constraint_rows.append(np.r_[derivative_row, 0.0])
+        constraint_limits.append(MINIMAX_MONOTONIC_DERIVATIVE_LIMIT)
+
+    term_count = len(terms)
+    result = linprog(
+        np.r_[np.zeros(term_count), 1.0],
+        A_ub=np.asarray(constraint_rows, dtype=float),
+        b_ub=np.asarray(constraint_limits, dtype=float),
+        bounds=[(None, None)] * term_count + [(0.0, None)],
+        method="highs",
+    )
+    if not result.success:
+        raise RuntimeError(f"H2O minimax solver failed: {result.message}")
+
+    centered_coefficients = np.asarray(result.x[:term_count], dtype=float) / scales
+    absolute_coefficients = _centered_to_absolute_coefficients(
+        terms,
+        centered_coefficients,
+        ratio_center,
+        temp_k_center,
+    )
+    quantized_coefficients = _firmware_quantize_coefficients(absolute_coefficients)
+    return quantized_coefficients, rank, condition, {
+        "fit_solver": "scipy_highs_linear_program",
+        "fit_basis": "centered_R_T_transformed_to_firmware_absolute_terms",
+        "fit_objective_bound_pct_pre_firmware_quantization": float(result.x[-1] * 100.0),
+        "coefficients_quantized_for_firmware": True,
+        "ratio_center": ratio_center,
+        "temp_k_center": temp_k_center,
+    }
+
+
 def _prediction(row: Mapping[str, Any], coefficients: Mapping[str, float], terms: Sequence[str]) -> float:
     return float(
         sum(
@@ -725,8 +1008,6 @@ def _device_status(
 ) -> str:
     if blocked_reasons:
         return "blocked"
-    if final_output_pinned:
-        return "candidate_ratio_fit_available_but_final_output_blocked"
     if fit_max_error is not None and fit_max_error > float(cfg.fit_max_abs_error_mmol):
         return "candidate_fit_review_required"
     if (
@@ -734,6 +1015,8 @@ def _device_status(
         and fit_max_relative_error_pct > float(cfg.design_max_relative_error_pct)
     ):
         return "candidate_fit_review_required"
+    if final_output_pinned:
+        return "candidate_ratio_fit_available_but_final_output_blocked"
     if warning_reasons:
         return "candidate_fit_ready_with_warnings_requires_independent_verification"
     return "candidate_fit_ready_requires_independent_verification"
@@ -1241,17 +1524,30 @@ def _device_tables(
         rank: Any = ""
         condition: Any = ""
         coeff_by_term: Dict[str, float] = {}
+        fit_solver_metadata: Dict[str, Any] = {}
+        monotonicity: Dict[str, Any] = {}
         if not blocked:
-            x = _matrix(complete, terms)
             y_final = np.asarray(reference_values, dtype=float)
             y_raw = np.asarray(reference_values, dtype=float)
-            coeffs, rank, condition = _scaled_weighted_lstsq(x, y_raw, cfg)
+            coeffs, rank, condition, fit_solver_metadata = _fit_coefficients(
+                complete,
+                terms,
+                y_raw,
+                cfg,
+            )
             if rank < len(terms):
                 blocked.append("model_matrix_rank_deficient")
             elif not math.isfinite(float(condition)) or float(condition) > float(cfg.max_condition_number):
                 blocked.append("model_matrix_ill_conditioned")
             else:
                 coeff_by_term = {term: float(value) for term, value in zip(terms, coeffs)}
+                monotonicity = _monotonicity_audit(complete, coeff_by_term)
+                if (
+                    str(cfg.fit_objective or "").strip().lower()
+                    == MINIMAX_RELATIVE_MONOTONIC_OBJECTIVE
+                    and not bool(monotonicity["monotonic_decreasing_over_fit_envelope"])
+                ):
+                    blocked.append("minimax_model_not_monotonic_after_firmware_quantization")
                 pred_raw = np.asarray([_prediction(row, coeff_by_term, terms) for row in complete], dtype=float)
                 pred = pred_raw
                 fit_metrics = compute_metrics(y_final, pred)
@@ -1310,6 +1606,12 @@ def _device_tables(
                             "sample_alignment_failure_reasons": row.get("sample_alignment_failure_reasons", ""),
                             "senco24_main_chain_contract": SENCO24_MAIN_CHAIN_CONTRACT,
                             "senco6_layer_contract": SENCO6_SEPARATE_LAYER_CONTRACT,
+                            "fit_objective": str(cfg.fit_objective or "absolute_mmol"),
+                            "fit_solver": fit_solver_metadata.get("fit_solver", ""),
+                            "fit_basis": fit_solver_metadata.get("fit_basis", ""),
+                            "coefficients_quantized_for_firmware": fit_solver_metadata.get(
+                                "coefficients_quantized_for_firmware", False
+                            ),
                         }
                     )
                 for term in terms:
@@ -1325,6 +1627,12 @@ def _device_tables(
                             "pressure_term": False,
                             "pressure_terms_frozen": True,
                             "formatted_senco_value": format_senco_values([coeff_by_term[term]])[0],
+                            "fit_objective": str(cfg.fit_objective or "absolute_mmol"),
+                            "fit_solver": fit_solver_metadata.get("fit_solver", ""),
+                            "fit_basis": fit_solver_metadata.get("fit_basis", ""),
+                            "coefficients_quantized_for_firmware": fit_solver_metadata.get(
+                                "coefficients_quantized_for_firmware", False
+                            ),
                         }
                     )
                 primary = [coeff_by_term[term] for term in ("intercept", "R", "R2", "R3")] + [0.0, 0.0]
@@ -1341,6 +1649,12 @@ def _device_tables(
                         "senco2_command_preview": "SENCO2,YGAS,FFF," + ",".join(format_senco_values(primary)),
                         "senco4_command_preview": "SENCO4,YGAS,FFF," + ",".join(format_senco_values(secondary)),
                         "auto_write_allowed": False,
+                        "fit_objective": str(cfg.fit_objective or "absolute_mmol"),
+                        "fit_solver": fit_solver_metadata.get("fit_solver", ""),
+                        "fit_basis": fit_solver_metadata.get("fit_basis", ""),
+                        "coefficients_quantized_for_firmware": fit_solver_metadata.get(
+                            "coefficients_quantized_for_firmware", False
+                        ),
                         "senco24_main_chain_contract": SENCO24_MAIN_CHAIN_CONTRACT,
                         "senco6_layer_contract": SENCO6_SEPARATE_LAYER_CONTRACT,
                         "write_requires": (
@@ -1435,6 +1749,29 @@ def _device_tables(
                 "digital_thermometer_missing_fallback_point_count": digital_temp_missing_count,
                 "fit_strategy": "direct_reference_target_fit_SENCO2_SENCO4_SENCO6_separate",
                 "fit_objective": str(cfg.fit_objective or "absolute_mmol"),
+                "fit_solver": fit_solver_metadata.get("fit_solver", ""),
+                "fit_basis": fit_solver_metadata.get("fit_basis", ""),
+                "fit_objective_bound_pct_pre_firmware_quantization": fit_solver_metadata.get(
+                    "fit_objective_bound_pct_pre_firmware_quantization", ""
+                ),
+                "coefficients_quantized_for_firmware": fit_solver_metadata.get(
+                    "coefficients_quantized_for_firmware", False
+                ),
+                "fit_ratio_center": fit_solver_metadata.get("ratio_center", ""),
+                "fit_temp_k_center": fit_solver_metadata.get("temp_k_center", ""),
+                "monotonic_grid_point_count": monotonicity.get("monotonic_grid_point_count", ""),
+                "monotonic_derivative_violation_count": monotonicity.get(
+                    "monotonic_derivative_violation_count", ""
+                ),
+                "minimum_d_concentration_d_ratio": monotonicity.get(
+                    "minimum_d_concentration_d_ratio", ""
+                ),
+                "maximum_d_concentration_d_ratio": monotonicity.get(
+                    "maximum_d_concentration_d_ratio", ""
+                ),
+                "monotonic_decreasing_over_fit_envelope": monotonicity.get(
+                    "monotonic_decreasing_over_fit_envelope", ""
+                ),
                 "senco24_main_chain_contract": SENCO24_MAIN_CHAIN_CONTRACT,
                 "senco6_layer_contract": SENCO6_SEPARATE_LAYER_CONTRACT,
                 "senco24_write_candidate": h2o_final_layer_status == "neutral"
@@ -1613,7 +1950,8 @@ def _database_sidecar_rows(policies: Sequence[Mapping[str, Any]]) -> Dict[str, A
                 "analyzer_device_id": device_id,
                 "status": (
                     "fail"
-                    if status == "blocked" or "final_output_blocked" in status
+                    if status in {"blocked", "candidate_fit_review_required"}
+                    or "final_output_blocked" in status
                     else "warn"
                     if "blocked" in status or "warning" in status
                     else "pass"
@@ -1625,6 +1963,7 @@ def _database_sidecar_rows(policies: Sequence[Mapping[str, Any]]) -> Dict[str, A
     return {
         "no_write": True,
         "opens_com_ports": False,
+        "connects_postgresql": False,
         "controls_water_or_gas_routes": False,
         "writes_coefficients": False,
         "database_target_tables": ["coefficient_candidates", "qc_results", "reports"],
@@ -1737,6 +2076,7 @@ def build_h2o_senco24_candidate_tables(
             "min_wet_points": int(config.min_wet_points),
             "auto_write_allowed": False,
             "opens_com_ports": False,
+            "connects_postgresql": False,
             "controls_water_or_gas_routes": False,
             "writes_coefficients": False,
             "physical_meaning": (
@@ -1906,6 +2246,7 @@ def write_h2o_senco24_candidate_report(
             "dry_anchor_max_temp_c": context.get("dry_anchor_max_temp_c"),
             "no_write": True,
             "opens_com_ports": False,
+            "connects_postgresql": False,
             "controls_water_or_gas_routes": False,
             "writes_coefficients": False,
             "reference_target_contract": "dewpoint_meter_plus_COM22_pressure_ppm_H2O_Dew",
