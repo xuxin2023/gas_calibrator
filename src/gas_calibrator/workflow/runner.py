@@ -321,6 +321,9 @@ _PRESSURE_TRACE_FIELDS = [
     "baseline_sanity_plateau_mean_ppm",
     "baseline_sanity_plateau_span_ppm",
     "baseline_sanity_plateau_count",
+    "final_decision",
+    "remaining_selected_pressure_points_skipped",
+    "dewpoint_preseal_decision",
     "flush_gate_status",
     "flush_gate_reason",
     "root_cause_reject_reason",
@@ -669,6 +672,9 @@ class CalibrationRunner:
         self._pace_sens_pres_cont_supported: Optional[bool] = None
         self._pace_sens_pres_cont_error: str = ""
         self._last_abort_reason: str = ""
+        self._controlled_exit_final_decision = ""
+        self._co2_route_terminal_failure_reason = ""
+        self._co2_route_terminal_failure_decision = ""
 
     def _log_run_event(self, command: Any = None, response: Any = None, error: Any = None) -> None:
         try:
@@ -682,6 +688,79 @@ class CalibrationRunner:
             )
         except Exception:
             pass
+
+    def _mark_co2_route_terminal_failure(
+        self,
+        *,
+        final_decision: str,
+        reason: str,
+        point: Optional[CalibrationPoint] = None,
+        phase: str = "co2",
+        trace_stage: str = "co2_route_terminal_failure",
+        pressure_target_hpa: Any = None,
+        extra_fields: Optional[Mapping[str, Any]] = None,
+    ) -> None:
+        self._controlled_exit_final_decision = str(final_decision or "")
+        self._co2_route_terminal_failure_decision = str(final_decision or "")
+        self._co2_route_terminal_failure_reason = str(reason or "")
+        self._log_run_event(
+            command="co2-route-terminal-failure",
+            response=json.dumps(
+                {
+                    "final_decision": self._co2_route_terminal_failure_decision,
+                    "reason": self._co2_route_terminal_failure_reason,
+                    "point_row": getattr(point, "index", ""),
+                    "pressure_target_hpa": getattr(point, "target_pressure_hpa", ""),
+                },
+                ensure_ascii=False,
+            ),
+        )
+        fields = {
+            "final_decision": self._co2_route_terminal_failure_decision,
+            "remaining_selected_pressure_points_skipped": "",
+        }
+        if extra_fields:
+            fields.update(dict(extra_fields))
+        target = pressure_target_hpa
+        if target is None and point is not None:
+            target = getattr(point, "target_pressure_hpa", None)
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage=trace_stage,
+            pressure_target_hpa=target,
+            refresh_pace_state=False,
+            extra_fields=fields,
+            note=(
+                f"{self._co2_route_terminal_failure_decision}: "
+                f"{self._co2_route_terminal_failure_reason}"
+            ),
+        )
+
+    def _set_logger_workflow_stage(self, stage: str) -> str:
+        previous = ""
+        getter = getattr(self.logger, "get_workflow_stage", None)
+        if callable(getter):
+            try:
+                previous = str(getter() or "")
+            except Exception:
+                previous = ""
+        setter = getattr(self.logger, "set_workflow_stage", None)
+        if callable(setter):
+            try:
+                setter(stage)
+            except Exception:
+                pass
+        return previous
+
+    def _restore_logger_workflow_stage(self, stage: str) -> None:
+        setter = getattr(self.logger, "set_workflow_stage", None)
+        if callable(setter):
+            try:
+                setter(stage)
+            except Exception:
+                pass
 
     def _log_data_quality_effective_config(self) -> None:
         frame_cfg = dict(cfg_get(self.cfg, "workflow.analyzer_frame_quality", {}) or {})
@@ -3457,6 +3536,7 @@ class CalibrationRunner:
         soft_control_linear_slew_hpa_per_s: Any = None,
         vent_context: Any = None,
         event_ts: Optional[float] = None,
+        extra_fields: Optional[Mapping[str, Any]] = None,
         note: str = "",
     ) -> None:
         if not self._pressure_trace_enabled(point):
@@ -3632,6 +3712,10 @@ class CalibrationRunner:
                 note=note,
             )
             row["trace_stage"] = str(trace_stage or "").strip()
+            if extra_fields:
+                for key, value in extra_fields.items():
+                    if key in _PRESSURE_TRACE_FIELDS:
+                        row[key] = self._pressure_trace_cell(value)
 
             self._pressure_trace_path.parent.mkdir(parents=True, exist_ok=True)
             needs_header = (

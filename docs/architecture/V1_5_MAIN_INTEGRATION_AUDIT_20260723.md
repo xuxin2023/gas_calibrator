@@ -39,11 +39,15 @@ This slice contains:
 3. V2 storage compatibility forwards for existing callers;
 4. architecture and repository hygiene evidence;
 5. a read-only V2 module disposition inventory.
+6. standalone PACE command classification and exclusive COM-lock support;
+7. observational raw serial evidence for the pressure-controller connection;
+8. headless-entry lock acquisition/release and fail-closed precheck evidence;
+9. pressure-trace compatibility required by the no-write extended dewpoint diagnostic.
 
 It does not change `run_app.py`, calibration timing, valve routing, physical gates, fitting formulas,
 device identifiers, coefficients, or serial settings.
 
-## Main Baseline Collection Gap
+## PACE Audit Collection Closure
 
 Unmodified `origin/main` contains:
 
@@ -51,21 +55,31 @@ Unmodified `origin/main` contains:
 - `tests/test_v1_5_dewpoint_gate_extended_hold_diagnostic.py`;
 - `gas_calibrator.tools.run_v1_5_dewpoint_gate_extended_hold_after_gate`.
 
-Those files import `gas_calibrator.pace_audit`, but that module and its dependent mature
-`RunLogger`/`CalibrationRunner` implementation slice are not present in `origin/main`.
+Those files imported `gas_calibrator.pace_audit`, but that module and its dependent observational
+logger/serial/entrypoint interfaces were not present in `origin/main`.
 
 Consequently, `python -m pytest -m v1_5_formal_gate -q` fails during collection on unmodified
-`origin/main`. The same failure is reproducible on the integration branch. A single-file stub is
-not an acceptable repair because the audit behavior also depends on logger, runner, serial, and
-headless-entry integration.
+`origin/main`. A single-file stub was not used. The bounded integration restores the standalone
+module, process lock, raw serial tap, headless-entry lifecycle, workflow-stage evidence, and
+pressure-trace extension points as one tested capability.
 
-The nine files carrying the formal marker were therefore executed explicitly in this slice:
+After the bounded closure:
 
-- 148 passed;
-- no formal-marker test failed.
+- `python -m pytest -q -m v1_5_formal_gate`: 148 passed;
+- entrypoint, production-map, extended-hold, COM-lock, and raw-tap selection: 73 passed;
+- extended dewpoint hold diagnostic: 12 passed;
+- summary parity, export resilience, and historical fit-profile parity: 16 passed.
 
-The mature release branch remains the authoritative place for the complete formal gate until the
-PACE audit capability is backported as one bounded, fully tested slice.
+The full historical `tests/test_v1_5_pace_audit_guards.py` is not treated as a release gate for
+this slice. It was bulk-backfilled from a later mature control lineage and contains contracts for
+VENT/OUTP phase control, live dewpoint callbacks, startup PACE configuration audits, and
+route-terminal skip behavior that are absent from the current main production runner. Its current
+result is 15 passed and 35 failed. Those 35 contracts require a separate metrology/control review;
+they must not be made green by silently transplanting the mature runner or changing physical
+control behavior inside an observability backport.
+
+Likewise, the bulk-backfilled default-global no-write-guard tests are not used to redefine future
+controlled coefficient-write semantics. They require an explicit product and governance decision.
 
 ## V2 Disposition Inventory
 
@@ -88,9 +102,10 @@ It also scans protected V1.5 paths for real Python imports of `gas_calibrator.v2
 
 ## Next Integration Slices
 
-1. Backport the complete PACE audit capability with all logger, runner, serial, and entrypoint
-   dependencies; prove its focused tests and formal marker collection.
-2. Build a capability-level parity matrix between the mature branch and `origin/main`.
+1. Reconcile the A1 four-device port fixture with the committed formal configuration and retained
+   run evidence; do not guess site wiring.
+2. Build a reviewed capability-level matrix for the mature-only PACE control and no-write
+   contracts before any production behavior migration.
 3. Move remaining neutral persistence code from `v2.storage` into `gas_calibrator.storage`, one
    contract-tested group at a time.
 4. Keep V2 algorithm and execution code simulation/replay/shadow-only until independent real

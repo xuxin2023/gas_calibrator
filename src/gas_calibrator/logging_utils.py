@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import csv
+import json
 import os
 import re
 import tempfile
+import threading
+import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 from statistics import mean, stdev
@@ -14,6 +18,16 @@ from typing import Any, Dict, List, Optional
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 
+from .pace_audit import (
+    PACE_RAW_TAP_FIELDS,
+    cfg_get,
+    classify_pace_command,
+    is_allowed_analyzer_gate_pace_write,
+    is_pace_query,
+    is_state_changing_pace_command,
+    is_vent1_command,
+    normalize_pace_command,
+)
 from .validation.dewpoint_flush_gate import (
     dewpoint_saturation_pressure_hpa as _shared_dewpoint_saturation_pressure_hpa,
     dewpoint_to_h2o_mmol_per_mol as _shared_dewpoint_to_h2o_mmol_per_mol,
@@ -841,6 +855,61 @@ class RunLogger:
         )
         self._io_writer.writeheader()
         self._io_file.flush()
+        self._io_sequence_id = 0
+        self._io_counts: Dict[tuple[str, str, str], int] = {}
+
+        self._workflow_stage = ""
+        self.raw_serial_tap_csv_path = self.run_dir / "pace_raw_serial_tap.csv"
+        self.raw_serial_tap_jsonl_path = self.run_dir / "pace_raw_serial_tap.jsonl"
+        self._raw_tap_file = None
+        self._raw_tap_jsonl_file = None
+        self._raw_tap_writer: Optional[csv.DictWriter] = None
+        self._raw_tap_lock = threading.RLock()
+        tap_cfg = cfg_get(self.cfg, "workflow.pressure.raw_serial_tap", {}) or {}
+        tap_device = str(
+            tap_cfg.get("device", "pressure_controller")
+            if isinstance(tap_cfg, dict)
+            else "pressure_controller"
+        )
+        self._pace_raw_tap_enabled = (
+            bool(tap_cfg.get("enabled", False)) if isinstance(tap_cfg, dict) else False
+        )
+        self._pace_raw_tap_enabled = (
+            self._pace_raw_tap_enabled
+            and tap_device.strip().lower() == "pressure_controller"
+        )
+        self._pace_raw_tap_fail_on_unexpected_analyzer_gate_write = (
+            bool(tap_cfg.get("fail_on_unexpected_analyzer_gate_write", False))
+            if isinstance(tap_cfg, dict)
+            else False
+        )
+        self._pace_raw_tap_port = str(
+            cfg_get(self.cfg, "devices.pressure_controller.port", "") or ""
+        ).strip().upper()
+        self._pace_raw_tap_analyzer_gate_active = False
+        self._pace_raw_tap_analyzer_gate_summary = (
+            self._empty_pace_raw_tap_analyzer_gate_summary()
+        )
+        self._pace_raw_tap_open_flow_until_preseal_active = False
+        self._pace_raw_tap_open_flow_until_preseal_summary = (
+            self._empty_pace_raw_tap_open_flow_until_preseal_summary()
+        )
+        self._pace_raw_tap_last_vent1_evidence: Dict[str, Any] = {}
+        self._pace_raw_tap_last_vent0_evidence: Dict[str, Any] = {}
+        if self._pace_raw_tap_enabled:
+            self._raw_tap_file = self.raw_serial_tap_csv_path.open(
+                "w", newline="", encoding="utf-8"
+            )
+            self._raw_tap_writer = csv.DictWriter(
+                self._raw_tap_file,
+                fieldnames=PACE_RAW_TAP_FIELDS,
+                extrasaction="ignore",
+            )
+            self._raw_tap_writer.writeheader()
+            self._raw_tap_file.flush()
+            self._raw_tap_jsonl_file = self.raw_serial_tap_jsonl_path.open(
+                "w", encoding="utf-8"
+            )
 
     def _include_fleet_stats(self) -> bool:
         workflow_cfg = self.cfg.get("workflow", {}) if isinstance(self.cfg, dict) else {}
@@ -1978,6 +2047,349 @@ class RunLogger:
             return self.co2_analyzer_book_path
         return self.h2o_analyzer_book_path
 
+    def set_workflow_stage(self, stage: str) -> None:
+        self._workflow_stage = str(stage or "").strip()
+
+    def get_workflow_stage(self) -> str:
+        return self._workflow_stage
+
+    def _empty_pace_raw_tap_analyzer_gate_summary(self) -> Dict[str, Any]:
+        return {
+            "raw_tap_enabled": bool(getattr(self, "_pace_raw_tap_enabled", False)),
+            "analyzer_gate_raw_tap_write_count": 0,
+            "analyzer_gate_raw_tap_vent1_count": 0,
+            "analyzer_gate_raw_tap_query_count": 0,
+            "analyzer_gate_raw_tap_state_changing_count": 0,
+            "analyzer_gate_raw_tap_unexpected_write_count": 0,
+            "analyzer_gate_raw_tap_first_unexpected_command": "",
+            "analyzer_gate_raw_tap_first_unexpected_call_stack": "",
+            "analyzer_gate_raw_tap_first_unexpected_thread": "",
+        }
+
+    def _empty_pace_raw_tap_open_flow_until_preseal_summary(self) -> Dict[str, Any]:
+        return {
+            "raw_tap_enabled": bool(getattr(self, "_pace_raw_tap_enabled", False)),
+            "open_flow_until_preseal_window_begin_ts": "",
+            "open_flow_until_preseal_window_end_ts": "",
+            "pace_write_count_total": 0,
+            "vent1_write_count": 0,
+            "readonly_query_count": 0,
+            "unexpected_state_changing_write_count": 0,
+            "first_unexpected_state_changing_write": "",
+            "first_unexpected_call_stack": "",
+            "first_unexpected_thread": "",
+        }
+
+    def begin_pace_raw_tap_analyzer_gate(self) -> Dict[str, Any]:
+        with self._raw_tap_lock:
+            self._pace_raw_tap_analyzer_gate_active = True
+            self._pace_raw_tap_analyzer_gate_summary = (
+                self._empty_pace_raw_tap_analyzer_gate_summary()
+            )
+            return dict(self._pace_raw_tap_analyzer_gate_summary)
+
+    def end_pace_raw_tap_analyzer_gate(self) -> Dict[str, Any]:
+        with self._raw_tap_lock:
+            self._pace_raw_tap_analyzer_gate_active = False
+            return dict(self._pace_raw_tap_analyzer_gate_summary)
+
+    def pace_raw_tap_fail_on_unexpected_analyzer_gate_write(self) -> bool:
+        return bool(self._pace_raw_tap_fail_on_unexpected_analyzer_gate_write)
+
+    def begin_pace_raw_tap_open_flow_until_preseal(self) -> Dict[str, Any]:
+        with self._raw_tap_lock:
+            self._pace_raw_tap_open_flow_until_preseal_active = True
+            self._pace_raw_tap_open_flow_until_preseal_summary = (
+                self._empty_pace_raw_tap_open_flow_until_preseal_summary()
+            )
+            self._pace_raw_tap_open_flow_until_preseal_summary[
+                "open_flow_until_preseal_window_begin_ts"
+            ] = _utc_ts()
+            return dict(self._pace_raw_tap_open_flow_until_preseal_summary)
+
+    def end_pace_raw_tap_open_flow_until_preseal(self) -> Dict[str, Any]:
+        with self._raw_tap_lock:
+            self._pace_raw_tap_open_flow_until_preseal_active = False
+            if not self._pace_raw_tap_open_flow_until_preseal_summary.get(
+                "open_flow_until_preseal_window_end_ts"
+            ):
+                self._pace_raw_tap_open_flow_until_preseal_summary[
+                    "open_flow_until_preseal_window_end_ts"
+                ] = _utc_ts()
+            return dict(self._pace_raw_tap_open_flow_until_preseal_summary)
+
+    @staticmethod
+    def _is_vent0_command(raw_text: Any) -> bool:
+        command = normalize_pace_command(raw_text).upper()
+        if "VENT" not in command:
+            return False
+        return re.search(r"VENT\s+(\+?0(?:\.0*)?)\s*$", command) is not None
+
+    @staticmethod
+    def _is_outp_value_command(raw_text: Any, value: int) -> bool:
+        command = normalize_pace_command(raw_text).upper()
+        if "?" in command or "OUTP" not in command:
+            return False
+        return (
+            re.search(
+                r"(?:^|:)OUTP\s+(\+?%d(?:\.0*)?)\s*$" % int(value),
+                command,
+            )
+            is not None
+        )
+
+    def summarize_pace_raw_tap_window(
+        self, begin_ts: Any, end_ts: Any
+    ) -> Dict[str, Any]:
+        summary: Dict[str, Any] = {
+            "pace_write_count": 0,
+            "vent1_count": 0,
+            "readonly_query_count": 0,
+            "vent0_count": 0,
+            "outp0_count": 0,
+            "outp1_count": 0,
+            "isol_command_count": 0,
+            "mode_range_command_count": 0,
+            "setpoint_sour_pres_count": 0,
+            "unexpected_state_changing_write_count": 0,
+            "first_unexpected_state_changing_write": "",
+            "first_unexpected_call_stack": "",
+            "first_unexpected_thread": "",
+        }
+        begin_text = str(begin_ts or "").strip()
+        end_text = str(end_ts or "").strip()
+        if not begin_text or not end_text or not self._pace_raw_tap_enabled:
+            return summary
+        with self._raw_tap_lock:
+            if self._raw_tap_file is not None:
+                self._raw_tap_file.flush()
+            path = self.raw_serial_tap_csv_path
+        if not path.exists():
+            return summary
+        try:
+            with path.open("r", encoding="utf-8-sig", newline="") as handle:
+                for row in csv.DictReader(handle):
+                    if str(row.get("direction") or "").strip().upper() != "WRITE":
+                        continue
+                    wall_ts = str(row.get("wall_ts") or "").strip()
+                    if not wall_ts or wall_ts < begin_text or wall_ts > end_text:
+                        continue
+                    decoded = normalize_pace_command(
+                        row.get("decoded_command")
+                        or row.get("raw_text_decoded")
+                        or ""
+                    )
+                    category = str(
+                        row.get("command_category")
+                        or classify_pace_command(decoded)
+                    ).upper()
+                    state_changing = (
+                        str(row.get("is_state_changing_command") or "").lower()
+                        == "true"
+                    )
+                    if not state_changing:
+                        state_changing = is_state_changing_pace_command(decoded)
+
+                    summary["pace_write_count"] += 1
+                    if is_vent1_command(decoded):
+                        summary["vent1_count"] += 1
+                    if is_pace_query(decoded):
+                        summary["readonly_query_count"] += 1
+                    if self._is_vent0_command(decoded):
+                        summary["vent0_count"] += 1
+                    if self._is_outp_value_command(decoded, 0):
+                        summary["outp0_count"] += 1
+                    if self._is_outp_value_command(decoded, 1):
+                        summary["outp1_count"] += 1
+                    if category == "ISOL" and not is_pace_query(decoded):
+                        summary["isol_command_count"] += 1
+                    if category in {"MODE", "RANGE"} and not is_pace_query(decoded):
+                        summary["mode_range_command_count"] += 1
+                    if category == "SETPOINT" and not is_pace_query(decoded):
+                        summary["setpoint_sour_pres_count"] += 1
+                    if state_changing and not is_vent1_command(decoded):
+                        summary["unexpected_state_changing_write_count"] += 1
+                        if not summary["first_unexpected_state_changing_write"]:
+                            summary["first_unexpected_state_changing_write"] = decoded
+                            summary["first_unexpected_call_stack"] = str(
+                                row.get("python_call_stack_top10") or ""
+                            )
+                            summary["first_unexpected_thread"] = str(
+                                row.get("thread_name") or ""
+                            )
+        except Exception:
+            return summary
+        return summary
+
+    def pace_raw_tap_enabled(self) -> bool:
+        return bool(self._pace_raw_tap_enabled)
+
+    def latest_pace_raw_tap_vent1_evidence(self) -> Dict[str, Any]:
+        with self._raw_tap_lock:
+            evidence = dict(self._pace_raw_tap_last_vent1_evidence)
+        evidence["raw_tap_enabled"] = bool(self._pace_raw_tap_enabled)
+        return evidence
+
+    def latest_pace_raw_tap_vent0_evidence(self) -> Dict[str, Any]:
+        with self._raw_tap_lock:
+            evidence = dict(self._pace_raw_tap_last_vent0_evidence)
+        evidence["raw_tap_enabled"] = bool(self._pace_raw_tap_enabled)
+        return evidence
+
+    def _is_pace_raw_tap_device(
+        self, *, device_label: Any, port: Any
+    ) -> bool:
+        if not self._pace_raw_tap_enabled:
+            return False
+        device_text = str(device_label or "").strip().lower()
+        if device_text not in {"pace5000", "pace", "pressure_controller"}:
+            return False
+        port_text = str(port or "").strip().upper()
+        return not self._pace_raw_tap_port or port_text == self._pace_raw_tap_port
+
+    def log_raw_serial_tap(
+        self,
+        *,
+        port: str,
+        device_label: str,
+        direction: str,
+        raw_bytes: Any = b"",
+        linked_io_log_sequence_id: Any = "",
+    ) -> None:
+        if not self._is_pace_raw_tap_device(
+            device_label=device_label, port=port
+        ):
+            return
+        raw_payload = raw_bytes if raw_bytes is not None else b""
+        if isinstance(raw_payload, str):
+            raw_payload = raw_payload.encode("ascii", errors="ignore")
+        try:
+            payload_bytes = bytes(raw_payload)
+        except Exception:
+            payload_bytes = str(raw_payload).encode("ascii", errors="ignore")
+        raw_text = payload_bytes.decode("ascii", errors="ignore")
+        decoded = normalize_pace_command(raw_text)
+        category = classify_pace_command(decoded)
+        direction_text = str(direction or "").strip().upper()
+        state_changing = bool(
+            direction_text == "WRITE"
+            and is_state_changing_pace_command(decoded)
+        )
+        stack = traceback.format_stack(limit=14)
+        stack_text = " | ".join(
+            frame.strip().replace("\n", " ") for frame in stack[:-1][-10:]
+        )
+        row = {
+            "wall_ts": _utc_ts(),
+            "monotonic_ts": f"{time.monotonic():.9f}",
+            "run_id": self.run_id,
+            "device_label": str(device_label or ""),
+            "port": str(port or ""),
+            "direction": direction_text,
+            "raw_bytes_hex": payload_bytes.hex(" "),
+            "raw_text_decoded": raw_text.replace("\r", "\\r").replace("\n", "\\n"),
+            "decoded_command": decoded,
+            "command_category": category,
+            "is_state_changing_command": str(state_changing).lower(),
+            "thread_name": threading.current_thread().name,
+            "workflow_stage": self._workflow_stage,
+            "python_call_stack_top10": stack_text,
+            "linked_io_log_sequence_id": linked_io_log_sequence_id,
+        }
+        with self._raw_tap_lock:
+            writer = self._raw_tap_writer
+            if writer is not None and self._raw_tap_file is not None:
+                writer.writerow(row)
+                self._raw_tap_file.flush()
+            if self._raw_tap_jsonl_file is not None:
+                self._raw_tap_jsonl_file.write(
+                    json.dumps(row, ensure_ascii=False) + "\n"
+                )
+                self._raw_tap_jsonl_file.flush()
+            if direction_text == "WRITE" and is_vent1_command(decoded):
+                self._pace_raw_tap_last_vent1_evidence = {
+                    "wall_ts": row["wall_ts"],
+                    "monotonic_ts": row["monotonic_ts"],
+                    "decoded_command": decoded,
+                    "thread_name": row["thread_name"],
+                    "workflow_stage": row["workflow_stage"],
+                    "port": row["port"],
+                    "device_label": row["device_label"],
+                }
+            if direction_text == "WRITE" and self._is_vent0_command(decoded):
+                self._pace_raw_tap_last_vent0_evidence = {
+                    "wall_ts": row["wall_ts"],
+                    "monotonic_ts": row["monotonic_ts"],
+                    "decoded_command": decoded,
+                    "thread_name": row["thread_name"],
+                    "workflow_stage": row["workflow_stage"],
+                    "port": row["port"],
+                    "device_label": row["device_label"],
+                }
+            if (
+                self._pace_raw_tap_analyzer_gate_active
+                and direction_text == "WRITE"
+            ):
+                summary = self._pace_raw_tap_analyzer_gate_summary
+                summary["analyzer_gate_raw_tap_write_count"] += 1
+                if is_vent1_command(decoded):
+                    summary["analyzer_gate_raw_tap_vent1_count"] += 1
+                if is_pace_query(decoded):
+                    summary["analyzer_gate_raw_tap_query_count"] += 1
+                if state_changing:
+                    summary["analyzer_gate_raw_tap_state_changing_count"] += 1
+                if not is_allowed_analyzer_gate_pace_write(decoded):
+                    summary["analyzer_gate_raw_tap_unexpected_write_count"] += 1
+                    if not summary[
+                        "analyzer_gate_raw_tap_first_unexpected_command"
+                    ]:
+                        summary[
+                            "analyzer_gate_raw_tap_first_unexpected_command"
+                        ] = decoded
+                        summary[
+                            "analyzer_gate_raw_tap_first_unexpected_call_stack"
+                        ] = stack_text
+                        summary[
+                            "analyzer_gate_raw_tap_first_unexpected_thread"
+                        ] = threading.current_thread().name
+            if (
+                self._pace_raw_tap_open_flow_until_preseal_active
+                and direction_text == "WRITE"
+            ):
+                summary = self._pace_raw_tap_open_flow_until_preseal_summary
+                summary["pace_write_count_total"] += 1
+                if is_vent1_command(decoded):
+                    summary["vent1_write_count"] += 1
+                if is_pace_query(decoded):
+                    summary["readonly_query_count"] += 1
+                if state_changing and not is_vent1_command(decoded):
+                    summary["unexpected_state_changing_write_count"] += 1
+                    if not summary["first_unexpected_state_changing_write"]:
+                        summary["first_unexpected_state_changing_write"] = decoded
+                        summary["first_unexpected_call_stack"] = stack_text
+                        summary["first_unexpected_thread"] = (
+                            threading.current_thread().name
+                        )
+
+    def get_io_count(
+        self, *, device: str = "", port: str = "", direction: str = ""
+    ) -> int:
+        device_text = str(device or "").strip()
+        port_text = str(port or "").strip()
+        direction_text = str(direction or "").strip().upper()
+        if device_text or port_text or direction_text:
+            total = 0
+            for (dev, one_port, one_direction), count in self._io_counts.items():
+                if device_text and dev != device_text:
+                    continue
+                if port_text and one_port != port_text:
+                    continue
+                if direction_text and one_direction != direction_text:
+                    continue
+                total += int(count)
+            return total
+        return sum(int(value) for value in self._io_counts.values())
+
     def log_io(
         self,
         *,
@@ -1987,9 +2399,17 @@ class RunLogger:
         command: Any = None,
         response: Any = None,
         error: Any = None,
-    ) -> None:
+    ) -> int:
         """Append one IO trace row."""
         limit = 400 if str(direction or "").strip().upper() in {"EVENT", "WARN"} else 160
+        self._io_sequence_id += 1
+        sequence_id = self._io_sequence_id
+        key = (
+            str(device or ""),
+            str(port or ""),
+            str(direction or "").strip().upper(),
+        )
+        self._io_counts[key] = self._io_counts.get(key, 0) + 1
         self._io_writer.writerow(
             {
                 "timestamp": _utc_ts(),
@@ -2002,6 +2422,7 @@ class RunLogger:
             }
         )
         self._io_file.flush()
+        return sequence_id
 
     @staticmethod
     def _delete_path_if_empty(path: Optional[Path]) -> None:
@@ -2051,4 +2472,10 @@ class RunLogger:
                                         pass
                             finally:
                                 self._io_file.close()
+                                try:
+                                    if self._raw_tap_file is not None:
+                                        self._raw_tap_file.close()
+                                finally:
+                                    if self._raw_tap_jsonl_file is not None:
+                                        self._raw_tap_jsonl_file.close()
         self._prune_empty_core_exports()
