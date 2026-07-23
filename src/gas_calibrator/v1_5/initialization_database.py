@@ -11,8 +11,8 @@ from typing import Any
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from ..v2.storage.database import DatabaseManager, stable_uuid
-from ..v2.storage.models import DeviceEventRecord, RunRecord, SensorIdentityAliasRecord, SensorRecord
+from ..storage.database import DatabaseManager, stable_uuid
+from ..storage.models import DeviceEventRecord, RunRecord, SensorIdentityAliasRecord, SensorRecord
 
 
 V1_5_INITIALIZATION_SCHEMA_PREFIX = "v1_5_formal_db_upsert_dry_run"
