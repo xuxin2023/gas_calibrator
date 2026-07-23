@@ -47,7 +47,8 @@ This slice contains:
 11. open-flow, analyzer-gate, and preseal PACE phase-profile checks;
 12. live dewpoint monitoring while the filtered CO2 ratio is stabilizing;
 13. a final dewpoint freshness check before VENT0 and route seal;
-14. route-terminal failure propagation and explicit skipped-pressure-point evidence.
+14. route-terminal failure propagation and explicit skipped-pressure-point evidence;
+15. semantics-preserving cleanup of the native mature runner's remaining static findings.
 
 The new control behavior is bounded to fail-closed PACE/dewpoint gates and audited PACE startup
 configuration. Startup configuration applies pressure units, active mode, and in-limits settings;
@@ -56,6 +57,8 @@ identity, or coefficient writes.
 
 The slice does not change `run_app.py`, calibration timing, valve routing, fitting formulas, device
 identifiers, calibration coefficients, analyzer sampling rate, or the default V1/V2 entry boundary.
+The runner cleanup only removes unused local assignments and an unreachable return, and restores
+the missing `Iterable` type import.
 
 ## PACE Audit Collection Closure
 
@@ -100,10 +103,19 @@ Current verification for this reviewed control slice:
   selection: 202 passed;
 - artifact hash, evidence registry, namespace, event snapshot, canonical package, and offline
   acceptance selection: 52 passed;
+- cleanup-focused pressure selection, post-isolation diagnostics, temperature soak, humidity
+  reach, and sample aggregation selection: 89 passed;
+- stable historical runner audit, collect-only, pressure-order, route-handoff, and write-safety
+  selection: 142 passed;
+- `python -m ruff check src/gas_calibrator/workflow/runner.py`: passed;
 - Python compilation and `git diff --check`: passed.
 
-Static checking still reports 16 pre-existing issues in `runner.py`; none are in this slice's added
-PACE/dewpoint blocks. They remain repository cleanup work and are not hidden by this audit.
+The 16 pre-existing Ruff findings in `runner.py` are now closed without changing mature route
+behavior. A broader historical runner selection still contains stale assertions for older
+VENT-call signatures, preseal callback arguments, route ordering, and preseal-ready state shape.
+Four representative failures reproduce unchanged on the unmodified parent commit
+`dc69f6892`; they are recorded as pre-existing test debt and are not resolved by reverting current
+mature contracts.
 
 Likewise, the bulk-backfilled default-global no-write-guard tests are not used to redefine future
 controlled coefficient-write semantics. The current implementation still lacks that independent

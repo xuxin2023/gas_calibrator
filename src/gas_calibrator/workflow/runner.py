@@ -13,7 +13,7 @@ from collections import Counter, deque
 from datetime import datetime, timedelta
 from pathlib import Path
 from statistics import mean, stdev
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from ..config import (
     V1_CO2_ONLY_H2O_NOT_SUPPORTED_MESSAGE,
@@ -9307,7 +9307,6 @@ class CalibrationRunner:
         dewpoint_rise_c: Optional[float],
         elapsed_s: float,
     ) -> Tuple[bool, str]:
-        state = dict(self._point_runtime_state(point, phase=phase) or {})
         pace_outp_query = self._as_int(pace_snapshot.get("pace_outp_state_query"))
         pace_isol_query = self._as_int(pace_snapshot.get("pace_isol_state_query"))
         pace_vent_query = self._as_int(pace_snapshot.get("pace_vent_status_query"))
@@ -9322,7 +9321,6 @@ class CalibrationRunner:
         )
         pace_measured_slew_hpa_s = self._as_float(pace_snapshot.get("pace_sens_slew_query"))
         pace_in_limits_bit = pace_snapshot.get("pace_oper_pres_in_limits_bit")
-        check_valve_installed = bool(fast_cfg.get("check_valve_installed"))
         if pace_outp_query not in (None, 0):
             return False, "output_not_off_verified"
         if bool(fast_cfg.get("require_isol_closed")) and pace_isol_query not in (None, 0):
@@ -13624,8 +13622,6 @@ class CalibrationRunner:
             raw_h2o=None,
             co2_group=self._preferred_co2_group_for_ppm(ppm),
         )
-
-        return out
 
     def _co2_skip_ppm_set(self) -> set[int]:
         workflow_cfg = self.cfg.get("workflow", {})
@@ -18026,11 +18022,7 @@ class CalibrationRunner:
         if not pace:
             return False
 
-        pcfg = self.cfg.get("workflow", {}).get("pressure", {})
         device_cfg = self.cfg.get("devices", {}).get("pressure_controller", {})
-        transition_timeout_s = float(
-            pcfg.get("vent_transition_timeout_s", max(5.0, float(pcfg.get("vent_time_s", 0) or 0)))
-        )
         extra = f" ({reason})" if reason else ""
         self.log(f"Pressure controller soft recovery start{extra}")
         ok = True
@@ -24008,8 +24000,6 @@ class CalibrationRunner:
         pace_vent_pupv_state = str(state.get("pace_vent_pupv_state_query") or "").strip().upper()
         pace_vent_elapsed_s = self._as_float(state.get("pace_vent_elapsed_time_query"))
         pace_effort_query = self._as_float(state.get("pace_effort_query"))
-        pace_comp1_query = self._as_float(state.get("pace_comp1_query"))
-        pace_comp2_query = self._as_float(state.get("pace_comp2_query"))
         pace_oper_pres_cond_query = self._as_int(state.get("pace_oper_pres_cond_query"))
         pace_oper_pres_even_query = self._as_int(state.get("pace_oper_pres_even_query"))
         pace_oper_pres_vent_complete_bit = state.get("pace_oper_pres_vent_complete_bit")
@@ -25083,12 +25073,6 @@ class CalibrationRunner:
                 "workflow.stability.temperature.soak_after_reach_s",
                 self._wf("workflow.stability.temperature.wait_after_reach_s", 0),
             )
-        )
-        analyzer_chamber_temp_enabled = bool(
-            self._wf("workflow.stability.temperature.analyzer_chamber_temp_enabled", True)
-        )
-        analyzer_chamber_temp_timeout_s = float(
-            self._wf("workflow.stability.temperature.analyzer_chamber_temp_timeout_s", 5400.0)
         )
         command_offset_c = float(self._wf("workflow.stability.temperature.command_offset_c", 0.0) or 0.0)
         wait_for_target_before_continue = bool(
@@ -26600,7 +26584,6 @@ class CalibrationRunner:
 
     def _wait_co2_route_soak_before_seal(self, point: CalibrationPoint) -> bool:
         special_flush = self._has_special_co2_zero_flush_pending() and self._is_zero_co2_point(point)
-        cold_group_flush = False
         soak_key = "workflow.stability.co2_route.preseal_soak_s"
         soak_default = 180.0
         wait_reason = "开路预通气"
@@ -26625,7 +26608,6 @@ class CalibrationRunner:
             soak_default = float(self._wf("workflow.stability.co2_route.preseal_soak_s", 180.0))
             wait_reason = "冷组0气吹干"
             log_context = "CO2 cold-group dry flush"
-            cold_group_flush = True
         else:
             self._active_post_h2o_co2_zero_flush = False
 
@@ -32523,7 +32505,6 @@ class CalibrationRunner:
 
     def _sample_and_log(self, point: CalibrationPoint, phase: str = "", point_tag: str = "") -> None:
         count, interval = self._sampling_params(phase=phase)
-        scfg = self.cfg["workflow"]["sampling"]
         qcfg = self.cfg.get("workflow", {}).get("sampling", {}).get("quality", {})
         retries = int(qcfg.get("retries", 0) or 0) if qcfg.get("enabled", False) else 0
 
@@ -32887,7 +32868,6 @@ class CalibrationRunner:
             )
         )
         stability_tol_c = float(self._wf("workflow.stability.dewpoint.stability_tol_c", 0.01))
-        target_humidity_rh = self._as_float(getattr(point, "hgen_rh_pct", None)) if point is not None else None
         rh_match_tol_pct = base_rh_match_tol_pct
 
         start = time.time()
