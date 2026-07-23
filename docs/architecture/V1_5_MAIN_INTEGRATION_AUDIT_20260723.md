@@ -42,10 +42,20 @@ This slice contains:
 6. standalone PACE command classification and exclusive COM-lock support;
 7. observational raw serial evidence for the pressure-controller connection;
 8. headless-entry lock acquisition/release and fail-closed precheck evidence;
-9. pressure-trace compatibility required by the no-write extended dewpoint diagnostic.
+9. pressure-trace compatibility required by the no-write extended dewpoint diagnostic;
+10. PACE manual-state baseline snapshots and startup-command audit evidence;
+11. open-flow, analyzer-gate, and preseal PACE phase-profile checks;
+12. live dewpoint monitoring while the filtered CO2 ratio is stabilizing;
+13. a final dewpoint freshness check before VENT0 and route seal;
+14. route-terminal failure propagation and explicit skipped-pressure-point evidence.
 
-It does not change `run_app.py`, calibration timing, valve routing, physical gates, fitting formulas,
-device identifiers, coefficients, or serial settings.
+The new control behavior is bounded to fail-closed PACE/dewpoint gates and audited PACE startup
+configuration. Startup configuration applies pressure units, active mode, and in-limits settings;
+the pressure range is changed only when explicitly enabled. It does not issue calibration, zero,
+identity, or coefficient writes.
+
+The slice does not change `run_app.py`, calibration timing, valve routing, fitting formulas, device
+identifiers, calibration coefficients, analyzer sampling rate, or the default V1/V2 entry boundary.
 
 ## PACE Audit Collection Closure
 
@@ -63,23 +73,43 @@ Consequently, `python -m pytest -m v1_5_formal_gate -q` fails during collection 
 module, process lock, raw serial tap, headless-entry lifecycle, workflow-stage evidence, and
 pressure-trace extension points as one tested capability.
 
-After the bounded closure:
+After the initial observational closure:
 
 - `python -m pytest -q -m v1_5_formal_gate`: 148 passed;
 - entrypoint, production-map, extended-hold, COM-lock, and raw-tap selection: 73 passed;
 - extended dewpoint hold diagnostic: 12 passed;
 - summary parity, export resilience, and historical fit-profile parity: 16 passed.
 
-The full historical `tests/test_v1_5_pace_audit_guards.py` is not treated as a release gate for
-this slice. It was bulk-backfilled from a later mature control lineage and contains contracts for
-VENT/OUTP phase control, live dewpoint callbacks, startup PACE configuration audits, and
-route-terminal skip behavior that are absent from the current main production runner. Its current
-result is 15 passed and 35 failed. Those 35 contracts require a separate metrology/control review;
-they must not be made green by silently transplanting the mature runner or changing physical
-control behavior inside an observability backport.
+The follow-on PACE control review compared those 35 remaining contracts against the
+0613/0620/0621 mature native runner. The result is a bounded implementation rather than a whole
+runner transplant:
+
+- manual PACE state and vent-status evidence are captured before and after startup configuration;
+- startup commands are classified and written to `pace_startup_config_audit.csv`;
+- unexpected state-changing PACE writes during open-flow or analyzer stability fail closed;
+- dewpoint is sampled during filtered-ratio stability without issuing additional PACE commands;
+- a stale, missing, discontinuous, or no-longer-dry dewpoint state blocks VENT0 and route seal;
+- the first terminal decision is preserved and every remaining selected pressure point is recorded
+  as skipped.
+
+Current verification for this reviewed control slice:
+
+- `tests/test_v1_5_pace_audit_guards.py`: 50 passed;
+- `python -m pytest -q -m v1_5_formal_gate`: 148 passed;
+- native-entry, production-map, mature-route, formal-flow, serial-safety, and historical fit-profile
+  selection: 202 passed;
+- artifact hash, evidence registry, namespace, event snapshot, canonical package, and offline
+  acceptance selection: 52 passed;
+- Python compilation and `git diff --check`: passed.
+
+Static checking still reports 16 pre-existing issues in `runner.py`; none are in this slice's added
+PACE/dewpoint blocks. They remain repository cleanup work and are not hidden by this audit.
 
 Likewise, the bulk-backfilled default-global no-write-guard tests are not used to redefine future
-controlled coefficient-write semantics. They require an explicit product and governance decision.
+controlled coefficient-write semantics. The current implementation still lacks that independent
+global guard, so its 10 dedicated tests remain outside this release gate. Enabling it by default
+would change controlled production write behavior and requires an explicit product and governance
+decision.
 
 ## A1 Fixture Reconciliation
 
@@ -120,8 +150,8 @@ It also scans protected V1.5 paths for real Python imports of `gas_calibrator.v2
 
 ## Next Integration Slices
 
-1. Build a reviewed capability-level matrix for the mature-only PACE control and no-write
-   contracts before any production behavior migration.
+1. Review the global no-write product policy separately from the completed PACE/dewpoint safety
+   contracts; do not make it the production default implicitly.
 2. Move remaining neutral persistence code from `v2.storage` into `gas_calibrator.storage`, one
    contract-tested group at a time.
 3. Keep V2 algorithm and execution code simulation/replay/shadow-only until independent real
