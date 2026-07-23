@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from gas_calibrator.v2.core.run001_a1_dry_run import (
+    RUN001_ARTIFACT_NAMES,
     RUN001_FAIL,
     RUN001_PASS,
     build_run001_a1_evidence_payload,
@@ -93,7 +94,7 @@ def test_device_id_mismatch_hard_stop_generates_terminal_artifacts(tmp_path: Pat
     )
     written = write_run001_a1_artifacts(tmp_path / "run001", payload)
 
-    assert set(written) == {"summary", "no_write_guard", "readiness", "trace", "manifest", "report"}
+    assert set(written) == set(RUN001_ARTIFACT_NAMES)
     for path in written.values():
         assert Path(path).exists()
     summary = json.loads(Path(written["summary"]).read_text(encoding="utf-8"))
