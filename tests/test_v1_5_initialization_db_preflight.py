@@ -14,8 +14,8 @@ from gas_calibrator.tools.run_v1_5_initialization_db_preflight import main as pr
 from gas_calibrator.tools.run_v1_5_initialization_db_preflight import run_preflight
 from gas_calibrator.v1_5.import_initialization_database import run_import
 from gas_calibrator.v1_5.initialization_db_preflight import build_v1_5_initialization_db_preflight
-from gas_calibrator.v2.storage.database import DatabaseManager, StorageSettings
-from gas_calibrator.v2.storage.models import DeviceEventRecord
+from gas_calibrator.storage.database import DatabaseManager, StorageSettings
+from gas_calibrator.storage.models import DeviceEventRecord
 
 
 def _settings(db_path: Path) -> StorageSettings:

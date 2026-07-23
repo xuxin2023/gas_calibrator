@@ -8,6 +8,7 @@ COM ports, control routes, connect to PostgreSQL, or write coefficients.
 
 from __future__ import annotations
 
+import ast
 import csv
 import json
 from dataclasses import asdict, dataclass
@@ -19,12 +20,23 @@ from .v1_5_entrypoint_inventory import CANONICAL_FORMAL_PATH, NON_START_HERE_GUA
 
 
 SCHEMA = "v1_5_mature_route_contract_v1"
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 EXPECTED_CO2_RUNNER = "gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue"
 EXPECTED_H2O_RUNNER = "gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue"
 EXPECTED_CO2_WORKER_PATH = "src/gas_calibrator/tools/run_v1_5_formal_open_flow_sampling.py"
 EXPECTED_H2O_WORKER_PATH = "src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_sampling.py"
 EXPECTED_ROUTE_BEHAVIOR = "preserve_mature_v1_5_0620_route_timing_and_quality_gates"
+EXPECTED_NATIVE_RUNTIME_PATHS = (
+    "src/gas_calibrator/tools/run_v1_5_formal_co2_open_flow_queue.py",
+    "src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_queue.py",
+    EXPECTED_CO2_WORKER_PATH,
+    EXPECTED_H2O_WORKER_PATH,
+)
+FORBIDDEN_NATIVE_RUNTIME_IMPORT_PREFIXES = (
+    "gas_calibrator.v2",
+    "v2",
+)
 
 EXPECTED_LEGACY_CO2_PLAN: dict[str, list[int]] = {
     "-20": [0, 400, 1000],
@@ -89,6 +101,64 @@ def _same_plan(observed: Mapping[str, Any], expected: Mapping[str, Sequence[Any]
     return normalized_observed == normalized_expected
 
 
+def _native_runtime_import_evidence(repo_root: Path) -> dict[str, Any]:
+    files: list[dict[str, Any]] = []
+    forbidden_imports: list[dict[str, str]] = []
+    for relative_path in EXPECTED_NATIVE_RUNTIME_PATHS:
+        source = repo_root / relative_path
+        row: dict[str, Any] = {
+            "path": relative_path,
+            "exists": source.is_file(),
+            "parse_status": "missing",
+            "forbidden_import_count": 0,
+        }
+        if not source.is_file():
+            files.append(row)
+            continue
+        try:
+            tree = ast.parse(source.read_text(encoding="utf-8-sig"), filename=str(source))
+        except (OSError, SyntaxError, UnicodeError) as exc:
+            row["parse_status"] = "error"
+            row["parse_error"] = f"{type(exc).__name__}: {exc}"
+            files.append(row)
+            continue
+        row["parse_status"] = "pass"
+        file_forbidden: list[str] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                names = [node.module or ""]
+            else:
+                continue
+            for name in names:
+                normalized = str(name or "").strip(".")
+                if any(
+                    normalized == prefix or normalized.startswith(f"{prefix}.")
+                    for prefix in FORBIDDEN_NATIVE_RUNTIME_IMPORT_PREFIXES
+                ):
+                    file_forbidden.append(normalized)
+                    forbidden_imports.append(
+                        {
+                            "path": relative_path,
+                            "module": normalized,
+                            "line": str(getattr(node, "lineno", "")),
+                        }
+                    )
+        row["forbidden_import_count"] = len(file_forbidden)
+        row["forbidden_imports"] = sorted(set(file_forbidden))
+        files.append(row)
+    return {
+        "runtime_paths": list(EXPECTED_NATIVE_RUNTIME_PATHS),
+        "files": files,
+        "missing_paths": [row["path"] for row in files if not row["exists"]],
+        "parse_error_paths": [
+            row["path"] for row in files if row["parse_status"] == "error"
+        ],
+        "forbidden_imports": forbidden_imports,
+    }
+
+
 def _fmt(value: Any) -> str:
     if isinstance(value, (dict, list, tuple)):
         return json.dumps(value, ensure_ascii=False, sort_keys=True)
@@ -124,11 +194,16 @@ def _canonical_stage_entry(stage: str) -> str:
     return ""
 
 
-def build_v1_5_mature_route_contract(*, profile_path: str | Path) -> dict[str, Any]:
+def build_v1_5_mature_route_contract(
+    *,
+    profile_path: str | Path,
+    repo_root: str | Path | None = None,
+) -> dict[str, Any]:
     """Return the offline mature-route guard model."""
 
     profile_file = Path(profile_path).resolve()
     config = _load_profile(profile_file)
+    source_root = Path(repo_root).resolve() if repo_root is not None else REPO_ROOT
     profiles = _profiles_by_id(config)
     shared = config.get("shared_route_contract", {})
     legacy = profiles.get("legacy_ratio_production", {})
@@ -144,8 +219,25 @@ def build_v1_5_mature_route_contract(*, profile_path: str | Path) -> dict[str, A
     absorption_co2_policy = absorption_co2.get("supplement_policy", {})
     absorption_h2o_policy = absorption_h2o.get("supplement_policy", {})
     r0_contract = absorption.get("r0_write_contract", {}) if isinstance(absorption, Mapping) else {}
+    native_runtime_import_evidence = _native_runtime_import_evidence(source_root)
 
     checks = [
+        _check(
+            check_id="native_mature_runtime_source_isolation",
+            title="Mature runtime source does not import V2 or migrated execution modules",
+            passed=not native_runtime_import_evidence["missing_paths"]
+            and not native_runtime_import_evidence["parse_error_paths"]
+            and not native_runtime_import_evidence["forbidden_imports"],
+            reason="runtime lineage must be enforced in executable source, not only declared in profile metadata",
+            expected={
+                "runtime_paths": list(EXPECTED_NATIVE_RUNTIME_PATHS),
+                "missing_paths": [],
+                "parse_error_paths": [],
+                "forbidden_imports": [],
+            },
+            observed=native_runtime_import_evidence,
+            physical_meaning="This prevents the native mature sampling path from silently delegating to V2 or a migrated runner while retaining a 0613/0620/0621 label.",
+        ),
         _check(
             check_id="shared_route_behavior_0620",
             title="Shared route behavior preserves mature 0620 gates",

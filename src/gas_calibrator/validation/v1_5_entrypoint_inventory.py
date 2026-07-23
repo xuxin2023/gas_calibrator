@@ -472,6 +472,13 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             risk_level = "offline"
             opens_com_ports = False
             controls_routes = False
+        elif lower == "run_v1_5_web_console":
+            category = "ui_review"
+            formal_status = "local_read_only_web_console"
+            risk_level = "offline"
+            opens_com_ports = False
+            controls_routes = False
+            writes_coefficients = False
         elif lower == "run_v1_5_formal_initialization_runner":
             category = "full_flow_orchestration"
             formal_status = "canonical_initialization_planner"

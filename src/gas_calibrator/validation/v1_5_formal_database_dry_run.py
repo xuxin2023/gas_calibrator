@@ -18,8 +18,7 @@ from typing import Any, Mapping, Sequence
 from sqlalchemy import Index, UniqueConstraint
 
 from ..storage.v1_5_evidence.repository import TABLE_COLUMNS as EVIDENCE_REGISTRY_TABLE_COLUMNS
-from ..storage.v1_5_evidence.repository import TABLE_NAMES as EVIDENCE_REGISTRY_TABLE_NAMES
-from ..v2.storage.models import Base
+from ..storage.models import Base
 
 
 SCHEMA = "v1_5_formal_database_dry_run_contract_v1"
