@@ -16,6 +16,7 @@ SCHEMA = "v2_module_disposition_inventory_v1"
 V2_PREFIX = "gas_calibrator.v2"
 COMPATIBILITY_WRAPPERS = {
     "gas_calibrator.v2.storage.database",
+    "gas_calibrator.v2.storage.importer",
     "gas_calibrator.v2.storage.models",
     "gas_calibrator.v2.storage.queries",
     "gas_calibrator.v2.storage.sidecar_index",

@@ -50,7 +50,8 @@ This slice contains:
 14. route-terminal failure propagation and explicit skipped-pressure-point evidence;
 15. semantics-preserving cleanup of the native mature runner's remaining static findings;
 16. shared ownership of the file/SQLite sidecar index with V2 compatibility exports;
-17. shared ownership of the read-only history query service with V2 compatibility exports.
+17. shared ownership of the read-only history query service with V2 compatibility exports;
+18. shared ownership of the offline run-artifact importer with V2 compatibility exports.
 
 The new control behavior is bounded to fail-closed PACE/dewpoint gates and audited PACE startup
 configuration. Startup configuration applies pressure units, active mode, and in-limits settings;
@@ -70,6 +71,13 @@ The history query service also keeps its existing API and serialized result fiel
 `gas_calibrator.storage.queries`, and the V2 storage exporter uses the shared query service
 directly. This ownership change does not add schema migration, persistence writes, coefficient
 deployment, or calibration execution behavior.
+The artifact importer likewise keeps its existing public class, raw/enrich/all stage semantics,
+normalization rules, schema mappings, batching, and idempotent update behavior.
+`gas_calibrator.v2.storage.importer` is now a compatibility forwarder to
+`gas_calibrator.storage.importer`, and the V2 import CLI uses the shared owner directly. The V2
+storage exporter remains V2-owned because it also generates V2 acceptance and product-report
+artifacts. This change does not alter database schemas, transaction boundaries, write policy, or
+calibration execution.
 
 ## PACE Audit Collection Closure
 
@@ -123,6 +131,8 @@ Current verification for this reviewed control slice:
 - sidecar result-center and device-workbench consumer selection: 4 passed;
 - query namespace, compatibility identity, history lookup, sensor identity, sample, fit,
   coefficient-history, statistics, and export selection: 13 passed;
+- artifact-importer namespace, compatibility identity, raw/enrich/all stages, idempotency, package
+  initialization, and import/export integration selection: 17 passed;
 - summary parity, export resilience, historical fit-profile parity, offline artifacts, and offline
   governance artifacts: 30 passed;
 - Ruff checks for `runner.py` and the modified storage/consumer/test modules: passed;
@@ -182,8 +192,8 @@ It also scans protected V1.5 paths for real Python imports of `gas_calibrator.v2
 
 1. Review the global no-write product policy separately from the completed PACE/dewpoint safety
    contracts; do not make it the production default implicitly.
-2. Move remaining neutral persistence code from `v2.storage` into `gas_calibrator.storage`, one
-   contract-tested group at a time.
+2. Review `coefficient_store.py` as a separate write-semantics contract before moving any further
+   persistence code; do not treat its coefficient-version writes as a mechanical namespace move.
 3. Keep V2 algorithm and execution code simulation/replay/shadow-only until independent real
    acceptance is completed.
 4. Preserve the V1 fallback and keep the default entry unchanged throughout the integration.
