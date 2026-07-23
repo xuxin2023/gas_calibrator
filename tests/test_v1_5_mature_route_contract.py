@@ -43,6 +43,7 @@ def test_v1_5_mature_route_contract_current_profile_passes() -> None:
     assert model["manifest"]["mature_route_contract"]["legacy_h2o_wet_point_count"] == 13
 
     assert checks["shared_route_behavior_0620"]["status"] == "pass"
+    assert checks["native_mature_runtime_source_isolation"]["status"] == "pass"
     assert checks["legacy_co2_45_point_contract"]["status"] == "pass"
     assert checks["legacy_h2o_13_point_contract"]["status"] == "pass"
     assert checks["absorption_profile_fit_input_only"]["status"] == "pass"
@@ -77,6 +78,37 @@ def test_v1_5_mature_route_contract_blocks_absorption_runner_fork(tmp_path: Path
     assert model["manifest"]["status"] == "blocked"
     assert checks["shared_route_runner_names"]["status"] == "blocker"
     assert checks["absorption_profile_fit_input_only"]["status"] == "pass"
+
+
+def test_v1_5_mature_route_contract_blocks_v2_import_in_native_runtime(
+    tmp_path: Path,
+) -> None:
+    runtime_paths = (
+        "src/gas_calibrator/tools/run_v1_5_formal_co2_open_flow_queue.py",
+        "src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_queue.py",
+        "src/gas_calibrator/tools/run_v1_5_formal_open_flow_sampling.py",
+        "src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_sampling.py",
+    )
+    for relative_path in runtime_paths:
+        path = tmp_path / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / runtime_paths[0]).write_text(
+        "from gas_calibrator.v2.adapters import legacy_runner\n",
+        encoding="utf-8",
+    )
+
+    model = build_v1_5_mature_route_contract(
+        profile_path=PROFILE_PATH,
+        repo_root=tmp_path,
+    )
+    checks = _check_by_id(model)
+
+    assert model["manifest"]["status"] == "blocked"
+    assert checks["native_mature_runtime_source_isolation"]["status"] == "blocker"
+    assert "gas_calibrator.v2.adapters" in checks[
+        "native_mature_runtime_source_isolation"
+    ]["observed"]
 
 
 def test_v1_5_mature_route_contract_blocks_r0_writer_promotion_without_contract(tmp_path: Path) -> None:

@@ -10,6 +10,8 @@ venv/
 .arts/
 .codeartsdoer/
 .idea/
+.playwright-cli/
+.ruff_cache/
 
 # Local AI/context notes
 .ai-context/
