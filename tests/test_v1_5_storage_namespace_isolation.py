@@ -5,8 +5,22 @@ from pathlib import Path
 
 from gas_calibrator.storage.database import DatabaseManager as SharedDatabaseManager
 from gas_calibrator.storage.models import Base as SharedBase
+from gas_calibrator.storage.sidecar_index import (
+    SIDECAR_COLLECTIONS as SHARED_SIDECAR_COLLECTIONS,
+)
+from gas_calibrator.storage.sidecar_index import SidecarIndexStore as SharedSidecarIndexStore
+from gas_calibrator.storage.sidecar_index import (
+    normalize_sidecar_record as shared_normalize_sidecar_record,
+)
 from gas_calibrator.v2.storage.database import DatabaseManager as V2DatabaseManager
 from gas_calibrator.v2.storage.models import Base as V2Base
+from gas_calibrator.v2.storage.sidecar_index import (
+    SIDECAR_COLLECTIONS as V2_SIDECAR_COLLECTIONS,
+)
+from gas_calibrator.v2.storage.sidecar_index import SidecarIndexStore as V2SidecarIndexStore
+from gas_calibrator.v2.storage.sidecar_index import (
+    normalize_sidecar_record as v2_normalize_sidecar_record,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -57,3 +71,18 @@ def test_v1_5_storage_consumers_do_not_import_v2_storage() -> None:
 def test_v2_storage_database_compatibility_exports_shared_types() -> None:
     assert V2DatabaseManager is SharedDatabaseManager
     assert V2Base is SharedBase
+
+
+def test_v2_sidecar_index_compatibility_exports_shared_types() -> None:
+    assert V2SidecarIndexStore is SharedSidecarIndexStore
+    assert v2_normalize_sidecar_record is shared_normalize_sidecar_record
+    assert V2_SIDECAR_COLLECTIONS is SHARED_SIDECAR_COLLECTIONS
+
+
+def test_shared_storage_modules_do_not_import_v2() -> None:
+    offenders = {
+        path.relative_to(REPO_ROOT).as_posix(): _v2_storage_imports(path)
+        for path in sorted((SOURCE_ROOT / "storage").glob("*.py"))
+        if _v2_storage_imports(path)
+    }
+    assert offenders == {}

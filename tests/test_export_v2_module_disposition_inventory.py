@@ -21,6 +21,10 @@ def test_classification_preserves_platform_shadow_and_compatibility_boundaries()
         static_zero_reference=False,
     )[0] == "compatibility_wrapper"
     assert classify_module(
+        "gas_calibrator.v2.storage.sidecar_index",
+        static_zero_reference=False,
+    )[0] == "compatibility_wrapper"
+    assert classify_module(
         "gas_calibrator.v2.storage.queries",
         static_zero_reference=False,
     )[0] == "shared_migration_candidate"

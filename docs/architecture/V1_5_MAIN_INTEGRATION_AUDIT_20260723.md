@@ -48,7 +48,8 @@ This slice contains:
 12. live dewpoint monitoring while the filtered CO2 ratio is stabilizing;
 13. a final dewpoint freshness check before VENT0 and route seal;
 14. route-terminal failure propagation and explicit skipped-pressure-point evidence;
-15. semantics-preserving cleanup of the native mature runner's remaining static findings.
+15. semantics-preserving cleanup of the native mature runner's remaining static findings;
+16. shared ownership of the file/SQLite sidecar index with V2 compatibility exports.
 
 The new control behavior is bounded to fail-closed PACE/dewpoint gates and audited PACE startup
 configuration. Startup configuration applies pressure units, active mode, and in-limits settings;
@@ -59,6 +60,10 @@ The slice does not change `run_app.py`, calibration timing, valve routing, fitti
 identifiers, calibration coefficients, analyzer sampling rate, or the default V1/V2 entry boundary.
 The runner cleanup only removes unused local assignments and an unreachable return, and restores
 the missing `Iterable` type import.
+The sidecar index keeps its existing API, record normalization, collection names, file schema, and
+SQLite schema. `gas_calibrator.v2.storage.sidecar_index` is now a compatibility forwarder to
+`gas_calibrator.storage.sidecar_index`, and V2 analytics consumers use the shared implementation
+directly.
 
 ## PACE Audit Collection Closure
 
@@ -107,7 +112,12 @@ Current verification for this reviewed control slice:
   reach, and sample aggregation selection: 89 passed;
 - stable historical runner audit, collect-only, pressure-order, route-handoff, and write-safety
   selection: 142 passed;
-- `python -m ruff check src/gas_calibrator/workflow/runner.py`: passed;
+- sidecar namespace, compatibility, file/SQLite backend, package-lazy-load, and disposition
+  selection: 12 passed;
+- sidecar result-center and device-workbench consumer selection: 4 passed;
+- summary parity, export resilience, historical fit-profile parity, offline artifacts, and offline
+  governance artifacts: 30 passed;
+- Ruff checks for `runner.py` and the modified storage/consumer/test modules: passed;
 - Python compilation and `git diff --check`: passed.
 
 The 16 pre-existing Ruff findings in `runner.py` are now closed without changing mature route
