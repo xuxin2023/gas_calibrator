@@ -5,6 +5,7 @@ from pathlib import Path
 
 from gas_calibrator.storage.database import DatabaseManager as SharedDatabaseManager
 from gas_calibrator.storage.models import Base as SharedBase
+from gas_calibrator.storage.queries import HistoryQueryService as SharedHistoryQueryService
 from gas_calibrator.storage.sidecar_index import (
     SIDECAR_COLLECTIONS as SHARED_SIDECAR_COLLECTIONS,
 )
@@ -14,6 +15,7 @@ from gas_calibrator.storage.sidecar_index import (
 )
 from gas_calibrator.v2.storage.database import DatabaseManager as V2DatabaseManager
 from gas_calibrator.v2.storage.models import Base as V2Base
+from gas_calibrator.v2.storage.queries import HistoryQueryService as V2HistoryQueryService
 from gas_calibrator.v2.storage.sidecar_index import (
     SIDECAR_COLLECTIONS as V2_SIDECAR_COLLECTIONS,
 )
@@ -77,6 +79,10 @@ def test_v2_sidecar_index_compatibility_exports_shared_types() -> None:
     assert V2SidecarIndexStore is SharedSidecarIndexStore
     assert v2_normalize_sidecar_record is shared_normalize_sidecar_record
     assert V2_SIDECAR_COLLECTIONS is SHARED_SIDECAR_COLLECTIONS
+
+
+def test_v2_history_query_compatibility_exports_shared_type() -> None:
+    assert V2HistoryQueryService is SharedHistoryQueryService
 
 
 def test_shared_storage_modules_do_not_import_v2() -> None:

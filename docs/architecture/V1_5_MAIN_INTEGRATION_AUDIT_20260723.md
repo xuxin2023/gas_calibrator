@@ -49,7 +49,8 @@ This slice contains:
 13. a final dewpoint freshness check before VENT0 and route seal;
 14. route-terminal failure propagation and explicit skipped-pressure-point evidence;
 15. semantics-preserving cleanup of the native mature runner's remaining static findings;
-16. shared ownership of the file/SQLite sidecar index with V2 compatibility exports.
+16. shared ownership of the file/SQLite sidecar index with V2 compatibility exports;
+17. shared ownership of the read-only history query service with V2 compatibility exports.
 
 The new control behavior is bounded to fail-closed PACE/dewpoint gates and audited PACE startup
 configuration. Startup configuration applies pressure units, active mode, and in-limits settings;
@@ -64,6 +65,11 @@ The sidecar index keeps its existing API, record normalization, collection names
 SQLite schema. `gas_calibrator.v2.storage.sidecar_index` is now a compatibility forwarder to
 `gas_calibrator.storage.sidecar_index`, and V2 analytics consumers use the shared implementation
 directly.
+The history query service also keeps its existing API and serialized result fields.
+`gas_calibrator.v2.storage.queries` is now a compatibility forwarder to
+`gas_calibrator.storage.queries`, and the V2 storage exporter uses the shared query service
+directly. This ownership change does not add schema migration, persistence writes, coefficient
+deployment, or calibration execution behavior.
 
 ## PACE Audit Collection Closure
 
@@ -115,6 +121,8 @@ Current verification for this reviewed control slice:
 - sidecar namespace, compatibility, file/SQLite backend, package-lazy-load, and disposition
   selection: 12 passed;
 - sidecar result-center and device-workbench consumer selection: 4 passed;
+- query namespace, compatibility identity, history lookup, sensor identity, sample, fit,
+  coefficient-history, statistics, and export selection: 13 passed;
 - summary parity, export resilience, historical fit-profile parity, offline artifacts, and offline
   governance artifacts: 30 passed;
 - Ruff checks for `runner.py` and the modified storage/consumer/test modules: passed;

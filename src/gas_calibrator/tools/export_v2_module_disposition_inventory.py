@@ -17,6 +17,7 @@ V2_PREFIX = "gas_calibrator.v2"
 COMPATIBILITY_WRAPPERS = {
     "gas_calibrator.v2.storage.database",
     "gas_calibrator.v2.storage.models",
+    "gas_calibrator.v2.storage.queries",
     "gas_calibrator.v2.storage.sidecar_index",
 }
 EXPLICIT_ARCHIVE_REVIEW = {
