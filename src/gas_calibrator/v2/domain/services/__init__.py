@@ -12,6 +12,10 @@ from .gas_analyzer_dynamic_uncertainty import (
     analyze_gas_analyzer_dynamic_performance,
     build_gas_analyzer_dynamic_uncertainty_acceptance,
 )
+from .gas_analyzer_asset_dossier import (
+    analyze_gas_analyzer_asset_dossier,
+    build_gas_analyzer_asset_dossier_acceptance,
+)
 from .gas_analyzer_bench_readiness import (
     analyze_gas_analyzer_bench_readiness,
     build_gas_analyzer_bench_readiness_acceptance,
@@ -33,10 +37,12 @@ __all__ = [
     "DynamicPathMetadata",
     "SpectralQualityEngine",
     "analyze_dynamic_channel",
+    "analyze_gas_analyzer_asset_dossier",
     "analyze_gas_analyzer_dynamic_performance",
     "analyze_gas_analyzer_bench_readiness",
     "analyze_gas_analyzer_operating_envelope",
     "build_dynamic_acceptance",
+    "build_gas_analyzer_asset_dossier_acceptance",
     "build_gas_analyzer_dynamic_uncertainty_acceptance",
     "build_gas_analyzer_bench_readiness_acceptance",
     "build_gas_analyzer_operating_envelope_acceptance",
