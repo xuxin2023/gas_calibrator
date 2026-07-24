@@ -21,6 +21,7 @@ Step 2 的硬边界：
 - [工件与证据治理](docs/artifact_governance.md)
 - [Step 2 V1/V2 同步矩阵](docs/step2_v1_sync_matrix.md)
 - [EC-D0 离线动态计量骨架](../../../docs/metrology/ec_d0_offline_dynamic_metrology.md)
+- [GA-D3 气体分析仪综合工作包络](../../../docs/metrology/ga_d3_gas_analyzer_operating_envelope.md)
 
 ## 推荐入口
 
@@ -75,6 +76,8 @@ python -m gas_calibrator.v2.scripts.run_simulation_suite --suite parity
 `regression` 和 `nightly` 另包含 `ec_dynamic_system_identification_contract`。该用例以 PRBS、上游参考、Welch H1 和相干性验证经验传递函数估计器；命令量只作气源链诊断。分段区间不是正式计量置信区间，结果仍固定为 simulated / promotion blocked。详见 [`docs/metrology/ec_d1_offline_system_identification.md`](../../../docs/metrology/ec_d1_offline_system_identification.md)。
 
 `regression` 和 `nightly` 还包含纯气体分析仪范围的 `gas_analyzer_dynamic_uncertainty_contract`：输出 5%、10% 和 −3 dB 带宽、等效相位延迟及分量化工程不确定度。动态衰减作为偏差单独报告，不输出反卷积系数；EC 协谱与通量闭合明确不在范围内。详见 [`docs/metrology/ga_d2_gas_analyzer_dynamic_uncertainty.md`](../../../docs/metrology/ga_d2_gas_analyzer_dynamic_uncertainty.md)。
+
+同两套 suite 还包含 `gas_analyzer_operating_envelope_contract`：以 27 个温度×压力×流量格点整合静态误差、重复性、回差、漂移、线性、温压流敏感性、交叉干扰和 GA-D2 动态依赖。CO2 零气与 H2O 干气点保持独立，缺角/重复/越界数据会硬失败；限值只用于 simulated 回归，不是产品规格或真实验收。详见 [`docs/metrology/ga_d3_gas_analyzer_operating_envelope.md`](../../../docs/metrology/ga_d3_gas_analyzer_operating_envelope.md)。
 
 回放与离线治理：
 

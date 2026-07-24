@@ -1,0 +1,108 @@
+{
+  "schema_version": "gas_analyzer_operating_envelope_contract_v1",
+  "contract_id": "ga-d3-offline-operating-envelope-20260724",
+  "scope": "simulation_gas_analyzer_integrated_operating_envelope_regression_only",
+  "evidence_boundary": {
+    "evidence_source": "simulated",
+    "not_real_acceptance_evidence": true,
+    "acceptance_level": "offline_regression",
+    "promotion_state": "blocked",
+    "real_primary_latest_refresh_allowed": false,
+    "device_io_allowed": false,
+    "coefficient_write_allowed": false,
+    "automatic_dynamic_correction_allowed": false
+  },
+  "environment_grid": {
+    "temperatures_c": [5.0, 25.0, 45.0],
+    "pressures_hpa": [850.0, 1000.0, 1100.0],
+    "flows_slpm": [8.0, 12.0, 16.0],
+    "sequence_directions": ["ascending", "descending"],
+    "sessions": ["start", "end"],
+    "replicates": [1, 2, 3]
+  },
+  "gas_contracts": {
+    "co2": {
+      "unit": "ppm",
+      "span_value": 1200.0,
+      "target_levels": [0.0, 400.0, 800.0, 1200.0],
+      "anchor_role": "co2_zero_gas",
+      "anchor_target": 0.0,
+      "max_anchor_absolute_error": 2.0,
+      "min_ten_percent_bandwidth_hz": 0.25,
+      "max_low_frequency_effective_phase_delay_s": 0.60
+    },
+    "h2o": {
+      "unit": "mmol_mol",
+      "span_value": 25.0,
+      "target_levels": [0.2, 5.0, 15.0, 25.0],
+      "anchor_role": "h2o_dry_gas",
+      "anchor_target": 0.2,
+      "max_anchor_absolute_error": 0.05,
+      "min_ten_percent_bandwidth_hz": 0.08,
+      "max_low_frequency_effective_phase_delay_s": 1.20
+    }
+  },
+  "interference_contracts": {
+    "co2": {
+      "interferent_name": "h2o",
+      "target_value": 800.0,
+      "interferent_values": [0.2, 10.0, 20.0],
+      "replicates": [1, 2, 3]
+    },
+    "h2o": {
+      "interferent_name": "co2",
+      "target_value": 15.0,
+      "interferent_values": [0.0, 400.0, 1000.0],
+      "replicates": [1, 2, 3]
+    }
+  },
+  "common_fixture_limits": {
+    "max_span_normalized_error": 0.005,
+    "max_repeatability_sigma_span_fraction": 0.0005,
+    "max_hysteresis_span_fraction": 0.001,
+    "max_drift_span_fraction": 0.001,
+    "max_linearity_residual_span_fraction": 0.001,
+    "max_pressure_sensitivity_span_fraction_per_100_hpa": 0.0005,
+    "max_temperature_sensitivity_span_fraction_per_10_c": 0.0005,
+    "max_flow_sensitivity_span_fraction_per_slpm": 0.0002,
+    "max_interference_effect_span_fraction": 0.001
+  },
+  "required_measurement_fields": [
+    "analyzer_id",
+    "gas",
+    "temperature_c",
+    "pressure_hpa",
+    "flow_slpm",
+    "target_value",
+    "anchor_role",
+    "sequence_direction",
+    "session",
+    "replicate",
+    "reference_value",
+    "measured_value",
+    "reference_quality",
+    "frame_usable"
+  ],
+  "required_interference_fields": [
+    "analyzer_id",
+    "gas",
+    "interferent_name",
+    "interferent_value",
+    "target_value",
+    "reference_value",
+    "measured_value",
+    "replicate",
+    "reference_quality",
+    "frame_usable"
+  ],
+  "interpretation": {
+    "limits_are_product_specifications": false,
+    "limits_purpose": "Detect regression of an integrated gas-analyzer static, environmental, interference, and dynamic operating-envelope calculation against bounded synthetic fixtures.",
+    "gas_analyzer_only": true,
+    "co2_zero_gas_and_h2o_dry_gas_are_distinct": true,
+    "ec_flux_or_cospectral_correction_in_scope": false,
+    "coefficient_fitting_or_writeback_in_scope": false,
+    "qualified_bounds_require_complete_rectangular_grid": true,
+    "real_acceptance_requires_separate_authorization_and_bench_protocol": true
+  }
+}

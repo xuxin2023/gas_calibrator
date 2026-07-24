@@ -3614,7 +3614,12 @@ def build_suite_case_metadata(case: dict[str, Any], *, suite_name: str) -> dict[
     evidence_state = "collected"
     if kind == "scenario":
         evidence_source = "simulated_protocol"
-    elif kind in {"ec_dynamic", "ec_system_id", "ga_dynamic_uncertainty"}:
+    elif kind in {
+        "ec_dynamic",
+        "ec_system_id",
+        "ga_dynamic_uncertainty",
+        "ga_operating_envelope",
+    }:
         evidence_source = "simulated"
     elif kind == "replay":
         evidence_source = "replay"
@@ -3656,6 +3661,8 @@ def build_suite_case_metadata(case: dict[str, Any], *, suite_name: str) -> dict[
         failure_type = "ec_dynamic_system_identification"
     elif kind == "ga_dynamic_uncertainty":
         failure_type = "gas_analyzer_dynamic_uncertainty"
+    elif kind == "ga_operating_envelope":
+        failure_type = "gas_analyzer_operating_envelope"
     return {
         "suite": suite_name,
         "evidence_source": evidence_source,

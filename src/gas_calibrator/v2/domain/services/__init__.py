@@ -12,6 +12,10 @@ from .gas_analyzer_dynamic_uncertainty import (
     analyze_gas_analyzer_dynamic_performance,
     build_gas_analyzer_dynamic_uncertainty_acceptance,
 )
+from .gas_analyzer_operating_envelope import (
+    analyze_gas_analyzer_operating_envelope,
+    build_gas_analyzer_operating_envelope_acceptance,
+)
 from .spectral_quality_engine import (
     DEFAULT_SPECTRAL_CHANNEL_FIELDS,
     SpectralQualityEngine,
@@ -26,8 +30,10 @@ __all__ = [
     "SpectralQualityEngine",
     "analyze_dynamic_channel",
     "analyze_gas_analyzer_dynamic_performance",
+    "analyze_gas_analyzer_operating_envelope",
     "build_dynamic_acceptance",
     "build_gas_analyzer_dynamic_uncertainty_acceptance",
+    "build_gas_analyzer_operating_envelope_acceptance",
     "build_system_identification_acceptance",
     "build_run_spectral_quality_summary",
     "build_sample_timeseries_channels",
