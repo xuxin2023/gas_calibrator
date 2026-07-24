@@ -1900,6 +1900,7 @@
       "ec_dynamic_system_identification": "EC dynamic system identification",
       "gas_analyzer_dynamic_uncertainty": "gas analyzer dynamic uncertainty",
       "gas_analyzer_operating_envelope": "gas analyzer integrated operating envelope",
+      "gas_analyzer_bench_readiness": "gas analyzer bench protocol readiness",
       "mismatch": "mismatch",
       "not_executed": "not executed",
       "snapshot_only": "snapshot only"

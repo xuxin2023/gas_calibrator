@@ -26,6 +26,10 @@ _EXPORTS = {
         "gas_calibrator.v2.sim.gas_analyzer_dynamic_uncertainty",
         "build_gas_analyzer_dynamic_uncertainty_offline_report",
     ),
+    "build_gas_analyzer_bench_readiness_offline_report": (
+        "gas_calibrator.v2.sim.gas_analyzer_bench_readiness",
+        "build_gas_analyzer_bench_readiness_offline_report",
+    ),
     "build_gas_analyzer_operating_envelope_offline_report": (
         "gas_calibrator.v2.sim.gas_analyzer_operating_envelope",
         "build_gas_analyzer_operating_envelope_offline_report",
