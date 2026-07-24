@@ -1898,6 +1898,7 @@
       "export_resilience": "导出韧性",
       "ec_dynamic_system_identification": "EC 动态系统辨识",
       "gas_analyzer_dynamic_uncertainty": "气体分析仪动态不确定度",
+      "gas_analyzer_operating_envelope": "气体分析仪综合工作包络",
       "mismatch": "不一致",
       "not_executed": "未执行",
       "snapshot_only": "仅快照"

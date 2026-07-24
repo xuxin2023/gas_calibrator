@@ -31,6 +31,7 @@ def test_smoke_and_nightly_suites_include_expected_cases() -> None:
             "ec_dynamic_offline_contract",
             "ec_dynamic_system_identification_contract",
             "gas_analyzer_dynamic_uncertainty_contract",
+            "gas_analyzer_operating_envelope_contract",
             "export_resilience",
             "summary_parity",
         }
