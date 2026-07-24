@@ -1,6 +1,6 @@
-"""Compatibility exports for product-neutral conversion helpers."""
+"""Product-neutral conversion helpers."""
 
-from gas_calibrator.utils.converters import (
+from .converters import (
     as_bool,
     as_float,
     as_int,

@@ -55,7 +55,10 @@ This slice contains:
 19. shared ownership of coefficient-version metadata persistence with V2 compatibility exports;
 20. a shared atomic JSON profile repository beneath the retained V2 plan-profile adapter;
 21. native V1.5 ownership of initialization and readiness-event database imports, with the former
-    V2 paths retained as compatibility forwarders.
+    V2 paths retained as compatibility forwarders;
+22. explicit retention of the V2 offline-run CLI and product exporter above direct shared-storage
+    dependencies;
+23. shared ownership of product-neutral conversion helpers with V2 identity-compatible exports.
 
 The new control behavior is bounded to fail-closed PACE/dewpoint gates and audited PACE startup
 configuration. Startup configuration applies pressure units, active mode, and in-limits settings;
@@ -127,6 +130,28 @@ confirms that the first event is rolled back. It does not add a schema migration
 connect to a formal database during validation, or turn readiness evidence into calibration
 acceptance.
 
+The remaining `gas_calibrator.v2.storage.import_run` module is a V2 offline-run-directory command
+adapter over the shared artifact importer, not a second importer implementation. The remaining
+`gas_calibrator.v2.storage.exporter` module combines shared history/storage access with V2
+diagnostic evidence boundaries, acceptance metadata, and H2O product-report generation. Both are
+therefore retained and explicitly classified as `platform_keep`. They now import the shared
+database, models, importer, and query service directly instead of depending internally on V2
+compatibility wrappers.
+
+This is the final reviewed storage code boundary. Moving either adapter wholesale into shared
+storage would leak V2 artifact, acceptance, or product-report policy into product-neutral
+infrastructure. The retained boundary is covered by object-ownership tests. Three historical
+measurement-frame importer tests remain unavailable because the repository does not contain their
+referenced real `samples_runtime.csv` fixture; no synthetic file was introduced as a substitute
+for real-run evidence.
+
+The final generic utility review moved the stateless conversion helpers from
+`gas_calibrator.v2.utils.converters` to `gas_calibrator.utils.converters`. Both the V2 package and
+module paths now re-export the same function objects, so point parsing, route planning, stability,
+device management, sampling, humidity-generator, and orchestrator call sites keep their existing
+behavior. This removes the final product-neutral migration candidate without changing calibration
+math, physical gates, or execution policy.
+
 ## PACE Audit Collection Closure
 
 Unmodified `origin/main` contains:
@@ -187,6 +212,10 @@ Current verification for this reviewed control slice:
   plan editor, gateway, run controller, and app-facade integration selection: 33 passed;
 - V1.5 initialization/readiness ownership, V2 compatibility identity, idempotent readiness import,
   batch rollback, namespace isolation, and disposition classification selection: 30 passed;
+- V2 offline-run CLI, product exporter, shared-infrastructure ownership, export resilience,
+  namespace, and disposition selection: 25 passed, 3 missing-real-fixture tests deselected;
+- shared converter identity plus V2 point-parser, route-planner, stability, device-manager,
+  sampling, humidity-generator, and orchestrator consumers: 92 passed;
 - summary parity, export resilience, historical fit-profile parity, offline artifacts, and offline
   governance artifacts: 30 passed;
 - Ruff checks for `runner.py` and the modified storage/consumer/test modules: passed;
@@ -242,14 +271,25 @@ Each Python module is classified as:
 `archive_review` means manual review only. The inventory never authorizes automatic deletion.
 It also scans protected V1.5 paths for real Python imports of `gas_calibrator.v2`.
 
-## Next Integration Slices
+The final 2026-07-24 snapshot contains 381 V2 modules:
+
+- `compatibility_wrapper`: 11;
+- `platform_keep`: 323;
+- `shadow_algorithm_keep`: 47;
+- `shared_migration_candidate`: 0;
+- `archive_review`: 0;
+- V1.5 protected-import violations: 0;
+- automatic deletion permitted: false.
+
+The generated CSV, JSON, and Markdown evidence is retained under
+`D:\gas_calibrator\_runtime\v1_5_release_integration_audit_20260724\v2_module_disposition`.
+
+## Post-Integration Governance
 
 1. Review the global no-write product policy separately from the completed PACE/dewpoint safety
    contracts; do not make it the production default implicitly.
-2. Review the remaining generic import CLI and V2 product exporter boundary; move only
-   product-neutral implementation and preserve V2 acceptance/report policy in V2.
-3. Regenerate the disposition inventory and complete the final integration/release audit after
-   that boundary review.
-4. Keep V2 algorithm and execution code simulation/replay/shadow-only until independent real
+2. Restore or deliberately retire the three historical measurement-frame tests that depend on the
+   absent real `samples_runtime.csv` fixture; do not replace it with synthetic acceptance evidence.
+3. Keep V2 algorithm and execution code simulation/replay/shadow-only until independent real
    acceptance is completed.
-5. Preserve the V1 fallback and keep the default entry unchanged throughout the integration.
+4. Preserve the V1 fallback and keep the default entry unchanged throughout the integration.

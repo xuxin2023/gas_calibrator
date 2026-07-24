@@ -101,6 +101,29 @@ def test_v2_history_query_compatibility_exports_shared_type() -> None:
     assert V2HistoryQueryService is SharedHistoryQueryService
 
 
+def test_v2_import_and_export_adapters_use_shared_storage_infrastructure() -> None:
+    from gas_calibrator.storage.models import (
+        PointRecord,
+        QCResultRecord,
+        RunRecord,
+        SampleRecord,
+    )
+    from gas_calibrator.v2.storage import exporter, import_run
+
+    assert import_run.DatabaseManager is SharedDatabaseManager
+    assert import_run.ArtifactImporter is SharedArtifactImporter
+    assert exporter.DatabaseManager is SharedDatabaseManager
+    assert exporter.HistoryQueryService is SharedHistoryQueryService
+    assert exporter.PointRecord is PointRecord
+    assert exporter.QCResultRecord is QCResultRecord
+    assert exporter.RunRecord is RunRecord
+    assert exporter.SampleRecord is SampleRecord
+    assert (
+        exporter.build_user_visible_evidence_boundary.__module__
+        == "gas_calibrator.v2.core.acceptance_model"
+    )
+
+
 def test_shared_storage_modules_do_not_import_v2() -> None:
     offenders = {
         path.relative_to(REPO_ROOT).as_posix(): _v2_storage_imports(path)

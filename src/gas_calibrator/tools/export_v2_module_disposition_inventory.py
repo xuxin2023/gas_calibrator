@@ -24,12 +24,16 @@ COMPATIBILITY_WRAPPERS = {
     "gas_calibrator.v2.storage.queries",
     "gas_calibrator.v2.storage.sidecar_index",
     "gas_calibrator.v2.storage.v1_5_initialization",
+    "gas_calibrator.v2.utils",
+    "gas_calibrator.v2.utils.converters",
 }
 EXPLICIT_ARCHIVE_REVIEW = {
     "gas_calibrator.v2.core.services.conditioning_service_clean",
 }
 V2_PRODUCT_STORAGE_ADAPTERS = {
+    "gas_calibrator.v2.storage",
     "gas_calibrator.v2.storage.exporter",
+    "gas_calibrator.v2.storage.import_run",
     "gas_calibrator.v2.storage.profile_store",
 }
 SHADOW_CORE_NAMES = {
@@ -128,7 +132,7 @@ def classify_module(module: str, *, static_zero_reference: bool) -> tuple[str, s
     if module in COMPATIBILITY_WRAPPERS:
         return (
             "compatibility_wrapper",
-            "temporary V2 import compatibility; implementation is owned by gas_calibrator.storage",
+            "temporary V2 import compatibility; implementation is owned by a shared gas_calibrator namespace",
         )
     if module in V2_PRODUCT_STORAGE_ADAPTERS:
         return (

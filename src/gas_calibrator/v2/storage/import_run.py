@@ -6,8 +6,8 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+from ...storage.database import DatabaseManager, StorageSettings, load_storage_config_file
 from ...storage.importer import ArtifactImporter
-from .database import DatabaseManager, StorageSettings, load_storage_config_file
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

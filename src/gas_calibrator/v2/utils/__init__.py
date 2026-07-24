@@ -1,27 +1,23 @@
-"""
-工具函数模块
+"""Compatibility exports for product-neutral conversion helpers."""
 
-提供类型转换、数据验证等通用工具函数。
-"""
-
-from .converters import (
+from gas_calibrator.utils import (
+    as_bool,
     as_float,
     as_int,
-    as_bool,
+    clamp,
+    format_number,
     parse_first_float,
     parse_first_int,
     safe_get,
-    clamp,
-    format_number,
 )
 
 __all__ = [
+    "as_bool",
     "as_float",
     "as_int",
-    "as_bool",
+    "clamp",
+    "format_number",
     "parse_first_float",
     "parse_first_int",
     "safe_get",
-    "clamp",
-    "format_number",
 ]
