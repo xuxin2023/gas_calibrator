@@ -791,7 +791,7 @@ def _infer_backend_from_dsn(dsn: str) -> str | None:
 
 
 def _build_storage_settings(args: argparse.Namespace) -> Any:
-    from ..v2.storage import StorageSettings, load_storage_config_file
+    from ..storage.database import StorageSettings, load_storage_config_file
 
     settings = load_storage_config_file(args.storage_config) if args.storage_config else StorageSettings()
     if args.dsn:
@@ -835,8 +835,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         if args.import_db:
             if not args.acknowledge_db_write:
                 raise RuntimeSetupError("--import-db requires --acknowledge-db-write")
-            from ..v2.storage import DatabaseManager
-            from ..v2.storage.v1_5_initialization import import_v1_5_runtime_setup_result
+            from ..storage.database import DatabaseManager
+            from ..v1_5.initialization_database import import_v1_5_runtime_setup_result
 
             settings = _build_storage_settings(args)
             database = DatabaseManager(settings)

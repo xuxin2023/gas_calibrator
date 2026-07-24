@@ -13,6 +13,7 @@ from gas_calibrator.v2.core.no_write_guard import (
     build_no_write_guard_from_raw_config,
 )
 from gas_calibrator.v2.core.run001_a1_dry_run import (
+    RUN001_ARTIFACT_NAMES,
     RUN001_FAIL,
     RUN001_PASS,
     build_run001_a1_evidence_payload,
@@ -744,7 +745,7 @@ def test_normal_co2_only_skip0_no_write_preflight_passes_and_writes_artifacts(tm
     written = write_run001_a1_artifacts(tmp_path, payload)
 
     assert payload["final_decision"] == RUN001_PASS
-    assert set(written) == {"summary", "no_write_guard", "readiness", "trace", "manifest", "report"}
+    assert set(written) == set(RUN001_ARTIFACT_NAMES)
     readiness = json.loads((tmp_path / "readiness.json").read_text(encoding="utf-8"))
     guard = json.loads((tmp_path / "no_write_guard.json").read_text(encoding="utf-8"))
     assert readiness["final_decision"] == RUN001_PASS

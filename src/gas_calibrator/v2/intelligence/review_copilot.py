@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..storage.sidecar_index import SidecarIndexStore
+from ...storage.sidecar_index import SidecarIndexStore
 
 
 def _text(value: Any, default: str = "--") -> str:

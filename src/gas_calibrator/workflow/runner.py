@@ -13,7 +13,7 @@ from collections import Counter, deque
 from datetime import datetime, timedelta
 from pathlib import Path
 from statistics import mean, stdev
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from ..config import (
     V1_CO2_ONLY_H2O_NOT_SUPPORTED_MESSAGE,
@@ -321,6 +321,30 @@ _PRESSURE_TRACE_FIELDS = [
     "baseline_sanity_plateau_mean_ppm",
     "baseline_sanity_plateau_span_ppm",
     "baseline_sanity_plateau_count",
+    "final_decision",
+    "remaining_selected_pressure_points_skipped",
+    "pace_manual_profile_version",
+    "pace_vent_status_semantics",
+    "pace_vent3_manual_defined",
+    "pace_vent3_classification",
+    "pace_vent3_gate_effect_by_phase",
+    "pace_baseline_before_config",
+    "pace_baseline_after_config",
+    "pace_baseline_after_safe_stop",
+    "pace_status_evidence",
+    "pace_syst_err",
+    "pace_status_oper_pres_cond",
+    "pace_status_oper_pres_even",
+    "pressure_controller_runtime_audit_decision",
+    "pressure_controller_port",
+    "pressure_controller_instance_id",
+    "pressure_controller_serial_instance_id",
+    "pressure_controller_open_count",
+    "pressure_controller_close_count",
+    "atmosphere_hold_thread_name",
+    "active_thread_snapshot",
+    "pace_hold_thread_count",
+    "dewpoint_preseal_decision",
     "flush_gate_status",
     "flush_gate_reason",
     "root_cause_reject_reason",
@@ -507,6 +531,14 @@ class CalibrationRunner:
     _DEFAULT_CO2_GROUP_A_PPM = (0, 200, 400, 600, 800, 1000)
     _DEFAULT_CO2_GROUP_B_PPM = (0, 100, 300, 500, 700, 900)
     _FULL_SWEEP_CO2_TEMPS_C = (10.0, 20.0, 30.0)
+    _PACE_MANUAL_PROFILE_VERSION = "v1_5_k0472_manual_profile_20260519"
+    _PACE_VENT_STATUS_SEMANTICS = (
+        "manual_0_ok_1_in_progress_2_completed_3_unrecognized_watchlist"
+    )
+    _PACE_MANUAL_UNSUPPORTED_OPTIONAL_QUERIES = {
+        ":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE?",
+        ":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT?",
+    }
     _PRESSURE_MODE_ATMOSPHERE_FLUSH = "AtmosphereFlush"
     _PRESSURE_MODE_SEAL_TRANSITION = "SealTransition"
     _PRESSURE_MODE_PRESSURE_SETPOINT_HOLD = "PressureSetpointHold"
@@ -589,6 +621,12 @@ class CalibrationRunner:
         run_dir = getattr(self.logger, "run_dir", None)
         self._pressure_trace_path = (run_dir / "pressure_transition_trace.csv") if run_dir is not None else None
         self._pressure_trace_error_logged = False
+        self._pace_startup_config_audit_path = (
+            (run_dir / "pace_startup_config_audit.csv") if run_dir is not None else None
+        )
+        self._pace_startup_config_audit_error_logged = False
+        self._pace_startup_config_audit_rows: List[Dict[str, Any]] = []
+        self._pace_manual_baselines: Dict[str, Dict[str, Any]] = {}
         self._point_timing_summary_path = (run_dir / "point_timing_summary.csv") if run_dir is not None else None
         self._point_timing_summary_error_logged = False
         self._analyzer_check_monitor_path = (run_dir / "analyzer_check_monitor.csv") if run_dir is not None else None
@@ -669,6 +707,13 @@ class CalibrationRunner:
         self._pace_sens_pres_cont_supported: Optional[bool] = None
         self._pace_sens_pres_cont_error: str = ""
         self._last_abort_reason: str = ""
+        self._controlled_exit_final_decision = ""
+        self._co2_route_terminal_failure_reason = ""
+        self._co2_route_terminal_failure_decision = ""
+        self._pressure_controller_instance_id_seen: Optional[int] = None
+        self._pressure_controller_serial_instance_id_seen: Optional[int] = None
+        self._pressure_controller_runtime_conflict_decision = ""
+        self._co2_open_flow_until_preseal_raw_tap_window_active = False
 
     def _log_run_event(self, command: Any = None, response: Any = None, error: Any = None) -> None:
         try:
@@ -682,6 +727,748 @@ class CalibrationRunner:
             )
         except Exception:
             pass
+
+    def _mark_co2_route_terminal_failure(
+        self,
+        *,
+        final_decision: str,
+        reason: str,
+        point: Optional[CalibrationPoint] = None,
+        phase: str = "co2",
+        trace_stage: str = "co2_route_terminal_failure",
+        pressure_target_hpa: Any = None,
+        extra_fields: Optional[Mapping[str, Any]] = None,
+    ) -> None:
+        self._controlled_exit_final_decision = str(final_decision or "")
+        self._co2_route_terminal_failure_decision = str(final_decision or "")
+        self._co2_route_terminal_failure_reason = str(reason or "")
+        self._log_run_event(
+            command="co2-route-terminal-failure",
+            response=json.dumps(
+                {
+                    "final_decision": self._co2_route_terminal_failure_decision,
+                    "reason": self._co2_route_terminal_failure_reason,
+                    "point_row": getattr(point, "index", ""),
+                    "pressure_target_hpa": getattr(point, "target_pressure_hpa", ""),
+                },
+                ensure_ascii=False,
+            ),
+        )
+        fields = {
+            "final_decision": self._co2_route_terminal_failure_decision,
+            "remaining_selected_pressure_points_skipped": "",
+        }
+        if extra_fields:
+            fields.update(dict(extra_fields))
+        target = pressure_target_hpa
+        if target is None and point is not None:
+            target = getattr(point, "target_pressure_hpa", None)
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage=trace_stage,
+            pressure_target_hpa=target,
+            refresh_pace_state=False,
+            extra_fields=fields,
+            note=(
+                f"{self._co2_route_terminal_failure_decision}: "
+                f"{self._co2_route_terminal_failure_reason}"
+            ),
+        )
+
+    def _record_remaining_pressure_points_skipped_for_dewpoint_failure(
+        self,
+        lead_point: CalibrationPoint,
+        remaining_refs: List[CalibrationPoint],
+    ) -> None:
+        skipped_targets: List[str] = []
+        for ref in remaining_refs:
+            try:
+                sample_point = self._build_co2_pressure_point(lead_point, ref)
+            except Exception:
+                sample_point = ref
+            target = getattr(sample_point, "target_pressure_hpa", None)
+            skipped_targets.append(str(target))
+            self._append_pressure_trace_row(
+                point=sample_point,
+                route="co2",
+                point_phase="co2",
+                trace_stage=(
+                    "skipped_due_to_upstream_dewpoint_freshness_failure"
+                ),
+                pressure_target_hpa=target,
+                refresh_pace_state=False,
+                extra_fields={
+                    "final_decision": (
+                        self._co2_route_terminal_failure_decision
+                        or "FAIL_CLOSED_DEWPOINT_FRESHNESS_EXPIRED"
+                    ),
+                    "remaining_selected_pressure_points_skipped": ",".join(
+                        skipped_targets
+                    ),
+                },
+                note=(
+                    "remaining selected pressure point skipped due to "
+                    "upstream dewpoint freshness failure"
+                ),
+            )
+
+    def _set_logger_workflow_stage(self, stage: str) -> str:
+        previous = ""
+        getter = getattr(self.logger, "get_workflow_stage", None)
+        if callable(getter):
+            try:
+                previous = str(getter() or "")
+            except Exception:
+                previous = ""
+        setter = getattr(self.logger, "set_workflow_stage", None)
+        if callable(setter):
+            try:
+                setter(stage)
+            except Exception:
+                pass
+        return previous
+
+    def _restore_logger_workflow_stage(self, stage: str) -> None:
+        setter = getattr(self.logger, "set_workflow_stage", None)
+        if callable(setter):
+            try:
+                setter(stage)
+            except Exception:
+                pass
+
+    @staticmethod
+    def _trace_json(value: Any) -> str:
+        try:
+            return json.dumps(
+                value,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                default=str,
+            )
+        except Exception:
+            return str(value)
+
+    def _pressure_controller_runtime_audit_snapshot(self) -> Dict[str, Any]:
+        pace = self.devices.get("pace")
+        ser = getattr(pace, "ser", None) if pace is not None else None
+        port = getattr(ser, "port", "") or getattr(pace, "port", "")
+        port_text = str(port or "")
+        counter = getattr(self.logger, "get_io_count", None)
+        open_count = 0
+        close_count = 0
+        if callable(counter):
+            try:
+                open_count = int(
+                    counter(device="pace5000", port=port_text, direction="OPEN")
+                )
+                close_count = int(
+                    counter(device="pace5000", port=port_text, direction="CLOSE")
+                )
+            except Exception:
+                open_count = 0
+                close_count = 0
+        hold_thread = getattr(pace, "_vent_hold_thread", None) if pace is not None else None
+        hold_thread_name = ""
+        if hold_thread is not None and getattr(hold_thread, "is_alive", lambda: False)():
+            hold_thread_name = str(getattr(hold_thread, "name", "") or "")
+        threads = threading.enumerate()
+        pace_hold_threads = [
+            thread
+            for thread in threads
+            if "pace5000-vent-hold" in str(getattr(thread, "name", ""))
+            and (not port_text or port_text in str(getattr(thread, "name", "")))
+        ]
+        thread_rows = [
+            {
+                "name": str(getattr(thread, "name", "") or ""),
+                "ident": getattr(thread, "ident", None),
+                "daemon": bool(getattr(thread, "daemon", False)),
+            }
+            for thread in threads
+        ]
+        return {
+            "pressure_controller_port": port_text,
+            "pressure_controller_instance_id": id(pace) if pace is not None else "",
+            "pressure_controller_serial_instance_id": id(ser) if ser is not None else "",
+            "pressure_controller_open_count": open_count,
+            "pressure_controller_close_count": close_count,
+            "atmosphere_hold_thread_name": hold_thread_name,
+            "active_thread_snapshot": json.dumps(thread_rows, ensure_ascii=False),
+            "pace_hold_thread_count": len(pace_hold_threads),
+        }
+
+    def _pressure_controller_runtime_conflict(
+        self,
+        snapshot: Mapping[str, Any],
+    ) -> str:
+        instance_id = self._as_int(snapshot.get("pressure_controller_instance_id"))
+        serial_instance_id = self._as_int(
+            snapshot.get("pressure_controller_serial_instance_id")
+        )
+        if instance_id is not None:
+            if self._pressure_controller_instance_id_seen is None:
+                self._pressure_controller_instance_id_seen = instance_id
+            elif self._pressure_controller_instance_id_seen != instance_id:
+                return "second_pressure_controller_instance"
+        if serial_instance_id is not None:
+            if self._pressure_controller_serial_instance_id_seen is None:
+                self._pressure_controller_serial_instance_id_seen = serial_instance_id
+            elif self._pressure_controller_serial_instance_id_seen != serial_instance_id:
+                return "second_pressure_controller_serial_instance"
+        if (self._as_int(snapshot.get("pressure_controller_open_count")) or 0) > 1:
+            return "second_pressure_controller_open"
+        if (self._as_int(snapshot.get("pace_hold_thread_count")) or 0) > 1:
+            return "multiple_atmosphere_hold_threads"
+        return ""
+
+    def _emit_pressure_controller_runtime_audit(
+        self,
+        *,
+        stage: str,
+        point: Optional[CalibrationPoint] = None,
+        route: str = "co2",
+        extra_fields: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        fields = self._pressure_controller_runtime_audit_snapshot()
+        conflict = self._pressure_controller_runtime_conflict(fields)
+        fields.update(dict(extra_fields or {}))
+        if conflict:
+            self._pressure_controller_runtime_conflict_decision = conflict
+            fields["pressure_controller_runtime_audit_decision"] = conflict
+            fields[
+                "final_decision"
+            ] = "FAIL_CLOSED_SECOND_PRESSURE_CONTROLLER_INSTANCE_DETECTED"
+            self._controlled_exit_final_decision = str(fields["final_decision"])
+            self._co2_route_terminal_failure_decision = str(fields["final_decision"])
+            self._co2_route_terminal_failure_reason = conflict
+        else:
+            fields["pressure_controller_runtime_audit_decision"] = "pass"
+        self._log_run_event(
+            command=f"pressure-controller-runtime-audit:{stage}",
+            response=json.dumps(fields, ensure_ascii=False),
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=route,
+            point_phase=route,
+            trace_stage=f"pressure_controller_runtime_audit_{stage}",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None),
+            refresh_pace_state=False,
+            extra_fields=fields,
+            note=(
+                f"stage={stage} "
+                f"decision={fields.get('pressure_controller_runtime_audit_decision')}"
+            ),
+        )
+        return fields
+
+    @staticmethod
+    def _pace_manual_snapshot_queries() -> Tuple[Tuple[str, str], ...]:
+        return (
+            ("idn", "*IDN?"),
+            ("system_error", ":SYST:ERR?"),
+            ("pressure_unit", ":UNIT:PRES?"),
+            ("output_mode", ":OUTP:MODE?"),
+            ("output_state", ":OUTP:STAT?"),
+            ("isolation_state", ":OUTP:ISOL:STAT?"),
+            ("vent_status", ":SOUR:PRES:LEV:IMM:AMPL:VENT?"),
+            ("in_limits_pct", ":SOUR:PRES:INL?"),
+            ("in_limits_time_s", ":SOUR:PRES:INL:TIME?"),
+            ("slew_rate", ":SOUR:PRES:SLEW?"),
+            ("slew_mode", ":SOUR:PRES:SLEW:MODE?"),
+            ("slew_overshoot_state", ":SOUR:PRES:SLEW:OVER:STAT?"),
+            ("vent_rate", ":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE?"),
+            ("vent_rate_unit", ":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT?"),
+            ("low_pass_filter_state", ":SENS:PRES:FILT:LPAS:STAT?"),
+            ("head_correction_state", ":SENS:PRES:CORR:HEAD:STAT?"),
+            ("offset_correction_state", ":SENS:PRES:CORR:OFFS:STAT?"),
+            ("status_oper_pressure_condition", ":STAT:OPER:PRES:COND?"),
+            ("status_oper_pressure_event", ":STAT:OPER:PRES:EVEN?"),
+        )
+
+    @staticmethod
+    def _pace_vent_status_classification(
+        vent_status: Any,
+        *,
+        stage: str = "",
+    ) -> str:
+        status = CalibrationRunner._as_int(vent_status)
+        labels = {
+            0: "manual_ok",
+            1: "manual_in_progress",
+            2: "manual_completed",
+            3: "manual_unrecognized_watchlist",
+        }
+        label = labels.get(status, "unknown")
+        return f"{stage}:{label}" if stage else label
+
+    def _pace_manual_query(self, pace: Any, command: str) -> Dict[str, Any]:
+        query = getattr(pace, "query", None)
+        if not callable(query):
+            return {"ok": False, "response": "", "error": "query_unavailable"}
+        try:
+            response = query(command)
+            if isinstance(response, bytes):
+                response = response.decode(errors="replace")
+            return {"ok": True, "response": str(response).strip(), "error": ""}
+        except Exception as exc:
+            return {"ok": False, "response": "", "error": str(exc)}
+
+    def _capture_pace_status_register_evidence(
+        self,
+        label: str,
+        pace: Any = None,
+    ) -> Dict[str, Any]:
+        pace = pace if pace is not None else self.devices.get("pace")
+        if pace is None:
+            return {
+                "label": label,
+                "available": False,
+                "error": "pace_unavailable",
+                "queries": {},
+            }
+        queries: Dict[str, Any] = {}
+        for key, command in (
+            ("system_error", ":SYST:ERR?"),
+            ("status_oper_pressure_condition", ":STAT:OPER:PRES:COND?"),
+            ("status_oper_pressure_event", ":STAT:OPER:PRES:EVEN?"),
+        ):
+            queries[key] = {
+                "command": command,
+                **self._pace_manual_query(pace, command),
+            }
+        return {
+            "label": label,
+            "available": any(bool(item.get("ok")) for item in queries.values()),
+            "queries": queries,
+        }
+
+    def _capture_pace_manual_baseline_snapshot(self, label: str) -> Dict[str, Any]:
+        pace = self.devices.get("pace")
+        snapshot: Dict[str, Any] = {
+            "label": str(label or ""),
+            "ts": datetime.now().isoformat(timespec="milliseconds"),
+            "profile_version": self._PACE_MANUAL_PROFILE_VERSION,
+            "vent_status_semantics": self._PACE_VENT_STATUS_SEMANTICS,
+            "vent3_manual_defined": False,
+            "available": pace is not None,
+            "queries": {},
+            "errors": {},
+            "missing_critical_fields": [],
+            "manual_profile_ready": False,
+        }
+        if pace is None:
+            snapshot["errors"]["pace"] = "pace_unavailable"
+            snapshot["missing_critical_fields"] = [
+                "pace_output_state",
+                "pace_isolation_state",
+                "pace_vent_status",
+            ]
+            return snapshot
+
+        query_results: Dict[str, Any] = {}
+        for key, command in self._pace_manual_snapshot_queries():
+            if command in self._PACE_MANUAL_UNSUPPORTED_OPTIONAL_QUERIES:
+                query_results[key] = {
+                    "command": command,
+                    "ok": False,
+                    "response": "",
+                    "error": "unsupported_by_k0472_manual_profile",
+                    "unsupported": True,
+                    "skipped": True,
+                }
+                continue
+            result = self._pace_manual_query(pace, command)
+            query_results[key] = {"command": command, **result}
+            if not result.get("ok"):
+                snapshot["errors"][key] = result.get("error") or "query_failed"
+        snapshot["queries"] = query_results
+
+        state_snapshot = self._pace_state_snapshot(pace, refresh=True)
+        output_state = self._as_int(state_snapshot.get("pace_output_state"))
+        isolation_state = self._as_int(state_snapshot.get("pace_isolation_state"))
+        vent_status = self._as_int(state_snapshot.get("pace_vent_status"))
+        if output_state is None:
+            output_state = self._as_int(
+                query_results.get("output_state", {}).get("response")
+            )
+        if isolation_state is None:
+            isolation_state = self._as_int(
+                query_results.get("isolation_state", {}).get("response")
+            )
+        if vent_status is None:
+            vent_status = self._as_int(
+                query_results.get("vent_status", {}).get("response")
+            )
+
+        snapshot.update(
+            {
+                "pace_output_state": output_state,
+                "pace_isolation_state": isolation_state,
+                "pace_vent_status": vent_status,
+                "pace_output_mode": query_results.get("output_mode", {}).get(
+                    "response",
+                    "",
+                ),
+                "pace_system_error": query_results.get("system_error", {}).get(
+                    "response",
+                    "",
+                ),
+                "pace_vent3_classification": self._pace_vent_status_classification(
+                    vent_status,
+                    stage=str(label or ""),
+                ),
+            }
+        )
+        missing = [
+            field_name
+            for field_name, value in (
+                ("pace_output_state", output_state),
+                ("pace_isolation_state", isolation_state),
+                ("pace_vent_status", vent_status),
+            )
+            if value is None
+        ]
+        snapshot["missing_critical_fields"] = missing
+        snapshot["manual_profile_ready"] = not missing
+        return snapshot
+
+    @staticmethod
+    def _pace_vent3_gate_effect_by_phase() -> Dict[str, str]:
+        return {
+            "idle_run_start": "warning_watchlist",
+            "open_flow": "warning_watchlist",
+            "base_soak_dewpoint_analyzer": "warning_watchlist",
+            "preseal_pressure_build": "none_diagnostic_only",
+            "sealed_control_ready": (
+                "watchlist_accept_with_v2_sealed_evidence_or_terminal_block"
+            ),
+            "sampling": "watchlist_accept_with_v2_sealed_evidence_or_terminal_block",
+        }
+
+    def _record_pace_manual_baseline_snapshot(self, label: str) -> Dict[str, Any]:
+        snapshot = self._capture_pace_manual_baseline_snapshot(label)
+        baseline_field = str(label or "")
+        self._pace_manual_baselines[baseline_field] = snapshot
+        self._log_run_event(
+            command=f"pace-manual-baseline:{label}",
+            response=self._trace_json(snapshot),
+        )
+        status_evidence = self._capture_pace_status_register_evidence(
+            baseline_field
+        )
+        extra: Dict[str, Any] = {
+            "pace_manual_profile_version": self._PACE_MANUAL_PROFILE_VERSION,
+            "pace_vent_status_semantics": self._PACE_VENT_STATUS_SEMANTICS,
+            "pace_vent3_manual_defined": False,
+            "pace_vent3_classification": snapshot.get(
+                "pace_vent3_classification",
+                "",
+            ),
+            "pace_vent3_gate_effect_by_phase": self._trace_json(
+                self._pace_vent3_gate_effect_by_phase()
+            ),
+            "pace_status_evidence": self._trace_json(status_evidence),
+            "pace_syst_err": snapshot.get("pace_system_error", ""),
+            "pace_status_oper_pres_cond": (
+                snapshot.get("queries", {})
+                .get("status_oper_pressure_condition", {})
+                .get("response", "")
+            ),
+            "pace_status_oper_pres_even": (
+                snapshot.get("queries", {})
+                .get("status_oper_pressure_event", {})
+                .get("response", "")
+            ),
+        }
+        if baseline_field in {
+            "pace_baseline_before_config",
+            "pace_baseline_after_config",
+            "pace_baseline_after_safe_stop",
+        }:
+            extra[baseline_field] = self._trace_json(snapshot)
+        self._append_pressure_trace_row(
+            point=None,
+            route="run",
+            point_phase="run",
+            trace_stage=baseline_field,
+            pace_output_state=snapshot.get("pace_output_state"),
+            pace_isolation_state=snapshot.get("pace_isolation_state"),
+            pace_vent_status=snapshot.get("pace_vent_status"),
+            refresh_pace_state=False,
+            extra_fields=extra,
+            note=(
+                f"PACE K0472 manual baseline snapshot label={baseline_field}; "
+                f"ready={str(snapshot.get('manual_profile_ready')).lower()}"
+            ),
+        )
+        return snapshot
+
+    @staticmethod
+    def _pace_phase_expected_profile() -> Dict[str, Any]:
+        return {
+            "idle_run_start": {
+                "OUTP": 0,
+                "ISOL": 1,
+                "VENT?": [0, 2],
+                "route_valves": "closed",
+            },
+            "open_flow": {
+                "VENT1_keepalive": "fresh",
+                "OUTP": 0,
+                "ISOL": 1,
+                "route_valves": "open",
+                "forbidden": ["VENT0", "OUTP1", "setpoint", "ISOL0"],
+            },
+            "base_soak_dewpoint_analyzer": {
+                "allowed": ["VENT1_keepalive", "readonly_query"],
+                "forbidden": [
+                    "VENT0",
+                    "OUTP1",
+                    "OUTP0_redundant",
+                    "ISOL_command",
+                    "setpoint",
+                    "mode_range_write",
+                ],
+            },
+            "preseal_pressure_build": {
+                "no_new_VENT1_after_VENT0": True,
+                "OUTP": 0,
+                "ISOL": 1,
+                "route_valves": "open_until_pressure_trigger_or_timeout",
+                "VENT?=3": "diagnostic_only_watchlist",
+            },
+            "sealed_control_ready": {
+                "route_valves": "closed",
+                "OUTP": 0,
+                "ISOL": 1,
+                "VENT?": [0, 2],
+                "VENT?=3": "diagnostic_watchlist",
+            },
+            "sampling": {
+                "route_valves": "closed",
+                "sealed_VENT1_count": 0,
+            },
+        }
+
+    def _evaluate_pace_phase_profile(
+        self,
+        phase: str,
+        *,
+        pace_snapshot: Optional[Mapping[str, Any]] = None,
+        pace_pressure_hpa: Any = None,
+        pressure_gauge_hpa: Any = None,
+        route_valves: Any = None,
+        vent1_fresh: Any = None,
+        new_vent1_count: int = 0,
+        forbidden_command_count: int = 0,
+        sealed_vent1_count: int = 0,
+        pressure_hard_limit_hit: bool = False,
+    ) -> Dict[str, Any]:
+        phase_name = str(phase or "").strip().lower()
+        snapshot = dict(pace_snapshot or {})
+        output_state = self._as_int(snapshot.get("pace_output_state"))
+        isolation_state = self._as_int(snapshot.get("pace_isolation_state"))
+        vent_status = self._as_int(snapshot.get("pace_vent_status"))
+        if route_valves is None:
+            route_valves_list: Any = list(
+                getattr(self, "_current_open_valves", ()) or ()
+            )
+        elif isinstance(route_valves, str):
+            route_valves_list = route_valves
+        else:
+            route_valves_list = list(route_valves or [])
+        warnings: List[str] = []
+        failures: List[str] = []
+
+        def _require(name: str, actual: Any, expected: Any) -> None:
+            if actual != expected:
+                failures.append(f"{name}_expected_{expected}_actual_{actual}")
+
+        if phase_name == "idle_run_start":
+            _require("OUTP", output_state, 0)
+            _require("ISOL", isolation_state, 1)
+            if vent_status not in {0, 2}:
+                warnings.append(f"vent_status_{vent_status}_watchlist")
+            if route_valves_list not in ([], ""):
+                failures.append(f"route_valves_not_closed:{route_valves_list}")
+        elif phase_name == "open_flow":
+            _require("OUTP", output_state, 0)
+            _require("ISOL", isolation_state, 1)
+            if vent_status != 1 and vent1_fresh is not True:
+                warnings.append("vent1_keepalive_not_fresh_or_unverified")
+            if route_valves_list in ([], ""):
+                failures.append("route_valves_not_open")
+            if forbidden_command_count:
+                failures.append(
+                    f"forbidden_command_count={int(forbidden_command_count)}"
+                )
+        elif phase_name == "base_soak_dewpoint_analyzer":
+            if forbidden_command_count:
+                failures.append(
+                    f"forbidden_command_count={int(forbidden_command_count)}"
+                )
+            if output_state not in {0, None}:
+                failures.append(f"OUTP_unexpected_{output_state}")
+            if isolation_state not in {1, None}:
+                failures.append(f"ISOL_unexpected_{isolation_state}")
+        elif phase_name == "preseal_pressure_build":
+            _require("OUTP", output_state, 0)
+            _require("ISOL", isolation_state, 1)
+            if int(new_vent1_count or 0) > 0:
+                failures.append(f"new_vent1_count={int(new_vent1_count)}")
+            if route_valves_list in ([], ""):
+                failures.append("route_valves_not_open_before_close")
+            if vent_status == 3:
+                warnings.append("vent3_diagnostic_only_before_route_close")
+            if pressure_hard_limit_hit:
+                failures.append("pressure_hard_limit_hit")
+        elif phase_name == "sealed_control_ready":
+            _require("OUTP", output_state, 0)
+            _require("ISOL", isolation_state, 1)
+            if route_valves_list not in ([], ""):
+                failures.append(f"route_valves_not_closed:{route_valves_list}")
+            if vent_status == 3:
+                warnings.append("vent3_diagnostic_only_control_ready")
+            elif vent_status not in {0, 2}:
+                failures.append(f"vent_status={vent_status}")
+        elif phase_name == "sampling":
+            if route_valves_list not in ([], ""):
+                failures.append(f"route_valves_not_closed:{route_valves_list}")
+            if int(sealed_vent1_count or 0) > 0:
+                failures.append(
+                    f"sealed_vent1_count={int(sealed_vent1_count)}"
+                )
+        else:
+            warnings.append(f"unknown_phase:{phase_name}")
+
+        actual = {
+            "phase": phase_name,
+            "OUTP": output_state,
+            "ISOL": isolation_state,
+            "VENT?": vent_status,
+            "pace_pressure_hpa": pace_pressure_hpa,
+            "pressure_gauge_hpa": pressure_gauge_hpa,
+            "route_valves": route_valves_list,
+            "new_vent1_count": int(new_vent1_count or 0),
+            "forbidden_command_count": int(forbidden_command_count or 0),
+            "decision": "pass" if not failures else "fail",
+        }
+        return {
+            "phase": phase_name,
+            "expected": self._pace_phase_expected_profile().get(phase_name, {}),
+            "actual": actual,
+            "passed": not failures,
+            "warnings": warnings,
+            "failures": failures,
+        }
+
+    @staticmethod
+    def _classify_pace_startup_config_command(
+        command: Any,
+    ) -> Tuple[str, bool, str]:
+        text = str(command or "").strip()
+        upper = text.upper()
+        if not upper:
+            return "unknown", True, "empty_command"
+        if any(token in upper for token in ("CAL", "SENCO", "COEFF")):
+            return "forbidden_write", True, "calibration_or_identity_write"
+        if "ZERO" in upper:
+            return "forbidden_write", True, "zero_command"
+        if ":SENS:PRES:CORR" in upper:
+            return "forbidden_write", True, "pressure_correction_write"
+        if ":SENS:PRES:FILT" in upper:
+            return "forbidden_write", True, "pressure_filter_write"
+        if ":OUTP 1" in upper or ":OUTP:STAT 1" in upper:
+            return "forbidden_write", True, "output_on_before_control"
+        if ":SOUR:PRES:LEV:IMM:AMPL:VENT 0" in upper:
+            return "forbidden_write", True, "vent0_before_preseal"
+        if re.match(r"^:SOUR:PRES:LEV:IMM:AMPL\s+[-+0-9.]", upper):
+            return "forbidden_write", True, "pressure_setpoint_before_control"
+        if upper.startswith(":UNIT:PRES"):
+            return "unit", False, ""
+        if upper.startswith(":SOUR:PRES:RANG"):
+            return "pressure_range", False, ""
+        if upper.startswith(":OUTP:MODE"):
+            return "output_mode", False, ""
+        if upper.startswith(":SOUR:PRES:INL"):
+            return "in_limits", False, ""
+        if upper.startswith(":SOUR:PRES:SLEW"):
+            return "soft_control_slew", False, ""
+        return "other", False, ""
+
+    def _record_pace_startup_config_command(
+        self,
+        command: Any,
+    ) -> Dict[str, Any]:
+        category, forbidden, reason = self._classify_pace_startup_config_command(
+            command
+        )
+        row = {
+            "ts": datetime.now().isoformat(timespec="milliseconds"),
+            "command": str(command or "").strip(),
+            "category": category,
+            "is_forbidden": bool(forbidden),
+            "forbidden_reason": reason,
+        }
+        self._pace_startup_config_audit_rows.append(row)
+        self._write_pace_startup_config_audit()
+        return row
+
+    def _write_pace_startup_config_audit(self) -> None:
+        if self._pace_startup_config_audit_path is None:
+            return
+        try:
+            self._pace_startup_config_audit_path.parent.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+            fieldnames = [
+                "ts",
+                "command",
+                "category",
+                "is_forbidden",
+                "forbidden_reason",
+            ]
+            with self._pace_startup_config_audit_path.open(
+                "w",
+                newline="",
+                encoding="utf-8",
+            ) as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=fieldnames,
+                    extrasaction="ignore",
+                )
+                writer.writeheader()
+                writer.writerows(self._pace_startup_config_audit_rows)
+        except Exception as exc:
+            if not self._pace_startup_config_audit_error_logged:
+                self._pace_startup_config_audit_error_logged = True
+                self.log(f"PACE startup config audit write failed: {exc}")
+
+    def _pressure_controller_control_range(self) -> str:
+        enabled = bool(
+            self._wf("workflow.pressure.control_range_enabled", False)
+        ) or bool(
+            cfg_get(
+                self.cfg,
+                "devices.pressure_controller.control_range_enabled",
+                False,
+            )
+        )
+        if not enabled:
+            return ""
+        for path in (
+            "workflow.pressure.control_range",
+            "devices.pressure_controller.control_range",
+        ):
+            text = str(cfg_get(self.cfg, path, "") or "").strip()
+            if text:
+                return text.replace('"', "")
+        return ""
 
     def _log_data_quality_effective_config(self) -> None:
         frame_cfg = dict(cfg_get(self.cfg, "workflow.analyzer_frame_quality", {}) or {})
@@ -3457,6 +4244,7 @@ class CalibrationRunner:
         soft_control_linear_slew_hpa_per_s: Any = None,
         vent_context: Any = None,
         event_ts: Optional[float] = None,
+        extra_fields: Optional[Mapping[str, Any]] = None,
         note: str = "",
     ) -> None:
         if not self._pressure_trace_enabled(point):
@@ -3632,6 +4420,10 @@ class CalibrationRunner:
                 note=note,
             )
             row["trace_stage"] = str(trace_stage or "").strip()
+            if extra_fields:
+                for key, value in extra_fields.items():
+                    if key in _PRESSURE_TRACE_FIELDS:
+                        row[key] = self._pressure_trace_cell(value)
 
             self._pressure_trace_path.parent.mkdir(parents=True, exist_ok=True)
             needs_header = (
@@ -8515,7 +9307,6 @@ class CalibrationRunner:
         dewpoint_rise_c: Optional[float],
         elapsed_s: float,
     ) -> Tuple[bool, str]:
-        state = dict(self._point_runtime_state(point, phase=phase) or {})
         pace_outp_query = self._as_int(pace_snapshot.get("pace_outp_state_query"))
         pace_isol_query = self._as_int(pace_snapshot.get("pace_isol_state_query"))
         pace_vent_query = self._as_int(pace_snapshot.get("pace_vent_status_query"))
@@ -8530,7 +9321,6 @@ class CalibrationRunner:
         )
         pace_measured_slew_hpa_s = self._as_float(pace_snapshot.get("pace_sens_slew_query"))
         pace_in_limits_bit = pace_snapshot.get("pace_oper_pres_in_limits_bit")
-        check_valve_installed = bool(fast_cfg.get("check_valve_installed"))
         if pace_outp_query not in (None, 0):
             return False, "output_not_off_verified"
         if bool(fast_cfg.get("require_isol_closed")) and pace_isol_query not in (None, 0):
@@ -12833,8 +13623,6 @@ class CalibrationRunner:
             co2_group=self._preferred_co2_group_for_ppm(ppm),
         )
 
-        return out
-
     def _co2_skip_ppm_set(self) -> set[int]:
         workflow_cfg = self.cfg.get("workflow", {})
         raw = workflow_cfg.get("skip_co2_ppm", [])
@@ -13737,6 +14525,18 @@ class CalibrationRunner:
     def _configure_pressure_controller_startup(self) -> None:
         pace = self.devices.get("pace")
         if pace:
+            set_units_hpa = getattr(pace, "set_units_hpa", None)
+            if callable(set_units_hpa):
+                self._record_pace_startup_config_command(":UNIT:PRES HPA")
+                set_units_hpa()
+            control_range = self._pressure_controller_control_range()
+            if control_range:
+                set_range = getattr(pace, "set_range", None)
+                if callable(set_range):
+                    self._record_pace_startup_config_command(
+                        f':SOUR:PRES:RANG "{control_range}"'
+                    )
+                    set_range(control_range)
             capability_snapshot = self._capture_pace_capability_snapshot(
                 reason="pressure controller startup",
                 include_optional_probe=True,
@@ -13759,12 +14559,21 @@ class CalibrationRunner:
                 try:
                     set_mode_active = getattr(pace, "set_output_mode_active", None)
                     if callable(set_mode_active):
+                        self._record_pace_startup_config_command(":OUTP:MODE ACT")
                         set_mode_active()
                 except Exception as exc:
                     self.log(f"Pressure controller set active mode failed: {exc}")
+            in_limits_pct = self.cfg["devices"]["pressure_controller"]["in_limits_pct"]
+            in_limits_time_s = self.cfg["devices"]["pressure_controller"]["in_limits_time_s"]
+            self._record_pace_startup_config_command(
+                f":SOUR:PRES:INL {in_limits_pct}"
+            )
+            self._record_pace_startup_config_command(
+                f":SOUR:PRES:INL:TIME {in_limits_time_s}"
+            )
             pace.set_in_limits(
-                self.cfg["devices"]["pressure_controller"]["in_limits_pct"],
-                self.cfg["devices"]["pressure_controller"]["in_limits_time_s"],
+                in_limits_pct,
+                in_limits_time_s,
             )
 
     def _configure_devices(self, *, configure_gas_analyzers: bool = True) -> None:
@@ -17213,11 +18022,7 @@ class CalibrationRunner:
         if not pace:
             return False
 
-        pcfg = self.cfg.get("workflow", {}).get("pressure", {})
         device_cfg = self.cfg.get("devices", {}).get("pressure_controller", {})
-        transition_timeout_s = float(
-            pcfg.get("vent_transition_timeout_s", max(5.0, float(pcfg.get("vent_time_s", 0) or 0)))
-        )
         extra = f" ({reason})" if reason else ""
         self.log(f"Pressure controller soft recovery start{extra}")
         ok = True
@@ -19883,6 +20688,7 @@ class CalibrationRunner:
         read_interval_override: Optional[float] = None,
         pressure_fill_override: Optional[float] = None,
         pressure_window_cfg: Optional[Dict[str, Any]] = None,
+        loop_callback: Optional[Callable[[], bool]] = None,
     ) -> bool:
         cfg = self.cfg.get("workflow", {}).get("stability", {}).get("sensor", {})
         if cfg and not cfg.get("enabled", True):
@@ -19970,6 +20776,8 @@ class CalibrationRunner:
             if self.stop_event.is_set():
                 return False
             self._check_pause()
+            if callable(loop_callback) and loop_callback() is False:
+                return False
 
             if require_pressure_in_limits and pace and point.target_pressure_hpa is not None:
                 try:
@@ -23192,8 +24000,6 @@ class CalibrationRunner:
         pace_vent_pupv_state = str(state.get("pace_vent_pupv_state_query") or "").strip().upper()
         pace_vent_elapsed_s = self._as_float(state.get("pace_vent_elapsed_time_query"))
         pace_effort_query = self._as_float(state.get("pace_effort_query"))
-        pace_comp1_query = self._as_float(state.get("pace_comp1_query"))
-        pace_comp2_query = self._as_float(state.get("pace_comp2_query"))
         pace_oper_pres_cond_query = self._as_int(state.get("pace_oper_pres_cond_query"))
         pace_oper_pres_even_query = self._as_int(state.get("pace_oper_pres_even_query"))
         pace_oper_pres_vent_complete_bit = state.get("pace_oper_pres_vent_complete_bit")
@@ -24268,12 +25074,6 @@ class CalibrationRunner:
                 self._wf("workflow.stability.temperature.wait_after_reach_s", 0),
             )
         )
-        analyzer_chamber_temp_enabled = bool(
-            self._wf("workflow.stability.temperature.analyzer_chamber_temp_enabled", True)
-        )
-        analyzer_chamber_temp_timeout_s = float(
-            self._wf("workflow.stability.temperature.analyzer_chamber_temp_timeout_s", 5400.0)
-        )
         command_offset_c = float(self._wf("workflow.stability.temperature.command_offset_c", 0.0) or 0.0)
         wait_for_target_before_continue = bool(
             self._wf("workflow.stability.temperature.wait_for_target_before_continue", True)
@@ -24609,6 +25409,8 @@ class CalibrationRunner:
         next_route_context: Optional[Dict[str, Any]] = None,
     ) -> None:
         self._h2o_pressure_prepared_target = None
+        self._co2_route_terminal_failure_reason = ""
+        self._co2_route_terminal_failure_decision = ""
         route_context = self._route_entry_context_for_co2_source(point, pressure_points=pressure_points)
         route_point_tag = str(route_context.get("point_tag") or self._co2_point_tag(point))
         self._apply_idle_route_isolation(reason="before CO2 chamber wait")
@@ -24638,7 +25440,23 @@ class CalibrationRunner:
             return
         if not self._wait_co2_route_soak_before_seal(point):
             self.log(f"CO2 row {point.index} skipped: route precondition failed before sealing")
-            self._cleanup_co2_route(reason="after CO2 route soak interrupted")
+            self._end_co2_open_flow_until_preseal_raw_tap_window(
+                point,
+                reason="CO2 route precondition failed before preseal",
+            )
+            decision_text = str(
+                self._controlled_exit_final_decision
+                or self._co2_route_terminal_failure_decision
+                or ""
+            )
+            if "DEWPOINT" in decision_text.upper():
+                self._record_remaining_pressure_points_skipped_for_dewpoint_failure(
+                    point,
+                    sealed_control_refs,
+                )
+            self._cleanup_co2_route(
+                reason=decision_text or "after CO2 route soak interrupted"
+            )
             return
 
         if self._gas_route_dewpoint_gate_enabled():
@@ -24654,7 +25472,26 @@ class CalibrationRunner:
             self.log("CO2 preseal dewpoint gate skipped by configuration")
         if not self._wait_co2_preseal_primary_sensor_gate(point):
             self.log(f"CO2 row {point.index} skipped: analyzer precondition failed before downstream sampling/seal")
-            self._cleanup_co2_route(reason="after CO2 preseal analyzer gate failure")
+            self._end_co2_open_flow_until_preseal_raw_tap_window(
+                point,
+                reason="CO2 analyzer precondition failed before preseal",
+            )
+            decision_text = str(
+                self._controlled_exit_final_decision
+                or self._co2_route_terminal_failure_decision
+                or ""
+            )
+            if "DEWPOINT" in decision_text.upper():
+                self._record_remaining_pressure_points_skipped_for_dewpoint_failure(
+                    point,
+                    sealed_control_refs,
+                )
+            self._cleanup_co2_route(
+                reason=(
+                    decision_text
+                    or "after CO2 preseal analyzer gate failure"
+                )
+            )
             return
         if not self._wait_co2_preseal_baseline_sanity_gate(point):
             self.log(
@@ -24727,6 +25564,21 @@ class CalibrationRunner:
                 )
                 seal_start_index = idx
                 break
+            decision_text = str(
+                self._controlled_exit_final_decision
+                or self._co2_route_terminal_failure_decision
+                or ""
+            )
+            if "DEWPOINT" in decision_text.upper():
+                _flush_co2_route_seal_deferred_exports(
+                    reason="after terminal CO2 dewpoint preseal failure"
+                )
+                self._record_remaining_pressure_points_skipped_for_dewpoint_failure(
+                    point,
+                    sealed_control_refs[idx:],
+                )
+                self._cleanup_co2_route(reason=decision_text)
+                return
             self.log(
                 f"CO2 {seal_point.co2_ppm} ppm @ {seal_point.target_pressure_hpa} hPa skipped: "
                 f"route sealing failed"
@@ -25732,7 +26584,6 @@ class CalibrationRunner:
 
     def _wait_co2_route_soak_before_seal(self, point: CalibrationPoint) -> bool:
         special_flush = self._has_special_co2_zero_flush_pending() and self._is_zero_co2_point(point)
-        cold_group_flush = False
         soak_key = "workflow.stability.co2_route.preseal_soak_s"
         soak_default = 180.0
         wait_reason = "开路预通气"
@@ -25757,7 +26608,6 @@ class CalibrationRunner:
             soak_default = float(self._wf("workflow.stability.co2_route.preseal_soak_s", 180.0))
             wait_reason = "冷组0气吹干"
             log_context = "CO2 cold-group dry flush"
-            cold_group_flush = True
         else:
             self._active_post_h2o_co2_zero_flush = False
 
@@ -25828,6 +26678,529 @@ class CalibrationRunner:
             log_context=log_context,
         )
 
+    @staticmethod
+    def _iso_ts_from_wall(value: Any) -> str:
+        parsed = CalibrationRunner._as_float(value)
+        if parsed is None or parsed <= 0:
+            return ""
+        return datetime.fromtimestamp(parsed).isoformat(timespec="milliseconds")
+
+    def _preseal_dewpoint_freshness_max_age_s(self) -> float:
+        return max(
+            0.0,
+            float(
+                self._wf(
+                    "workflow.stability.dewpoint_preseal_freshness_max_age_s",
+                    60.0,
+                )
+                or 60.0
+            ),
+        )
+
+    def _preseal_dewpoint_freshness_max_delta_c(self) -> float:
+        return max(
+            0.0,
+            float(
+                self._wf(
+                    "workflow.stability.dewpoint_preseal_freshness_max_delta_c",
+                    0.20,
+                )
+                or 0.20
+            ),
+        )
+
+    def _gas_route_dewpoint_require_dry_enough(
+        self,
+        runtime_state: Optional[Mapping[str, Any]] = None,
+    ) -> bool:
+        default = bool(
+            self._wf(
+                "workflow.stability.gas_route_dewpoint_gate_require_dry_enough",
+                False,
+            )
+        )
+        if runtime_state and "dewpoint_gate_require_dry_enough" in runtime_state:
+            return bool(runtime_state.get("dewpoint_gate_require_dry_enough"))
+        return default
+
+    def _gas_route_dewpoint_dry_enough_c(
+        self,
+        runtime_state: Optional[Mapping[str, Any]] = None,
+    ) -> Optional[float]:
+        if runtime_state and "dewpoint_gate_dry_enough_c" in runtime_state:
+            runtime_value = self._as_float(
+                runtime_state.get("dewpoint_gate_dry_enough_c")
+            )
+            if runtime_value is not None:
+                return runtime_value
+        return self._as_float(
+            self._wf(
+                "workflow.stability.gas_route_dewpoint_gate_dry_enough_c",
+                -30.0,
+            )
+        )
+
+    def _gas_route_analyzer_gate_rebound_warning_only(self) -> bool:
+        return bool(
+            self._wf(
+                "workflow.stability.gas_route_analyzer_gate_rebound_warning_only",
+                True,
+            )
+        )
+
+    def _gas_route_analyzer_gate_hard_rebound_c(self) -> float:
+        return max(
+            0.0,
+            float(
+                self._wf(
+                    "workflow.stability.gas_route_analyzer_gate_hard_rebound_c",
+                    2.0,
+                )
+                or 2.0
+            ),
+        )
+
+    def _gas_route_analyzer_gate_fail_if_above_dry_enough(self) -> bool:
+        return bool(
+            self._wf(
+                (
+                    "workflow.stability."
+                    "gas_route_analyzer_gate_fail_if_above_dry_enough"
+                ),
+                True,
+            )
+        )
+
+    def _analyzer_gate_dry_enough_tolerance_c(self) -> float:
+        return max(
+            0.0,
+            float(
+                self._wf(
+                    "workflow.stability.analyzer_gate_dry_enough_tolerance_c",
+                    0.0,
+                )
+                or 0.0
+            ),
+        )
+
+    def _analyzer_gate_dry_enough_grace_s(self) -> float:
+        return max(
+            0.0,
+            float(
+                self._wf(
+                    "workflow.stability.analyzer_gate_dry_enough_grace_s",
+                    0.0,
+                )
+                or 0.0
+            ),
+        )
+
+    def _analyzer_gate_dry_enough_violation_policy(self) -> str:
+        policy = str(
+            self._wf(
+                "workflow.stability.analyzer_gate_dry_enough_violation_policy",
+                "sustained_or_margin",
+            )
+            or "sustained_or_margin"
+        ).strip().lower()
+        if policy in {
+            "reject",
+            "fail",
+            "fail_closed",
+            "hard",
+            "sustained_or_margin",
+        }:
+            return "sustained_or_margin"
+        if policy in {"off", "diagnostic"}:
+            return policy
+        return "warn"
+
+    def _analyzer_gate_dewpoint_monitor_state(
+        self,
+        point: CalibrationPoint,
+        *,
+        analyzer_gate_begin_ts: float,
+    ) -> Dict[str, Any]:
+        runtime_state = dict(
+            self._point_runtime_state(point, phase="co2") or {}
+        )
+        gate_ts = self._as_float(runtime_state.get("dewpoint_gate_pass_ts"))
+        gate_pass_value_c = self._as_float(
+            runtime_state.get("dewpoint_gate_pass_value_c")
+        )
+        tail_reference_c = self._as_float(
+            runtime_state.get("dewpoint_gate_tail_reference_c")
+        )
+        reference_value_c = tail_reference_c
+        enabled = bool(
+            self._wf(
+                "workflow.stability.analyzer_gate_dewpoint_monitor_enabled",
+                True,
+            )
+        )
+        enabled = bool(
+            enabled
+            and self.devices.get("dewpoint") is not None
+            and gate_ts is not None
+            and reference_value_c is not None
+            and str(runtime_state.get("flush_gate_status") or "").lower()
+            == "pass"
+        )
+        return {
+            "enabled": enabled,
+            "interval_s": max(
+                0.1,
+                float(
+                    self._wf(
+                        (
+                            "workflow.stability."
+                            "analyzer_gate_dewpoint_monitor_interval_s"
+                        ),
+                        5.0,
+                    )
+                    or 5.0
+                ),
+            ),
+            "max_gap_s": max(
+                0.1,
+                float(
+                    self._wf(
+                        (
+                            "workflow.stability."
+                            "analyzer_gate_dewpoint_monitor_max_gap_s"
+                        ),
+                        15.0,
+                    )
+                    or 15.0
+                ),
+            ),
+            "max_age_s": self._preseal_dewpoint_freshness_max_age_s(),
+            "max_delta_c": self._preseal_dewpoint_freshness_max_delta_c(),
+            "rebound_warning_only": (
+                self._gas_route_analyzer_gate_rebound_warning_only()
+            ),
+            "hard_rebound_c": self._gas_route_analyzer_gate_hard_rebound_c(),
+            "require_dry_enough": self._gas_route_dewpoint_require_dry_enough(
+                runtime_state
+            ),
+            "dry_enough_c": self._gas_route_dewpoint_dry_enough_c(
+                runtime_state
+            ),
+            "dry_enough_tolerance_c": (
+                self._analyzer_gate_dry_enough_tolerance_c()
+            ),
+            "dry_enough_grace_s": self._analyzer_gate_dry_enough_grace_s(),
+            "dry_enough_violation_policy": (
+                self._analyzer_gate_dry_enough_violation_policy()
+            ),
+            "fail_if_above_dry_enough": (
+                self._gas_route_analyzer_gate_fail_if_above_dry_enough()
+            ),
+            "begin_ts": float(analyzer_gate_begin_ts),
+            "end_ts": None,
+            "gate_ts": gate_ts,
+            "gate_value_c": reference_value_c,
+            "gate_pass_value_c": gate_pass_value_c,
+            "tail_reference_c": tail_reference_c,
+            "last_poll_mono_s": None,
+            "samples": [],
+            "read_error_count": 0,
+            "first_rise_ts": None,
+            "first_rise_value_c": None,
+            "rebound_warning": False,
+            "hard_rebound_warning": False,
+            "hard_rebound_terminal": False,
+            "gate_effect": "none",
+            "dry_enough_passed": None,
+            "dry_enough_warning_zone": False,
+            "dry_enough_violation_started_ts": None,
+            "dry_enough_violation_s": 0.0,
+            "dry_enough_terminal": False,
+            "dry_enough_gate_effect": "none",
+            "failed": False,
+            "failure_reason": "",
+        }
+
+    def _summarize_analyzer_gate_dewpoint_monitor(
+        self,
+        state: Mapping[str, Any],
+    ) -> Dict[str, Any]:
+        samples = list(state.get("samples") or [])
+        values = [
+            float(value)
+            for sample in samples
+            if (value := self._as_float(sample.get("value_c"))) is not None
+        ]
+        first_sample = samples[0] if samples else {}
+        last_sample = samples[-1] if samples else {}
+        first_value_c = self._as_float(first_sample.get("value_c"))
+        last_value_c = self._as_float(last_sample.get("value_c"))
+        gate_value_c = self._as_float(state.get("gate_value_c"))
+        delta_since_gate_c = None
+        if gate_value_c is not None and last_value_c is not None:
+            delta_since_gate_c = last_value_c - gate_value_c
+        gaps = []
+        for previous, current in zip(samples, samples[1:]):
+            previous_ts = self._as_float(previous.get("wall_ts"))
+            current_ts = self._as_float(current.get("wall_ts"))
+            if previous_ts is not None and current_ts is not None:
+                gaps.append(max(0.0, current_ts - previous_ts))
+        trend = "unavailable"
+        if len(values) == 1:
+            trend = "single_sample"
+        elif (
+            len(values) >= 2
+            and first_value_c is not None
+            and last_value_c is not None
+        ):
+            change = last_value_c - first_value_c
+            trend = (
+                "rising"
+                if change > 0.05
+                else "falling"
+                if change < -0.05
+                else "stable"
+            )
+        dry_enough_c = self._as_float(state.get("dry_enough_c"))
+        tolerance_c = self._as_float(
+            state.get("dry_enough_tolerance_c")
+        ) or 0.0
+        dry_enough_passed = state.get("dry_enough_passed")
+        if dry_enough_c is not None and last_value_c is not None:
+            dry_enough_passed = last_value_c <= dry_enough_c
+        return {
+            "analyzer_gate_dewpoint_monitor_enabled": bool(
+                state.get("enabled")
+            ),
+            "analyzer_gate_dewpoint_monitor_interval_s": state.get(
+                "interval_s"
+            ),
+            "analyzer_gate_dewpoint_monitor_begin_ts": self._iso_ts_from_wall(
+                state.get("begin_ts")
+            ),
+            "analyzer_gate_dewpoint_monitor_end_ts": self._iso_ts_from_wall(
+                state.get("end_ts") or time.time()
+            ),
+            "analyzer_gate_dewpoint_live_sample_count": len(values),
+            "analyzer_gate_dewpoint_live_max_gap_s": max(gaps) if gaps else None,
+            "analyzer_gate_dewpoint_live_first_ts": self._iso_ts_from_wall(
+                first_sample.get("wall_ts")
+            ),
+            "analyzer_gate_dewpoint_live_first_value_c": first_value_c,
+            "analyzer_gate_dewpoint_live_last_ts": self._iso_ts_from_wall(
+                last_sample.get("wall_ts")
+            ),
+            "analyzer_gate_dewpoint_live_last_value_c": last_value_c,
+            "analyzer_gate_dewpoint_live_min_c": min(values) if values else None,
+            "analyzer_gate_dewpoint_live_max_c": max(values) if values else None,
+            "analyzer_gate_dewpoint_delta_since_gate_c": delta_since_gate_c,
+            "analyzer_gate_dewpoint_delta_vs_tail_reference_c": (
+                delta_since_gate_c
+            ),
+            "analyzer_gate_dewpoint_read_error_count": int(
+                state.get("read_error_count") or 0
+            ),
+            "analyzer_gate_dewpoint_first_rise_ts": self._iso_ts_from_wall(
+                state.get("first_rise_ts")
+            ),
+            "analyzer_gate_dewpoint_first_rise_value_c": self._as_float(
+                state.get("first_rise_value_c")
+            ),
+            "analyzer_gate_dewpoint_rebound_warning": bool(
+                state.get("rebound_warning")
+            ),
+            "analyzer_gate_dewpoint_rebound_warning_only": bool(
+                state.get("rebound_warning_only")
+            ),
+            "analyzer_gate_dewpoint_hard_rebound_c": self._as_float(
+                state.get("hard_rebound_c")
+            ),
+            "analyzer_gate_dewpoint_hard_rebound_warning": bool(
+                state.get("hard_rebound_warning")
+            ),
+            "analyzer_gate_dewpoint_hard_rebound_terminal": bool(
+                state.get("hard_rebound_terminal")
+            ),
+            "analyzer_gate_dewpoint_dry_enough_c": dry_enough_c,
+            "analyzer_gate_dewpoint_dry_enough_passed": dry_enough_passed,
+            "analyzer_gate_dewpoint_dry_enough_tolerance_c": tolerance_c,
+            "analyzer_gate_dewpoint_hard_fail_threshold_c": (
+                dry_enough_c + tolerance_c
+                if dry_enough_c is not None
+                else None
+            ),
+            "analyzer_gate_dewpoint_dry_enough_warning_zone": bool(
+                state.get("dry_enough_warning_zone")
+            ),
+            "analyzer_gate_dewpoint_dry_enough_violation_s": (
+                self._as_float(state.get("dry_enough_violation_s")) or 0.0
+            ),
+            "analyzer_gate_dewpoint_dry_enough_gate_effect": str(
+                state.get("dry_enough_gate_effect") or "none"
+            ),
+            "analyzer_gate_dewpoint_dry_enough_terminal": bool(
+                state.get("dry_enough_terminal")
+            ),
+            "analyzer_gate_dewpoint_fail_reason": str(
+                state.get("failure_reason") or ""
+            ),
+            "analyzer_gate_dewpoint_gate_effect": str(
+                state.get("gate_effect") or "none"
+            ),
+            "analyzer_gate_dewpoint_trend": trend,
+        }
+
+    def _fail_analyzer_gate_dewpoint_monitor(
+        self,
+        point: CalibrationPoint,
+        state: Dict[str, Any],
+        *,
+        reason: str,
+    ) -> bool:
+        state["failed"] = True
+        state["failure_reason"] = str(
+            reason or "dewpoint_freshness_expired_during_analyzer_gate"
+        )
+        fields = self._summarize_analyzer_gate_dewpoint_monitor(state)
+        self._set_point_runtime_fields(point, phase="co2", **fields)
+        reason_text = str(state["failure_reason"])
+        final_decision = (
+            "FAIL_CLOSED_DEWPOINT_FRESHNESS_EXPIRED_DURING_ANALYZER_GATE"
+        )
+        if reason_text.startswith(
+            "dewpoint_not_dry_enough"
+        ):
+            final_decision = (
+                "FAIL_CLOSED_DEWPOINT_NOT_DRY_ENOUGH_DURING_ANALYZER_GATE"
+            )
+        self._mark_co2_route_terminal_failure(
+            final_decision=final_decision,
+            reason=reason_text,
+            point=point,
+            phase="co2",
+        )
+        self.log(
+            "CO2 analyzer gate dewpoint freshness failed: "
+            f"{reason_text}"
+        )
+        return False
+
+    def _poll_analyzer_gate_dewpoint_monitor(
+        self,
+        point: CalibrationPoint,
+        state: Dict[str, Any],
+    ) -> bool:
+        if not bool(state.get("enabled")):
+            return True
+        if bool(state.get("failed")):
+            return False
+        now_mono = time.monotonic()
+        last_poll = self._as_float(state.get("last_poll_mono_s"))
+        interval_s = float(state.get("interval_s") or 5.0)
+        if last_poll is not None and now_mono - last_poll < interval_s:
+            return True
+        state["last_poll_mono_s"] = now_mono
+        try:
+            snapshot = self._read_precondition_dewpoint_gate_snapshot()
+        except Exception as exc:
+            state["read_error_count"] = int(
+                state.get("read_error_count") or 0
+            ) + 1
+            self.log(f"Analyzer gate dewpoint live monitor read failed: {exc}")
+            return True
+
+        sample_ts = time.time()
+        value_c = self._as_float(snapshot.get("dewpoint_c"))
+        samples = list(state.get("samples") or [])
+        samples.append({"wall_ts": sample_ts, "value_c": value_c})
+        state["samples"] = samples
+        gate_value_c = self._as_float(state.get("gate_value_c"))
+        if gate_value_c is None or value_c is None:
+            return True
+
+        delta_c = value_c - gate_value_c
+        if delta_c > float(state.get("max_delta_c") or 0.20):
+            if state.get("first_rise_ts") is None:
+                state["first_rise_ts"] = sample_ts
+                state["first_rise_value_c"] = value_c
+            state["rebound_warning"] = True
+
+        dry_enough_c = self._as_float(state.get("dry_enough_c"))
+        if dry_enough_c is not None:
+            state["dry_enough_passed"] = value_c <= dry_enough_c
+            tolerance_c = self._as_float(
+                state.get("dry_enough_tolerance_c")
+            ) or 0.0
+            grace_s = self._as_float(
+                state.get("dry_enough_grace_s")
+            ) or 0.0
+            warning_only = (
+                str(
+                    state.get("dry_enough_violation_policy")
+                    or "sustained_or_margin"
+                )
+                in {"warn", "warning", "warning_only", "soft", "diagnostic", "off"}
+                or not bool(state.get("fail_if_above_dry_enough"))
+            )
+            hard_fail_threshold_c = dry_enough_c + tolerance_c
+            state["dry_enough_warning_zone"] = False
+            state["dry_enough_terminal"] = False
+            state["dry_enough_gate_effect"] = "pass"
+            if value_c <= dry_enough_c:
+                state["dry_enough_violation_started_ts"] = None
+                state["dry_enough_violation_s"] = 0.0
+            elif value_c <= hard_fail_threshold_c:
+                state["dry_enough_warning_zone"] = True
+                if state.get("dry_enough_violation_started_ts") is None:
+                    state["dry_enough_violation_started_ts"] = sample_ts
+                violation_s = max(
+                    0.0,
+                    sample_ts
+                    - float(
+                        state.get("dry_enough_violation_started_ts")
+                        or sample_ts
+                    ),
+                )
+                state["dry_enough_violation_s"] = violation_s
+                state["dry_enough_gate_effect"] = "warning_only"
+                state["gate_effect"] = "warning_only"
+                if not warning_only and grace_s > 0 and violation_s > grace_s:
+                    state["dry_enough_terminal"] = True
+                    state["dry_enough_gate_effect"] = "fail_closed"
+                    state["gate_effect"] = "fail_closed"
+                    return self._fail_analyzer_gate_dewpoint_monitor(
+                        point,
+                        state,
+                        reason=(
+                            "dewpoint_not_dry_enough_sustained_c="
+                            f"{value_c}>dry_enough_c={dry_enough_c}"
+                        ),
+                    )
+            elif warning_only:
+                state["dry_enough_warning_zone"] = True
+                state["dry_enough_gate_effect"] = "warning_only"
+                state["gate_effect"] = "warning_only"
+            else:
+                state["dry_enough_warning_zone"] = True
+                state["dry_enough_terminal"] = True
+                state["dry_enough_gate_effect"] = "fail_closed"
+                state["gate_effect"] = "fail_closed"
+                return self._fail_analyzer_gate_dewpoint_monitor(
+                    point,
+                    state,
+                    reason=(
+                        f"dewpoint_not_dry_enough_c={value_c}>"
+                        f"hard_fail_threshold_c={hard_fail_threshold_c}"
+                    ),
+                )
+
+        if delta_c > float(state.get("hard_rebound_c") or 2.0):
+            state["hard_rebound_warning"] = True
+            state["hard_rebound_terminal"] = False
+        if delta_c > float(state.get("max_delta_c") or 0.20):
+            state["gate_effect"] = "warning_only"
+        return True
+
     def _wait_co2_preseal_primary_sensor_gate(self, point: CalibrationPoint) -> bool:
         sensor_cfg = self.cfg.get("workflow", {}).get("stability", {}).get("sensor", {})
         if sensor_cfg and not sensor_cfg.get("enabled", True):
@@ -25840,6 +27213,16 @@ class CalibrationRunner:
         min_samples = max(2, int(sensor_cfg.get("co2_ratio_f_preseal_min_samples", 10)))
         read_interval_s = float(
             sensor_cfg.get("co2_ratio_f_preseal_read_interval_s", sensor_cfg.get("read_interval_s", 1.0))
+        )
+        analyzer_gate_begin_ts = time.time()
+        dewpoint_monitor = self._analyzer_gate_dewpoint_monitor_state(
+            point,
+            analyzer_gate_begin_ts=analyzer_gate_begin_ts,
+        )
+        self._set_point_runtime_fields(
+            point,
+            phase="co2",
+            **self._summarize_analyzer_gate_dewpoint_monitor(dewpoint_monitor),
         )
         self._append_pressure_trace_row(
             point=point,
@@ -25854,16 +27237,89 @@ class CalibrationRunner:
                 f"read_interval_s={read_interval_s:.3f}"
             ),
         )
-        stable = self._wait_primary_sensor_stable(
-            point,
-            value_key="co2_ratio_f",
-            require_pressure_in_limits=False,
-            tol_override=tol,
-            window_override=window_s,
-            timeout_override=timeout_s,
-            min_samples_override=min_samples,
-            read_interval_override=read_interval_s,
+        previous_stage = self._set_logger_workflow_stage(
+            "co2_precondition_analyzer_gate"
         )
+        begin_raw_tap = getattr(
+            self.logger,
+            "begin_pace_raw_tap_analyzer_gate",
+            None,
+        )
+        end_raw_tap = getattr(
+            self.logger,
+            "end_pace_raw_tap_analyzer_gate",
+            None,
+        )
+        if callable(begin_raw_tap):
+            begin_raw_tap()
+        raw_tap_summary: Dict[str, Any] = {}
+        stable = False
+        try:
+            stable = self._wait_primary_sensor_stable(
+                point,
+                value_key="co2_ratio_f",
+                require_pressure_in_limits=False,
+                tol_override=tol,
+                window_override=window_s,
+                timeout_override=timeout_s,
+                min_samples_override=min_samples,
+                read_interval_override=read_interval_s,
+                loop_callback=lambda: self._poll_analyzer_gate_dewpoint_monitor(
+                    point,
+                    dewpoint_monitor,
+                ),
+            )
+        finally:
+            if callable(end_raw_tap):
+                raw_tap_summary = dict(end_raw_tap() or {})
+            dewpoint_monitor["end_ts"] = time.time()
+            self._set_point_runtime_fields(
+                point,
+                phase="co2",
+                **self._summarize_analyzer_gate_dewpoint_monitor(
+                    dewpoint_monitor
+                ),
+            )
+            self._restore_logger_workflow_stage(previous_stage)
+        unexpected_count = (
+            self._as_int(
+                raw_tap_summary.get(
+                    "analyzer_gate_raw_tap_unexpected_write_count"
+                )
+            )
+            or 0
+        )
+        fail_on_unexpected = getattr(
+            self.logger,
+            "pace_raw_tap_fail_on_unexpected_analyzer_gate_write",
+            None,
+        )
+        if (
+            unexpected_count > 0
+            and callable(fail_on_unexpected)
+            and bool(fail_on_unexpected())
+        ):
+            first_unexpected = str(
+                raw_tap_summary.get(
+                    "analyzer_gate_raw_tap_first_unexpected_command"
+                )
+                or ""
+            )
+            if not self._controlled_exit_final_decision:
+                self._mark_co2_route_terminal_failure(
+                    final_decision=(
+                        "FAIL_CLOSED_UNEXPECTED_PACE_COMMAND_DURING_ANALYZER_GATE"
+                    ),
+                    reason=(
+                        first_unexpected
+                        or "unexpected PACE state-changing WRITE during analyzer gate"
+                    ),
+                    point=point,
+                    phase="co2",
+                    trace_stage="co2_precondition_analyzer_gate_failure",
+                    extra_fields=raw_tap_summary,
+                )
+            stable = False
         self._append_pressure_trace_row(
             point=point,
             route="co2",
@@ -27516,6 +28972,83 @@ class CalibrationRunner:
             return False
         return True
 
+    def _begin_co2_open_flow_until_preseal_raw_tap_window(
+        self,
+        point: CalibrationPoint,
+        *,
+        reason: str = "",
+    ) -> Dict[str, Any]:
+        if self._co2_open_flow_until_preseal_raw_tap_window_active:
+            return {}
+        begin_fn = getattr(
+            self.logger,
+            "begin_pace_raw_tap_open_flow_until_preseal",
+            None,
+        )
+        fields = dict(begin_fn() or {}) if callable(begin_fn) else {}
+        self._co2_open_flow_until_preseal_raw_tap_window_active = True
+        if fields:
+            self._set_point_runtime_fields(point, phase="co2", **fields)
+        self._append_pressure_trace_row(
+            point=point,
+            route="co2",
+            point_phase="co2",
+            trace_stage="open_flow_until_preseal_raw_tap_begin",
+            pressure_target_hpa=point.target_pressure_hpa,
+            refresh_pace_state=False,
+            extra_fields=fields,
+            note=reason or "CO2 open-flow raw tap audit window begin",
+        )
+        return fields
+
+    def _end_co2_open_flow_until_preseal_raw_tap_window(
+        self,
+        point: CalibrationPoint,
+        *,
+        reason: str = "",
+    ) -> bool:
+        if not self._co2_open_flow_until_preseal_raw_tap_window_active:
+            return True
+        end_fn = getattr(
+            self.logger,
+            "end_pace_raw_tap_open_flow_until_preseal",
+            None,
+        )
+        fields = dict(end_fn() or {}) if callable(end_fn) else {}
+        self._co2_open_flow_until_preseal_raw_tap_window_active = False
+        if fields:
+            self._set_point_runtime_fields(point, phase="co2", **fields)
+        unexpected_count = (
+            self._as_int(fields.get("unexpected_state_changing_write_count")) or 0
+        )
+        first_unexpected = str(
+            fields.get("first_unexpected_state_changing_write") or ""
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route="co2",
+            point_phase="co2",
+            trace_stage="open_flow_until_preseal_raw_tap_end",
+            pressure_target_hpa=point.target_pressure_hpa,
+            refresh_pace_state=False,
+            extra_fields=fields,
+            note=reason or "CO2 open-flow raw tap audit window end",
+        )
+        if unexpected_count <= 0:
+            return True
+        self._mark_co2_route_terminal_failure(
+            final_decision="FAIL_CLOSED_PRESEAL_UNEXPECTED_PACE_COMMAND",
+            reason=(
+                first_unexpected
+                or "unexpected PACE state-changing WRITE during open-flow-to-preseal"
+            ),
+            point=point,
+            phase="co2",
+            trace_stage="sealed_group_preseal_failure",
+            pressure_target_hpa="",
+        )
+        return False
+
     def _open_co2_route_for_conditioning(self, point: CalibrationPoint, *, point_tag: str = "") -> bool:
         self._clear_last_sealed_pressure_route_context(reason="opening CO2 route for conditioning")
         self._sync_co2_source_stage_runtime_fields(point, phase="co2")
@@ -27541,13 +29074,19 @@ class CalibrationRunner:
             phase="co2",
             reason="before CO2 route conditioning",
         )
-        return self._open_route_with_pressure_guard(
+        opened = self._open_route_with_pressure_guard(
             point,
             phase="co2",
             point_tag=point_tag,
             open_valves=open_valves,
             log_context="CO2 route opened",
         )
+        if opened:
+            self._begin_co2_open_flow_until_preseal_raw_tap_window(
+                point,
+                reason="CO2 route conditioning opened",
+            )
+        return opened
 
     def _wait_h2o_route_soak_before_seal(self, point: CalibrationPoint) -> bool:
         soak_s = float(self._wf("workflow.stability.h2o_route.preseal_soak_s", 300.0))
@@ -27663,8 +29202,12 @@ class CalibrationRunner:
 
         try:
             data = dew.get_current()
+            sample_wall_ts = time.time()
             self._preseal_dewpoint_snapshot = {
-                "sample_ts": datetime.now().isoformat(timespec="milliseconds"),
+                "sample_ts": datetime.fromtimestamp(sample_wall_ts).isoformat(
+                    timespec="milliseconds"
+                ),
+                "sample_wall_ts": sample_wall_ts,
                 "dewpoint_c": data.get("dewpoint_c"),
                 "temp_c": data.get("temp_c"),
                 "rh_pct": data.get("rh_pct"),
@@ -27678,6 +29221,239 @@ class CalibrationRunner:
         except Exception as exc:
             self._preseal_dewpoint_snapshot = None
             self.log(f"Dewpoint meter pre-seal snapshot failed: {exc}")
+
+    def _check_preseal_dewpoint_freshness(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str = "co2",
+    ) -> bool:
+        if str(phase or "").strip().lower() != "co2":
+            return True
+        runtime_state = dict(
+            self._point_runtime_state(point, phase="co2") or {}
+        )
+        if str(runtime_state.get("flush_gate_status") or "").strip().lower() != "pass":
+            return True
+
+        gate_ts = self._as_float(runtime_state.get("dewpoint_gate_pass_ts"))
+        gate_value_c = self._as_float(
+            runtime_state.get("dewpoint_gate_pass_value_c")
+        )
+        tail_reference_c = self._as_float(
+            runtime_state.get("dewpoint_gate_tail_reference_c")
+        )
+        snapshot = dict(self._preseal_dewpoint_snapshot or {})
+        preseal_ts = self._as_float(snapshot.get("sample_wall_ts"))
+        preseal_value_c = self._as_float(snapshot.get("dewpoint_c"))
+
+        freshness_reference_ts = gate_ts
+        monitor_enabled = bool(
+            runtime_state.get("analyzer_gate_dewpoint_monitor_enabled")
+        )
+        monitor_sample_count = (
+            self._as_int(
+                runtime_state.get("analyzer_gate_dewpoint_live_sample_count")
+            )
+            or 0
+        )
+        monitor_last_ts_text = str(
+            runtime_state.get("analyzer_gate_dewpoint_live_last_ts") or ""
+        ).strip()
+        if monitor_enabled and monitor_sample_count > 0 and monitor_last_ts_text:
+            try:
+                freshness_reference_ts = datetime.fromisoformat(
+                    monitor_last_ts_text
+                ).timestamp()
+            except Exception:
+                freshness_reference_ts = gate_ts
+
+        age_s = None
+        if freshness_reference_ts is not None and preseal_ts is not None:
+            age_s = max(0.0, preseal_ts - freshness_reference_ts)
+        delta_c = None
+        if tail_reference_c is not None and preseal_value_c is not None:
+            delta_c = preseal_value_c - tail_reference_c
+
+        max_age_s = self._preseal_dewpoint_freshness_max_age_s()
+        rebound_limit_c = self._preseal_dewpoint_freshness_max_delta_c()
+        monitor_max_gap_s = self._as_float(
+            runtime_state.get("analyzer_gate_dewpoint_live_max_gap_s")
+        )
+        configured_max_gap_s = max(
+            0.1,
+            float(
+                self._wf(
+                    (
+                        "workflow.stability."
+                        "analyzer_gate_dewpoint_monitor_max_gap_s"
+                    ),
+                    15.0,
+                )
+                or 15.0
+            ),
+        )
+        monitor_read_error_count = (
+            self._as_int(
+                runtime_state.get(
+                    "analyzer_gate_dewpoint_read_error_count"
+                )
+            )
+            or 0
+        )
+        monitor_max_read_errors = max(
+            0,
+            int(
+                self._wf(
+                    (
+                        "workflow.stability."
+                        "analyzer_gate_dewpoint_monitor_max_read_errors"
+                    ),
+                    0,
+                )
+                or 0
+            ),
+        )
+
+        require_dry_enough = self._gas_route_dewpoint_require_dry_enough(
+            runtime_state
+        )
+        dry_enough_c = self._gas_route_dewpoint_dry_enough_c(runtime_state)
+        dry_enough_tolerance_c = self._analyzer_gate_dry_enough_tolerance_c()
+        dry_enough_hard_threshold_c = (
+            dry_enough_c + dry_enough_tolerance_c
+            if dry_enough_c is not None
+            else None
+        )
+        dry_enough_failed = bool(
+            require_dry_enough
+            and dry_enough_hard_threshold_c is not None
+            and preseal_value_c is not None
+            and preseal_value_c > dry_enough_hard_threshold_c
+        )
+        no_live_sample = bool(monitor_enabled and monitor_sample_count <= 0)
+        age_expired = age_s is None or age_s > max_age_s
+        gap_expired = bool(
+            monitor_enabled
+            and monitor_max_gap_s is not None
+            and monitor_max_gap_s > configured_max_gap_s
+        )
+        read_errors_exceeded = bool(
+            monitor_enabled
+            and monitor_read_error_count > monitor_max_read_errors
+        )
+        reference_missing = tail_reference_c is None
+        expired = bool(
+            age_expired
+            or no_live_sample
+            or gap_expired
+            or read_errors_exceeded
+            or reference_missing
+            or preseal_value_c is None
+            or dry_enough_failed
+        )
+        rebound_warning = bool(
+            delta_c is not None
+            and delta_c > rebound_limit_c
+            and not dry_enough_failed
+        )
+        if delta_c is None:
+            trend = "unknown"
+        elif delta_c > 0.05:
+            trend = "rising"
+        elif delta_c < -0.05:
+            trend = "falling"
+        else:
+            trend = "stable"
+
+        final_decision = ""
+        if dry_enough_failed:
+            final_decision = (
+                "FAIL_CLOSED_DEWPOINT_NOT_DRY_ENOUGH_DURING_PRESEAL"
+            )
+        elif reference_missing:
+            final_decision = (
+                "FAIL_CLOSED_DEWPOINT_GATE_INSUFFICIENT_COVERAGE"
+            )
+        elif gap_expired:
+            final_decision = (
+                "FAIL_CLOSED_DEWPOINT_LIVE_SAMPLE_GAP_EXCEEDED"
+            )
+        elif expired:
+            final_decision = "FAIL_CLOSED_DEWPOINT_FRESHNESS_EXPIRED"
+
+        fields = {
+            "dewpoint_gate_pass_value_c": gate_value_c,
+            "dewpoint_gate_tail_reference_c": tail_reference_c,
+            "dewpoint_preseal_value_c": preseal_value_c,
+            "dewpoint_freshness_age_s": age_s,
+            "dewpoint_delta_since_gate_c": delta_c,
+            "preseal_dewpoint_delta_vs_tail_reference_c": delta_c,
+            "dewpoint_rebound_detected": rebound_warning,
+            "preseal_dewpoint_gate_pass": not expired,
+            "preseal_dewpoint_gate_reason": (
+                "fail_closed"
+                if expired
+                else "warning_only"
+                if rebound_warning
+                else "pass"
+            ),
+            "preseal_freshness_decision": (
+                "fail_closed" if expired else "pass"
+            ),
+            "dewpoint_freshness_expired": bool(
+                age_expired
+                or no_live_sample
+                or gap_expired
+                or read_errors_exceeded
+            ),
+            "dewpoint_rebound_delta_c": delta_c,
+            "dewpoint_rebound_limit_c": rebound_limit_c,
+            "dewpoint_trend": trend,
+            "dewpoint_preseal_decision": (
+                "fail_closed" if expired else "pass"
+            ),
+        }
+        self._set_point_runtime_fields(point, phase="co2", **fields)
+        self._append_pressure_trace_row(
+            point=point,
+            route="co2",
+            point_phase="co2",
+            trace_stage="preseal_dewpoint_freshness_check",
+            pressure_target_hpa=point.target_pressure_hpa,
+            dewpoint_c=preseal_value_c,
+            refresh_pace_state=False,
+            extra_fields=fields,
+            note=(
+                f"decision={'fail_closed' if expired else 'pass'} "
+                f"age_s={age_s if age_s is not None else 'NA'} "
+                f"delta_c={delta_c if delta_c is not None else 'NA'} "
+                f"trend={trend} max_age_s={max_age_s:.3f}"
+            ),
+        )
+        if not expired:
+            return True
+
+        self._mark_co2_route_terminal_failure(
+            final_decision=(
+                final_decision
+                or "FAIL_CLOSED_DEWPOINT_FRESHNESS_EXPIRED"
+            ),
+            reason=(
+                f"age_s={age_s if age_s is not None else 'NA'} "
+                f"delta_c={delta_c if delta_c is not None else 'NA'} "
+                f"trend={trend}"
+            ),
+            point=point,
+            phase="co2",
+        )
+        self.log(
+            "CO2 preseal dewpoint freshness gate failed: "
+            f"age_s={age_s if age_s is not None else 'NA'} "
+            f"delta_c={delta_c if delta_c is not None else 'NA'} "
+            f"trend={trend} decision={final_decision}"
+        )
+        return False
 
     def _ensure_dewpoint_meter_ready(self) -> bool:
         dew = self.devices.get("dewpoint")
@@ -28161,10 +29937,20 @@ class CalibrationRunner:
                 phase=phase,
                 wait_reason="封压准备",
             )
+            if route_name == "co2" and not self._end_co2_open_flow_until_preseal_raw_tap_window(
+                point,
+                reason="before CO2 preseal VENT0",
+            ):
+                return False
             if route_name == "co2":
                 self._capture_preseal_dewpoint_snapshot(prefer_cached_pressure=True)
             else:
                 self._capture_preseal_dewpoint_snapshot()
+            if route_name == "co2" and not self._check_preseal_dewpoint_freshness(
+                point,
+                phase=phase,
+            ):
+                return False
             self._set_point_runtime_fields(
                 point,
                 phase=phase,
@@ -30719,7 +32505,6 @@ class CalibrationRunner:
 
     def _sample_and_log(self, point: CalibrationPoint, phase: str = "", point_tag: str = "") -> None:
         count, interval = self._sampling_params(phase=phase)
-        scfg = self.cfg["workflow"]["sampling"]
         qcfg = self.cfg.get("workflow", {}).get("sampling", {}).get("quality", {})
         retries = int(qcfg.get("retries", 0) or 0) if qcfg.get("enabled", False) else 0
 
@@ -31083,7 +32868,6 @@ class CalibrationRunner:
             )
         )
         stability_tol_c = float(self._wf("workflow.stability.dewpoint.stability_tol_c", 0.01))
-        target_humidity_rh = self._as_float(getattr(point, "hgen_rh_pct", None)) if point is not None else None
         rh_match_tol_pct = base_rh_match_tol_pct
 
         start = time.time()

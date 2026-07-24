@@ -9,7 +9,7 @@ pytest.importorskip("sqlalchemy")
 from sqlalchemy import func, inspect, select
 
 from gas_calibrator.v2.config import AppConfig
-from gas_calibrator.v2.core.calibration_service import CalibrationPhase, CalibrationService
+from gas_calibrator.v2.core.calibration_service import CalibrationService
 from gas_calibrator.v2.core.device_manager import DeviceManager
 from gas_calibrator.v2.core.stability_checker import StabilityResult
 from gas_calibrator.v2.storage import (
@@ -23,7 +23,6 @@ from gas_calibrator.v2.storage import (
 from gas_calibrator.v2.storage.database import resolve_run_uuid
 from gas_calibrator.v2.storage.models import (
     AlarmIncidentRecord,
-    CoefficientVersionRecord,
     DeviceEventRecord,
     FitResultRecord,
     MeasurementFrameRecord,
@@ -251,6 +250,17 @@ def _repo_runtime_run_dir() -> Path:
     )
 
 
+def _repo_runtime_run_dir_or_skip() -> Path:
+    run_dir = _repo_runtime_run_dir()
+    samples_runtime_path = run_dir / "samples_runtime.csv"
+    if not samples_runtime_path.is_file():
+        pytest.skip(
+            "real measurement-frame fixture is not distributed with the repository: "
+            f"{samples_runtime_path}"
+        )
+    return run_dir
+
+
 def _expected_measurement_frame_count(samples_runtime_path: Path) -> int:
     presence_suffixes = (
         "frame_has_data",
@@ -444,10 +454,9 @@ def test_artifact_import_supports_raw_and_enrich_stages(tmp_path: Path) -> None:
 
 
 def test_measurement_frames_imports_real_samples_runtime_as_long_table(tmp_path: Path) -> None:
+    run_dir = _repo_runtime_run_dir_or_skip()
     database = DatabaseManager(_storage_settings(tmp_path))
     database.initialize()
-    run_dir = _repo_runtime_run_dir()
-    assert (run_dir / "samples_runtime.csv").exists()
     importer = ArtifactImporter(database)
 
     raw = importer.import_raw_run_directory(run_dir)
@@ -478,9 +487,9 @@ def test_measurement_frames_imports_real_samples_runtime_as_long_table(tmp_path:
 
 
 def test_measurement_frames_import_is_idempotent_for_real_run(tmp_path: Path) -> None:
+    run_dir = _repo_runtime_run_dir_or_skip()
     database = DatabaseManager(_storage_settings(tmp_path))
     database.initialize()
-    run_dir = _repo_runtime_run_dir()
     importer = ArtifactImporter(database)
     expected_count = _expected_measurement_frame_count(run_dir / "samples_runtime.csv")
 
@@ -493,9 +502,9 @@ def test_measurement_frames_import_is_idempotent_for_real_run(tmp_path: Path) ->
 
 
 def test_measurement_frames_import_tolerates_missing_analyzer_columns(tmp_path: Path) -> None:
+    source_run_dir = _repo_runtime_run_dir_or_skip()
     database = DatabaseManager(_storage_settings(tmp_path))
     database.initialize()
-    source_run_dir = _repo_runtime_run_dir()
     run_dir = tmp_path / source_run_dir.name
     shutil.copytree(source_run_dir, run_dir)
     samples_runtime_path = run_dir / "samples_runtime.csv"

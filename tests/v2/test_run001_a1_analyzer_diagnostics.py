@@ -126,16 +126,19 @@ def _factory_for(behavior_by_id: Mapping[str, str]):
     return _factory
 
 
-def test_run001_a1_config_maps_failed_logical_ids_to_ga02_ga04() -> None:
+def test_run001_a1_config_maps_logical_ids_to_verified_ports() -> None:
     configs = run001_a1_analyzer_configs(_raw_config())
     selected = {cfg["logical_id"]: cfg for cfg in configs}
 
     assert selected["gas_analyzer_1"]["physical_label"] == "GA02"
-    assert selected["gas_analyzer_1"]["configured_port"] == "COM36"
+    assert selected["gas_analyzer_1"]["configured_port"] == "COM37"
+    assert selected["gas_analyzer_1"]["expected_device_id"] == "029"
     assert selected["gas_analyzer_2"]["physical_label"] == "GA03"
-    assert selected["gas_analyzer_2"]["configured_port"] == "COM37"
+    assert selected["gas_analyzer_2"]["configured_port"] == "COM41"
+    assert selected["gas_analyzer_2"]["expected_device_id"] == "003"
     assert selected["gas_analyzer_3"]["physical_label"] == "GA04"
-    assert selected["gas_analyzer_3"]["configured_port"] == "COM38"
+    assert selected["gas_analyzer_3"]["configured_port"] == "COM42"
+    assert selected["gas_analyzer_3"]["expected_device_id"] == "004"
     assert selected["gas_analyzer_1"]["baudrate"] == 115200
     assert selected["gas_analyzer_1"]["expected_mode"] == 2
     assert selected["gas_analyzer_1"]["active_send_expected"] is True

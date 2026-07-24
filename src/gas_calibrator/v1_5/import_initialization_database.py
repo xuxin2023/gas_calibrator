@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-from ..v2.storage.database import DatabaseManager, StorageSettings, load_storage_config_file
+from ..storage.database import DatabaseManager, StorageSettings, load_storage_config_file
 from .initialization_database import (
     build_v1_5_initialization_storage_preview,
     build_v1_5_runtime_setup_storage_preview,

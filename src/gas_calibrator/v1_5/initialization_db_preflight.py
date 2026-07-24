@@ -17,8 +17,8 @@ from typing import Any, Mapping, Sequence
 from sqlalchemy import or_, select, text
 from sqlalchemy.orm import Session
 
-from ..v2.storage.database import DatabaseManager, StorageSettings
-from ..v2.storage.models import DeviceEventRecord, SensorIdentityAliasRecord, SensorRecord
+from ..storage.database import DatabaseManager
+from ..storage.models import DeviceEventRecord, SensorIdentityAliasRecord, SensorRecord
 
 
 INIT_EVENT_TYPE = "v1_5_initialization_identity_bound"

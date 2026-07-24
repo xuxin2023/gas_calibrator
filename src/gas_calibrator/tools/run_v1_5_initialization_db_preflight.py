@@ -12,7 +12,7 @@ from ..v1_5.initialization_db_preflight import (
     build_v1_5_initialization_db_preflight,
     write_v1_5_initialization_db_preflight_report,
 )
-from ..v2.storage.database import DatabaseManager, StorageSettings, load_storage_config_file
+from ..storage.database import DatabaseManager, StorageSettings, load_storage_config_file
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

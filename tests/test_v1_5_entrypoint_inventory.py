@@ -129,6 +129,22 @@ def test_entrypoint_classifier_keeps_offline_sidecars_out_of_real_com_risk(tmp_p
     assert archive_entry.notes == ("offline archive closure; does not open COM ports or control routes",)
 
 
+def test_entrypoint_classifier_marks_web_console_as_offline_ui_review(tmp_path: Path) -> None:
+    root = tmp_path
+    web_console = root / "src/gas_calibrator/tools/run_v1_5_web_console.py"
+    web_console.parent.mkdir(parents=True, exist_ok=True)
+    web_console.write_text("", encoding="utf-8")
+
+    entry = classify_v1_5_entrypoint(web_console, root=root)
+
+    assert entry.category == "ui_review"
+    assert entry.formal_status == "local_read_only_web_console"
+    assert entry.risk_level == "offline"
+    assert entry.opens_com_ports is False
+    assert entry.controls_routes is False
+    assert entry.writes_coefficients is False
+
+
 def test_entrypoint_classifier_treats_getco_snapshot_as_formal_precheck(tmp_path: Path) -> None:
     root = tmp_path
     getco = root / "src/gas_calibrator/tools/probe_v1_5_getco_component_snapshot.py"

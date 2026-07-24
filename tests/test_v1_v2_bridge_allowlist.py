@@ -39,8 +39,23 @@ BRIDGE_OR_SIDECAR_FILES = {
 SHARED_CANDIDATE_FILES = {
     SRC_ROOT / "gas_calibrator/tools/_no500_filter.py",
 }
+STEP3A_ENGINEERING_PROBE_DRIVER_IMPORTS = {
+    (
+        SRC_ROOT / "gas_calibrator/v2/core/run001_a1_analyzer_diagnostics.py",
+        SRC_ROOT / "gas_calibrator/devices/gas_analyzer.py",
+    ),
+    (
+        SRC_ROOT / "gas_calibrator/v2/core/run001_a1r_minimal_no_write_sampling_probe.py",
+        SRC_ROOT / "gas_calibrator/devices/gas_analyzer.py",
+    ),
+    (
+        SRC_ROOT / "gas_calibrator/v2/core/run001_r1_conditioning_only_probe.py",
+        SRC_ROOT / "gas_calibrator/devices/gas_analyzer.py",
+    ),
+}
 APPROVED_CROSS_BOUNDARY_SOURCES = BRIDGE_OR_SIDECAR_FILES | {
     SRC_ROOT / "gas_calibrator/tools/run_v1_corrected_autodelivery.py",
+    *(source for source, _target in STEP3A_ENGINEERING_PROBE_DRIVER_IMPORTS),
 }
 
 
@@ -122,6 +137,8 @@ def test_cross_boundary_imports_match_allowlist() -> None:
             violations.append(f"{source}:{lineno} {source_owner}->{target_owner} via {target}")
             continue
         if source_owner == "V2_RUNTIME" and target_owner in {"V1_RUNTIME", "BRIDGE_OR_SIDECAR"}:
+            if (source, target) in STEP3A_ENGINEERING_PROBE_DRIVER_IMPORTS:
+                continue
             violations.append(f"{source}:{lineno} {source_owner}->{target_owner} via {target}")
             continue
         if source_owner == "SHARED_CANDIDATE" and target_owner != "SHARED_CANDIDATE":

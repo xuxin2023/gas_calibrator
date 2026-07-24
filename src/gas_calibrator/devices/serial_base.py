@@ -192,6 +192,21 @@ class SerialDevice:
             # Logging must never break device communication.
             pass
 
+    def _log_raw_serial_tap(self, direction: str, raw_bytes: Any = b"") -> None:
+        logger = self.io_logger
+        if not logger or not hasattr(logger, "log_raw_serial_tap"):
+            return
+        try:
+            logger.log_raw_serial_tap(
+                port=self._safe_log_field(self.port) or "",
+                device_label=self._safe_log_field(self.device_name) or "",
+                direction=self._safe_log_field(direction) or "",
+                raw_bytes=raw_bytes,
+            )
+        except Exception:
+            # Raw transport audit must never perturb serial communication.
+            pass
+
     @classmethod
     def _is_recoverable_serial_error(cls, exc: BaseException) -> bool:
         serial_exception = getattr(_serial, "SerialException", None)
@@ -251,6 +266,7 @@ class SerialDevice:
             for idx in range(attempts):
                 try:
                     self._open_once_locked()
+                    self._log_raw_serial_tap("OPEN")
                     self._log_io("OPEN", command="open")
                     return
                 except Exception as exc:
@@ -279,6 +295,7 @@ class SerialDevice:
             if self._ser:
                 try:
                     self._ser.close()
+                    self._log_raw_serial_tap("CLOSE")
                     self._log_io("CLOSE", command="close")
                 except Exception as exc:
                     self._log_io("ERROR", command="close", error=exc)
@@ -326,8 +343,10 @@ class SerialDevice:
             raise RuntimeError("serial not open")
 
         def _write_once() -> None:
-            self._ser.write(data.encode("ascii", errors="ignore"))
+            payload = data.encode("ascii", errors="ignore")
+            self._ser.write(payload)
             self._ser.flush()
+            self._log_raw_serial_tap("WRITE", payload)
             self._log_io("TX", command=data)
 
         self._run_io(data, _write_once)
@@ -339,6 +358,7 @@ class SerialDevice:
         def _readline_once() -> str:
             line = self._ser.readline()
             decoded = line.decode("ascii", errors="ignore").strip()
+            self._log_raw_serial_tap("READLINE", line)
             self._log_io("RX", response=decoded)
             return decoded
 
@@ -357,6 +377,7 @@ class SerialDevice:
                 return ""
             raw = self._ser.read(waiting)
             decoded = raw.decode("ascii", errors="ignore").strip()
+            self._log_raw_serial_tap("READ", raw)
             self._log_io("RX", response=decoded)
             return decoded
 
@@ -393,8 +414,10 @@ class SerialDevice:
                     if callable(reset_input_buffer):
                         reset_input_buffer()
                         self._log_io("RX", response="<flush_input>")
-                self._ser.write(data.encode("ascii", errors="ignore"))
+                payload = data.encode("ascii", errors="ignore")
+                self._ser.write(payload)
                 self._ser.flush()
+                self._log_raw_serial_tap("WRITE", payload)
                 self._log_io("TX", command=data)
 
                 deadline = time.monotonic() + total_timeout_s
@@ -406,6 +429,7 @@ class SerialDevice:
                         self._ser.timeout = max(0.01, min(poll_timeout_s, remaining))
                     raw = self._ser.readline()
                     decoded = raw.decode("ascii", errors="ignore").strip()
+                    self._log_raw_serial_tap("READLINE", raw)
                     self._log_io("RX", response=decoded)
                     lines.append(decoded)
                 return lines
