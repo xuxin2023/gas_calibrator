@@ -143,7 +143,8 @@ storage would leak V2 artifact, acceptance, or product-report policy into produc
 infrastructure. The retained boundary is covered by object-ownership tests. Three historical
 measurement-frame importer tests remain unavailable because the repository does not contain their
 referenced real `samples_runtime.csv` fixture; no synthetic file was introduced as a substitute
-for real-run evidence.
+for real-run evidence. They now report an explicit conditional skip and automatically execute when
+the real fixture is restored.
 
 The final generic utility review moved the stateless conversion helpers from
 `gas_calibrator.v2.utils.converters` to `gas_calibrator.utils.converters`. Both the V2 package and
@@ -213,7 +214,7 @@ Current verification for this reviewed control slice:
 - V1.5 initialization/readiness ownership, V2 compatibility identity, idempotent readiness import,
   batch rollback, namespace isolation, and disposition classification selection: 30 passed;
 - V2 offline-run CLI, product exporter, shared-infrastructure ownership, export resilience,
-  namespace, and disposition selection: 25 passed, 3 missing-real-fixture tests deselected;
+  namespace, and disposition selection: 25 passed, 3 missing-real-fixture tests skipped;
 - shared converter identity plus V2 point-parser, route-planner, stability, device-manager,
   sampling, humidity-generator, and orchestrator consumers: 92 passed;
 - summary parity, export resilience, historical fit-profile parity, offline artifacts, and offline
@@ -288,8 +289,8 @@ The generated CSV, JSON, and Markdown evidence is retained under
 
 1. Review the global no-write product policy separately from the completed PACE/dewpoint safety
    contracts; do not make it the production default implicitly.
-2. Restore or deliberately retire the three historical measurement-frame tests that depend on the
-   absent real `samples_runtime.csv` fixture; do not replace it with synthetic acceptance evidence.
+2. Restore the real `samples_runtime.csv` fixture to re-enable the three explicitly skipped
+   measurement-frame tests; do not replace it with synthetic acceptance evidence.
 3. Keep V2 algorithm and execution code simulation/replay/shadow-only until independent real
    acceptance is completed.
 4. Preserve the V1 fallback and keep the default entry unchanged throughout the integration.
