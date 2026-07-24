@@ -74,6 +74,8 @@ python -m gas_calibrator.v2.scripts.run_simulation_suite --suite parity
 
 `regression` 和 `nightly` 另包含 `ec_dynamic_system_identification_contract`。该用例以 PRBS、上游参考、Welch H1 和相干性验证经验传递函数估计器；命令量只作气源链诊断。分段区间不是正式计量置信区间，结果仍固定为 simulated / promotion blocked。详见 [`docs/metrology/ec_d1_offline_system_identification.md`](../../../docs/metrology/ec_d1_offline_system_identification.md)。
 
+`regression` 和 `nightly` 还包含纯气体分析仪范围的 `gas_analyzer_dynamic_uncertainty_contract`：输出 5%、10% 和 −3 dB 带宽、等效相位延迟及分量化工程不确定度。动态衰减作为偏差单独报告，不输出反卷积系数；EC 协谱与通量闭合明确不在范围内。详见 [`docs/metrology/ga_d2_gas_analyzer_dynamic_uncertainty.md`](../../../docs/metrology/ga_d2_gas_analyzer_dynamic_uncertainty.md)。
+
 回放与离线治理：
 
 ```powershell
