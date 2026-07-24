@@ -1,0 +1,5 @@
+timestamp,point_index,point_tag,temperature_c,co2_ppm,humidity_pct,pressure_hpa,route,status,stability_time_s,total_time_s
+2026-03-20T05:36:19.981,9,,0.0,,50.0,1100.0,h2o,completed,,
+2026-03-20T05:52:24.553,12,,0.0,0.0,,1100.0,co2,completed,,
+2026-03-20T06:08:07.688,10,,0.0,400.0,,800.0,co2,completed,,
+2026-03-20T06:23:47.928,11,,0.0,1000.0,,500.0,co2,completed,,

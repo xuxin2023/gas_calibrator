@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -240,25 +241,34 @@ def _write_run_artifacts(tmp_path: Path) -> Path:
 def _repo_runtime_run_dir() -> Path:
     return (
         Path(__file__).resolve().parents[2]
-        / "src"
-        / "gas_calibrator"
+        / "tests"
         / "v2"
-        / "output"
-        / "v1_v2_compare"
-        / "v2_collect_0c"
+        / "fixtures"
+        / "real_measurement_frames"
         / "run_20260320_043540"
     )
 
 
-def _repo_runtime_run_dir_or_skip() -> Path:
+def test_real_measurement_frame_fixture_matches_manifest() -> None:
     run_dir = _repo_runtime_run_dir()
-    samples_runtime_path = run_dir / "samples_runtime.csv"
-    if not samples_runtime_path.is_file():
-        pytest.skip(
-            "real measurement-frame fixture is not distributed with the repository: "
-            f"{samples_runtime_path}"
-        )
-    return run_dir
+    fixture_path = run_dir / "samples_runtime.csv"
+    manifest = json.loads((run_dir / "fixture_manifest.json").read_text(encoding="utf-8"))
+
+    payload = fixture_path.read_bytes()
+    assert len(payload) == manifest["size_bytes"]
+    assert hashlib.sha256(payload).hexdigest() == manifest["sha256"]
+    assert sum(1 for _ in fixture_path.open("r", encoding="utf-8", newline="")) - 1 == manifest["row_count"]
+
+    context = manifest["required_context"]
+    context_path = run_dir / context["file"]
+    context_payload = context_path.read_bytes()
+    assert len(context_payload) == context["size_bytes"]
+    assert hashlib.sha256(context_payload).hexdigest() == context["sha256"]
+    assert sum(1 for _ in context_path.open("r", encoding="utf-8", newline="")) - 1 == context["row_count"]
+
+    assert manifest["evidence_source"] == "real_historical_run"
+    assert manifest["test_only"] is True
+    assert manifest["not_real_acceptance_evidence"] is True
 
 
 def _expected_measurement_frame_count(samples_runtime_path: Path) -> int:
@@ -454,7 +464,7 @@ def test_artifact_import_supports_raw_and_enrich_stages(tmp_path: Path) -> None:
 
 
 def test_measurement_frames_imports_real_samples_runtime_as_long_table(tmp_path: Path) -> None:
-    run_dir = _repo_runtime_run_dir_or_skip()
+    run_dir = _repo_runtime_run_dir()
     database = DatabaseManager(_storage_settings(tmp_path))
     database.initialize()
     importer = ArtifactImporter(database)
@@ -487,7 +497,7 @@ def test_measurement_frames_imports_real_samples_runtime_as_long_table(tmp_path:
 
 
 def test_measurement_frames_import_is_idempotent_for_real_run(tmp_path: Path) -> None:
-    run_dir = _repo_runtime_run_dir_or_skip()
+    run_dir = _repo_runtime_run_dir()
     database = DatabaseManager(_storage_settings(tmp_path))
     database.initialize()
     importer = ArtifactImporter(database)
@@ -502,7 +512,7 @@ def test_measurement_frames_import_is_idempotent_for_real_run(tmp_path: Path) ->
 
 
 def test_measurement_frames_import_tolerates_missing_analyzer_columns(tmp_path: Path) -> None:
-    source_run_dir = _repo_runtime_run_dir_or_skip()
+    source_run_dir = _repo_runtime_run_dir()
     database = DatabaseManager(_storage_settings(tmp_path))
     database.initialize()
     run_dir = tmp_path / source_run_dir.name

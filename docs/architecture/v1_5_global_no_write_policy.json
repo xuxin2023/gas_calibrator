@@ -1,0 +1,44 @@
+{
+  "policy_id": "v1_5_global_no_write_policy_v1",
+  "decision_date": "2026-07-24",
+  "decision": "no_implicit_global_no_write_guard",
+  "status": "accepted",
+  "production_default": {
+    "global_no_write_guard_enabled": false,
+    "reason": "An implicit global guard would change established V1 and V1.5 controlled-write production semantics."
+  },
+  "protected_invariants": {
+    "v1_fallback_preserved": true,
+    "run_app_default_entry_unchanged": true,
+    "v2_real_com_default_allowed": false,
+    "v2_real_acceptance_claim_allowed": false
+  },
+  "scope_policy": {
+    "simulation_replay_offline": {
+      "no_write_required": true
+    },
+    "v2_step3a_engineering_probe": {
+      "no_write_required": true,
+      "dual_unlock_required": true,
+      "operator_confirmation_record_required": true,
+      "engineering_probe_only": true,
+      "promotion_state": "blocked",
+      "not_real_acceptance_evidence": true
+    },
+    "v1_v1_5_controlled_write": {
+      "implicit_global_block": false,
+      "operation_specific_authorization_required": true,
+      "prewrite_snapshot_required": true,
+      "postwrite_readback_required": true,
+      "rollback_plan_required": true,
+      "postwrite_reverification_required": true
+    }
+  },
+  "future_change_gate": {
+    "separate_adr_required": true,
+    "v1_production_impact_review_required": true,
+    "parity_required": true,
+    "writeback_fault_injection_required": true,
+    "explicit_user_authorization_required": true
+  }
+}
