@@ -7,12 +7,20 @@ from typing import Any
 _EXPORTS = {
     "DEFAULT_REPLAY_FIXTURE_ROOT": ("gas_calibrator.v2.sim.replay", "DEFAULT_REPLAY_FIXTURE_ROOT"),
     "DynamicProtocolDefinition": ("gas_calibrator.v2.sim.ec_dynamic", "DynamicProtocolDefinition"),
+    "SystemIdentificationProtocol": (
+        "gas_calibrator.v2.sim.ec_system_identification",
+        "SystemIdentificationProtocol",
+    ),
     "SimulatedScenarioDefinition": ("gas_calibrator.v2.sim.scenarios", "SimulatedScenarioDefinition"),
     "SimulationSuiteCase": ("gas_calibrator.v2.sim.scenarios", "SimulationSuiteCase"),
     "SimulationSuiteDefinition": ("gas_calibrator.v2.sim.scenarios", "SimulationSuiteDefinition"),
     "build_ec_dynamic_offline_report": (
         "gas_calibrator.v2.sim.ec_dynamic",
         "build_ec_dynamic_offline_report",
+    ),
+    "build_ec_system_identification_offline_report": (
+        "gas_calibrator.v2.sim.ec_system_identification",
+        "build_ec_system_identification_offline_report",
     ),
     "build_protocol_simulated_compare_result": (
         "gas_calibrator.v2.sim.protocol",
@@ -28,7 +36,12 @@ _EXPORTS = {
     "list_simulation_suites": ("gas_calibrator.v2.sim.scenarios", "list_simulation_suites"),
     "load_replay_fixture": ("gas_calibrator.v2.sim.replay", "load_replay_fixture"),
     "materialize_replay_fixture": ("gas_calibrator.v2.sim.replay", "materialize_replay_fixture"),
+    "generate_prbs": ("gas_calibrator.v2.sim.ec_system_identification", "generate_prbs"),
     "simulate_dynamic_protocol": ("gas_calibrator.v2.sim.ec_dynamic", "simulate_dynamic_protocol"),
+    "simulate_system_identification": (
+        "gas_calibrator.v2.sim.ec_system_identification",
+        "simulate_system_identification",
+    ),
     "simulated_profile_defaults": ("gas_calibrator.v2.sim.scenarios", "simulated_profile_defaults"),
 }
 

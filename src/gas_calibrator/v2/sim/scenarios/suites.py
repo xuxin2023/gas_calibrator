@@ -64,6 +64,11 @@ SUITES: dict[str, SimulationSuiteDefinition] = {
             _scenario_case("pressure_reference_degraded", expected_statuses=("MATCH",)),
             _scenario_case("pressure_gauge_wrong_unit_configuration", expected_statuses=("MATCH",)),
             SimulationSuiteCase(name="ec_dynamic_offline_contract", kind="ec_dynamic", expected_statuses=("MATCH",)),
+            SimulationSuiteCase(
+                name="ec_dynamic_system_identification_contract",
+                kind="ec_system_id",
+                expected_statuses=("MATCH",),
+            ),
             SimulationSuiteCase(name="primary_latest_missing", kind="replay", expected_statuses=("SNAPSHOT_ONLY",)),
             SimulationSuiteCase(
                 name="stale_h2o_latest_present_but_not_primary",
@@ -96,6 +101,11 @@ SUITES: dict[str, SimulationSuiteDefinition] = {
                 expected_statuses=("SNAPSHOT_ONLY",),
             ),
             SimulationSuiteCase(name="ec_dynamic_offline_contract", kind="ec_dynamic", expected_statuses=("MATCH",)),
+            SimulationSuiteCase(
+                name="ec_dynamic_system_identification_contract",
+                kind="ec_system_id",
+                expected_statuses=("MATCH",),
+            ),
             SimulationSuiteCase(name="export_resilience", kind="resilience", expected_statuses=("MATCH",)),
             SimulationSuiteCase(name="summary_parity", kind="parity", expected_statuses=("MATCH",)),
         ),

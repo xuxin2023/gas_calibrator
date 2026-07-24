@@ -72,6 +72,8 @@ python -m gas_calibrator.v2.scripts.run_simulation_suite --suite parity
 
 `smoke`、`regression` 和 `nightly` 均包含 `ec_dynamic_offline_contract`。该用例只验证 CO2/H2O 合成阶跃、串联延迟、采样时钟和异常拒绝能力；其结论固定为 simulation contract，不是 EC real acceptance。
 
+`regression` 和 `nightly` 另包含 `ec_dynamic_system_identification_contract`。该用例以 PRBS、上游参考、Welch H1 和相干性验证经验传递函数估计器；命令量只作气源链诊断。分段区间不是正式计量置信区间，结果仍固定为 simulated / promotion blocked。详见 [`docs/metrology/ec_d1_offline_system_identification.md`](../../../docs/metrology/ec_d1_offline_system_identification.md)。
+
 回放与离线治理：
 
 ```powershell
