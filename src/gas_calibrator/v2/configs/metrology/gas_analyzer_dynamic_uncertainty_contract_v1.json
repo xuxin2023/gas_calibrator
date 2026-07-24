@@ -1,0 +1,88 @@
+{
+  "schema_version": "gas_analyzer_dynamic_uncertainty_contract_v1",
+  "contract_id": "ga-d2-offline-dynamic-uncertainty-20260724",
+  "scope": "simulation_gas_analyzer_dynamic_performance_regression_only",
+  "evidence_boundary": {
+    "evidence_source": "simulated",
+    "not_real_acceptance_evidence": true,
+    "acceptance_level": "offline_regression",
+    "promotion_state": "blocked",
+    "real_primary_latest_refresh_allowed": false,
+    "device_io_allowed": false,
+    "coefficient_write_allowed": false,
+    "automatic_dynamic_correction_allowed": false
+  },
+  "evaluation_grid": {
+    "sample_rate_hz": 20.0,
+    "segment_size": 512,
+    "first_positive_bin": 1,
+    "last_positive_bin": 51,
+    "warmup_s": 10.0
+  },
+  "bandwidth_thresholds": {
+    "five_percent_attenuation": 0.95,
+    "ten_percent_attenuation": 0.90,
+    "minus_3db": 0.7071067811865476
+  },
+  "uncertainty_model": {
+    "coverage_factor": 2.0,
+    "welch_overlap_independent_fraction": 0.5,
+    "reference_amplitude_relative_standard_uncertainty": 0.005,
+    "reference_phase_standard_uncertainty_deg": 0.25,
+    "clock_timing_standard_uncertainty_s": 0.0005,
+    "spectral_leakage_amplitude_relative_standard_uncertainty": 0.003,
+    "spectral_leakage_phase_standard_uncertainty_deg": 0.20,
+    "bandwidth_bin_standard_uncertainty_divisor": 3.4641016151377544
+  },
+  "required_path_metadata": [
+    "analyzer_id",
+    "gas",
+    "serial_position",
+    "sample_rate_hz",
+    "tube_length_m",
+    "tube_inner_diameter_mm",
+    "tube_material",
+    "flow_slpm",
+    "cell_pressure_hpa",
+    "cell_temperature_c",
+    "relative_humidity_pct",
+    "heated_tube",
+    "filter_id",
+    "transport_delay_s",
+    "timestamp_source"
+  ],
+  "common_fixture_limits": {
+    "min_evaluation_frequency_count": 51,
+    "min_prbs_period_count_after_warmup": 1.0,
+    "max_timestamp_jitter_ratio": 0.01,
+    "min_source_separation_ratio": 0.08,
+    "min_coherence": 0.95,
+    "max_bandwidth_relative_error": 0.20,
+    "max_decision_bandwidth_expanded_relative_uncertainty": 0.35,
+    "max_expanded_amplitude_relative_uncertainty": 0.08,
+    "max_expanded_phase_uncertainty_deg": 5.0
+  },
+  "gas_fixture_limits": {
+    "co2": {
+      "min_ten_percent_bandwidth_hz": 0.25,
+      "min_minus_3db_bandwidth_hz": 0.55
+    },
+    "h2o": {
+      "min_ten_percent_bandwidth_hz": 0.08,
+      "min_minus_3db_bandwidth_hz": 0.25
+    }
+  },
+  "interpretation": {
+    "limits_are_product_specifications": false,
+    "limits_purpose": "Detect regression of gas-analyzer dynamic bandwidth and engineering uncertainty calculations against bounded synthetic fixtures.",
+    "gas_analyzer_only": true,
+    "ec_flux_or_cospectral_correction_in_scope": false,
+    "static_calibration_gain_assumed_normalized_to_unity": true,
+    "dynamic_attenuation_is_bias_not_uncertainty": true,
+    "five_percent_bandwidth_is_diagnostic_when_uncertainty_is_large": true,
+    "uncertainty_is_offline_engineering_only": true,
+    "uncertainty_is_formal_metrological_claim": false,
+    "automatic_deconvolution_or_correction_allowed": false,
+    "real_acceptance_requires_separate_authorization_and_bench_protocol": true
+  }
+}

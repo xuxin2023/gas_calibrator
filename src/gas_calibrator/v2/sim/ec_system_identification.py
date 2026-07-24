@@ -243,7 +243,7 @@ def build_ec_system_identification_offline_report(
     report_dir.mkdir(parents=True, exist_ok=True)
     series_rows: list[dict[str, Any]] = []
     analyses: list[dict[str, Any]] = []
-    for protocol, path in _default_fixtures():
+    for protocol, path in default_system_identification_fixtures():
         series = simulate_system_identification(
             protocol,
             path,
@@ -322,7 +322,9 @@ def build_ec_system_identification_offline_report(
     }
 
 
-def _default_fixtures() -> list[tuple[SystemIdentificationProtocol, DynamicPathMetadata]]:
+def default_system_identification_fixtures() -> list[
+    tuple[SystemIdentificationProtocol, DynamicPathMetadata]
+]:
     co2_protocol = SystemIdentificationProtocol(
         protocol_id="ec_d1_co2_prbs",
         gas="co2",
@@ -535,6 +537,7 @@ __all__ = [
     "DEFAULT_SYSTEM_ID_CONTRACT_PATH",
     "SystemIdentificationProtocol",
     "build_ec_system_identification_offline_report",
+    "default_system_identification_fixtures",
     "generate_prbs",
     "load_system_identification_contract",
     "simulate_system_identification",

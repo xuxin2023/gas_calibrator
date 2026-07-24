@@ -22,6 +22,10 @@ _EXPORTS = {
         "gas_calibrator.v2.sim.ec_system_identification",
         "build_ec_system_identification_offline_report",
     ),
+    "build_gas_analyzer_dynamic_uncertainty_offline_report": (
+        "gas_calibrator.v2.sim.gas_analyzer_dynamic_uncertainty",
+        "build_gas_analyzer_dynamic_uncertainty_offline_report",
+    ),
     "build_protocol_simulated_compare_result": (
         "gas_calibrator.v2.sim.protocol",
         "build_protocol_simulated_compare_result",
@@ -37,6 +41,10 @@ _EXPORTS = {
     "load_replay_fixture": ("gas_calibrator.v2.sim.replay", "load_replay_fixture"),
     "materialize_replay_fixture": ("gas_calibrator.v2.sim.replay", "materialize_replay_fixture"),
     "generate_prbs": ("gas_calibrator.v2.sim.ec_system_identification", "generate_prbs"),
+    "default_system_identification_fixtures": (
+        "gas_calibrator.v2.sim.ec_system_identification",
+        "default_system_identification_fixtures",
+    ),
     "simulate_dynamic_protocol": ("gas_calibrator.v2.sim.ec_dynamic", "simulate_dynamic_protocol"),
     "simulate_system_identification": (
         "gas_calibrator.v2.sim.ec_system_identification",
