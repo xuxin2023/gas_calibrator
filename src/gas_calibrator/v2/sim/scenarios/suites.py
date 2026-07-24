@@ -42,6 +42,7 @@ SUITES: dict[str, SimulationSuiteDefinition] = {
             _scenario_case("relay_stuck_channel_causes_route_mismatch", expected_statuses=("MISMATCH",)),
             _scenario_case("thermometer_stale_reference", expected_statuses=("MATCH",)),
             _scenario_case("pressure_reference_degraded", expected_statuses=("MATCH",)),
+            SimulationSuiteCase(name="ec_dynamic_offline_contract", kind="ec_dynamic", expected_statuses=("MATCH",)),
             SimulationSuiteCase(name="summary_parity", kind="parity", expected_statuses=("MATCH",)),
         ),
     ),
@@ -62,6 +63,7 @@ SUITES: dict[str, SimulationSuiteDefinition] = {
             _scenario_case("thermometer_no_response", expected_statuses=("MATCH",)),
             _scenario_case("pressure_reference_degraded", expected_statuses=("MATCH",)),
             _scenario_case("pressure_gauge_wrong_unit_configuration", expected_statuses=("MATCH",)),
+            SimulationSuiteCase(name="ec_dynamic_offline_contract", kind="ec_dynamic", expected_statuses=("MATCH",)),
             SimulationSuiteCase(name="primary_latest_missing", kind="replay", expected_statuses=("SNAPSHOT_ONLY",)),
             SimulationSuiteCase(
                 name="stale_h2o_latest_present_but_not_primary",
@@ -93,6 +95,7 @@ SUITES: dict[str, SimulationSuiteDefinition] = {
                 kind="replay",
                 expected_statuses=("SNAPSHOT_ONLY",),
             ),
+            SimulationSuiteCase(name="ec_dynamic_offline_contract", kind="ec_dynamic", expected_statuses=("MATCH",)),
             SimulationSuiteCase(name="export_resilience", kind="resilience", expected_statuses=("MATCH",)),
             SimulationSuiteCase(name="summary_parity", kind="parity", expected_statuses=("MATCH",)),
         ),

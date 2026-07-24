@@ -6,9 +6,14 @@ from typing import Any
 
 _EXPORTS = {
     "DEFAULT_REPLAY_FIXTURE_ROOT": ("gas_calibrator.v2.sim.replay", "DEFAULT_REPLAY_FIXTURE_ROOT"),
+    "DynamicProtocolDefinition": ("gas_calibrator.v2.sim.ec_dynamic", "DynamicProtocolDefinition"),
     "SimulatedScenarioDefinition": ("gas_calibrator.v2.sim.scenarios", "SimulatedScenarioDefinition"),
     "SimulationSuiteCase": ("gas_calibrator.v2.sim.scenarios", "SimulationSuiteCase"),
     "SimulationSuiteDefinition": ("gas_calibrator.v2.sim.scenarios", "SimulationSuiteDefinition"),
+    "build_ec_dynamic_offline_report": (
+        "gas_calibrator.v2.sim.ec_dynamic",
+        "build_ec_dynamic_offline_report",
+    ),
     "build_protocol_simulated_compare_result": (
         "gas_calibrator.v2.sim.protocol",
         "build_protocol_simulated_compare_result",
@@ -23,6 +28,7 @@ _EXPORTS = {
     "list_simulation_suites": ("gas_calibrator.v2.sim.scenarios", "list_simulation_suites"),
     "load_replay_fixture": ("gas_calibrator.v2.sim.replay", "load_replay_fixture"),
     "materialize_replay_fixture": ("gas_calibrator.v2.sim.replay", "materialize_replay_fixture"),
+    "simulate_dynamic_protocol": ("gas_calibrator.v2.sim.ec_dynamic", "simulate_dynamic_protocol"),
     "simulated_profile_defaults": ("gas_calibrator.v2.sim.scenarios", "simulated_profile_defaults"),
 }
 

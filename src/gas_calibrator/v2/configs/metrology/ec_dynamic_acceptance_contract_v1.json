@@ -1,0 +1,70 @@
+{
+  "schema_version": "ec_dynamic_acceptance_contract_v1",
+  "contract_id": "ec-d0-offline-dynamic-metrology-20260724",
+  "scope": "simulation_contract_regression_only",
+  "evidence_boundary": {
+    "evidence_source": "simulated",
+    "not_real_acceptance_evidence": true,
+    "acceptance_level": "offline_regression",
+    "promotion_state": "blocked",
+    "real_primary_latest_refresh_allowed": false,
+    "device_io_allowed": false,
+    "coefficient_write_allowed": false
+  },
+  "required_path_metadata": [
+    "analyzer_id",
+    "gas",
+    "serial_position",
+    "sample_rate_hz",
+    "tube_length_m",
+    "tube_inner_diameter_mm",
+    "tube_material",
+    "flow_slpm",
+    "cell_pressure_hpa",
+    "cell_temperature_c",
+    "relative_humidity_pct",
+    "heated_tube",
+    "filter_id",
+    "transport_delay_s",
+    "timestamp_source"
+  ],
+  "common_fixture_limits": {
+    "max_timestamp_jitter_ratio": 0.03,
+    "max_dropout_fraction": 0.005,
+    "max_sample_rate_relative_error": 0.02,
+    "max_gain_absolute_error": 0.01,
+    "max_synthetic_delay_absolute_error_s": 0.15,
+    "max_synthetic_tau_relative_error": 0.25
+  },
+  "gas_fixture_limits": {
+    "co2": {
+      "max_t90_s": 1.4,
+      "max_rise_fall_tau_ratio": 1.5
+    },
+    "h2o": {
+      "max_t90_s": 4.5,
+      "max_rise_fall_tau_ratio": 2.5
+    }
+  },
+  "required_outputs": [
+    "t10_s",
+    "t50_s",
+    "t90_s",
+    "effective_rise_delay_s",
+    "effective_rise_tau_s",
+    "rise_fall_tau_ratio",
+    "dynamic_gain",
+    "timestamp_jitter_ratio",
+    "dropout_fraction",
+    "effective_transfer_function",
+    "allan_deviation"
+  ],
+  "interpretation": {
+    "limits_are_product_specifications": false,
+    "limits_purpose": "Detect regression of the offline estimator against bounded synthetic fixtures.",
+    "static_and_dynamic_status_must_be_separate": true,
+    "step_transfer_model": "first_order_effective_from_bidirectional_step",
+    "h2o_model": "fast_response_plus_slow_sorption_memory",
+    "real_acceptance_requires_separate_authorization_and_bench_protocol": true
+  }
+}

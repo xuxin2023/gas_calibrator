@@ -3614,6 +3614,8 @@ def build_suite_case_metadata(case: dict[str, Any], *, suite_name: str) -> dict[
     evidence_state = "collected"
     if kind == "scenario":
         evidence_source = "simulated_protocol"
+    elif kind == "ec_dynamic":
+        evidence_source = "simulated"
     elif kind == "replay":
         evidence_source = "replay"
     compare_status = str(case.get("status") or report_payload.get("compare_status") or report_payload.get("status") or "--")
@@ -3648,6 +3650,8 @@ def build_suite_case_metadata(case: dict[str, Any], *, suite_name: str) -> dict[
         failure_type = "summary_parity"
     elif kind == "resilience":
         failure_type = "export_resilience"
+    elif kind == "ec_dynamic":
+        failure_type = "ec_dynamic_contract"
     return {
         "suite": suite_name,
         "evidence_source": evidence_source,

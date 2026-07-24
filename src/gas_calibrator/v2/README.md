@@ -20,6 +20,7 @@ Step 2 的硬边界：
 - [运行与验证指南](docs/runtime_and_validation.md)
 - [工件与证据治理](docs/artifact_governance.md)
 - [Step 2 V1/V2 同步矩阵](docs/step2_v1_sync_matrix.md)
+- [EC-D0 离线动态计量骨架](../../../docs/metrology/ec_d0_offline_dynamic_metrology.md)
 
 ## 推荐入口
 
@@ -68,6 +69,8 @@ python -m gas_calibrator.v2.scripts.run_simulation_suite --suite regression
 python -m gas_calibrator.v2.scripts.run_simulation_suite --suite nightly
 python -m gas_calibrator.v2.scripts.run_simulation_suite --suite parity
 ```
+
+`smoke`、`regression` 和 `nightly` 均包含 `ec_dynamic_offline_contract`。该用例只验证 CO2/H2O 合成阶跃、串联延迟、采样时钟和异常拒绝能力；其结论固定为 simulation contract，不是 EC real acceptance。
 
 回放与离线治理：
 
