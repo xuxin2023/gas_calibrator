@@ -37,6 +37,14 @@ def test_classification_preserves_platform_shadow_and_compatibility_boundaries()
         static_zero_reference=False,
     )[0] == "compatibility_wrapper"
     assert classify_module(
+        "gas_calibrator.v2.storage.profile_store",
+        static_zero_reference=False,
+    )[0] == "platform_keep"
+    assert classify_module(
+        "gas_calibrator.v2.storage.exporter",
+        static_zero_reference=False,
+    )[0] == "platform_keep"
+    assert classify_module(
         "gas_calibrator.v2.algorithms.robust",
         static_zero_reference=False,
     )[0] == "shadow_algorithm_keep"

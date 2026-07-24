@@ -52,7 +52,8 @@ This slice contains:
 16. shared ownership of the file/SQLite sidecar index with V2 compatibility exports;
 17. shared ownership of the read-only history query service with V2 compatibility exports;
 18. shared ownership of the offline run-artifact importer with V2 compatibility exports;
-19. shared ownership of coefficient-version metadata persistence with V2 compatibility exports.
+19. shared ownership of coefficient-version metadata persistence with V2 compatibility exports;
+20. a shared atomic JSON profile repository beneath the retained V2 plan-profile adapter.
 
 The new control behavior is bounded to fail-closed PACE/dewpoint gates and audited PACE startup
 configuration. Startup configuration applies pressure units, active mode, and in-limits settings;
@@ -94,6 +95,21 @@ Two existing policy limits are intentionally not changed by this namespace migra
 
 Approval enforcement and concurrent version-allocation policy require a separate product and
 governance decision. This slice does not silently redefine either behavior.
+
+`gas_calibrator.v2.storage.profile_store` remains V2-owned because its public API consumes and
+returns `CalibrationPlanProfile`, which includes V2 plan, simulation-safety, and product-governance
+semantics. Only the product-neutral JSON document repository moved into
+`gas_calibrator.storage.profile_repository`. The shared repository preserves the existing index
+schema, deterministic filenames, default-profile pointer, import/export behavior, and list order.
+It also adds same-directory temporary files, flush/fsync plus atomic replace for each JSON file, and
+rejects index entries that escape the profile directory. The V2 adapter and exporter are explicitly
+classified as `platform_keep`, so repository cleanup will not mistake product policy for generic
+storage.
+
+Atomic replacement prevents torn individual JSON files. It does not make the profile document and
+index a single cross-process transaction; a process loss between those replacements can leave an
+ignored orphan document or stale index metadata. Concurrent multi-process profile editing remains a
+separate locking-policy decision.
 
 ## PACE Audit Collection Closure
 
@@ -151,6 +167,8 @@ Current verification for this reviewed control slice:
   initialization, and import/export integration selection: 17 passed;
 - coefficient-store namespace, compatibility identity, version lifecycle, deployment transaction
   rollback, lazy package loading, and query integration selection: 16 passed;
+- shared profile repository, path confinement, atomic default-index rollback, V2 profile adapter,
+  plan editor, gateway, run controller, and app-facade integration selection: 33 passed;
 - summary parity, export resilience, historical fit-profile parity, offline artifacts, and offline
   governance artifacts: 30 passed;
 - Ruff checks for `runner.py` and the modified storage/consumer/test modules: passed;
@@ -210,8 +228,8 @@ It also scans protected V1.5 paths for real Python imports of `gas_calibrator.v2
 
 1. Review the global no-write product policy separately from the completed PACE/dewpoint safety
    contracts; do not make it the production default implicitly.
-2. Review `profile_store.py` separately to distinguish neutral profile persistence from V2
-   product-profile policy before moving any further storage code.
+2. Review the V1.5 initialization and readiness-event import modules still under `v2.storage`;
+   separate neutral evidence persistence from command-line and V2 presentation concerns.
 3. Keep V2 algorithm and execution code simulation/replay/shadow-only until independent real
    acceptance is completed.
 4. Preserve the V1 fallback and keep the default entry unchanged throughout the integration.

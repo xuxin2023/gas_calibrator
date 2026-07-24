@@ -25,6 +25,10 @@ COMPATIBILITY_WRAPPERS = {
 EXPLICIT_ARCHIVE_REVIEW = {
     "gas_calibrator.v2.core.services.conditioning_service_clean",
 }
+V2_PRODUCT_STORAGE_ADAPTERS = {
+    "gas_calibrator.v2.storage.exporter",
+    "gas_calibrator.v2.storage.profile_store",
+}
 SHADOW_CORE_NAMES = {
     "calibration_service",
     "coefficient_service",
@@ -122,6 +126,11 @@ def classify_module(module: str, *, static_zero_reference: bool) -> tuple[str, s
         return (
             "compatibility_wrapper",
             "temporary V2 import compatibility; implementation is owned by gas_calibrator.storage",
+        )
+    if module in V2_PRODUCT_STORAGE_ADAPTERS:
+        return (
+            "platform_keep",
+            "V2 product adapter retained above shared storage infrastructure",
         )
     if module in EXPLICIT_ARCHIVE_REVIEW and static_zero_reference:
         return (
