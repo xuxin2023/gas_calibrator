@@ -19,6 +19,7 @@ from ..ui_v2.i18n import (
 )
 from ..sim import (
     DEFAULT_REPLAY_FIXTURE_ROOT,
+    build_ec_dynamic_offline_report,
     build_export_resilience_report,
     build_summary_parity_report,
     get_simulation_suite,
@@ -107,6 +108,20 @@ def run_suite(*, suite_name: str, report_root: Path, run_name: Optional[str] = N
                     str(item.get("name") or ""): str(item.get("status") or "")
                     for item in list(report_payload.get("cases", []) or [])
                 },
+            }
+        elif case.kind == "ec_dynamic":
+            result = build_ec_dynamic_offline_report(report_root=suite_dir, run_name=case.name)
+            status = str(result.get("status") or "")
+            artifact_dir = str(result.get("report_dir") or "")
+            report_payload = dict(result.get("report") or {})
+            acceptance = dict(report_payload.get("acceptance") or {})
+            details = {
+                "report_json": result.get("report_json"),
+                "report_markdown": result.get("report_markdown"),
+                "simulated_series": result.get("simulated_series"),
+                "ec_dynamic_status": report_payload.get("ec_dynamic_status"),
+                "static_calibration_status": report_payload.get("static_calibration_status"),
+                "failed_gate_names": list(acceptance.get("failed_gate_names") or []),
             }
         else:
             status = "UNKNOWN_CASE_KIND"
