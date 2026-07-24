@@ -53,7 +53,9 @@ This slice contains:
 17. shared ownership of the read-only history query service with V2 compatibility exports;
 18. shared ownership of the offline run-artifact importer with V2 compatibility exports;
 19. shared ownership of coefficient-version metadata persistence with V2 compatibility exports;
-20. a shared atomic JSON profile repository beneath the retained V2 plan-profile adapter.
+20. a shared atomic JSON profile repository beneath the retained V2 plan-profile adapter;
+21. native V1.5 ownership of initialization and readiness-event database imports, with the former
+    V2 paths retained as compatibility forwarders.
 
 The new control behavior is bounded to fail-closed PACE/dewpoint gates and audited PACE startup
 configuration. Startup configuration applies pressure units, active mode, and in-limits settings;
@@ -110,6 +112,20 @@ Atomic replacement prevents torn individual JSON files. It does not make the pro
 index a single cross-process transaction; a process loss between those replacements can leave an
 ignored orphan document or stale index metadata. Concurrent multi-process profile editing remains a
 separate locking-policy decision.
+
+The initialization database implementation and CLI were already owned by `gas_calibrator.v1_5`;
+their former V2 paths are now explicitly classified as compatibility wrappers. The readiness-event
+preview, event construction, and transactional persistence have moved from
+`gas_calibrator.v2.storage` to `gas_calibrator.v1_5.readiness_event_database`, while its CLI is
+owned by `gas_calibrator.v1_5.import_readiness_events`. The former V2 module forwards the same
+public objects, so existing imports remain valid.
+
+This ownership correction preserves the readiness schema, device-scope derivation, deterministic
+event identifiers, idempotent merge behavior, formal database-write acknowledgement, source-run
+existence gate, and single-transaction batch semantics. A forced failure on the second device
+confirms that the first event is rolled back. It does not add a schema migration, open hardware,
+connect to a formal database during validation, or turn readiness evidence into calibration
+acceptance.
 
 ## PACE Audit Collection Closure
 
@@ -169,6 +185,8 @@ Current verification for this reviewed control slice:
   rollback, lazy package loading, and query integration selection: 16 passed;
 - shared profile repository, path confinement, atomic default-index rollback, V2 profile adapter,
   plan editor, gateway, run controller, and app-facade integration selection: 33 passed;
+- V1.5 initialization/readiness ownership, V2 compatibility identity, idempotent readiness import,
+  batch rollback, namespace isolation, and disposition classification selection: 30 passed;
 - summary parity, export resilience, historical fit-profile parity, offline artifacts, and offline
   governance artifacts: 30 passed;
 - Ruff checks for `runner.py` and the modified storage/consumer/test modules: passed;
@@ -228,8 +246,10 @@ It also scans protected V1.5 paths for real Python imports of `gas_calibrator.v2
 
 1. Review the global no-write product policy separately from the completed PACE/dewpoint safety
    contracts; do not make it the production default implicitly.
-2. Review the V1.5 initialization and readiness-event import modules still under `v2.storage`;
-   separate neutral evidence persistence from command-line and V2 presentation concerns.
-3. Keep V2 algorithm and execution code simulation/replay/shadow-only until independent real
+2. Review the remaining generic import CLI and V2 product exporter boundary; move only
+   product-neutral implementation and preserve V2 acceptance/report policy in V2.
+3. Regenerate the disposition inventory and complete the final integration/release audit after
+   that boundary review.
+4. Keep V2 algorithm and execution code simulation/replay/shadow-only until independent real
    acceptance is completed.
-4. Preserve the V1 fallback and keep the default entry unchanged throughout the integration.
+5. Preserve the V1 fallback and keep the default entry unchanged throughout the integration.

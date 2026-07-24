@@ -13,6 +13,7 @@ from gas_calibrator.v2.storage.database import DatabaseManager, StorageSettings
 from gas_calibrator.v2.storage.import_v1_5_initialization import run_import as run_initialization_import
 from gas_calibrator.v2.storage.import_v1_5_readiness_events import EVENT_TYPE, run_import
 from gas_calibrator.v2.storage.models import DeviceEventRecord
+from gas_calibrator.v1_5 import readiness_event_database
 
 from .test_v1_5_initialization_import import _bundle_path
 
@@ -148,3 +149,51 @@ def test_readiness_event_import_requires_acknowledgement(tmp_path: Path) -> None
             apply=True,
             acknowledge_formal_db_write=False,
         )
+
+
+def test_readiness_event_import_rolls_back_partial_event_batch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = _bundle_path(tmp_path)
+    db_path = tmp_path / "storage.sqlite"
+    settings = _settings(db_path)
+    run_initialization_import(
+        bundle=bundle,
+        settings=settings,
+        init_schema=True,
+        apply=True,
+        acknowledge_formal_db_write=True,
+        operator="qa",
+    )
+    original_stable_uuid = readiness_event_database.stable_uuid
+    call_count = 0
+
+    def fail_on_second_event(*parts: object):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:
+            raise RuntimeError("forced second-event failure")
+        return original_stable_uuid(*parts)
+
+    monkeypatch.setattr(readiness_event_database, "stable_uuid", fail_on_second_event)
+    database = DatabaseManager(settings)
+    try:
+        with pytest.raises(RuntimeError, match="forced second-event failure"):
+            readiness_event_database.import_v1_5_readiness_events(
+                database,
+                readiness_payload=json.loads(_readiness_path(tmp_path).read_text(encoding="utf-8")),
+                source_run_id="v1_5_formal_initialization_test_2ch",
+                dry_run=False,
+                allow_write=True,
+                operator="qa_readiness",
+            )
+        with database.session_scope() as session:
+            assert (
+                session.execute(
+                    select(func.count(DeviceEventRecord.id)).where(DeviceEventRecord.event_type == EVENT_TYPE)
+                ).scalar_one()
+                == 0
+            )
+    finally:
+        database.dispose()

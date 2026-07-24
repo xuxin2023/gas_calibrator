@@ -17,10 +17,13 @@ V2_PREFIX = "gas_calibrator.v2"
 COMPATIBILITY_WRAPPERS = {
     "gas_calibrator.v2.storage.coefficient_store",
     "gas_calibrator.v2.storage.database",
+    "gas_calibrator.v2.storage.import_v1_5_initialization",
+    "gas_calibrator.v2.storage.import_v1_5_readiness_events",
     "gas_calibrator.v2.storage.importer",
     "gas_calibrator.v2.storage.models",
     "gas_calibrator.v2.storage.queries",
     "gas_calibrator.v2.storage.sidecar_index",
+    "gas_calibrator.v2.storage.v1_5_initialization",
 }
 EXPLICIT_ARCHIVE_REVIEW = {
     "gas_calibrator.v2.core.services.conditioning_service_clean",
