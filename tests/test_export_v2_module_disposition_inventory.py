@@ -17,6 +17,10 @@ def _write(path: Path, text: str = "") -> None:
 
 def test_classification_preserves_platform_shadow_and_compatibility_boundaries() -> None:
     assert classify_module(
+        "gas_calibrator.v2.storage.coefficient_store",
+        static_zero_reference=False,
+    )[0] == "compatibility_wrapper"
+    assert classify_module(
         "gas_calibrator.v2.storage.database",
         static_zero_reference=False,
     )[0] == "compatibility_wrapper"

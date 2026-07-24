@@ -51,7 +51,8 @@ This slice contains:
 15. semantics-preserving cleanup of the native mature runner's remaining static findings;
 16. shared ownership of the file/SQLite sidecar index with V2 compatibility exports;
 17. shared ownership of the read-only history query service with V2 compatibility exports;
-18. shared ownership of the offline run-artifact importer with V2 compatibility exports.
+18. shared ownership of the offline run-artifact importer with V2 compatibility exports;
+19. shared ownership of coefficient-version metadata persistence with V2 compatibility exports.
 
 The new control behavior is bounded to fail-closed PACE/dewpoint gates and audited PACE startup
 configuration. Startup configuration applies pressure units, active mode, and in-limits settings;
@@ -78,6 +79,21 @@ normalization rules, schema mappings, batching, and idempotent update behavior.
 storage exporter remains V2-owned because it also generates V2 acceptance and product-report
 artifacts. This change does not alter database schemas, transaction boundaries, write policy, or
 calibration execution.
+The coefficient version store now has the same shared ownership. Its existing save, approval,
+deployment-marker, lookup, history, and rollback-as-new-version behavior is preserved, and
+`gas_calibrator.v2.storage.coefficient_store` is an identity-preserving compatibility forwarder.
+The word `deploy` in this API updates database metadata only; it does not communicate with an
+analyzer or write SENCO coefficients. Transaction testing confirms that a failed deployment-marker
+update rolls back both the old and candidate marker changes.
+
+Two existing policy limits are intentionally not changed by this namespace migration:
+
+- the store currently permits an unapproved version to be marked as deployed;
+- version allocation uses `max(version) + 1`, with the database uniqueness constraint surfacing a
+  concurrent collision rather than an internal retry.
+
+Approval enforcement and concurrent version-allocation policy require a separate product and
+governance decision. This slice does not silently redefine either behavior.
 
 ## PACE Audit Collection Closure
 
@@ -133,6 +149,8 @@ Current verification for this reviewed control slice:
   coefficient-history, statistics, and export selection: 13 passed;
 - artifact-importer namespace, compatibility identity, raw/enrich/all stages, idempotency, package
   initialization, and import/export integration selection: 17 passed;
+- coefficient-store namespace, compatibility identity, version lifecycle, deployment transaction
+  rollback, lazy package loading, and query integration selection: 16 passed;
 - summary parity, export resilience, historical fit-profile parity, offline artifacts, and offline
   governance artifacts: 30 passed;
 - Ruff checks for `runner.py` and the modified storage/consumer/test modules: passed;
@@ -192,8 +210,8 @@ It also scans protected V1.5 paths for real Python imports of `gas_calibrator.v2
 
 1. Review the global no-write product policy separately from the completed PACE/dewpoint safety
    contracts; do not make it the production default implicitly.
-2. Review `coefficient_store.py` as a separate write-semantics contract before moving any further
-   persistence code; do not treat its coefficient-version writes as a mechanical namespace move.
+2. Review `profile_store.py` separately to distinguish neutral profile persistence from V2
+   product-profile policy before moving any further storage code.
 3. Keep V2 algorithm and execution code simulation/replay/shadow-only until independent real
    acceptance is completed.
 4. Preserve the V1 fallback and keep the default entry unchanged throughout the integration.

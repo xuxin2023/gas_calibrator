@@ -3,6 +3,9 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from gas_calibrator.storage.coefficient_store import (
+    CoefficientVersionStore as SharedCoefficientVersionStore,
+)
 from gas_calibrator.storage.database import DatabaseManager as SharedDatabaseManager
 from gas_calibrator.storage.importer import ArtifactImporter as SharedArtifactImporter
 from gas_calibrator.storage.models import Base as SharedBase
@@ -15,6 +18,9 @@ from gas_calibrator.storage.sidecar_index import (
     normalize_sidecar_record as shared_normalize_sidecar_record,
 )
 from gas_calibrator.v2.storage.database import DatabaseManager as V2DatabaseManager
+from gas_calibrator.v2.storage.coefficient_store import (
+    CoefficientVersionStore as V2CoefficientVersionStore,
+)
 from gas_calibrator.v2.storage.importer import ArtifactImporter as V2ArtifactImporter
 from gas_calibrator.v2.storage.models import Base as V2Base
 from gas_calibrator.v2.storage.queries import HistoryQueryService as V2HistoryQueryService
@@ -79,6 +85,10 @@ def test_v2_storage_database_compatibility_exports_shared_types() -> None:
 
 def test_v2_artifact_importer_compatibility_exports_shared_type() -> None:
     assert V2ArtifactImporter is SharedArtifactImporter
+
+
+def test_v2_coefficient_store_compatibility_exports_shared_type() -> None:
+    assert V2CoefficientVersionStore is SharedCoefficientVersionStore
 
 
 def test_v2_sidecar_index_compatibility_exports_shared_types() -> None:
