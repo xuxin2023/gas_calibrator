@@ -1,0 +1,195 @@
+{
+  "schema_version": "gas_analyzer_bench_readiness_contract_v1",
+  "contract_id": "ga-d4-offline-real-bench-readiness-20260724",
+  "scope": "offline_gas_analyzer_real_bench_protocol_readiness_only",
+  "evidence_boundary": {
+    "evidence_source": "simulated",
+    "not_real_acceptance_evidence": true,
+    "acceptance_level": "offline_protocol_readiness",
+    "promotion_state": "blocked",
+    "real_primary_latest_refresh_allowed": false,
+    "device_io_allowed": false,
+    "coefficient_fit_allowed": false,
+    "coefficient_write_allowed": false,
+    "database_write_allowed": false,
+    "automatic_execution_allowed": false
+  },
+  "protocol_date": "2026-07-24",
+  "environment_grid": {
+    "temperatures_c": [5.0, 25.0, 45.0],
+    "pressures_hpa": [850.0, 1000.0, 1100.0],
+    "flows_slpm": [8.0, 12.0, 16.0],
+    "sequence_directions": ["ascending", "descending"],
+    "sessions": ["start", "end"],
+    "replicates": [1, 2, 3]
+  },
+  "gas_protocols": {
+    "co2": {
+      "unit": "ppm",
+      "span_value": 1200.0,
+      "target_levels": [0.0, 400.0, 800.0, 1200.0],
+      "anchor_role": "co2_zero_gas",
+      "anchor_target": 0.0,
+      "min_stability_window_s": 120.0,
+      "max_stability_slope_span_fraction_per_min": 0.0002,
+      "max_stability_sigma_span_fraction": 0.0002,
+      "min_max_wait_s": 600.0,
+      "max_expanded_uncertainty_span_fraction": 0.004
+    },
+    "h2o": {
+      "unit": "mmol_mol",
+      "span_value": 25.0,
+      "target_levels": [0.2, 5.0, 15.0, 25.0],
+      "anchor_role": "h2o_dry_gas",
+      "anchor_target": 0.2,
+      "min_stability_window_s": 300.0,
+      "max_stability_slope_span_fraction_per_min": 0.0004,
+      "max_stability_sigma_span_fraction": 0.0004,
+      "min_max_wait_s": 1200.0,
+      "max_wet_to_dry_recovery_fraction": 0.01,
+      "min_recovery_hold_s": 300.0,
+      "max_expanded_uncertainty_span_fraction": 0.006
+    }
+  },
+  "interference_protocols": {
+    "co2": {
+      "interferent_name": "h2o",
+      "target_value": 800.0,
+      "interferent_values": [0.2, 10.0, 20.0],
+      "replicates": [1, 2, 3]
+    },
+    "h2o": {
+      "interferent_name": "co2",
+      "target_value": 15.0,
+      "interferent_values": [0.0, 400.0, 1000.0],
+      "replicates": [1, 2, 3]
+    }
+  },
+  "required_asset_roles": [
+    "co2_zero_gas_standard",
+    "co2_span_gas_standard",
+    "h2o_dry_reference",
+    "h2o_humidity_reference",
+    "pressure_reference",
+    "temperature_reference",
+    "flow_reference",
+    "timebase_reference"
+  ],
+  "asset_role_requirements": {
+    "co2_zero_gas_standard": {
+      "uncertainty_unit": "ppm",
+      "max_standard_uncertainty": 0.5
+    },
+    "co2_span_gas_standard": {
+      "uncertainty_unit": "ppm",
+      "max_standard_uncertainty": 1.0
+    },
+    "h2o_dry_reference": {
+      "uncertainty_unit": "mmol_mol",
+      "max_standard_uncertainty": 0.02
+    },
+    "h2o_humidity_reference": {
+      "uncertainty_unit": "mmol_mol",
+      "max_standard_uncertainty": 0.05
+    },
+    "pressure_reference": {
+      "uncertainty_unit": "hpa",
+      "max_standard_uncertainty": 0.1
+    },
+    "temperature_reference": {
+      "uncertainty_unit": "deg_c",
+      "max_standard_uncertainty": 0.05
+    },
+    "flow_reference": {
+      "uncertainty_unit": "slpm",
+      "max_standard_uncertainty": 0.02
+    },
+    "timebase_reference": {
+      "uncertainty_unit": "s",
+      "max_standard_uncertainty": 0.001
+    }
+  },
+  "required_asset_fields": [
+    "asset_id",
+    "role",
+    "serial_number",
+    "certificate_id",
+    "calibration_date",
+    "due_date",
+    "status",
+    "traceability_chain",
+    "standard_uncertainty",
+    "uncertainty_unit"
+  ],
+  "required_dut_identity_fields": [
+    "analyzer_id",
+    "analyzer_model",
+    "analyzer_serial_number",
+    "analyzer_firmware_version",
+    "software_build_id"
+  ],
+  "bench_control_limits": {
+    "min_leak_hold_s": 300.0,
+    "max_pressure_decay_hpa_per_min": 0.1,
+    "min_purge_volume_exchanges": 5.0,
+    "allowed_wetted_path_materials": ["PFA", "PTFE", "electropolished_stainless_steel"],
+    "h2o_wetted_path_temperature_control_required": true,
+    "shared_timebase_required": true,
+    "safe_exhaust_required": true
+  },
+  "required_protocol_stages": [
+    "offline_preflight",
+    "traceability_lock",
+    "leak_and_route_integrity_plan",
+    "conditioning_plan",
+    "static_environment_matrix_plan",
+    "interference_plan",
+    "dynamic_dependency_plan",
+    "h2o_recovery_memory_plan",
+    "post_run_anchor_check_plan",
+    "evidence_closure_plan"
+  ],
+  "required_uncertainty_components": {
+    "co2": [
+      "certified_gas_standard",
+      "gas_delivery_and_blending",
+      "pressure_reference",
+      "temperature_reference",
+      "flow_reference",
+      "analyzer_repeatability",
+      "drift_and_hysteresis",
+      "cross_interference",
+      "digital_resolution"
+    ],
+    "h2o": [
+      "humidity_reference",
+      "dry_gas_residual",
+      "gas_delivery_and_blending",
+      "pressure_reference",
+      "temperature_reference",
+      "flow_reference",
+      "analyzer_repeatability",
+      "drift_and_hysteresis",
+      "sorption_and_memory",
+      "cross_interference",
+      "digital_resolution"
+    ]
+  },
+  "uncertainty_coverage_factor": 2.0,
+  "required_artifact_roles": [
+    "execution_rows",
+    "execution_summary",
+    "diagnostic_analysis",
+    "formal_analysis"
+  ],
+  "interpretation": {
+    "gas_analyzer_only": true,
+    "ec_flux_or_cospectral_correction_in_scope": false,
+    "co2_zero_gas_and_h2o_dry_gas_are_distinct": true,
+    "protocol_readiness_is_execution_authorization": false,
+    "protocol_readiness_is_real_acceptance": false,
+    "qualified_bounds_require_complete_rectangular_grid": true,
+    "randomized_environment_order_required": true,
+    "formal_analysis_requires_separate_real_acceptance": true
+  }
+}

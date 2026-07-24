@@ -79,6 +79,11 @@ SUITES: dict[str, SimulationSuiteDefinition] = {
                 kind="ga_operating_envelope",
                 expected_statuses=("MATCH",),
             ),
+            SimulationSuiteCase(
+                name="gas_analyzer_bench_readiness_contract",
+                kind="ga_bench_readiness",
+                expected_statuses=("MATCH",),
+            ),
             SimulationSuiteCase(name="primary_latest_missing", kind="replay", expected_statuses=("SNAPSHOT_ONLY",)),
             SimulationSuiteCase(
                 name="stale_h2o_latest_present_but_not_primary",
@@ -124,6 +129,11 @@ SUITES: dict[str, SimulationSuiteDefinition] = {
             SimulationSuiteCase(
                 name="gas_analyzer_operating_envelope_contract",
                 kind="ga_operating_envelope",
+                expected_statuses=("MATCH",),
+            ),
+            SimulationSuiteCase(
+                name="gas_analyzer_bench_readiness_contract",
+                kind="ga_bench_readiness",
                 expected_statuses=("MATCH",),
             ),
             SimulationSuiteCase(name="export_resilience", kind="resilience", expected_statuses=("MATCH",)),
