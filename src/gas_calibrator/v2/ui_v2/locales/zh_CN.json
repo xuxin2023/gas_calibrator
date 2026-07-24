@@ -1896,6 +1896,7 @@
       "reference_quality": "参考质量",
       "summary_parity": "摘要口径一致性",
       "export_resilience": "导出韧性",
+      "ec_dynamic_system_identification": "EC 动态系统辨识",
       "mismatch": "不一致",
       "not_executed": "未执行",
       "snapshot_only": "仅快照"

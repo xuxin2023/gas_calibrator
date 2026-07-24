@@ -1,0 +1,70 @@
+{
+  "schema_version": "ec_dynamic_system_identification_contract_v1",
+  "contract_id": "ec-d1-offline-system-identification-20260724",
+  "scope": "simulation_system_identification_regression_only",
+  "evidence_boundary": {
+    "evidence_source": "simulated",
+    "not_real_acceptance_evidence": true,
+    "acceptance_level": "offline_regression",
+    "promotion_state": "blocked",
+    "real_primary_latest_refresh_allowed": false,
+    "device_io_allowed": false,
+    "coefficient_write_allowed": false
+  },
+  "target_frequencies_hz": [
+    0.234375,
+    0.4296875,
+    0.703125,
+    1.328125
+  ],
+  "warmup_s": 10.0,
+  "segment_size": 512,
+  "required_path_metadata": [
+    "analyzer_id",
+    "gas",
+    "serial_position",
+    "sample_rate_hz",
+    "tube_length_m",
+    "tube_inner_diameter_mm",
+    "tube_material",
+    "flow_slpm",
+    "cell_pressure_hpa",
+    "cell_temperature_c",
+    "relative_humidity_pct",
+    "heated_tube",
+    "filter_id",
+    "transport_delay_s",
+    "timestamp_source"
+  ],
+  "common_fixture_limits": {
+    "min_target_frequency_count": 4,
+    "min_prbs_period_count_after_warmup": 1.0,
+    "max_timestamp_jitter_ratio": 0.01,
+    "min_source_separation_ratio": 0.08,
+    "min_coherence": 0.95,
+    "max_amplitude_relative_error": 0.12,
+    "max_phase_absolute_error_deg": 8.0,
+    "max_amplitude_ci95_width_db": 3.0
+  },
+  "gas_fixture_limits": {
+    "co2": {},
+    "h2o": {
+      "max_amplitude_relative_error": 0.15,
+      "max_phase_absolute_error_deg": 10.0,
+      "max_amplitude_ci95_width_db": 3.5
+    }
+  },
+  "interpretation": {
+    "limits_are_product_specifications": false,
+    "limits_purpose": "Detect regression of the empirical H1 estimator against bounded synthetic PRBS fixtures.",
+    "required_input_source": "upstream_reference",
+    "required_clock_domain": "shared_simulated_sample_clock",
+    "command_signal_is_diagnostic_only": true,
+    "source_transfer_must_be_separated": true,
+    "transfer_estimator": "Welch H1 reference-to-DUT",
+    "coherence_definition": "magnitude-squared coherence",
+    "interval_method": "Welch segment percentile dispersion",
+    "interval_is_formal_metrological_confidence_interval": false,
+    "real_acceptance_requires_separate_authorization_and_bench_protocol": true
+  }
+}

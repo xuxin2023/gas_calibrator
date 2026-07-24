@@ -1897,6 +1897,7 @@
       "reference_quality": "reference quality",
       "summary_parity": "summary parity",
       "export_resilience": "export resilience",
+      "ec_dynamic_system_identification": "EC dynamic system identification",
       "mismatch": "mismatch",
       "not_executed": "not executed",
       "snapshot_only": "snapshot only"

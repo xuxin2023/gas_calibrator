@@ -18,6 +18,7 @@ def test_smoke_and_nightly_suites_include_expected_cases() -> None:
         "relay_stuck_channel_causes_route_mismatch",
         "thermometer_stale_reference",
         "pressure_reference_degraded",
+        "ec_dynamic_offline_contract",
         "summary_parity",
     ]
     assert {case.name for case in nightly.cases}.issuperset(
@@ -27,6 +28,8 @@ def test_smoke_and_nightly_suites_include_expected_cases() -> None:
             "relay_stuck_channel_causes_route_mismatch",
             "pressure_reference_degraded",
             "pressure_gauge_wrong_unit_configuration",
+            "ec_dynamic_offline_contract",
+            "ec_dynamic_system_identification_contract",
             "export_resilience",
             "summary_parity",
         }
