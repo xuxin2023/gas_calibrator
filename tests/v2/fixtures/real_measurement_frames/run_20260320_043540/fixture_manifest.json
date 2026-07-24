@@ -1,0 +1,31 @@
+{
+  "fixture_id": "v1_v2_compare_v2_collect_0c_run_20260320_043540",
+  "file": "samples_runtime.csv",
+  "source_relative_path": "src/gas_calibrator/v2/output/v1_v2_compare/v2_collect_0c/run_20260320_043540/samples_runtime.csv",
+  "evidence_source": "real_historical_run",
+  "test_only": true,
+  "not_real_acceptance_evidence": true,
+  "promotion_state": "blocked",
+  "row_count": 90,
+  "size_bytes": 189001,
+  "sha256": "18f835b554dba5c1f67654ec2ddec311be2f4546efa1ac5e61969a7290a6f552",
+  "required_context": {
+    "file": "points.csv",
+    "source_relative_path": "src/gas_calibrator/v2/output/v1_v2_compare/v2_collect_0c/run_20260320_043540/points.csv",
+    "row_count": 4,
+    "size_bytes": 371,
+    "sha256": "e8e1250794d28bfb881ed0a5ec93bda395adb90f99c4d901b5a8398aebed4e4e",
+    "purpose": "Bind runtime frames to their real historical point indices during import."
+  },
+  "allowed_use": [
+    "measurement_frame_import_regression",
+    "measurement_frame_idempotency_regression",
+    "missing_analyzer_column_tolerance_regression"
+  ],
+  "forbidden_interpretation": [
+    "real_acceptance",
+    "v2_replaces_v1",
+    "coefficient_write_authorization",
+    "database_promotion_authorization"
+  ]
+}

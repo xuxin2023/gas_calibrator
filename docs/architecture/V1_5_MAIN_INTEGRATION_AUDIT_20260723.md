@@ -287,10 +287,28 @@ The generated CSV, JSON, and Markdown evidence is retained under
 
 ## Post-Integration Governance
 
-1. Review the global no-write product policy separately from the completed PACE/dewpoint safety
-   contracts; do not make it the production default implicitly.
-2. Restore the real `samples_runtime.csv` fixture to re-enable the three explicitly skipped
-   measurement-frame tests; do not replace it with synthetic acceptance evidence.
+1. The global no-write product policy is now decided separately in
+   `ADR_V1_5_GLOBAL_NO_WRITE_POLICY_20260724.md`: do not install an implicit production-global
+   guard; retain scope-specific no-write and operation-specific controlled-write authorization.
+2. The real historical `samples_runtime.csv` fixture is restored under `tests/v2/fixtures` with a
+   SHA-256 manifest and explicit `not_real_acceptance_evidence=true` boundary, re-enabling the
+   three measurement-frame tests without synthetic substitution.
 3. Keep V2 algorithm and execution code simulation/replay/shadow-only until independent real
    acceptance is completed.
 4. Preserve the V1 fallback and keep the default entry unchanged throughout the integration.
+
+### Release-governance closure verification
+
+The 2026-07-24 governance follow-up was completed from `origin/main` commit `ecd65b5df` without
+modifying production source, `run_app.py`, device configuration, or database state:
+
+- full V2 storage tests, including the restored real historical fixture: 9 passed;
+- V1/V1.5 global-policy and writeback-safety tests: 24 passed;
+- V1.5 historical fit-profile and V2 summary parity tests: 12 passed;
+- V2 export-resilience tests: 4 passed;
+- V1.5 final offline acceptance-suite contract tests: 8 passed;
+- Ruff and `git diff --check`: passed.
+
+These are offline regression and governance results. They are not real acceptance evidence and do
+not authorize V2 promotion, real-COM execution, coefficient writes, database promotion, or a
+default-entry change.
