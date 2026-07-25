@@ -1241,7 +1241,13 @@
         "note_current_run_missing": "当前运行 catalog 工件；磁盘缺失，当前 exporter 不可交接",
         "note_review_reference": "外部审阅引用；不属于当前运行 exporter 对象",
         "note_source_scan": "source_dir 受限扫描补充；仅用于审阅上下文，不属于当前运行 exporter",
-        "note_missing_reference": "选中审阅引用缺失；磁盘未找到"
+        "note_missing_reference": "选中审阅引用缺失；磁盘未找到",
+        "external_comparison_label": "外部比对",
+        "external_comparison_overview": "外部比对记录 {rows}；类型 {types}；范围 {scope}；判定规则 {decision_rule}；仅本地文件；仅供审阅",
+        "external_comparison_import_trace": "来源文件 {source_files}；导入方式 {import_modes}；证据来源 {evidence_source}",
+        "external_comparison_coverage": "不确定度 {uncertainty}；方法 {method}；软件 {software}；资产 {assets}；证书 {certificates}",
+        "external_comparison_boundary": "仅本地文件；仅供审阅；尚不具备正式声明条件",
+        "external_comparison_detail": "外部比对审阅信息已记录"
       },
       "ai_report_summary": "AI 报告摘要",
       "no_ai_report_summary": "暂无 AI 报告摘要。",

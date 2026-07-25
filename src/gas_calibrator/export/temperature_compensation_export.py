@@ -6,7 +6,7 @@ import csv
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
 from openpyxl import Workbook
 
@@ -59,6 +59,8 @@ RESULT_FIELDS: List[str] = [
     "B",
     "C",
     "D",
+    "write_eligible",
+    "write_block_reason",
     "command_string",
 ]
 
@@ -105,6 +107,7 @@ def _build_fit_result(
     *,
     export_commands: bool,
     polynomial_order: int,
+    command_eligibility: Mapping[tuple[str, str], tuple[bool, str]] | None = None,
 ) -> Dict[str, Any]:
     valid_key = "valid_for_cell_fit" if fit_type == "cell" else "valid_for_shell_fit"
     temp_key = "cell_temp_raw_c" if fit_type == "cell" else "shell_temp_raw_c"
@@ -122,10 +125,21 @@ def _build_fit_result(
         fit_result["C"],
         fit_result["D"],
     )
+    default_eligible = availability == "available"
+    if command_eligibility is None:
+        write_eligible = default_eligible
+        write_block_reason = "" if write_eligible else "temperature_channel_unavailable"
+    else:
+        write_eligible, write_block_reason = command_eligibility.get(
+            (analyzer_id, senco_channel),
+            (False, "temperature_channel_gate_missing"),
+        )
+        write_eligible = bool(write_eligible)
+        write_block_reason = str(write_block_reason or "")
     command_string = _build_command_string(
         senco_channel,
         coeffs,
-        export_commands=export_commands and availability == "available",
+        export_commands=export_commands and default_eligible and write_eligible,
     )
     return {
         "analyzer_id": analyzer_id,
@@ -142,6 +156,8 @@ def _build_fit_result(
         "B": float(fit_result["B"]),
         "C": float(fit_result["C"]),
         "D": float(fit_result["D"]),
+        "write_eligible": write_eligible,
+        "write_block_reason": write_block_reason,
         "command_string": command_string,
     }
 
@@ -151,6 +167,7 @@ def build_temperature_compensation_results(
     *,
     polynomial_order: int,
     export_commands: bool,
+    command_eligibility: Mapping[tuple[str, str], tuple[bool, str]] | None = None,
 ) -> List[Dict[str, Any]]:
     grouped: Dict[str, List[Dict[str, Any]]] = {}
     for row in observations:
@@ -169,6 +186,7 @@ def build_temperature_compensation_results(
                 rows,
                 export_commands=export_commands,
                 polynomial_order=polynomial_order,
+                command_eligibility=command_eligibility,
             )
         )
         results.append(
@@ -178,6 +196,7 @@ def build_temperature_compensation_results(
                 rows,
                 export_commands=export_commands,
                 polynomial_order=polynomial_order,
+                command_eligibility=command_eligibility,
             )
         )
     return results
@@ -216,6 +235,7 @@ def export_temperature_compensation_artifacts(
     *,
     polynomial_order: int = 3,
     export_commands: bool = True,
+    command_eligibility: Mapping[tuple[str, str], tuple[bool, str]] | None = None,
 ) -> Dict[str, Any]:
     run_dir.mkdir(parents=True, exist_ok=True)
     observations_rows = [dict(row) for row in observations]
@@ -223,6 +243,7 @@ def export_temperature_compensation_artifacts(
         observations_rows,
         polynomial_order=polynomial_order,
         export_commands=export_commands,
+        command_eligibility=command_eligibility,
     )
 
     observations_csv = run_dir / "temperature_calibration_observations.csv"

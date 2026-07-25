@@ -3,6 +3,31 @@ from __future__ import annotations
 import importlib
 import sys
 
+import pytest
+
+
+_ISOLATED_MODULE_PREFIXES = ("sqlalchemy", "gas_calibrator.v2.analytics")
+
+
+@pytest.fixture(autouse=True)
+def _restore_isolated_modules_after_test():
+    saved_modules = {
+        name: module
+        for name, module in sys.modules.items()
+        if any(
+            name == prefix or name.startswith(f"{prefix}.")
+            for prefix in _ISOLATED_MODULE_PREFIXES
+        )
+    }
+    yield
+    for name in list(sys.modules):
+        if any(
+            name == prefix or name.startswith(f"{prefix}.")
+            for prefix in _ISOLATED_MODULE_PREFIXES
+        ):
+            sys.modules.pop(name, None)
+    sys.modules.update(saved_modules)
+
 
 def _clear_modules(*names: str) -> None:
     for name in names:

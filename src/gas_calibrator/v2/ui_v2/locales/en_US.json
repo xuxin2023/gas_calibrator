@@ -1242,7 +1242,13 @@
         "note_current_run_missing": "Current-run catalog artifact missing on disk; cannot be handed off by the current-run exporter",
         "note_review_reference": "External review reference; not part of the current-run exporter set",
         "note_source_scan": "Limited source_dir scan supplement; review context only, not part of the current-run exporter",
-        "note_missing_reference": "Selected review reference is missing on disk"
+        "note_missing_reference": "Selected review reference is missing on disk",
+        "external_comparison_label": "External Comparison",
+        "external_comparison_overview": "External comparison rows {rows}; types {types}; scope {scope}; decision rule {decision_rule}; local-file-only; reviewer-only",
+        "external_comparison_import_trace": "Source files {source_files}; import modes {import_modes}; evidence source {evidence_source}",
+        "external_comparison_coverage": "Uncertainty {uncertainty}; method {method}; software {software}; assets {assets}; certificates {certificates}",
+        "external_comparison_boundary": "Local-file-only; reviewer-only; not ready for a formal claim",
+        "external_comparison_detail": "External comparison review information recorded"
       },
       "ai_report_summary": "AI Report Summary",
       "no_ai_report_summary": "No AI report summary yet.",

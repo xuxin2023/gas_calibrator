@@ -93,6 +93,25 @@ def _base_kwargs(run_dir: Path) -> dict:
         "scope_comparison_view": {"summary": "scope comparison ready"},
         "comparison_digest": {"summary": "comparison digest ready"},
         "comparison_rollup": {"summary": "comparison rollup ready"},
+        "run_metadata_profile": {"summary": "run metadata ready"},
+        "operator_authorization_profile": {
+            "summary": "operator authorization ready",
+            "authorization_ready": True,
+        },
+        "training_record": {
+            "summary": "training record ready",
+            "missing_training_modules": [],
+        },
+        "sop_version_binding": {"summary": "SOP version binding ready"},
+        "qc_flag_catalog": {"summary": "QC flag catalog ready"},
+        "recovery_action_log": {
+            "summary": "recovery action log ready",
+            "open_action_items": [],
+        },
+        "reviewer_dual_check_placeholder": {
+            "summary": "reviewer dual-check placeholder ready",
+            "placeholder_mode": "reviewer_note_only",
+        },
     }
 
 

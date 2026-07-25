@@ -17,7 +17,8 @@ from gas_calibrator.logging_utils import RunLogger
 
 def _basic_cfg(output_dir: str = "out") -> dict:
     return {
-        "paths": {"points_excel": "demo.xlsx", "output_dir": output_dir},
+        # App validates candidate existence before calling the test's mocked loader.
+        "paths": {"points_excel": str(Path(__file__).resolve()), "output_dir": output_dir},
         "valves": {
             "co2_map": {"0": 1, "200": 2, "400": 3},
             "co2_map_group2": {"100": 4, "300": 5},

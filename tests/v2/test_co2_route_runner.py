@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from gas_calibrator.v2.config import AppConfig
+from gas_calibrator.v2.core.a2_hooks import A2Hooks
 from gas_calibrator.v2.core.event_bus import EventBus, EventType
 from gas_calibrator.v2.core.models import CalibrationPoint
 from gas_calibrator.v2.core.point_parser import PointParser
@@ -62,6 +63,7 @@ def test_co2_route_runner_executes_runner_mainline_and_tracks_route_context() ->
 
     service = SimpleNamespace(
         event_bus=event_bus,
+        a2_hooks=A2Hooks(),
         route_context=context,
         route_planner=RoutePlanner(AppConfig.from_dict({}), PointParser()),
         status_service=StatusService(),
@@ -80,9 +82,13 @@ def test_co2_route_runner_executes_runner_mainline_and_tracks_route_context() ->
             wait_after_pressure_stable_before_sampling=lambda point: calls.append(f"sample_hold:{point.index}") or SimpleNamespace(ok=True),
         ),
         sampling_service=SimpleNamespace(
+            sampling_params=lambda phase="": (1, 0.0),
             sample_point=lambda point, phase="", point_tag="": calls.append(f"sample:{point_tag}") or [SimpleNamespace(point=point, point_tag=point_tag)],
         ),
         qc_service=SimpleNamespace(run_point_qc=lambda point, phase="", point_tag="": calls.append(f"qc:{point_tag}")),
+        _record_workflow_timing=lambda event, transition, **kwargs: calls.append(
+            f"timing:{event}:{transition}"
+        ),
         _wait_co2_route_soak_before_seal=lambda point: calls.append("route_soak") or True,
         _cfg_get=lambda path, default=None: {"workflow.pressure.co2_reseal_retry_count": 1}.get(path, default),
     )
@@ -134,6 +140,7 @@ def test_co2_route_runner_reasserts_route_after_post_h2o_zero_flush_and_clears_a
 
     service = SimpleNamespace(
         event_bus=event_bus,
+        a2_hooks=A2Hooks(),
         route_context=context,
         route_planner=RoutePlanner(AppConfig.from_dict({}), PointParser()),
         status_service=StatusService(),
@@ -153,8 +160,14 @@ def test_co2_route_runner_reasserts_route_after_post_h2o_zero_flush_and_clears_a
             set_pressure_to_target=lambda point: calls.append(f"target_pressure:{point.index}") or SimpleNamespace(ok=True),
             wait_after_pressure_stable_before_sampling=lambda point: calls.append(f"sample_hold:{point.index}") or SimpleNamespace(ok=True),
         ),
-        sampling_service=SimpleNamespace(sample_point=lambda point, phase="", point_tag="": calls.append(f"sample:{point_tag}") or []),
+        sampling_service=SimpleNamespace(
+            sampling_params=lambda phase="": (1, 0.0),
+            sample_point=lambda point, phase="", point_tag="": calls.append(f"sample:{point_tag}") or [],
+        ),
         qc_service=SimpleNamespace(run_point_qc=lambda point, phase="", point_tag="": None),
+        _record_workflow_timing=lambda event, transition, **kwargs: calls.append(
+            f"timing:{event}:{transition}"
+        ),
         _wait_co2_route_soak_before_seal=lambda point: calls.append("route_soak") or True,
         _has_special_co2_zero_flush_pending=lambda: True,
         _is_zero_co2_point=lambda point: True,
@@ -194,6 +207,7 @@ def test_co2_route_runner_preserves_v1_ordering_contract() -> None:
 
     service = SimpleNamespace(
         event_bus=event_bus,
+        a2_hooks=A2Hooks(),
         route_context=context,
         route_planner=RoutePlanner(AppConfig.from_dict({}), PointParser()),
         status_service=StatusService(),
@@ -212,9 +226,13 @@ def test_co2_route_runner_preserves_v1_ordering_contract() -> None:
             wait_after_pressure_stable_before_sampling=lambda point: calls.append(f"sample_hold:{point.index}") or SimpleNamespace(ok=True),
         ),
         sampling_service=SimpleNamespace(
+            sampling_params=lambda phase="": (1, 0.0),
             sample_point=lambda point, phase="", point_tag="": calls.append(f"sample:{point_tag}") or [SimpleNamespace(point=point, point_tag=point_tag)],
         ),
         qc_service=SimpleNamespace(run_point_qc=lambda point, phase="", point_tag="": calls.append(f"qc:{point_tag}")),
+        _record_workflow_timing=lambda event, transition, **kwargs: calls.append(
+            f"timing:{event}:{transition}"
+        ),
         _wait_co2_route_soak_before_seal=lambda point: calls.append("route_soak") or True,
         _cfg_get=lambda path, default=None: {"workflow.pressure.co2_reseal_retry_count": 1}.get(path, default),
     )
@@ -266,6 +284,7 @@ def test_co2_route_runner_records_shared_dewpoint_gate_fields_when_enabled() -> 
 
     service = SimpleNamespace(
         event_bus=event_bus,
+        a2_hooks=A2Hooks(),
         route_context=context,
         route_planner=RoutePlanner(AppConfig.from_dict({}), PointParser()),
         status_service=StatusService(),
@@ -284,9 +303,13 @@ def test_co2_route_runner_records_shared_dewpoint_gate_fields_when_enabled() -> 
             wait_after_pressure_stable_before_sampling=lambda point: SimpleNamespace(ok=True),
         ),
         sampling_service=SimpleNamespace(
+            sampling_params=lambda phase="": (1, 0.0),
             sample_point=lambda point, phase="", point_tag="": [SimpleNamespace(point=point, point_tag=point_tag)],
         ),
         qc_service=SimpleNamespace(run_point_qc=lambda point, phase="", point_tag="": None),
+        _record_workflow_timing=lambda event, transition, **kwargs: calls.append(
+            f"timing:{event}:{transition}"
+        ),
         _cfg_get=lambda path, default=None: default,
         _gas_route_dewpoint_gate_enabled=lambda: True,
     )

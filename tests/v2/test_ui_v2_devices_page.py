@@ -34,12 +34,6 @@ def test_devices_page_displays_snapshot(tmp_path: Path) -> None:
 
         facade.execute_device_workbench_action("workbench", "set_view_mode", view_mode="engineer_view")
         facade.execute_device_workbench_action("pressure_gauge", "run_preset", preset_id="wrong_unit")
-        facade.execute_device_workbench_action(
-            "workbench",
-            "generate_diagnostic_evidence",
-            current_device="pressure_gauge",
-            current_action="run_preset",
-        )
         page.workbench.render(facade.get_device_workbench_snapshot())
         page.workbench._set_layout_mode("standard")
 

@@ -7,6 +7,7 @@ import threading
 import pytest
 
 from gas_calibrator.v2.config import AppConfig
+from gas_calibrator.v2.core.a2_hooks import A2Hooks
 from gas_calibrator.v2.core.device_manager import DeviceManager
 from gas_calibrator.v2.core.event_bus import EventBus
 from gas_calibrator.v2.core.models import CalibrationPoint
@@ -238,6 +239,7 @@ def _build_service(
             return [point for point in points if point.co2_ppm is not None]
 
     host = Host(
+        a2_hooks=A2Hooks(),
         logs=logs,
         valve_actions=valve_actions,
         counters=counters,
@@ -387,7 +389,9 @@ def test_pressure_control_service_sealed_route_skips_redundant_control_vent_off(
     context.run_logger.finalize()
 
 
-def test_pressure_control_service_blocks_watchlist_status_after_seal_without_reventing(tmp_path: Path) -> None:
+def test_pressure_control_service_accepts_watchlist_status_with_preseal_evidence_without_reventing(
+    tmp_path: Path,
+) -> None:
     service, context, run_state, host, controller = _build_service(tmp_path)
     controller.exit_vent_status = controller.VENT_STATUS_TRAPPED_PRESSURE
     source = CalibrationPoint(index=34, temperature_c=0.0, co2_ppm=400.0, pressure_hpa=900.0, route="co2")
@@ -400,16 +404,44 @@ def test_pressure_control_service_blocks_watchlist_status_after_seal_without_rev
     assert hold.diagnostics["preseal_watchlist_status_seen"] is True
     assert hold.diagnostics["preseal_watchlist_status_accepted"] is True
     assert run_state.pressure.preseal_watchlist_status_accepted is True
+    assert target.ok is True
+    assert run_state.pressure.control_ready_watchlist_status_accepted is True
+    assert [call[0] for call in controller.calls].count("exit_atmosphere_mode") == 1
+    assert ("set_setpoint", (1000.0,), {}) in controller.calls
+    ready_gate = [trace for trace in host.route_traces if trace.get("action") == "pressure_control_ready_gate"][-1]
+    assert ready_gate["result"] == "ok"
+    assert ready_gate["actual"]["preseal_watchlist_status_accepted"] is True
+    assert ready_gate["actual"]["control_ready_watchlist_status_accepted"] is True
+    assert (
+        "vent_status_3_accepted_with_preseal_watchlist_evidence"
+        in ready_gate["actual"]["decision_basis"]
+    )
+
+    context.run_logger.finalize()
+
+
+def test_pressure_control_service_blocks_watchlist_status_without_preseal_evidence(
+    tmp_path: Path,
+) -> None:
+    service, context, run_state, host, controller = _build_service(tmp_path)
+    source = CalibrationPoint(index=36, temperature_c=0.0, co2_ppm=400.0, pressure_hpa=900.0, route="co2")
+    sample = CalibrationPoint(index=37, temperature_c=0.0, co2_ppm=400.0, pressure_hpa=1000.0, route="co2")
+
+    hold = service.pressurize_and_hold(source, route="co2")
+    controller.vent_status = controller.VENT_STATUS_TRAPPED_PRESSURE
+    target = service.set_pressure_to_target(sample)
+
+    assert hold.ok is True
+    assert hold.diagnostics["preseal_watchlist_status_accepted"] is False
     assert target.ok is False
     assert target.diagnostics["control_ready_watchlist_status_accepted"] is False
     assert target.diagnostics["control_ready_failure_reason"] == "vent_status=3(watchlist_only_after_seal)"
+    assert run_state.pressure.control_ready_watchlist_status_accepted is False
     assert [call[0] for call in controller.calls].count("exit_atmosphere_mode") == 1
     assert not any(call[0] == "set_setpoint" for call in controller.calls)
     assert not any(call[0] == "enable_control_output" for call in controller.calls)
     failed_gate = [trace for trace in host.route_traces if trace.get("action") == "pressure_control_ready_gate"][-1]
     assert failed_gate["result"] == "fail"
-    assert failed_gate["actual"]["preseal_watchlist_status_accepted"] is True
-    assert failed_gate["actual"]["control_ready_watchlist_status_accepted"] is False
 
     context.run_logger.finalize()
 
@@ -492,7 +524,8 @@ def test_pressure_control_service_co2_seal_triggers_early_on_pressure_gauge_thre
     assert hold.ok is True
     assert hold.diagnostics["preseal_trigger"] == "pressure_gauge_threshold"
     assert hold.diagnostics["preseal_trigger_pressure_hpa"] == 1110.0
-    assert gauge is not None and gauge.calls == 2
+    assert hold.final_pressure_hpa == 1111.2
+    assert gauge is not None and gauge.calls == 3
     assert sleeps == [0.5]
     assert any("pressure gauge trigger=1110.000 hPa >= 1110.000 hPa" in message for message in host.logs)
 
@@ -503,7 +536,10 @@ def test_pressure_control_service_co2_seal_falls_back_to_timeout_when_threshold_
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    service, context, run_state, host, _controller = _build_service(tmp_path, gauge_values=[1108.0, 1108.6, 1109.1])
+    service, context, run_state, host, _controller = _build_service(
+        tmp_path,
+        gauge_values=[1108.0, 1108.6, 1109.1, 1109.4],
+    )
     point = CalibrationPoint(index=31, temperature_c=0.0, co2_ppm=400.0, pressure_hpa=800.0, route="co2")
     original_cfg_get = host._cfg_get
     overrides = {
@@ -531,7 +567,8 @@ def test_pressure_control_service_co2_seal_falls_back_to_timeout_when_threshold_
     assert hold.ok is True
     assert hold.diagnostics["preseal_trigger"] == "timeout"
     assert hold.diagnostics["preseal_trigger_pressure_hpa"] is None
-    assert gauge is not None and gauge.calls == 3
+    assert hold.final_pressure_hpa == 1109.4
+    assert gauge is not None and gauge.calls == 4
     assert sleeps == [0.5, 0.5]
     assert any("trigger timeout=1.000s" in message for message in host.logs)
 
@@ -572,7 +609,7 @@ def test_startup_pressure_precheck_passes_and_records_route_trace(tmp_path: Path
 def test_startup_pressure_precheck_strict_failure_raises(tmp_path: Path) -> None:
     service, context, _, host, _ = _build_service(
         tmp_path,
-        gauge_values=[1000.0, 1000.0, 1002.0, 1002.5],
+        gauge_values=[1000.0, 1000.0, 1000.0, 1002.0, 1002.5],
         startup_precheck_cfg={
             "enabled": True,
             "route": "co2",
@@ -603,7 +640,7 @@ def test_startup_pressure_precheck_strict_failure_raises(tmp_path: Path) -> None
 def test_startup_pressure_precheck_non_strict_failure_warns_and_continues(tmp_path: Path) -> None:
     service, context, _, host, _ = _build_service(
         tmp_path,
-        gauge_values=[1000.0, 1000.0, 1002.0, 1002.5],
+        gauge_values=[1000.0, 1000.0, 1000.0, 1002.0, 1002.5],
         startup_precheck_cfg={
             "enabled": True,
             "route": "co2",

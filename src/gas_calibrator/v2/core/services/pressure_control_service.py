@@ -2648,7 +2648,6 @@ class PressureControlService:
         # A2.27: pressure overshoot during preseal is normal after vent close;
         # do not trigger emergency_abort_relief – unconditionally allow seal + pressure control.
         overlimit = False
-        first_over_abort_elapsed_s = self._coerce_float(extra_data.get("first_over_abort_elapsed_s"))
         if overlimit:
             extra_data["preseal_capture_hard_abort_triggered"] = True
             extra_data.setdefault(
@@ -2761,8 +2760,6 @@ class PressureControlService:
                 extra_data.get("preseal_capture_over_urgent_threshold_action")
                 or ("fail_closed" if overlimit else "urgent_seal")
             ),
-            "preseal_capture_urgent_seal_threshold_hpa": urgent_seal_threshold_hpa,
-            "preseal_capture_hard_abort_pressure_hpa": hard_abort_pressure_hpa,
             "preseal_capture_urgent_seal_triggered": bool(
                 extra_data.get("preseal_capture_urgent_seal_triggered", False)
             ),
@@ -7848,6 +7845,7 @@ class PressureControlService:
         hard_blockers: list[str] = []
         warnings: list[str] = []
         decision_basis: list[str] = []
+        control_ready_watchlist_status_accepted = False
         if vent_status is None:
             hard_blockers.append("vent_status_unavailable")
         elif int(vent_status) == 1:
@@ -7875,7 +7873,11 @@ class PressureControlService:
             watchlist_accepted = bool(seal_context.get("preseal_watchlist_status_accepted"))
             if lag_accepted or watchlist_accepted:
                 warnings.append("vent_status=3 observed after preseal; accepted with prior vent-close and pressure evidence")
-                decision_basis.append("vent_status_3_lag_accepted_after_preseal_verification")
+                if lag_accepted:
+                    decision_basis.append("vent_status_3_lag_accepted_after_preseal_verification")
+                else:
+                    decision_basis.append("vent_status_3_accepted_with_preseal_watchlist_evidence")
+                control_ready_watchlist_status_accepted = True
             else:
                 hard_blockers.append("vent_status=3(watchlist_only_after_seal)")
         elif int(vent_status) != 0 and not self._pressure_vent_status_allows_control(controller, vent_status):
@@ -7933,7 +7935,7 @@ class PressureControlService:
             "pressure_controller_isolation_state": isolation_state,
             "pressure_evidence": pressure_evidence,
             "redundant_vent_command_skipped": True,
-            "control_ready_watchlist_status_accepted": False,
+            "control_ready_watchlist_status_accepted": control_ready_watchlist_status_accepted,
             "pressure_gate_policy": self.pressure_control_ready_gate_policy(),
             "gate_decision": decision,
             "decision_basis": decision_basis,
@@ -7947,6 +7949,9 @@ class PressureControlService:
             "warnings": warnings,
             "hard_blockers": hard_blockers,
         }
+        self.run_state.pressure.control_ready_watchlist_status_accepted = (
+            control_ready_watchlist_status_accepted
+        )
         if hard_blockers:
             diagnostics["control_ready_status"] = "blocked"
             diagnostics["control_ready_failure_reason"] = self._pressure_gate_message(hard_blockers, warnings)

@@ -1,4 +1,4 @@
-"""Step 2.16 compact summary rendering shared helper tests.
+"""Step 2.17 compact summary rendering shared helper tests.
 
 Covers:
 - build_visible_sections is the single source of truth
@@ -13,9 +13,6 @@ Covers:
 """
 
 from __future__ import annotations
-
-import pytest
-
 
 def _make_mock_packs():
     """Create 6 mock packs matching the 6 compact summary domains."""
@@ -366,6 +363,6 @@ class TestStep2Boundary:
         assert fallback["compact_summary_packs"] == []
         assert fallback["rendered_summary_sections"] == []
 
-    def test_version_is_216(self):
+    def test_version_is_217(self):
         from gas_calibrator.v2.core.compact_summary_rendering import COMPACT_SUMMARY_RENDERING_VERSION
-        assert COMPACT_SUMMARY_RENDERING_VERSION.startswith("2.16")
+        assert COMPACT_SUMMARY_RENDERING_VERSION.startswith("2.17")

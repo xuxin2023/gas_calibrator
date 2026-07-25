@@ -216,6 +216,7 @@ def _make_service(points_path: Path, stability_checker) -> CalibrationService:
                 "temperature_chamber": {"port": "COM1", "enabled": True},
                 "gas_analyzers": [{"port": "COM2", "enabled": True}],
             },
+            "features": {"simulation_mode": True},
             "workflow": _workflow_config(sampling_count=2),
             "paths": {"points_excel": str(points_path)},
         }
@@ -358,6 +359,7 @@ def test_full_run_exports_ratio_poly_coefficient_report(tmp_path: Path) -> None:
                 "temperature_chamber": {"port": "COM1", "enabled": True},
                 "gas_analyzers": [{"port": "COM2", "enabled": True}],
             },
+            "features": {"simulation_mode": True},
             "workflow": {
                 **_workflow_config(sampling_count=1),
             },
@@ -426,6 +428,7 @@ def test_v2_replacement_contract_minimal_flow_persists_results_and_artifacts(tmp
                 "temperature_chamber": {"port": "COM1", "enabled": True},
                 "gas_analyzers": [{"port": "COM2", "enabled": True}],
             },
+            "features": {"simulation_mode": True},
             "workflow": {
                 **_workflow_config(sampling_count=1),
             },
@@ -501,6 +504,7 @@ def test_route_failure_does_not_produce_fake_completed_summary(tmp_path: Path, m
                 "temperature_chamber": {"port": "COM1", "enabled": True},
                 "gas_analyzers": [{"port": "COM2", "enabled": True}],
             },
+            "features": {"simulation_mode": True},
             "workflow": {
                 **_workflow_config(sampling_count=1),
             },

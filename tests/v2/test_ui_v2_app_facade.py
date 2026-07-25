@@ -1433,12 +1433,6 @@ def test_app_facade_builds_review_digest_for_offline_evidence(tmp_path: Path) ->
         relay_name="relay_8",
         channel=1,
     )
-    facade.execute_device_workbench_action(
-        "workbench",
-        "generate_diagnostic_evidence",
-        current_device="relay",
-        current_action="run_preset",
-    )
 
     results_snapshot = facade.build_results_snapshot()
     reports_snapshot = facade.get_reports_snapshot(results_snapshot=results_snapshot)

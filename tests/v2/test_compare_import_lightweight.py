@@ -4,13 +4,19 @@ import importlib
 import sys
 
 
-def test_compare_import_does_not_pull_entry_or_v1_trace_module() -> None:
+def test_compare_import_does_not_pull_entry_or_v1_trace_module(monkeypatch) -> None:
+    import gas_calibrator.v2 as v2_package
+    import gas_calibrator.v2.scripts as scripts_package
+
     module = importlib.import_module("gas_calibrator.v2.scripts.compare_v1_v2_control_flow")
-    for name in (
-        "gas_calibrator.v2.entry",
+    monkeypatch.delattr(v2_package, "entry", raising=False)
+    monkeypatch.delattr(scripts_package, "run_v1_route_trace", raising=False)
+    monkeypatch.delitem(sys.modules, "gas_calibrator.v2.entry", raising=False)
+    monkeypatch.delitem(
+        sys.modules,
         "gas_calibrator.v2.scripts.run_v1_route_trace",
-    ):
-        sys.modules.pop(name, None)
+        raising=False,
+    )
 
     importlib.reload(module)
 

@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from gas_calibrator.config import load_config
 from gas_calibrator.data.points import load_points_from_excel
 
@@ -7,8 +9,16 @@ from gas_calibrator.data.points import load_points_from_excel
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _require_real_fixture(path: Path) -> Path:
+    if not path.is_file():
+        pytest.skip(f"real V1.5 fixture not restored: {path.name}")
+    return path
+
+
 def test_formal_open_flow_900ppm_config_is_no_write_and_passive() -> None:
-    cfg_path = ROOT / "configs" / "site_v1_5_formal_open_flow_4ch_no_write_900ppm.json"
+    cfg_path = _require_real_fixture(
+        ROOT / "configs" / "site_v1_5_formal_open_flow_4ch_no_write_900ppm.json"
+    )
     cfg = load_config(cfg_path)
 
     analyzers = cfg["devices"]["gas_analyzers"]
@@ -28,7 +38,9 @@ def test_formal_open_flow_900ppm_config_is_no_write_and_passive() -> None:
 
 
 def test_formal_open_flow_900ppm_points_load_as_single_dry_co2_point() -> None:
-    points_path = ROOT / "configs" / "points_v1_5_co2_20c_900ppm_open_flow_no_write.xlsx"
+    points_path = _require_real_fixture(
+        ROOT / "configs" / "points_v1_5_co2_20c_900ppm_open_flow_no_write.xlsx"
+    )
     points = load_points_from_excel(points_path, missing_pressure_policy="carry_forward")
 
     assert len(points) == 1

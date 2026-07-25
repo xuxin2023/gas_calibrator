@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -43,6 +44,38 @@ except ImportError:
 
 SOURCE_SCAN_ENTRY_LIMIT = 128
 SOURCE_SCAN_FILE_LIMIT = 64
+
+
+def _localize_external_comparison_line(text: Any) -> str:
+    value = str(text or "").strip()
+    overview = re.search(
+        r"external comparison rows\s+(?P<rows>[^|]+?)\s*\|\s*types\s+(?P<types>.*?)"
+        r"\s*\|\s*scope\s+(?P<scope>[^|]+?)\s*\|\s*decision rule\s+(?P<decision_rule>[^|]+)",
+        value,
+        flags=re.IGNORECASE,
+    )
+    if overview:
+        return t("pages.reports.review_scope_manifest.external_comparison_overview", **overview.groupdict())
+    import_trace = re.search(
+        r"source files\s+(?P<source_files>[^|]+?)\s*\|\s*import modes\s+(?P<import_modes>.*?)"
+        r"\s*\|\s*evidence_source\s+(?P<evidence_source>[^|]+)",
+        value,
+        flags=re.IGNORECASE,
+    )
+    if import_trace:
+        return t("pages.reports.review_scope_manifest.external_comparison_import_trace", **import_trace.groupdict())
+    coverage = re.search(
+        r"uncertainty\s+(?P<uncertainty>[^|]+?)\s*\|\s*method\s+(?P<method>[^|]+?)"
+        r"\s*\|\s*software\s+(?P<software>[^|]+?)\s*\|\s*assets\s+(?P<assets>[^|]+?)"
+        r"\s*\|\s*certificates\s+(?P<certificates>[^|]+)",
+        value,
+        flags=re.IGNORECASE,
+    )
+    if coverage:
+        return t("pages.reports.review_scope_manifest.external_comparison_coverage", **coverage.groupdict())
+    if "local-file-only" in value.lower() or "not ready for formal claim" in value.lower():
+        return t("pages.reports.review_scope_manifest.external_comparison_boundary")
+    return t("pages.reports.review_scope_manifest.external_comparison_detail")
 
 
 def _build_compact_summary_pack_fields(
@@ -583,9 +616,13 @@ def render_review_scope_manifest_markdown(payload: dict[str, Any]) -> str:
         lines.append(f"## {t('reviewer_summary.compact_summary_pack.header')}")
         lines.append("")
         for section in rendered_sections:
-            label = str(section.get("display_label") or section.get("summary_key", ""))
+            summary_key = str(section.get("summary_key", "") or "")
+            label = str(section.get("display_label") or summary_key)
             severity = str(section.get("severity", "info") or "info")
             section_lines = list(section.get("summary_lines") or [])
+            if summary_key == "external_comparison":
+                label = t("pages.reports.review_scope_manifest.external_comparison_label")
+                section_lines = [_localize_external_comparison_line(item) for item in section_lines]
             truncated = bool(section.get("truncated", False))
             lines.append(f"### {label}")
             if severity != "info":

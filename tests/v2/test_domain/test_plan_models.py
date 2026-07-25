@@ -37,7 +37,12 @@ def test_calibration_plan_profile_round_trip() -> None:
             GasPointSpec(co2_ppm=400.0, co2_group="B", cylinder_nominal_ppm=405.0, order=2),
         ],
         pressures=[
-            PressureSpec(pressure_hpa=1013.25, order=1),
+            PressureSpec(
+                pressure_hpa=1013.25,
+                pressure_mode="sealed_controlled",
+                pressure_target_label="1013.25hPa",
+                order=1,
+            ),
         ],
         ordering=PlanOrderingOptions(
             water_first=True,
