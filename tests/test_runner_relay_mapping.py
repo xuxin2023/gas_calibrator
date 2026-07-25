@@ -173,6 +173,7 @@ def test_pressurize_closes_hold_and_source_with_relay_map(tmp_path: Path) -> Non
     point = _h2o_point()
 
     runner._set_h2o_path(True, point)
+    runner._verify_preseal_final_atmosphere_exit = lambda *args, **kwargs: True
     runner._pressurize_and_hold(point, route="h2o")
 
     assert runner.devices["relay_8"].states.get(8) is False
@@ -194,6 +195,7 @@ def test_closing_h2o_path_closes_flow_switch(tmp_path: Path) -> None:
 
 def test_co2_route_baseline_reopens_gas_bypass(tmp_path: Path) -> None:
     runner = _runner(tmp_path)
+    runner.devices.pop("pace")
 
     runner._set_co2_route_baseline(reason="test baseline")
 
@@ -204,6 +206,7 @@ def test_co2_route_baseline_reopens_gas_bypass(tmp_path: Path) -> None:
 
 def test_h2o_cleanup_restores_gas_bypass_baseline(tmp_path: Path) -> None:
     runner = _runner(tmp_path)
+    runner.devices.pop("pace")
 
     point = _h2o_point()
     runner._set_h2o_path(True, point)

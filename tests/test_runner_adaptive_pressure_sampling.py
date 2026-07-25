@@ -340,10 +340,7 @@ def test_soft_control_flag_off_keeps_default_pace_setup(tmp_path: Path) -> None:
     runner._configure_devices()
     logger.close()
 
-    assert pace.calls == [
-        ("mode_active",),
-        ("in_limits", 0.02, 10.0),
-    ]
+    assert pace.calls == [("units_hpa",), ("mode_active",), ("in_limits", 0.02, 10.0)]
 
 
 def test_soft_control_unsupported_commands_warn_only(tmp_path: Path) -> None:
