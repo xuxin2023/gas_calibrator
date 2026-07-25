@@ -9,6 +9,8 @@ from pathlib import Path
 from random import Random
 from typing import Any, Mapping
 
+from gas_calibrator.utils.file_io import write_json as _write_json
+
 from ..domain.services.gas_analyzer_bench_readiness import (
     analyze_gas_analyzer_bench_readiness,
     build_gas_analyzer_bench_readiness_acceptance,
@@ -646,15 +648,6 @@ def _format_markdown(report: Mapping[str, Any]) -> str:
         ]
     )
     return "\n".join(lines)
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(dict(payload), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    return path
 
 
 __all__ = [

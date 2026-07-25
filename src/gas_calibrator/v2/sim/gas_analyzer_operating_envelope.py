@@ -8,6 +8,8 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
+from gas_calibrator.utils.file_io import write_json as _write_json
+
 from ..domain.services.gas_analyzer_operating_envelope import (
     analyze_gas_analyzer_operating_envelope,
     build_gas_analyzer_operating_envelope_acceptance,
@@ -468,15 +470,6 @@ def _format_markdown(report: Mapping[str, Any]) -> str:
 def _format_range(value: Any) -> str:
     bounds = dict(value or {})
     return f"{bounds.get('minimum')}–{bounds.get('maximum')}"
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(dict(payload), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    return path
 
 
 __all__ = [

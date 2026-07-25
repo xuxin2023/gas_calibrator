@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
+from gas_calibrator.utils.file_io import write_json as _write_json
+
 from ...config import load_config
 from ..config.models import _normalize_sensor_precheck_config
 from . import route_trace_diff
@@ -855,12 +857,6 @@ def _runtime_policy_summary(
         "effective_v2_compare_config": str(effective_compare_config) if effective_compare_config is not None else None,
         "bench_context": dict(bench_context or {}),
     }
-
-
-def _write_json(path: Path, payload: Any) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return path
 
 
 def _load_json_payload(path: Path) -> dict[str, Any]:

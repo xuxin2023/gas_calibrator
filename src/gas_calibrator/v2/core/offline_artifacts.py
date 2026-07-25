@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
+from gas_calibrator.utils.file_io import write_json
+
 from ..config import (
     build_step2_config_governance_handoff,
     build_step2_config_safety_review,
@@ -72,13 +74,6 @@ ANALYZER_CHAIN_ISOLATION_SUMMARY_FILENAME = "isolation_comparison_summary.json"
 CONTROL_FLOW_COMPARE_REPORT_FILENAME = "control_flow_compare_report.json"
 CONTROL_FLOW_COMPARE_REPORT_MARKDOWN_FILENAME = "control_flow_compare_report.md"
 CONTROL_FLOW_COMPARE_ARTIFACT_INVENTORY_FILENAME = "artifact_inventory.json"
-
-
-def write_json(path: str | Path, payload: dict[str, Any]) -> Path:
-    target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return target
 
 
 def _load_route_trace_events(run_dir: Path) -> list[dict[str, Any]]:
