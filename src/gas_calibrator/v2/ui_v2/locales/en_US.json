@@ -1903,6 +1903,7 @@
       "gas_analyzer_operating_envelope": "gas analyzer integrated operating envelope",
       "gas_analyzer_bench_readiness": "gas analyzer bench protocol readiness",
       "gas_analyzer_asset_dossier_readiness": "gas analyzer metrology asset dossier readiness",
+      "gas_analyzer_certificate_operational_admission": "gas analyzer operational certificate admission",
       "mismatch": "mismatch",
       "not_executed": "not executed",
       "snapshot_only": "snapshot only"

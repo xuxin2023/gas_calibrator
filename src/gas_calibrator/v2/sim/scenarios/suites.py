@@ -89,6 +89,11 @@ SUITES: dict[str, SimulationSuiteDefinition] = {
                 kind="ga_asset_dossier",
                 expected_statuses=("EXPECTED_GAPS",),
             ),
+            SimulationSuiteCase(
+                name="ga_d6b_owner_attested_certificate_admission",
+                kind="ga_certificate_admission",
+                expected_statuses=("MATCH",),
+            ),
             SimulationSuiteCase(name="primary_latest_missing", kind="replay", expected_statuses=("SNAPSHOT_ONLY",)),
             SimulationSuiteCase(
                 name="stale_h2o_latest_present_but_not_primary",
@@ -145,6 +150,11 @@ SUITES: dict[str, SimulationSuiteDefinition] = {
                 name="ga_d5_0620_0621_asset_dossier_gaps",
                 kind="ga_asset_dossier",
                 expected_statuses=("EXPECTED_GAPS",),
+            ),
+            SimulationSuiteCase(
+                name="ga_d6b_owner_attested_certificate_admission",
+                kind="ga_certificate_admission",
+                expected_statuses=("MATCH",),
             ),
             SimulationSuiteCase(name="export_resilience", kind="resilience", expected_statuses=("MATCH",)),
             SimulationSuiteCase(name="summary_parity", kind="parity", expected_statuses=("MATCH",)),

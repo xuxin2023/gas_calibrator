@@ -30,6 +30,10 @@ _EXPORTS = {
         "gas_calibrator.v2.sim.gas_analyzer_asset_dossier",
         "build_gas_analyzer_asset_dossier_offline_report",
     ),
+    "build_certificate_operational_admission_offline_report": (
+        "gas_calibrator.v2.sim.certificate_operational_admission",
+        "build_certificate_operational_admission_offline_report",
+    ),
     "build_gas_analyzer_bench_readiness_offline_report": (
         "gas_calibrator.v2.sim.gas_analyzer_bench_readiness",
         "build_gas_analyzer_bench_readiness_offline_report",

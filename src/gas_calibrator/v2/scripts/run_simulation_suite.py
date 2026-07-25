@@ -19,6 +19,7 @@ from ..ui_v2.i18n import (
 )
 from ..sim import (
     DEFAULT_REPLAY_FIXTURE_ROOT,
+    build_certificate_operational_admission_offline_report,
     build_ec_dynamic_offline_report,
     build_ec_system_identification_offline_report,
     build_export_resilience_report,
@@ -265,6 +266,36 @@ def run_suite(*, suite_name: str, report_root: Path, run_name: Optional[str] = N
                 ),
                 "blocking_reasons": list(
                     acceptance.get("blocking_reasons") or []
+                ),
+            }
+        elif case.kind == "ga_certificate_admission":
+            result = build_certificate_operational_admission_offline_report(
+                report_root=suite_dir,
+                run_name=case.name,
+            )
+            status = str(result.get("status") or "")
+            artifact_dir = str(result.get("report_dir") or "")
+            report_payload = dict(result.get("report") or {})
+            details = {
+                "report_json": result.get("report_json"),
+                "report_markdown": result.get("report_markdown"),
+                "execution_rows": result.get("execution_rows"),
+                "execution_summary": result.get("execution_summary"),
+                "formal_analysis": result.get("formal_analysis"),
+                "operational_certificate_gate_passed": report_payload.get(
+                    "operational_certificate_gate_passed"
+                ),
+                "offline_program_progress_allowed": report_payload.get(
+                    "offline_program_progress_allowed"
+                ),
+                "strict_original_certificate_gate_passed": report_payload.get(
+                    "strict_original_certificate_gate_passed"
+                ),
+                "ready_for_real_execution": report_payload.get(
+                    "ready_for_real_execution"
+                ),
+                "failed_gate_ids": list(
+                    report_payload.get("failed_gate_ids") or []
                 ),
             }
         else:
