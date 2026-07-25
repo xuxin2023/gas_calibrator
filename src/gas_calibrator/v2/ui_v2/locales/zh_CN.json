@@ -1902,6 +1902,7 @@
       "gas_analyzer_operating_envelope": "气体分析仪综合工作包络",
       "gas_analyzer_bench_readiness": "气体分析仪台架协议准备度",
       "gas_analyzer_asset_dossier_readiness": "气体分析仪计量资产资料包准备度",
+      "gas_analyzer_certificate_operational_admission": "气体分析仪证书运行资料门禁",
       "mismatch": "不一致",
       "not_executed": "未执行",
       "snapshot_only": "仅快照"

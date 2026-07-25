@@ -1,0 +1,104 @@
+{
+  "schema_version": "certificate_operational_admission_contract_v1",
+  "contract_id": "GA-D6B-OWNER-ATTESTED-OPERATIONAL-CERTIFICATE-ADMISSION-V1",
+  "assessment_date": "2026-07-25",
+  "scope": "historical_0620_0621_offline_program_progress_only",
+  "evidence_boundary": {
+    "evidence_source": "owner_attested_local_documentary_evidence",
+    "not_real_acceptance_evidence": true,
+    "promotion_state": "blocked",
+    "program_progress_scope": "offline_program_development_and_governance",
+    "real_execution_allowed": false,
+    "device_io_allowed": false,
+    "database_write_allowed": false,
+    "coefficient_fit_allowed": false,
+    "coefficient_write_allowed": false,
+    "real_primary_latest_refresh_allowed": false,
+    "source_file_mutation_allowed": false,
+    "report_output_only": true
+  },
+  "method_contract": {
+    "mature_route_contract_id": "0613_0620_0621_mature_v1_5_legacy_ratio",
+    "production_default_profile_id": "legacy_ratio_production",
+    "formal_calibration_sample_hz": 1,
+    "average1": 49,
+    "average2": 49,
+    "pressure_first_senco9_required": true,
+    "co2_zero_separate_from_h2o_dry": true,
+    "h2o_reference_requires_actual_dewpoint_and_pressure": true,
+    "temperature_truth_source": "in_chamber_platinum_resistance_digital_thermometer",
+    "temperature_chamber_setpoint_is_reference": false,
+    "flow_source": "dewpoint_instrument_output.flow_lpm",
+    "flow_metrology_role": "process_monitor_only",
+    "flow_used_in_concentration_fit_or_correction": false,
+    "timebase_source": "software_monotonic_clock_plus_analyzer_1hz_stream",
+    "timebase_role": "static_sampling_and_stability_window_only",
+    "dynamic_response_or_ec_acceptance_in_scope": false
+  },
+  "expected_owner_attested_co2_values_ppm": {
+    "100": 99.91,
+    "200": 199.8,
+    "300": 300.36,
+    "400": 399.67,
+    "500": 500.13,
+    "600": 599.54,
+    "700": 699.59,
+    "800": 800.59,
+    "900": 901.78,
+    "1000": 1000.22
+  },
+  "required_documentary_groups": {
+    "co2_gas_photo_bundle": 22,
+    "h2o_dewpoint_reference": 1,
+    "dewpoint_temperature_probe": 1,
+    "digital_pressure_reference": 1,
+    "in_chamber_temperature_reference": 1,
+    "temperature_chamber_environment_control": 1
+  },
+  "operational_admission_requirements": {
+    "owner_attestation_required": true,
+    "local_source_sha256_verification_required": true,
+    "co2_photo_bundle_may_support_identity_and_documentary_continuity": true,
+    "co2_photo_bundle_is_automatic_value_authority": false,
+    "owner_attested_prior_flow_values_allowed": true,
+    "co2_dry_air_may_be_low_end_process_anchor": true,
+    "co2_dry_air_is_certified_zero_gas": false,
+    "dewpoint_output_flow_may_satisfy_process_monitor_role": true,
+    "dewpoint_output_flow_is_traceable_flow_reference": false,
+    "external_timebase_certificate_required_for_static_program_progress": false,
+    "external_timebase_certificate_required_for_dynamic_acceptance": true,
+    "in_chamber_platinum_thermometer_required": true,
+    "temperature_chamber_setpoint_substitution_forbidden": true
+  },
+  "admission_layers": {
+    "operational_certificate_gate": {
+      "pass_state": "PASSED_WITH_OWNER_ATTESTATION",
+      "allows_offline_program_progress": true,
+      "allows_real_execution": false,
+      "allows_formal_certificate_claim": false
+    },
+    "strict_original_certificate_gate": {
+      "pass_state": "STRICT_ORIGINAL_CERTIFICATES_COMPLETE",
+      "must_remain_blocked_in_this_fixture": true,
+      "allows_real_execution": false,
+      "allows_real_acceptance": false
+    }
+  },
+  "strict_original_certificate_gaps": [
+    "co2_zero_gas:certified_co2_residual_and_uncertainty_not_documented",
+    "co2_standard_gas_series:owner_attested_values_not_bound_one_to_one_to_original_certificate_pages",
+    "flow_reference:dewpoint_output_is_process_monitor_not_traceable_flow_standard",
+    "timebase_reference:external_traceable_timebase_not_present_for_dynamic_acceptance"
+  ],
+  "interpretation": {
+    "operational_gate_is_strict_original_certificate_gate": false,
+    "operational_gate_is_execution_authorization": false,
+    "operational_gate_is_real_acceptance": false,
+    "photo_count_proves_physical_cylinder_count": false,
+    "owner_attestation_is_original_certificate": false,
+    "co2_zero_and_h2o_dry_are_distinct": true,
+    "chamber_setpoint_is_true_temperature": false,
+    "dewpoint_flow_is_primary_measurand": false,
+    "static_sampling_timebase_is_dynamic_response_traceability": false
+  }
+}

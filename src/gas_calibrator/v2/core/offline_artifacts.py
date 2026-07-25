@@ -3620,6 +3620,7 @@ def build_suite_case_metadata(case: dict[str, Any], *, suite_name: str) -> dict[
         "ga_dynamic_uncertainty",
         "ga_operating_envelope",
         "ga_bench_readiness",
+        "ga_certificate_admission",
     }:
         evidence_source = "simulated"
     elif kind in {"replay", "ga_asset_dossier"}:
@@ -3673,6 +3674,8 @@ def build_suite_case_metadata(case: dict[str, Any], *, suite_name: str) -> dict[
         failure_type = "gas_analyzer_bench_readiness"
     elif kind == "ga_asset_dossier":
         failure_type = "gas_analyzer_asset_dossier_readiness"
+    elif kind == "ga_certificate_admission":
+        failure_type = "gas_analyzer_certificate_operational_admission"
     return {
         "suite": suite_name,
         "evidence_source": evidence_source,

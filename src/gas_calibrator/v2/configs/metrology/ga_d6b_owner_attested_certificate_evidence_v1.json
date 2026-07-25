@@ -1,0 +1,244 @@
+{
+  "schema_version": "ga_d6b_owner_attested_certificate_evidence_v1",
+  "evidence_id": "GA-D6B-OWNER-ATTESTED-0620-0621-20260725",
+  "as_of": "2026-07-25",
+  "scope": "historical_0620_0621_offline_program_progress_only",
+  "owner_attestation": {
+    "attestation_id": "OWNER-20260725-0620-0621-CERT-GATE",
+    "attested_by_role": "project_owner",
+    "attested_at": "2026-07-25",
+    "photo_evidence_accepted_for_operational_gate": true,
+    "prior_calibration_values_confirmed_for_use": true,
+    "flow_source_confirmed": "dewpoint_instrument_output.flow_lpm",
+    "temperature_truth_source_confirmed": "in_chamber_platinum_resistance_digital_thermometer",
+    "temperature_chamber_setpoint_is_truth_source": false
+  },
+  "execution_boundary": {
+    "real_execution_requested": false,
+    "device_io_requested": false,
+    "database_write_requested": false,
+    "coefficient_fit_requested": false,
+    "coefficient_write_requested": false,
+    "real_primary_latest_refresh_requested": false
+  },
+  "co2_standard_gas_series": {
+    "value_source": "project_owner_attestation_prior_calibration_flow",
+    "value_unit": "umol_mol",
+    "values_by_nominal_ppm": {
+      "100": 99.91,
+      "200": 199.8,
+      "300": 300.36,
+      "400": 399.67,
+      "500": 500.13,
+      "600": 599.54,
+      "700": 699.59,
+      "800": 800.59,
+      "900": 901.78,
+      "1000": 1000.22
+    },
+    "photo_bundle_role": "documentary_identity_and_continuity_attachment",
+    "photo_bundle_is_automatic_value_authority": false,
+    "one_to_one_certificate_value_binding_complete": false
+  },
+  "co2_low_end_anchor": {
+    "evidence_group": "co2_gas_photo_bundle",
+    "gas_description": "dry_air_o2_20_95_percent_n2_balance",
+    "owner_accepted_role": "low_co2_dry_air_process_anchor",
+    "certified_co2_value_ppm": null,
+    "certified_co2_uncertainty_ppm": null,
+    "formal_co2_zero_certificate_complete": false,
+    "must_not_be_used_as_h2o_dewpoint_reference": true
+  },
+  "h2o_reference": {
+    "certificate_id": "FCDjw25074175",
+    "instrument_model": "GRZ5932",
+    "serial_number": "245932001",
+    "valid_until": "2026-08-17",
+    "actual_dewpoint_and_pressure_required_per_measurement": true,
+    "dry_gas_anchor_is_co2_zero_anchor": false
+  },
+  "pressure_reference": {
+    "certificate_id": "FRGsz25038057",
+    "instrument_model": "745-23A",
+    "serial_number": "118288",
+    "scope_hpa_absolute": [500.0, 1100.0],
+    "valid_until": "2027-05-21"
+  },
+  "temperature_reference": {
+    "certificate_id": "GQJ(C)WD2026-0105",
+    "instrument_model": "RCY-1G",
+    "serial_number": "2021009",
+    "placement": "inside_temperature_chamber",
+    "truth_source": "platinum_resistance_digital_thermometer",
+    "calibration_range_c": [-60.0, 80.0],
+    "expanded_uncertainty_c_k2": 0.017,
+    "calibration_date": "2026-03-11",
+    "recommended_recalibration_interval_months": 12,
+    "temperature_chamber_setpoint_used_as_truth": false
+  },
+  "temperature_chamber": {
+    "certificate_id": "CRGxc25071726A",
+    "instrument_model": "GDJS-010C",
+    "serial_number": "201712068",
+    "role": "environment_control_only",
+    "setpoint_used_as_temperature_reference": false
+  },
+  "flow_monitor": {
+    "source": "dewpoint_instrument_output.flow_lpm",
+    "role": "process_monitor_only",
+    "used_in_concentration_fit_or_correction": false,
+    "claimed_as_traceable_flow_reference": false
+  },
+  "timebase": {
+    "source": "software_monotonic_clock_plus_analyzer_1hz_stream",
+    "role": "static_sampling_and_stability_window_only",
+    "sample_rate_hz": 1,
+    "average1": 49,
+    "average2": 49,
+    "dynamic_response_or_ec_acceptance_in_scope": false,
+    "claimed_as_external_traceable_timebase": false
+  },
+  "anchor_separation": {
+    "co2_zero_and_h2o_dry_are_distinct": true,
+    "co2_low_end_anchor_role": "low_co2_dry_air_process_anchor",
+    "h2o_low_end_anchor_role": "dewpoint_and_pressure_backed_dry_gas_point"
+  },
+  "strict_original_certificate_gate_passed": false,
+  "documentary_files": [
+    {
+      "filename": "微信图片_20260525191354_234_36.jpg",
+      "sha256": "0023a93a76178a3f94aee94f3a1a39abe19010bf218a370e8473dc2362d272be",
+      "evidence_group": "co2_gas_photo_bundle"
+    },
+    {
+      "filename": "微信图片_20260525191355_235_36.jpg",
+      "sha256": "e3826235b41b27ff6a28e19d64ed0d8e83a11aa85b58cf080002fb33480b9788",
+      "evidence_group": "co2_gas_photo_bundle"
+    },
+    {
+      "filename": "微信图片_20260527154433_236_36.jpg",
+      "sha256": "32ece7e3f4860adf5fab81faf190060441059677346f5a20a9bc39b4df9a9dfe",
+      "evidence_group": "co2_gas_photo_bundle"
+    },
+    {
+      "filename": "微信图片_20260527154435_237_36.jpg",
+      "sha256": "65a82a69fda120584c39b2a2ae62391cbee9aa7185fcc14de0ab173b0567bd2e",
+      "evidence_group": "co2_gas_photo_bundle"
+    },
+    {
+      "filename": "微信图片_20260527160740_238_36.jpg",
+      "sha256": "4ef554c92eb0f20608b0b0a73963e46f8c225f3a9c1b798b1a4f19228f591bb1",
+      "evidence_group": "co2_gas_photo_bundle"
+    },
+    {
+      "filename": "微信图片_20260527160741_239_36.jpg",
+      "sha256": "7170c38625536ac116b1088f8e99b2260432e059f86c051836a51ee177e13494",
+      "evidence_group": "co2_gas_photo_bundle"
+    },
+    {
+      "filename": "微信图片_20260527160742_240_36.jpg",
+      "sha256": "625c82518641df5e03e2acbc6a7f1c006cb5615d16dd8c833969c2b37a0541b0",
+      "evidence_group": "co2_gas_photo_bundle"
+    },
+    {
+      "filename": "微信图片_20260527160743_241_36.jpg",
+      "sha256": "438d6aa1654935f33c8a91dc9f3a81bfd98094068e7fc0ef92eaa783cc86b482",
+      "evidence_group": "co2_gas_photo_bundle"
+    },
+    {
+      "filename": "微信图片_20260527161922_242_36.jpg",
+      "sha256": "d59d714808fd99861a57f38e5f0be77d40049e7d4023e6714c49197411abfcb9",
+      "evidence_group": "co2_gas_photo_bundle"
+    },
+    {
+      "filename": "微信图片_20260527161924_243_36.jpg",
+      "sha256": "79a5c32423002162bec3322e795ae53974983f30333d1e545b7b90067b7c0c7c",
+      "evidence_group": "co2_gas_photo_bundle"
+    },
+    {
+      "filename": "微信图片_20260528161327_244_36.jpg",
+      "sha256": "d6cc4dd0339a23d88d8117aca30c648fda0e2a6460afb9c17721323733f3a3d0",
+      "evidence_group": "co2_gas_photo_bundle"
+    },
+    {
+      "filename": "微信图片_20260528161329_245_36.jpg",
+      "sha256": "f583f4e206cede81c639c1c420e42754b704e698a7180754928ea72249f0782a",
+      "evidence_group": "co2_gas_photo_bundle"
+    },
+    {
+      "filename": "微信图片_20260528161418_246_36.jpg",
+      "sha256": "a72e05c15a7885c1c2854cf58821ed83b4cb82880c5f91cdd3cc4ec09d967589",
+      "evidence_group": "co2_gas_photo_bundle"
+    },
+    {
+      "filename": "微信图片_20260528161420_247_36.jpg",
+      "sha256": "4cada53b877d9fbbc1b66612d2cf55bf649b440375a4abc1859714a29576bfa2",
+      "evidence_group": "co2_gas_photo_bundle"
+    },
+    {
+      "filename": "微信图片_20260528161507_248_36.jpg",
+      "sha256": "508ea1517d2f2091124dfd5053d4d777c07d120e21fca79751d2d72eef362029",
+      "evidence_group": "co2_gas_photo_bundle"
+    },
+    {
+      "filename": "微信图片_20260528161509_249_36.jpg",
+      "sha256": "fd925340a6d7afaffd6a050b495b31b7b95d31c23bcf0b44f22739dce463d685",
+      "evidence_group": "co2_gas_photo_bundle"
+    },
+    {
+      "filename": "微信图片_20260528161556_250_36.jpg",
+      "sha256": "b87f8009abffec1b6a992f53ef29261e278ddbce607ab26509d41aa30e94dea7",
+      "evidence_group": "co2_gas_photo_bundle"
+    },
+    {
+      "filename": "微信图片_20260528161558_251_36.jpg",
+      "sha256": "6348d5452fc88e0e6f38a794fe84c019786c3fe64788cd5dcd8b59f7b30ba8db",
+      "evidence_group": "co2_gas_photo_bundle"
+    },
+    {
+      "filename": "微信图片_20260528161648_252_36.jpg",
+      "sha256": "f35d4fecaaf5a302c53de20ef85e3b731444b9ef97453dd01c12d2fc0ebe2d55",
+      "evidence_group": "co2_gas_photo_bundle"
+    },
+    {
+      "filename": "微信图片_20260528161651_253_36.jpg",
+      "sha256": "eba105a3a4369bd9d258b4a88e71992345171fb52a99d3d68d3ba5ba6bb14651",
+      "evidence_group": "co2_gas_photo_bundle"
+    },
+    {
+      "filename": "微信图片_20260528161731_254_36.jpg",
+      "sha256": "16d56dca94bb17799c12c878af57a0c5a64d9ff34801ad20b0c550138bb85237",
+      "evidence_group": "co2_gas_photo_bundle"
+    },
+    {
+      "filename": "微信图片_20260528161733_255_36.jpg",
+      "sha256": "f0004f0d6dd503286162135a890df843b6bd4a055d2e73d8f9a98a672c7bdd0c",
+      "evidence_group": "co2_gas_photo_bundle"
+    },
+    {
+      "filename": "FCDjw25074175-精密露点仪-245932001.pdf",
+      "sha256": "2953efc4fa8a3c6e496b1f4009535427ee0776a585aefede6a76e47c46f509a8",
+      "evidence_group": "h2o_dewpoint_reference"
+    },
+    {
+      "filename": "CRGzb25074337-精密露点仪(温度探头)-245932001.pdf",
+      "sha256": "ad310a71330f9f15a51b6d44d7caceb9a8a47eb66f1440d66d86454eb77e6d0a",
+      "evidence_group": "dewpoint_temperature_probe"
+    },
+    {
+      "filename": "FRGsz25038057-数字压力计-118288.pdf",
+      "sha256": "6307a931686a406c9743b4fc3f23f6a382d8877a2695e170cef5286577a0be7f",
+      "evidence_group": "digital_pressure_reference"
+    },
+    {
+      "filename": "铂电阻最新.pdf",
+      "sha256": "63654d1235d117bb189734ce03f4f325f637c8848923f4bf3682a703060feacf",
+      "evidence_group": "in_chamber_temperature_reference"
+    },
+    {
+      "filename": "CRGxc25071726A-高低温交变湿热试验箱-201712068.pdf",
+      "sha256": "f9b7998b715b37fc92d6ee862f88f587ea2424cd2648be50d6ca5507c082b7dd",
+      "evidence_group": "temperature_chamber_environment_control"
+    }
+  ]
+}
