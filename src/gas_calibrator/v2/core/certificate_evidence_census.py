@@ -18,6 +18,8 @@ import re
 from typing import Any, Iterable, Mapping
 import zipfile
 
+from gas_calibrator.utils.file_io import sha256_file, write_json as _write_json
+
 
 DEFAULT_CONTRACT_PATH = (
     Path(__file__).resolve().parents[1]
@@ -486,7 +488,7 @@ def _scan_root(root: Path, contract: Mapping[str, Any]) -> tuple[dict[str, Any],
             summary["inventory_status"] = "partial"
             continue
         try:
-            digest = _sha256_file(path)
+            digest = sha256_file(path)
         except OSError as exc:
             digest = ""
             extraction_status = f"hash_error:{type(exc).__name__}"
@@ -822,7 +824,7 @@ def _merge_seeded_candidates(
                 for item in contract.get("ocr_required_extensions") or []
             }:
                 extraction_status = "ocr_or_visual_review_required"
-            digest = _sha256_file(path)
+            digest = sha256_file(path)
             required = role in _REQUIRED_ROLES
             existing = {
                 "record_id": sha256(str(path).casefold().encode("utf-8")).hexdigest()[:20],
@@ -994,24 +996,11 @@ def _normalize_text(text: str) -> str:
     return _SPACE_RE.sub(" ", text).strip()
 
 
-def _sha256_file(path: Path) -> str:
-    digest = sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _safe_relative(path: Path, root: Path) -> str:
     try:
         return str(path.relative_to(root))
     except ValueError:
         return str(path)
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> Path:
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return path
 
 
 __all__ = [

@@ -21,6 +21,8 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.schema import CreateSchema
 
+from gas_calibrator.utils.file_io import sha256_file
+
 from ..database import stable_uuid
 from ..models import (
     Base,
@@ -69,14 +71,6 @@ def validate_staging_schemas(core_schema: str, evidence_schema: str) -> StagingS
     if core in {"public", "v1_5_evidence"} or evidence in {"public", "v1_5_evidence"}:
         raise StagingImportError("production_schema_forbidden")
     return StagingSchemas(core=core, evidence=evidence)
-
-
-def sha256_file(path: str | Path) -> str:
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def load_json_object(path: str | Path) -> dict[str, Any]:

@@ -5,9 +5,11 @@ from __future__ import annotations
 from collections import Counter
 from datetime import date
 from itertools import product
-from math import isfinite, sqrt
+from math import sqrt
 from random import Random
 from typing import Any, Iterable, Mapping
+
+from gas_calibrator.utils.converters import finite_float as _finite_or_none
 
 
 _EPSILON = 1e-12
@@ -933,14 +935,6 @@ def _parse_date(value: Any) -> date | None:
         return date.fromisoformat(str(value))
     except (TypeError, ValueError):
         return None
-
-
-def _finite_or_none(value: Any) -> float | None:
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return None
-    return numeric if isfinite(numeric) else None
 
 
 def _integer_or_none(value: Any) -> int | None:

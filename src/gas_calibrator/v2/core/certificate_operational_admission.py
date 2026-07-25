@@ -10,10 +10,11 @@ from __future__ import annotations
 from collections import Counter
 import csv
 from datetime import date, datetime
-from hashlib import sha256
 import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping
+
+from gas_calibrator.utils.file_io import sha256_file, write_json as _write_json
 
 
 _CONFIG_ROOT = Path(__file__).resolve().parents[1] / "configs" / "metrology"
@@ -159,7 +160,7 @@ def verify_documentary_files(
         candidate_rows: list[dict[str, Any]] = []
         matched_path: Path | None = None
         for candidate in unique_candidates:
-            actual_sha = hash_cache.setdefault(candidate, _sha256_file(candidate))
+            actual_sha = hash_cache.setdefault(candidate, sha256_file(candidate))
             matched = actual_sha.casefold() == expected_sha
             candidate_rows.append(
                 {
@@ -646,7 +647,7 @@ def write_certificate_operational_admission_artifacts(
             {
                 "artifact_role": role,
                 "filename": path.name,
-                "sha256": _sha256_file(path),
+                "sha256": sha256_file(path),
             }
         )
     manifest_path = _write_json(
@@ -722,22 +723,6 @@ def _format_markdown(result: Mapping[str, Any]) -> str:
         )
     lines.append("")
     return "\n".join(lines)
-
-
-def _sha256_file(path: Path) -> str:
-    digest = sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> Path:
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    return path
 
 
 __all__ = [

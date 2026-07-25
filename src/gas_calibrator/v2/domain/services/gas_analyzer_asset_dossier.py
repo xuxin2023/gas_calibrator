@@ -8,6 +8,8 @@ from math import isfinite
 import re
 from typing import Any, Iterable, Mapping
 
+from gas_calibrator.utils.converters import finite_float as _finite_or_none
+
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _EPSILON = 1e-9
@@ -571,14 +573,6 @@ def _parse_date(value: Any) -> date | None:
         return date.fromisoformat(str(value))
     except (TypeError, ValueError):
         return None
-
-
-def _finite_or_none(value: Any) -> float | None:
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return None
-    return numeric if isfinite(numeric) else None
 
 
 __all__ = [

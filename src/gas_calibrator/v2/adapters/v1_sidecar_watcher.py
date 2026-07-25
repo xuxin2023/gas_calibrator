@@ -14,7 +14,9 @@ import importlib
 import json
 from pathlib import Path
 import time
-from typing import Any, Dict, Iterable
+from typing import Any, Iterable
+
+from gas_calibrator.utils.file_io import write_json
 
 SIDECAR_SCHEMA_VERSION = "1.0"
 SIDECAR_STATUS_FILENAME = "sidecar_status.json"
@@ -53,10 +55,6 @@ def _load_json(path: Path) -> dict[str, Any]:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return {}
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _iter_source_files(run_dir: Path) -> list[Path]:
@@ -153,7 +151,7 @@ def _load_sidecar_status(run_dir: Path) -> dict[str, Any]:
 
 
 def _write_sidecar_status(run_dir: Path, payload: dict[str, Any]) -> None:
-    _write_json(_status_path(run_dir), payload)
+    write_json(_status_path(run_dir), payload, trailing_newline=False)
 
 
 def _should_skip_processed(

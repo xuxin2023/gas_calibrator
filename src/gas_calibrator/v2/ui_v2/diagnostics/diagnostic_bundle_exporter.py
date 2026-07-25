@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import json
 from pathlib import Path
 from typing import Any
+
+from gas_calibrator.utils.file_io import write_json
 
 from ..packaging.preflight_checks import run_preflight_checks
 from ..packaging.runtime_manifest import build_runtime_manifest
@@ -32,12 +33,12 @@ class DiagnosticBundleExporter:
         logs_text = redact_text("\n".join(facade.get_recent_logs()))
 
         files = []
-        files.append(self._write_json(bundle_dir / "app_info.json", app_info))
-        files.append(self._write_json(bundle_dir / "preferences.json", preferences))
-        files.append(self._write_json(bundle_dir / "recent_runs.json", recent_runs))
-        files.append(self._write_json(bundle_dir / "snapshot.json", snapshot))
-        files.append(self._write_json(bundle_dir / "runtime_manifest.json", manifest))
-        files.append(self._write_json(bundle_dir / "preflight.json", preflight))
+        files.append(write_json(bundle_dir / "app_info.json", app_info, trailing_newline=False))
+        files.append(write_json(bundle_dir / "preferences.json", preferences, trailing_newline=False))
+        files.append(write_json(bundle_dir / "recent_runs.json", recent_runs, trailing_newline=False))
+        files.append(write_json(bundle_dir / "snapshot.json", snapshot, trailing_newline=False))
+        files.append(write_json(bundle_dir / "runtime_manifest.json", manifest, trailing_newline=False))
+        files.append(write_json(bundle_dir / "preflight.json", preflight, trailing_newline=False))
         files.append(self._write_text(bundle_dir / "logs.txt", logs_text))
 
         return {
@@ -45,12 +46,6 @@ class DiagnosticBundleExporter:
             "bundle_dir": str(bundle_dir),
             "files": [str(item) for item in files],
         }
-
-    @staticmethod
-    def _write_json(path: Path, payload: dict[str, Any]) -> Path:
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        return path
-
     @staticmethod
     def _write_text(path: Path, text: str) -> Path:
         path.write_text(str(text or ""), encoding="utf-8")

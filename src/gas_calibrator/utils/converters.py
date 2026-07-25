@@ -14,11 +14,20 @@
     temp = parse_first_float("TEMP: 25.3C", default=20.0)
 """
 
+from math import isfinite
 import re
 from typing import Any, Dict, Optional, TypeVar, Union
 
 
 T = TypeVar("T")
+
+
+def finite_float(value: Any) -> float | None:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    return numeric if isfinite(numeric) else None
 
 
 def as_float(

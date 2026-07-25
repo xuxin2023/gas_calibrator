@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from math import isfinite, pi, sqrt
+from math import pi, sqrt
 from typing import Any, Iterable, Mapping
 
 import numpy as np
+
+from gas_calibrator.utils.converters import finite_float as _finite_or_none
 
 
 _EPSILON = 1e-12
@@ -795,14 +797,6 @@ def _positive(value: Any, *, default: float) -> float:
 def _nonnegative(value: Any) -> float:
     numeric = _finite_or_none(value)
     return 0.0 if numeric is None else max(0.0, numeric)
-
-
-def _finite_or_none(value: Any) -> float | None:
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return None
-    return numeric if isfinite(numeric) else None
 
 
 __all__ = [

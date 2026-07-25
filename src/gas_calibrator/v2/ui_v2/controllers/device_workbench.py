@@ -8,6 +8,8 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+from gas_calibrator.utils.file_io import write_json
+
 from ...config import (
     build_step2_config_governance_handoff,
     build_step2_config_safety_review,
@@ -6004,7 +6006,7 @@ class DeviceWorkbenchController:
         summary_payload["point_taxonomy_summary"] = dict(summary.get("point_taxonomy_summary", {}) or {})
         summary_payload["artifact_role_summary"] = dict(stats["artifact_role_summary"])
         summary_payload["workbench_evidence_summary"] = dict(summary)
-        self._write_json_dict(summary_path, summary_payload)
+        write_json(summary_path, summary_payload)
 
         manifest_path = Path(self.facade.result_store.run_dir) / "manifest.json"
         manifest_payload = self._load_json_dict(manifest_path)
@@ -6023,7 +6025,7 @@ class DeviceWorkbenchController:
         artifacts["role_catalog"] = role_catalog
         manifest_payload["artifacts"] = artifacts
         manifest_payload["workbench_evidence"] = dict(summary)
-        self._write_json_dict(manifest_path, manifest_payload)
+        write_json(manifest_path, manifest_payload)
 
     @staticmethod
     def _load_json_dict(path: Path) -> dict[str, Any]:
@@ -6034,11 +6036,6 @@ class DeviceWorkbenchController:
         except Exception:
             return {}
         return dict(payload) if isinstance(payload, dict) else {}
-
-    @staticmethod
-    def _write_json_dict(path: Path, payload: dict[str, Any]) -> None:
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
     def _device_config(self, device_name: str, *, analyzer_index: Optional[int] = None) -> dict[str, Any]:
         devices = getattr(self.facade.config, "devices", None)
         if device_name == "pressure_controller":

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import copy
-import json
 import shutil
 from pathlib import Path
 from typing import Any, Optional
+
+from gas_calibrator.utils.file_io import write_json as _write_json
 
 from .replay import DEFAULT_REPLAY_FIXTURE_ROOT, load_replay_fixture, materialize_replay_fixture
 from .scenarios import get_simulated_scenario, simulated_profile_defaults
@@ -28,12 +29,6 @@ def _load_protocol_profile_config(profile: str) -> tuple[Path, dict[str, Any]]:
         raise ValueError(f"unknown simulated validation profile: {profile}")
     resolved, raw_cfg, _ = compare.load_config_bundle(str(config_path), simulation_mode=True)
     return Path(resolved), raw_cfg
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return path
 
 
 def _protocol_v1_baseline(

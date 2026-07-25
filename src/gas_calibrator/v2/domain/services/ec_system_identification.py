@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from math import isfinite
 from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
+
+from gas_calibrator.utils.converters import finite_float as _finite_or_none
 
 
 _EPSILON = 1e-12
@@ -521,14 +522,6 @@ def _finite_array(values: Sequence[Any]) -> np.ndarray:
     if array.ndim != 1 or np.any(~np.isfinite(array)):
         return np.asarray([], dtype=float)
     return array
-
-
-def _finite_or_none(value: Any) -> float | None:
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return None
-    return numeric if isfinite(numeric) else None
 
 
 def _round_or_none(value: float | None, digits: int = 9) -> float | None:
