@@ -22,6 +22,7 @@ from ..sim import (
     build_ec_dynamic_offline_report,
     build_ec_system_identification_offline_report,
     build_export_resilience_report,
+    build_gas_analyzer_asset_dossier_offline_report,
     build_gas_analyzer_dynamic_uncertainty_offline_report,
     build_gas_analyzer_bench_readiness_offline_report,
     build_gas_analyzer_operating_envelope_offline_report,
@@ -229,6 +230,41 @@ def run_suite(*, suite_name: str, report_root: Path, run_name: Optional[str] = N
                 "ec_flux_status": report_payload.get("ec_flux_status"),
                 "failed_gate_names": list(
                     acceptance.get("failed_gate_names") or []
+                ),
+            }
+        elif case.kind == "ga_asset_dossier":
+            result = build_gas_analyzer_asset_dossier_offline_report(
+                report_root=suite_dir,
+                run_name=case.name,
+            )
+            status = str(result.get("status") or "")
+            artifact_dir = str(result.get("report_dir") or "")
+            report_payload = dict(result.get("report") or {})
+            acceptance = dict(report_payload.get("acceptance") or {})
+            details = {
+                "report_json": result.get("report_json"),
+                "report_markdown": result.get("report_markdown"),
+                "execution_summary": result.get("execution_summary"),
+                "historical_baseline_consistent": report_payload.get(
+                    "historical_baseline_consistent"
+                ),
+                "asset_documentary_ready": report_payload.get(
+                    "asset_documentary_ready"
+                ),
+                "current_prerequisites_ready": report_payload.get(
+                    "current_prerequisites_ready"
+                ),
+                "expected_gaps_observed": report_payload.get(
+                    "expected_gaps_observed"
+                ),
+                "ready_for_real_execution": report_payload.get(
+                    "ready_for_real_execution"
+                ),
+                "real_acceptance_status": report_payload.get(
+                    "real_acceptance_status"
+                ),
+                "blocking_reasons": list(
+                    acceptance.get("blocking_reasons") or []
                 ),
             }
         else:

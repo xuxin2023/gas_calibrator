@@ -1812,6 +1812,7 @@
       "mismatch": "不一致",
       "not_executed": "未执行",
       "snapshot_only": "仅快照",
+      "expected_gaps": "预期缺口已确认",
       "primary_real_validation_latest_missing": "主真实 latest 缺失",
       "primary_validation_latest_missing": "主验证 latest 缺失"
     },
@@ -1900,6 +1901,7 @@
       "gas_analyzer_dynamic_uncertainty": "气体分析仪动态不确定度",
       "gas_analyzer_operating_envelope": "气体分析仪综合工作包络",
       "gas_analyzer_bench_readiness": "气体分析仪台架协议准备度",
+      "gas_analyzer_asset_dossier_readiness": "气体分析仪计量资产资料包准备度",
       "mismatch": "不一致",
       "not_executed": "未执行",
       "snapshot_only": "仅快照"

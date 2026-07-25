@@ -1813,6 +1813,7 @@
       "mismatch": "MISMATCH",
       "not_executed": "NOT_EXECUTED",
       "snapshot_only": "SNAPSHOT_ONLY",
+      "expected_gaps": "EXPECTED_GAPS",
       "primary_real_validation_latest_missing": "PRIMARY_REAL_VALIDATION_LATEST_MISSING",
       "primary_validation_latest_missing": "PRIMARY_VALIDATION_LATEST_MISSING"
     },
@@ -1901,6 +1902,7 @@
       "gas_analyzer_dynamic_uncertainty": "gas analyzer dynamic uncertainty",
       "gas_analyzer_operating_envelope": "gas analyzer integrated operating envelope",
       "gas_analyzer_bench_readiness": "gas analyzer bench protocol readiness",
+      "gas_analyzer_asset_dossier_readiness": "gas analyzer metrology asset dossier readiness",
       "mismatch": "mismatch",
       "not_executed": "not executed",
       "snapshot_only": "snapshot only"

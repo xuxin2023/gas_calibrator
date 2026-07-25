@@ -3622,8 +3622,13 @@ def build_suite_case_metadata(case: dict[str, Any], *, suite_name: str) -> dict[
         "ga_bench_readiness",
     }:
         evidence_source = "simulated"
-    elif kind == "replay":
+    elif kind in {"replay", "ga_asset_dossier"}:
         evidence_source = "replay"
+        if kind == "ga_asset_dossier":
+            evidence_state = str(
+                report_payload.get("evidence_state")
+                or "historical_registry_gap_replay"
+            )
     compare_status = str(case.get("status") or report_payload.get("compare_status") or report_payload.get("status") or "--")
     route_execution = dict(report_payload.get("route_execution_summary") or {})
     reference_quality = str((report_payload.get("reference_quality") or {}).get("reference_quality") or "unknown")
@@ -3666,6 +3671,8 @@ def build_suite_case_metadata(case: dict[str, Any], *, suite_name: str) -> dict[
         failure_type = "gas_analyzer_operating_envelope"
     elif kind == "ga_bench_readiness":
         failure_type = "gas_analyzer_bench_readiness"
+    elif kind == "ga_asset_dossier":
+        failure_type = "gas_analyzer_asset_dossier_readiness"
     return {
         "suite": suite_name,
         "evidence_source": evidence_source,

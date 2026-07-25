@@ -33,6 +33,7 @@ def test_smoke_and_nightly_suites_include_expected_cases() -> None:
             "gas_analyzer_dynamic_uncertainty_contract",
             "gas_analyzer_operating_envelope_contract",
             "gas_analyzer_bench_readiness_contract",
+            "ga_d5_0620_0621_asset_dossier_gaps",
             "export_resilience",
             "summary_parity",
         }

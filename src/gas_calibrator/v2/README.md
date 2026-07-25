@@ -23,6 +23,7 @@ Step 2 的硬边界：
 - [EC-D0 离线动态计量骨架](../../../docs/metrology/ec_d0_offline_dynamic_metrology.md)
 - [GA-D3 气体分析仪综合工作包络](../../../docs/metrology/ga_d3_gas_analyzer_operating_envelope.md)
 - [GA-D4 气体分析仪真实台架协议准备度](../../../docs/metrology/ga_d4_gas_analyzer_bench_readiness.md)
+- [GA-D5 0620/0621 计量资产资料包准备度](../../../docs/metrology/ga_d5_0620_0621_asset_dossier_readiness.md)
 
 ## 推荐入口
 
@@ -81,6 +82,8 @@ python -m gas_calibrator.v2.scripts.run_simulation_suite --suite parity
 同两套 suite 还包含 `gas_analyzer_operating_envelope_contract`：以 27 个温度×压力×流量格点整合静态误差、重复性、回差、漂移、线性、温压流敏感性、交叉干扰和 GA-D2 动态依赖。CO2 零气与 H2O 干气点保持独立，缺角/重复/越界数据会硬失败；限值只用于 simulated 回归，不是产品规格或真实验收。详见 [`docs/metrology/ga_d3_gas_analyzer_operating_envelope.md`](../../../docs/metrology/ga_d3_gas_analyzer_operating_envelope.md)。
 
 `regression` 和 `nightly` 进一步包含 `gas_analyzer_bench_readiness_contract`：离线检查八类可溯源资产、证书有效期、完整且可重现的随机化环境顺序、CO2/H2O 独立稳定与恢复判据、不确定度预算及证据角色。通过只代表协议设计就绪；真实执行、设备 I/O、写入和 real acceptance 继续阻断。详见 [`docs/metrology/ga_d4_gas_analyzer_bench_readiness.md`](../../../docs/metrology/ga_d4_gas_analyzer_bench_readiness.md)。
+
+同两套 suite 还包含 `ga_d5_0620_0621_asset_dossier_gaps`：按已核验的 0620/0621 历史注册表事实，分别检查历史基线一致性、参考资产证书资料完整性和当前机器前置条件。当前预期状态是 `EXPECTED_GAPS`，表示缺口被诚实识别而不是门禁通过；恢复的标气实际值不等于原始证书，CO2 零气与 H2O 干气/实际露点继续分开。详见 [`docs/metrology/ga_d5_0620_0621_asset_dossier_readiness.md`](../../../docs/metrology/ga_d5_0620_0621_asset_dossier_readiness.md)。
 
 回放与离线治理：
 

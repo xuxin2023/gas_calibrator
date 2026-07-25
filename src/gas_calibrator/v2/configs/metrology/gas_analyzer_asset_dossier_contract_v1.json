@@ -1,0 +1,189 @@
+{
+  "schema_version": "gas_analyzer_asset_dossier_contract_v1",
+  "contract_id": "ga-d5-0620-0621-asset-dossier-readiness-20260724",
+  "assessment_date": "2026-07-24",
+  "scope": "historical_0620_0621_asset_dossier_replay_only",
+  "evidence_boundary": {
+    "evidence_source": "replay",
+    "not_real_acceptance_evidence": true,
+    "acceptance_level": "historical_asset_dossier_readiness",
+    "promotion_state": "blocked",
+    "real_execution_allowed": false,
+    "device_io_allowed": false,
+    "coefficient_fit_allowed": false,
+    "coefficient_write_allowed": false,
+    "database_write_allowed": false,
+    "real_primary_latest_refresh_allowed": false
+  },
+  "method_contract": {
+    "mature_route_contract_id": "0613_0620_0621_mature_v1_5_legacy_ratio",
+    "production_default_profile_id": "legacy_ratio_production",
+    "absorption_profile_role": "shadow_review_only",
+    "migration_route_forbidden": true,
+    "v1_old_fit_route_forbidden": true,
+    "v2_execution_route_forbidden": true,
+    "formal_calibration_sample_hz": 1,
+    "average1": 49,
+    "average2": 49,
+    "pressure_first_senco9_required": true,
+    "co2_zero_separate_from_h2o_dry": true,
+    "h2o_reference_requires_actual_dewpoint_and_pressure": true,
+    "filtered_ratio_required": true
+  },
+  "observed_baseline": {
+    "co2_0620_expected_point_count": 45,
+    "co2_0620_accepted_point_count": 45,
+    "co2_0620_warning_point_count": 2,
+    "co2_0620_missing_or_reject_count": 0,
+    "co2_0621_completed_entry_points": [
+      {
+        "temperature_c": 40.0,
+        "target_ppm": 0.0
+      },
+      {
+        "temperature_c": 40.0,
+        "target_ppm": 400.0
+      }
+    ],
+    "co2_0621_incomplete_zero_attempt_count": 3,
+    "h2o_historical_device_count": 6,
+    "h2o_historical_blocked_device_count": 3,
+    "recovered_co2_certified_values_ppm": {
+      "100": 99.91,
+      "200": 199.8,
+      "300": 300.36,
+      "400": 399.67,
+      "500": 500.13,
+      "600": 599.54,
+      "700": 699.59,
+      "800": 800.59,
+      "900": 901.78,
+      "1000": 1000.22
+    },
+    "recovered_co2_asset_count": 10,
+    "recovered_co2_formal_fit_checked_rows": 228,
+    "recovered_co2_formal_fit_matched_rows": 228,
+    "recovered_co2_certificate_documents_linked": 0,
+    "formally_authorized_requirement_asset_count": 0,
+    "environment_object_count": 11,
+    "environment_current_level_id": "Q0",
+    "environment_required_level_id": "Q4",
+    "actual_r0_result_import_count": 0
+  },
+  "required_dossier_roles": [
+    "co2_zero_gas",
+    "co2_standard_gas_series",
+    "h2o_dewpoint_reference",
+    "digital_pressure_reference",
+    "temperature_reference",
+    "flow_reference",
+    "timebase_reference"
+  ],
+  "role_cardinality": {
+    "co2_zero_gas": {
+      "minimum": 1,
+      "maximum": 1
+    },
+    "co2_standard_gas_series": {
+      "minimum": 10,
+      "maximum": 10
+    },
+    "h2o_dewpoint_reference": {
+      "minimum": 1,
+      "maximum": 1
+    },
+    "digital_pressure_reference": {
+      "minimum": 1,
+      "maximum": 1
+    },
+    "temperature_reference": {
+      "minimum": 1,
+      "maximum": 1
+    },
+    "flow_reference": {
+      "minimum": 1,
+      "maximum": 1
+    },
+    "timebase_reference": {
+      "minimum": 1,
+      "maximum": 1
+    }
+  },
+  "required_common_fields": [
+    "asset_id",
+    "asset_role",
+    "asset_type",
+    "manufacturer",
+    "model",
+    "serial_number",
+    "status",
+    "certificate_id",
+    "certificate_document_sha256",
+    "certificate_issue_date",
+    "certificate_valid_until",
+    "traceability_chain",
+    "standard_uncertainty",
+    "expanded_uncertainty",
+    "coverage_factor",
+    "uncertainty_unit",
+    "calibration_scope",
+    "scope_basis_sha256",
+    "plan_coverage_complete",
+    "covariance_treatment"
+  ],
+  "required_gas_fields": [
+    "cylinder_serial_number",
+    "nominal_value",
+    "certified_value",
+    "value_unit",
+    "balance_gas",
+    "gas_matrix",
+    "preparation_method"
+  ],
+  "allowed_covariance_treatments": [
+    "independent_physical_asset",
+    "covariance_included"
+  ],
+  "required_source_artifacts": [
+    "co2_0620_acceptance_manifest",
+    "co2_0621_zero_entry_observation",
+    "co2_0621_400_entry_observation",
+    "h2o_0620_closure_review",
+    "recovered_co2_asset_manifest",
+    "formal_requirement_asset_registry",
+    "environment_qualification_gaps",
+    "r0_result_qualification"
+  ],
+  "observed_source_sha256": {
+    "co2_0620_acceptance_manifest": "0407b0bf24e1a7a52f6b5a90a7d61923992c7f2cf572a267509a9bc7b34a06bd",
+    "co2_0621_zero_entry_observation": "4ad661eb4e9dd7eaa62d39d66e980b37ce9e30f1b920ca4a021b5d0a3b418c4a",
+    "co2_0621_400_entry_observation": "4ad661eb4e9dd7eaa62d39d66e980b37ce9e30f1b920ca4a021b5d0a3b418c4a",
+    "h2o_0620_closure_review": "87e49305c5bbc9e28acec6bdbbbb25b1fc5dd8a372b1815d296aa1e862cc9752",
+    "recovered_co2_asset_manifest": "22237ac9a790ae068a588a064970f875aa1f0942b93a7263d69fc72255bb31e7",
+    "formal_requirement_asset_registry": "f793aa43b08412108f77f612ab3fcecfb5bb94d40677ba71fc27e0c57e996278",
+    "environment_qualification_gaps": "30a46c2c54c3dfbb949a11b160c10a980ba15eeb2c9fbd474b33dd97b574cab6",
+    "r0_result_qualification": "59a29c5f8e09a79331c209b868fd6bec9bb4d53cc2d2d9347673d8ed2d16c457"
+  },
+  "expected_blockers": [
+    "co2_zero_gas:dossier_role_missing",
+    "h2o_dewpoint_reference:dossier_role_missing",
+    "digital_pressure_reference:dossier_role_missing",
+    "temperature_reference:dossier_role_missing",
+    "flow_reference:dossier_role_missing",
+    "timebase_reference:dossier_role_missing",
+    "co2_standard_gas_series:certificate_documentary_fields_incomplete",
+    "co2_standard_gas_series:gas_identity_fields_incomplete",
+    "global:formal_requirement_assets_not_authorized",
+    "global:environment_machine_evidence_not_q4",
+    "global:actual_r0_result_not_imported"
+  ],
+  "interpretation": {
+    "historical_measurement_presence_is_dossier_readiness": false,
+    "recovered_certified_values_are_certificate_documents": false,
+    "device_output_certificates_are_reference_asset_certificates": false,
+    "co2_zero_and_h2o_dry_are_distinct": true,
+    "h2o_generator_nominal_is_primary_reference": false,
+    "complete_dossier_is_execution_authorization": false,
+    "complete_dossier_is_real_acceptance": false
+  }
+}
