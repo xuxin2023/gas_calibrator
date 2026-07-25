@@ -5,6 +5,10 @@ from gas_calibrator.logging_utils import RunLogger
 from gas_calibrator.workflow.runner import CalibrationRunner
 
 
+def _force_h2o_route_mechanics(runner: CalibrationRunner, mode: str = "h2o_then_co2") -> None:
+    runner._route_mode = lambda: mode  # type: ignore[method-assign]
+
+
 def test_temperature_group_runs_h2o_groups_before_co2_points(tmp_path: Path) -> None:
     points = [
         CalibrationPoint(
@@ -87,6 +91,7 @@ def test_temperature_group_runs_h2o_groups_before_co2_points(tmp_path: Path) -> 
     ]
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    _force_h2o_route_mechanics(runner)
     calls = []
     try:
         runner._run_h2o_group = lambda group, pressure_points=None, next_route_context=None: calls.append(  # type: ignore[method-assign]
@@ -283,6 +288,7 @@ def test_temperature_group_h2o_uses_all_pressures_for_each_humidity_group_sorted
     ]
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({"workflow": {"route_mode": "h2o_only"}}, {}, logger, lambda *_: None, lambda *_: None)
+    _force_h2o_route_mechanics(runner, "h2o_only")
     calls = []
     try:
         runner._run_h2o_group = lambda group, pressure_points=None, next_route_context=None: calls.append(  # type: ignore[method-assign]
@@ -702,6 +708,7 @@ def test_temperature_group_preconditions_next_group_humidity_by_default(tmp_path
     ]
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({"workflow": {"route_mode": "h2o_then_co2"}}, {}, logger, lambda *_: None, lambda *_: None)
+    _force_h2o_route_mechanics(runner)
     calls = []
     try:
         runner._run_h2o_group = lambda group, pressure_points=None, next_route_context=None: None  # type: ignore[method-assign]
