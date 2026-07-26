@@ -5355,20 +5355,20 @@ class DeviceWorkbenchController:
         normalized = str(scenario_id or "analyzer_partial_frame").strip().lower()
         if normalized == "analyzer_partial_frame":
             analyzer_index = int(params.get("analyzer_index", self._selected_analyzer_index) or self._selected_analyzer_index)
-            self.execute_action("analyzer", "inject_fault", analyzer_index=analyzer_index, fault="partial_frame")
-            self.execute_action("analyzer", "read_frame", analyzer_index=analyzer_index)
+            self._run_step("analyzer", "inject_fault", analyzer_index=analyzer_index, fault="partial_frame")
+            self._run_step("analyzer", "read_frame", analyzer_index=analyzer_index)
         elif normalized == "pace_cleanup_no_response":
-            self.execute_action("pace", "inject_fault", fault="cleanup_no_response")
-            self.execute_action("pace", "query_error")
+            self._run_step("pace", "inject_fault", fault="cleanup_no_response")
+            self._run_step("pace", "query_error")
         elif normalized == "relay_stuck":
             relay_name = str(params.get("relay_name") or "relay").strip().lower() or "relay"
             channel = int(params.get("channel", 1) or 1)
-            self.execute_action("relay", "inject_fault", relay_name=relay_name, fault="stuck_channel", stuck_channels=[channel])
-            self.execute_action("relay", "write_channel", relay_name=relay_name, channel=channel, enabled=True)
+            self._run_step("relay", "inject_fault", relay_name=relay_name, fault="stuck_channel", stuck_channels=[channel])
+            self._run_step("relay", "write_channel", relay_name=relay_name, channel=channel, enabled=True)
         elif normalized == "thermometer_stale":
-            self.execute_action("thermometer", "set_mode", mode="stale")
+            self._run_step("thermometer", "set_mode", mode="stale")
         elif normalized == "pressure_wrong_unit":
-            self.execute_action("pressure_gauge", "inject_fault", fault="wrong_unit_configuration")
+            self._run_step("pressure_gauge", "inject_fault", fault="wrong_unit_configuration")
         else:
             raise ValueError(f"unsupported quick scenario: {scenario_id}")
         return t(

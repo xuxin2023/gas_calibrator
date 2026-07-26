@@ -44,6 +44,9 @@ from .ui_v2.i18n import (
     t,
 )
 
+_TAXONOMY_TEXT_REPLACEMENTS = tuple(taxonomy_text_replacements())
+_FRAGMENT_TEXT_REPLACEMENTS = tuple(fragment_text_replacements())
+
 _OFFLINE_DIAGNOSTIC_DISPLAY_LABELS = {
     "artifacts": _FORMATTER_LABELS["artifacts"],
     "plots": _FORMATTER_LABELS["plots"],
@@ -470,9 +473,9 @@ def humanize_review_surface_text(summary_value: str) -> str:
     text = humanize_review_center_coverage_text(text)
     for source, (key, default) in _MEASUREMENT_BUCKET_LABELS.items():
         text = text.replace(source, t(key, default=default))
-    for source, target in taxonomy_text_replacements():
+    for source, target in _TAXONOMY_TEXT_REPLACEMENTS:
         text = text.replace(source, target)
-    for source, target in fragment_text_replacements():
+    for source, target in _FRAGMENT_TEXT_REPLACEMENTS:
         text = text.replace(source, target)
     for source, target in _REVIEW_SURFACE_INLINE_REPLACEMENTS:
         text = text.replace(source, target)
