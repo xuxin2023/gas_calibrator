@@ -1038,11 +1038,12 @@ class TestReviewerSurfaceContractsSingleSource:
         source = inspect.getsource(af)
         assert "_SHARED_WP6_CLOSEOUT_KEYS" in source
 
-    def test_device_workbench_imports_shared_keys(self) -> None:
+    def test_device_workbench_uses_shared_payload_extractor(self) -> None:
         import gas_calibrator.v2.ui_v2.controllers.device_workbench as dw
         import inspect
         source = inspect.getsource(dw)
-        assert "_SHARED_WP6_CLOSEOUT_KEYS" in source
+        assert "_extract_wp6_closeout_payloads" in source
+        assert "_SHARED_WP6_CLOSEOUT_KEYS" not in source
 
 
 class TestReviewerSurfaceKeyOrderConsistency:
