@@ -21,8 +21,6 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.schema import CreateSchema
 
-from gas_calibrator.utils.file_io import sha256_file
-
 from ..database import stable_uuid
 from ..models import (
     Base,
