@@ -125,21 +125,39 @@ def _build_fit_result(
         fit_result["C"],
         fit_result["D"],
     )
-    default_eligible = availability == "available"
+    fit_ok = bool(fit_result["fit_ok"])
+    # This exporter owns fitted temperature candidates only. Initialization
+    # neutralization remains in the dedicated controlled SENCO7/SENCO8 writer.
+    default_eligible = availability == "available" and fit_ok
     if command_eligibility is None:
         write_eligible = default_eligible
-        write_block_reason = "" if write_eligible else "temperature_channel_unavailable"
+        if availability != "available":
+            write_block_reason = "temperature_channel_unavailable"
+        elif not fit_ok:
+            write_block_reason = "temperature_fit_not_ok"
+        else:
+            write_block_reason = ""
     else:
-        write_eligible, write_block_reason = command_eligibility.get(
+        channel_eligible, channel_block_reason = command_eligibility.get(
             (analyzer_id, senco_channel),
             (False, "temperature_channel_gate_missing"),
         )
-        write_eligible = bool(write_eligible)
-        write_block_reason = str(write_block_reason or "")
+        channel_eligible = bool(channel_eligible)
+        write_eligible = default_eligible and channel_eligible
+        if not channel_eligible:
+            write_block_reason = str(
+                channel_block_reason or "temperature_channel_gate_blocked"
+            )
+        elif availability != "available":
+            write_block_reason = "temperature_channel_unavailable"
+        elif not fit_ok:
+            write_block_reason = "temperature_fit_not_ok"
+        else:
+            write_block_reason = ""
     command_string = _build_command_string(
         senco_channel,
         coeffs,
-        export_commands=export_commands and default_eligible and write_eligible,
+        export_commands=export_commands and write_eligible,
     )
     return {
         "analyzer_id": analyzer_id,
@@ -147,7 +165,7 @@ def _build_fit_result(
         "senco_channel": senco_channel,
         "ref_temp_source": ref_source,
         "n_points": int(fit_result["n_points"]),
-        "fit_ok": bool(fit_result["fit_ok"]),
+        "fit_ok": fit_ok,
         "availability": availability,
         "polynomial_degree_used": int(fit_result["polynomial_degree_used"]),
         "rmse": fit_result["rmse"],
