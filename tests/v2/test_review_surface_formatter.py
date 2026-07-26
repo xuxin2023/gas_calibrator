@@ -539,16 +539,17 @@ class TestCompactSummaryConsistency:
             assert markers["not_real_acceptance_evidence"] is True
             assert markers["reviewer_only"] is True
 
-    def test_results_gateway_uses_all_compact_builders(self):
-        """results_gateway must import and use all 4 compact builders."""
-        import gas_calibrator.v2.adapters.results_gateway as rg_mod
+    def test_results_gateway_builds_all_compact_summary_packs(self):
+        """ResultsGateway must surface every compact summary domain."""
+        from gas_calibrator.v2.adapters.results_gateway import ResultsGateway
 
-        # Verify the module imports all 4 compact builders
-        assert hasattr(rg_mod, "build_v12_alignment_compact_summary") or True  # imported, not necessarily exposed
-        # The key check: the import line exists in the module
-        import inspect
-        source = inspect.getsource(rg_mod)
-        assert "build_v12_alignment_compact_summary" in source
-        assert "build_phase_evidence_compact_summary" in source
-        assert "build_governance_handoff_compact_summary" in source
-        assert "build_parity_resilience_compact_summary" in source
+        packs = ResultsGateway._build_compact_summary_packs()
+
+        assert {str(pack.get("summary_key") or "") for pack in packs} == {
+            "measurement_digest",
+            "readiness_digest",
+            "phase_evidence",
+            "v12_alignment",
+            "governance_handoff",
+            "parity_resilience",
+        }
