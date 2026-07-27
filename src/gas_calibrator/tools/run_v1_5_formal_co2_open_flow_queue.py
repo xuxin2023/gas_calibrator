@@ -33,10 +33,13 @@ from .run_headless import _build_devices, _close_devices
 from .run_v1_5_formal_open_flow_sampling import (
     FORMAL_OPEN_FLOW_DEWPOINT_GATE_MAX_TOTAL_WAIT_S,
     FORMAL_OPEN_FLOW_ANALYZER_GATE_PREFER_ALL_STABLE_GRACE_S,
+    V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT,
     _apply_analyzer_acquisition_policy,
     _apply_v1_5_temperature_truth_contract,
     _defer_startup_mode2_disabled_analyzers,
+    _engineering_probe_authorization_errors,
     _formal_open_flow_dewpoint_gate_max_wait_s,
+    _write_operator_confirmation_record,
 )
 
 
@@ -123,7 +126,7 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default="active_stream_1hz",
     )
     ftd_group = parser.add_mutually_exclusive_group()
-    ftd_group.add_argument("--allow-ftd-write", dest="allow_ftd_write", action="store_true", default=True)
+    ftd_group.add_argument("--allow-ftd-write", dest="allow_ftd_write", action="store_true", default=False)
     ftd_group.add_argument("--no-ftd-write", dest="allow_ftd_write", action="store_false")
     parser.add_argument(
         "--min-valid-analyzers",
@@ -256,6 +259,15 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         help="Write the queue manifest and commands without opening any COM port.",
     )
     parser.add_argument("--no-prompt", action="store_true")
+    parser.add_argument("--engineering-probe-only", action="store_true")
+    parser.add_argument(
+        "--operator-confirmation",
+        default="",
+        help=(
+            "Exact second-unlock text required for a real queue: "
+            f"{V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT!r}."
+        ),
+    )
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -663,8 +675,14 @@ def _build_point_command(
         str(min_valid_analyzers),
         "--no-prompt",
     ]
-    if not args.allow_ftd_write:
-        cmd.append("--no-ftd-write")
+    cmd.append("--allow-ftd-write" if args.allow_ftd_write else "--no-ftd-write")
+    if bool(getattr(args, "engineering_probe_only", False)):
+        cmd.append("--engineering-probe-only")
+    operator_confirmation = str(
+        getattr(args, "operator_confirmation", "") or ""
+    ).strip()
+    if operator_confirmation:
+        cmd.extend(["--operator-confirmation", operator_confirmation])
     point_n2_prepurge_source = (
         args.n2_prepurge_s if n2_prepurge_s_for_point is None else n2_prepurge_s_for_point
     )
@@ -881,8 +899,15 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     args.gas_route_dewpoint_gate_max_total_wait_s = _formal_open_flow_dewpoint_gate_max_wait_s(
         args.gas_route_dewpoint_gate_max_total_wait_s
     )
-    if not args.no_prompt:
-        _log("Refusing to run real CO2 queue without --no-prompt.")
+    authorization_errors = _engineering_probe_authorization_errors(
+        args,
+        dry_run=bool(args.dry_run),
+    )
+    if authorization_errors:
+        _log(
+            "Refusing V1.5 CO2 queue engineering probe: "
+            + ",".join(authorization_errors)
+        )
         return 2
 
     cfg_path = str(Path(args.config).resolve())
@@ -895,6 +920,14 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     except FileExistsError as exc:
         _log(str(exc))
         return 2
+    operator_confirmation_path: Optional[Path] = None
+    if not args.dry_run:
+        operator_confirmation_path = _write_operator_confirmation_record(
+            queue_dir,
+            run_id=queue_run_id,
+            args=args,
+            scope="v1_5_co2_open_flow_queue_no_write_engineering_probe",
+        )
     point_log_dir = queue_dir / "point_logs"
     point_log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -933,7 +966,17 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         "roles": sorted(_parse_text_filter(args.roles)),
         "control_temperature": bool(args.control_temperature),
         "dry_run": bool(args.dry_run),
-        "no_write": True,
+        "no_write": not bool(args.allow_ftd_write),
+        "no_write_scope": (
+            "no_analyzer_persistent_configuration_no_senco_no_device_id_"
+            "no_calibration_coefficient_write"
+        ),
+        "operator_confirmation_record": (
+            str(operator_confirmation_path) if operator_confirmation_path else None
+        ),
+        "engineering_probe_only": bool(args.engineering_probe_only),
+        "promotion_state": "blocked",
+        "not_real_acceptance_evidence": True,
         "sealed_pressure_control": False,
         "writes_senco": False,
         "writes_device_id": False,
@@ -1134,7 +1177,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         encoding="utf-8",
     )
     _log(f"Queue summary: ok={ok_count} failed={fail_count} dry_run={dry_count} dir={queue_dir}")
-    if hard_failure:
+    if hard_failure or fail_count:
         return 1
     if not args.dry_run and ok_count == 0:
         return 1

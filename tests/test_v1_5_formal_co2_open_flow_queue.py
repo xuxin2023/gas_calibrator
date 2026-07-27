@@ -1,5 +1,6 @@
 import csv
 import json
+import types
 
 from gas_calibrator.tools import run_v1_5_formal_co2_open_flow_queue as co2_queue_module
 from gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue import (
@@ -167,6 +168,9 @@ def test_queue_point_command_keeps_no_write_open_flow_sidecar_contract(tmp_path)
             str(tmp_path),
             "--no-prompt",
             "--no-ftd-write",
+            "--engineering-probe-only",
+            "--operator-confirmation",
+            co2_queue_module.V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT,
             "--n2-prepurge-s",
             "180",
             "--n2-purge-source-valve",
@@ -213,6 +217,11 @@ def test_queue_point_command_keeps_no_write_open_flow_sidecar_contract(tmp_path)
     assert "--pressure-target-hpa" not in cmd
     assert "--no-ftd-write" in cmd
     assert "--no-prompt" in cmd
+    assert "--engineering-probe-only" in cmd
+    assert (
+        "--operator-confirmation "
+        + co2_queue_module.V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT
+    ) in text
     assert "--n2-prepurge-s 180" in text
     assert "--n2-purge-source-valve 27" in text
     assert "--co2-source-ppm 900" in text
@@ -687,6 +696,57 @@ def test_queue_dry_run_writes_manifest_without_real_com(tmp_path):
     assert summary.read_bytes() == summary_bytes
 
 
+def test_queue_continues_after_point_failure_but_returns_nonzero(tmp_path, monkeypatch):
+    queue_path = tmp_path / "co2_runner_queue.csv"
+    _write_queue(queue_path)
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "paths": {"output_dir": str(tmp_path / "logs")},
+                "devices": {"temperature_chamber": {"enabled": False}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    returncodes = iter([1, 0])
+    point_commands = []
+
+    def fake_run(command, **_kwargs):
+        point_commands.append(command)
+        return types.SimpleNamespace(returncode=next(returncodes))
+
+    monkeypatch.setattr(co2_queue_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(co2_queue_module.time, "sleep", lambda _seconds: None)
+
+    rc = main(
+        [
+            "--config",
+            str(config_path),
+            "--queue-csv",
+            str(queue_path),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--run-id",
+            "queue_mixed_result",
+            "--no-control-temperature",
+            "--no-prompt",
+            "--engineering-probe-only",
+            "--operator-confirmation",
+            co2_queue_module.V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT,
+        ]
+    )
+
+    assert rc == 1
+    assert len(point_commands) == 2
+    summary = json.loads(
+        (tmp_path / "out" / "queue_mixed_result" / "queue_summary.json").read_text(encoding="utf-8")
+    )
+    assert summary["ok_points"] == 1
+    assert summary["failed_points"] == 1
+    assert summary["hard_failure"] is False
+
+
 def test_queue_writes_failure_audit_when_temperature_settle_fails_before_points(tmp_path, monkeypatch):
     queue_path = tmp_path / "co2_runner_queue.csv"
     _write_queue(queue_path)
@@ -714,6 +774,9 @@ def test_queue_writes_failure_audit_when_temperature_settle_fails_before_points(
             "--run-id",
             "queue_temp_fail",
             "--no-prompt",
+            "--engineering-probe-only",
+            "--operator-confirmation",
+            co2_queue_module.V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT,
         ]
     )
 

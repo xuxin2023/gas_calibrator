@@ -13,6 +13,9 @@ from gas_calibrator.tools.run_v1_5_formal_open_flow_sampling import (
     _write_formal_evidence_bundle_manifest,
 )
 from gas_calibrator.validation.v1_5_component_qc_generator_contract import (
+    FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS_V1,
+    FORMAL_EVIDENCE_BUNDLE_SCHEMA,
+    FORMAL_EVIDENCE_BUNDLE_SCHEMA_V1,
     FORMAL_REFERENCE_SOURCE_RECORD_SCHEMA,
 )
 from gas_calibrator.validation.v1_5_production_component_qc_fit_matrix import (
@@ -195,6 +198,42 @@ def _seed_packet(
                 "not_real_acceptance_evidence": True,
             }
         _write_json(point / "formal_reference_source_record.json", reference_payload)
+        _write_json(
+            point / "operator_confirmation_record.json",
+            {
+                "schema_version": "v1_5_operator_confirmation_record_v0",
+                "run_id": point.name,
+                "engineering_probe_only": True,
+                "operator_confirmation_matches_required": True,
+                "no_write": True,
+                "ftd_write_enabled": False,
+                "promotion_state": "blocked",
+                "not_real_acceptance_evidence": True,
+            },
+        )
+        (point / "temperature_truth_trace.jsonl").write_text(
+            "\n".join(
+                json.dumps(
+                    {
+                        "schema_version": "v1_5_temperature_truth_snapshot_v0",
+                        "stage": stage,
+                        "ok": True,
+                    }
+                )
+                for stage in ("pre_route", "pre_sample", "post_sample")
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        _write_json(
+            point / "physical_shutdown_status.json",
+            {
+                "schema_version": "v1_5_formal_physical_shutdown_status_v0",
+                "route_kind": component,
+                "overall_status": "pass",
+                "critical_failures": [],
+            },
+        )
 
     artifacts = {
         "samples": samples,
@@ -210,6 +249,9 @@ def _seed_packet(
         artifacts["hgen_flow_set"] = hgen_flow
     artifacts["point_timing_summary"] = point_timing
     if strict_bundle:
+        artifacts["operator_confirmation"] = point / "operator_confirmation_record.json"
+        artifacts["temperature_truth_trace"] = point / "temperature_truth_trace.jsonl"
+        artifacts["physical_shutdown"] = point / "physical_shutdown_status.json"
         _write_formal_evidence_bundle_manifest(
             point,
             run_id=point.name,
@@ -286,6 +328,45 @@ def _refresh_preflight_hash(preflight, *, role, path):
     _write_json(preflight, payload)
 
 
+def _rewrite_bundle_as_v1(point, *, component):
+    required = FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS_V1[component]
+    artifacts = []
+    for role, filename in sorted(required.items()):
+        path = point / filename
+        artifacts.append(
+            {
+                "role": role,
+                "filename": filename,
+                "size_bytes": path.stat().st_size,
+                "sha256": _sha(path),
+            }
+        )
+    canonical = {
+        "schema_version": FORMAL_EVIDENCE_BUNDLE_SCHEMA_V1,
+        "run_id": point.name,
+        "route_kind": component,
+        "identity_contract": "immutable_claim_runtime_run_id_and_sha256_bundle",
+        "required_roles": sorted(required),
+        "artifacts": artifacts,
+        "missing_required_roles": [],
+        "bundle_complete": True,
+    }
+    rendered = json.dumps(
+        canonical,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    _write_json(
+        point / "formal_evidence_bundle_manifest.json",
+        {
+            **canonical,
+            "bundle_sha256": hashlib.sha256(rendered).hexdigest(),
+        },
+    )
+
+
 def test_model_families_remain_identical_to_existing_0613_review():
     assert MODEL_FAMILIES == EXISTING_MODEL_FAMILIES
 
@@ -331,9 +412,65 @@ def test_strict_claim_runtime_and_bundle_identity_is_verified(tmp_path):
     assert rows["ga01"]["evidence_identity_status"] == "pass"
     assert rows["ga01"]["evidence_identity_mode"] == "strict_claim_runtime_bundle"
     assert rows["ga01"]["evidence_bundle_manifest_verified"] is True
-    assert rows["ga01"]["evidence_bundle_member_count"] == 8
+    assert rows["ga01"]["evidence_bundle_member_count"] == 11
     assert rows["ga01"]["grade"] == "A_calibration_eligible"
     assert rows["ga01"]["reference_source_record_valid"] is True
+
+
+def test_strict_v1_bundle_remains_readable_after_v2_evidence_contract_upgrade(tmp_path):
+    preflight, catalog, discovery, point = _seed_packet(tmp_path, strict_bundle=True)
+    _rewrite_bundle_as_v1(point, component="co2")
+
+    model = _build_packet(preflight, catalog, discovery)
+    rows = {row["prefix"]: row for row in model["analyzer_qc"]}
+
+    assert FORMAL_EVIDENCE_BUNDLE_SCHEMA == "v1_5_formal_evidence_bundle_v2"
+    assert rows["ga01"]["evidence_identity_status"] == "pass"
+    assert rows["ga01"]["evidence_bundle_manifest_verified"] is True
+    assert rows["ga01"]["evidence_bundle_member_count"] == 8
+
+
+def test_strict_v2_bundle_rejects_temperature_truth_failure_even_when_rebound(
+    tmp_path,
+):
+    preflight, catalog, discovery, point = _seed_packet(tmp_path, strict_bundle=True)
+    trace = point / "temperature_truth_trace.jsonl"
+    trace.write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "schema_version": "v1_5_temperature_truth_snapshot_v0",
+                    "stage": stage,
+                    "ok": stage != "post_sample",
+                }
+            )
+            for stage in ("pre_route", "pre_sample", "post_sample")
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _refresh_preflight_hash(
+        preflight,
+        role="temperature_truth_trace",
+        path=trace,
+    )
+    _write_formal_evidence_bundle_manifest(
+        point,
+        run_id=point.name,
+        route_kind="co2",
+    )
+
+    model = _build_packet(preflight, catalog, discovery)
+
+    assert all(
+        row["evidence_bundle_manifest_verified"] is False
+        for row in model["analyzer_qc"]
+    )
+    assert all(
+        "temperature_truth_stage_not_pass"
+        in row["evidence_identity_reason_codes"]
+        for row in model["analyzer_qc"]
+    )
 
 
 def test_strict_bundle_rejects_reference_record_replacement(tmp_path):

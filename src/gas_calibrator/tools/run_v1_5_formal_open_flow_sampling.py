@@ -4,8 +4,9 @@ This sidecar runner is intentionally narrower than ``run_headless``. It keeps
 PACE open to atmosphere, opens one requested CO2 source route, waits for purge
 and analyzer stability, samples, then closes the route. It never enters sealed
 pressure control and never writes analyzer coefficients or IDs. The default
-analyzer path may issue MODE2/active-upload setup once, then samples by reading
-the stream instead of repeatedly polling READDATA.
+analyzer path reads an already available MODE2 stream and fails closed when
+that stream is absent; it does not repair analyzer configuration inside this
+no-write probe.
 """
 
 from __future__ import annotations
@@ -42,6 +43,12 @@ FORMAL_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S = 1.0
 FORMAL_OPEN_FLOW_DEWPOINT_GATE_MAX_TOTAL_WAIT_S = 1800.0
 FORMAL_OPEN_FLOW_ANALYZER_GATE_MAX_WAIT_S = 1800.0
 FORMAL_OPEN_FLOW_ANALYZER_GATE_PREFER_ALL_STABLE_GRACE_S = 120.0
+V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT = (
+    "I_CONFIRM_V1_5_ENGINEERING_PROBE_ONLY_NO_WRITE_NOT_REAL_ACCEPTANCE"
+)
+V1_5_OPERATOR_CONFIRMATION_RECORD_FILENAME = "operator_confirmation_record.json"
+V1_5_PHYSICAL_SHUTDOWN_STATUS_FILENAME = "physical_shutdown_status.json"
+V1_5_TEMPERATURE_TRUTH_TRACE_FILENAME = "temperature_truth_trace.jsonl"
 
 
 def _formal_sampling_completion_code(
@@ -183,9 +190,10 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default="active_stream_1hz",
         help=(
             "Gas-analyzer acquisition policy. The V1.5 formal default is "
-            "active_stream_1hz, which sends FTD=01 and records one uploaded frame "
-            "per formal sample anchor; active_stream_10hz reads the native 10 Hz "
-            "stream without FTD; passive_query keeps the older READDATA fallback."
+            "active_stream_1hz, which reads the existing device stream without "
+            "changing FTD and records one uploaded frame per formal sample anchor; "
+            "active_stream_10hz reads the existing native stream; passive_query "
+            "keeps the older READDATA fallback."
         ),
     )
     ftd_group = parser.add_mutually_exclusive_group()
@@ -193,8 +201,11 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         "--allow-ftd-write",
         dest="allow_ftd_write",
         action="store_true",
-        default=True,
-        help="Allow the V1.5 formal 1 Hz active-upload setup command FTD=01. Never writes SENCO or ID.",
+        default=False,
+        help=(
+            "Request the analyzer FTD=01 setup command. This is rejected by the no-write "
+            "engineering-probe gate and is retained only for explicit future controlled-write review."
+        ),
     )
     ftd_group.add_argument(
         "--no-ftd-write",
@@ -297,7 +308,84 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--gas-route-dewpoint-gate-deep-dry-tail-relax-margin-c", type=float, default=None)
     parser.add_argument("--skip-stability-gate", action="store_true")
     parser.add_argument("--no-prompt", action="store_true")
+    parser.add_argument(
+        "--engineering-probe-only",
+        action="store_true",
+        help="First unlock: acknowledge engineering-probe-only scope.",
+    )
+    parser.add_argument(
+        "--operator-confirmation",
+        default="",
+        help=(
+            "Second unlock: exact operator confirmation text. The required text is "
+            f"{V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT!r}."
+        ),
+    )
     return parser.parse_args(list(argv) if argv is not None else None)
+
+
+def _engineering_probe_authorization_errors(
+    args: argparse.Namespace,
+    *,
+    dry_run: bool = False,
+) -> List[str]:
+    """Return fail-closed authorization errors for this narrow no-write sidecar."""
+
+    if dry_run:
+        return []
+    errors: List[str] = []
+    if not bool(getattr(args, "no_prompt", False)):
+        errors.append("no_prompt_missing")
+    if not bool(getattr(args, "engineering_probe_only", False)):
+        errors.append("engineering_probe_only_unlock_missing")
+    if (
+        str(getattr(args, "operator_confirmation", "") or "").strip()
+        != V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT
+    ):
+        errors.append("operator_confirmation_mismatch")
+    if bool(getattr(args, "allow_ftd_write", False)):
+        errors.append("ftd_write_forbidden_in_no_write_engineering_probe")
+    return errors
+
+
+def _write_operator_confirmation_record(
+    run_dir: Path,
+    *,
+    run_id: str,
+    args: argparse.Namespace,
+    scope: str,
+) -> Path:
+    """Persist the exact operator authorization before any device construction."""
+
+    confirmation_text = str(getattr(args, "operator_confirmation", "") or "").strip()
+    payload = {
+        "schema_version": "v1_5_operator_confirmation_record_v0",
+        "timestamp": datetime.now().isoformat(timespec="milliseconds"),
+        "run_id": str(run_id),
+        "scope": str(scope),
+        "engineering_probe_only": bool(getattr(args, "engineering_probe_only", False)),
+        "operator_confirmation_text": confirmation_text,
+        "operator_confirmation_sha256": hashlib.sha256(
+            confirmation_text.encode("utf-8")
+        ).hexdigest(),
+        "operator_confirmation_matches_required": (
+            confirmation_text == V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT
+        ),
+        "no_write": not bool(getattr(args, "allow_ftd_write", False)),
+        "no_write_scope": (
+            "no_analyzer_persistent_configuration_no_senco_no_device_id_"
+            "no_calibration_coefficient_write"
+        ),
+        "ftd_write_enabled": bool(getattr(args, "allow_ftd_write", False)),
+        "promotion_state": "blocked",
+        "not_real_acceptance_evidence": True,
+    }
+    path = run_dir / V1_5_OPERATOR_CONFIRMATION_RECORD_FILENAME
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
+    return path
 
 
 def _resolve_reference_document_path(
@@ -614,7 +702,11 @@ def _apply_analyzer_acquisition_policy(
         else "passive_query_cache_at_formal_sample_anchor"
     )
     metadata["startup_mode2_missing_policy"] = (
-        "mode2_stream_config_then_sampling_qc" if active_stream else "defer_to_sampling_qc"
+        "mode2_stream_config_then_sampling_qc"
+        if active_stream and allow_ftd_write
+        else "read_existing_stream_fail_closed_no_config_write"
+        if active_stream
+        else "defer_to_sampling_qc"
     )
 
     live_cfg = runtime_cfg.setdefault("workflow", {}).setdefault("analyzer_live_snapshot", {})
@@ -691,7 +783,7 @@ def _apply_analyzer_acquisition_policy(
     elif active_stream:
         init_cfg["send_active_freq"] = False
     if active_stream:
-        init_cfg["write_config_on_read_first_fail"] = True
+        init_cfg["write_config_on_read_first_fail"] = bool(allow_ftd_write)
         init_cfg["skip_config_when_read_first_ready"] = True
     return policy
 
@@ -745,49 +837,110 @@ def _apply_v1_5_temperature_truth_contract(
     return temp_cfg
 
 
-def _verify_v1_5_point_temperature_truth(
+def _capture_v1_5_point_temperature_truth(
     runtime_cfg: Dict[str, Any],
     devices: Dict[str, Any],
     *,
     target_c: float,
-    log: Any = _log,
-) -> bool:
+    stage: str,
+) -> Dict[str, Any]:
     temp_cfg = runtime_cfg.get("workflow", {}).get("stability", {}).get("temperature", {})
     required = bool(
         temp_cfg.get("thermometer_truth_required", False)
         or temp_cfg.get("temperature_chamber_setpoint_substitution_forbidden", False)
     )
+    tol_c = abs(float(temp_cfg.get("thermometer_truth_tol_c", temp_cfg.get("tol", 0.2)) or 0.2))
+    chamber_tol_c = abs(float(temp_cfg.get("chamber_control_tol_c", temp_cfg.get("tol", 0.2)) or 0.2))
+    command_offset_c = float(temp_cfg.get("command_offset_c", 0.0) or 0.0)
+    command_target_c = float(target_c) + command_offset_c
+    snapshot: Dict[str, Any] = {
+        "schema_version": "v1_5_temperature_truth_snapshot_v0",
+        "timestamp": datetime.now().isoformat(timespec="milliseconds"),
+        "stage": str(stage),
+        "temperature_truth_source": temp_cfg.get(
+            "temperature_truth_source",
+            V1_5_TEMPERATURE_TRUTH_SOURCE,
+        ),
+        "required": required,
+        "target_c": float(target_c),
+        "command_target_c": command_target_c,
+        "command_offset_c": command_offset_c,
+        "thermometer_truth_tol_c": tol_c,
+        "chamber_control_tol_c": chamber_tol_c,
+        "thermometer_c": None,
+        "chamber_c": None,
+        "thermometer_delta_c": None,
+        "chamber_delta_c": None,
+        "ok": False,
+        "reason": None,
+    }
     if not required:
-        return True
+        snapshot["ok"] = True
+        snapshot["reason"] = "not_required"
+        return snapshot
 
     thermometer = devices.get("thermometer")
     chamber = devices.get("temp_chamber")
     if not callable(getattr(thermometer, "read_temp_c", None)) or not callable(
         getattr(chamber, "read_temp_c", None)
     ):
-        log("V1.5 point temperature truth gate failed: thermometer or chamber is unavailable")
-        return False
+        snapshot["reason"] = "thermometer_or_chamber_unavailable"
+        return snapshot
     try:
         thermometer_c = float(thermometer.read_temp_c())
         chamber_c = float(chamber.read_temp_c())
     except (TypeError, ValueError, OSError, RuntimeError) as exc:
-        log(f"V1.5 point temperature truth gate failed: {exc}")
-        return False
-
-    tol_c = abs(float(temp_cfg.get("thermometer_truth_tol_c", temp_cfg.get("tol", 0.2)) or 0.2))
-    chamber_tol_c = abs(float(temp_cfg.get("chamber_control_tol_c", temp_cfg.get("tol", 0.2)) or 0.2))
-    command_offset_c = float(temp_cfg.get("command_offset_c", 0.0) or 0.0)
-    command_target_c = float(target_c) + command_offset_c
+        snapshot["reason"] = f"temperature_read_failed:{exc}"
+        return snapshot
+    thermometer_delta_c = thermometer_c - float(target_c)
+    chamber_delta_c = chamber_c - command_target_c
     ok = (
-        abs(thermometer_c - float(target_c)) <= tol_c
-        and abs(chamber_c - command_target_c) <= chamber_tol_c
+        abs(thermometer_delta_c) <= tol_c
+        and abs(chamber_delta_c) <= chamber_tol_c
     )
+    snapshot.update(
+        {
+            "thermometer_c": thermometer_c,
+            "chamber_c": chamber_c,
+            "thermometer_delta_c": thermometer_delta_c,
+            "chamber_delta_c": chamber_delta_c,
+            "ok": ok,
+            "reason": "within_tolerance" if ok else "temperature_truth_out_of_tolerance",
+        }
+    )
+    return snapshot
+
+
+def _append_v1_5_temperature_truth_trace(path: Path, snapshot: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8", newline="\n") as handle:
+        handle.write(json.dumps(snapshot, ensure_ascii=False, default=str) + "\n")
+
+
+def _verify_v1_5_point_temperature_truth(
+    runtime_cfg: Dict[str, Any],
+    devices: Dict[str, Any],
+    *,
+    target_c: float,
+    log: Any = _log,
+    evidence_path: Optional[Path] = None,
+    stage: str = "gate",
+) -> bool:
+    snapshot = _capture_v1_5_point_temperature_truth(
+        runtime_cfg,
+        devices,
+        target_c=target_c,
+        stage=stage,
+    )
+    if evidence_path is not None:
+        _append_v1_5_temperature_truth_trace(evidence_path, snapshot)
     log(
         "V1.5 point temperature truth gate: "
-        f"ok={ok}, target={float(target_c):.2f}, thermometer={thermometer_c:.2f}, "
-        f"chamber={chamber_c:.2f}, command_target={command_target_c:.2f}"
+        f"stage={stage}, ok={snapshot['ok']}, target={float(target_c):.2f}, "
+        f"thermometer={snapshot.get('thermometer_c')}, chamber={snapshot.get('chamber_c')}, "
+        f"command_target={snapshot.get('command_target_c')}, reason={snapshot.get('reason')}"
     )
-    return ok
+    return bool(snapshot["ok"])
 
 
 def _prepare_runtime_cfg(
@@ -799,7 +952,7 @@ def _prepare_runtime_cfg(
     sensor_read_interval_s: float,
     min_valid_analyzers: int = 1,
     analyzer_acquisition: str = "active_stream_1hz",
-    allow_ftd_write: bool = True,
+    allow_ftd_write: bool = False,
     analyzer_gate_required_labels: Optional[Iterable[str]] = None,
     analyzer_gate_prefer_all_stable_grace_s: Optional[float] = None,
     co2_ratio_f_preseal_tol: Optional[float] = None,
@@ -1435,12 +1588,28 @@ def _enter_continuous_atmosphere(
     pace: Any,
     *,
     hold_interval_s: float = FORMAL_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S,
-) -> None:
+) -> bool:
     if pace is None:
-        return
+        return False
     enter = getattr(pace, "enter_atmosphere_mode", None)
     if callable(enter):
         enter(timeout_s=30.0, poll_s=0.25, hold_open=True, hold_interval_s=hold_interval_s)
+        return True
+    return False
+
+
+def _not_required_atmosphere_stop_status() -> Dict[str, Any]:
+    return {
+        "action": "stop_continuous_atmosphere",
+        "required": False,
+        "attempted": False,
+        "device_present": False,
+        "stop_hold": {"supported": False, "ok": True},
+        "exit_atmosphere": {"supported": False, "ok": True},
+        "errors": [],
+        "ok": True,
+        "status": "not_required",
+    }
 
 
 def _stop_continuous_atmosphere(pace: Any) -> Dict[str, Any]:
@@ -1496,6 +1665,18 @@ def _write_shutdown_status_to_sidecar(
     )
 
 
+def _write_physical_shutdown_status(
+    run_dir: Path,
+    shutdown_status: Dict[str, Any],
+) -> Path:
+    path = run_dir / V1_5_PHYSICAL_SHUTDOWN_STATUS_FILENAME
+    path.write_text(
+        json.dumps(shutdown_status, ensure_ascii=False, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 def _wait_open_flow_co2_dewpoint_gate(
     runner: CalibrationRunner,
     point: CalibrationPoint,
@@ -1523,8 +1704,12 @@ def _wait_open_flow_co2_dewpoint_gate(
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = _parse_args(argv)
-    if not args.no_prompt:
-        _log("Refusing to run real open-flow sampling without --no-prompt in this sidecar tool.")
+    authorization_errors = _engineering_probe_authorization_errors(args)
+    if authorization_errors:
+        _log(
+            "Refusing V1.5 CO2 engineering probe: "
+            + ",".join(authorization_errors)
+        )
         return 2
 
     cfg = load_config(args.config)
@@ -1577,6 +1762,13 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         cfg=runtime_cfg,
         immutable_run_dir=True,
     )
+    operator_confirmation_path = _write_operator_confirmation_record(
+        logger.run_dir,
+        run_id=run_id,
+        args=args,
+        scope="v1_5_co2_open_flow_single_point_no_write_engineering_probe",
+    )
+    temperature_truth_path = logger.run_dir / V1_5_TEMPERATURE_TRUTH_TRACE_FILENAME
     catalog_path = (
         Path(args.reference_source_catalog).resolve()
         if args.reference_source_catalog
@@ -1619,6 +1811,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     sample_window_ended_at: Optional[str] = None
     co2_route_closed_at: Optional[str] = None
     sidecar_metadata_path: Optional[Path] = None
+    pace_atmosphere_cleanup_required = False
     formal_sampling_completed = False
     finalization_failures: List[str] = []
 
@@ -1644,10 +1837,15 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             runtime_cfg,
             devices,
             target_c=float(args.temp),
+            evidence_path=temperature_truth_path,
+            stage="pre_route",
         ):
             raise RuntimeError("V1_5_POINT_TEMPERATURE_TRUTH_GATE_FAILED")
 
         pace = devices.get("pace")
+        pace_atmosphere_cleanup_required = callable(
+            getattr(pace, "enter_atmosphere_mode", None)
+        )
         _enter_continuous_atmosphere(
             pace,
             hold_interval_s=FORMAL_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S,
@@ -1701,6 +1899,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                         "reference_value_source"
                     ),
                     "reference_source_record": str(reference_source_path),
+                    "operator_confirmation_record": str(operator_confirmation_path),
+                    "temperature_truth_trace": str(temperature_truth_path),
                     "n2_prepurge_enabled": bool(float(args.n2_prepurge_s) > 0.0),
                     "n2_prepurge_s": max(0.0, float(args.n2_prepurge_s)),
                     "n2_purge_source_valve": _nitrogen_purge_source_valve(runtime_cfg),
@@ -1777,6 +1977,15 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 _log("Open-flow analyzer stability gate failed.")
                 return 1
 
+        if not _verify_v1_5_point_temperature_truth(
+            runtime_cfg,
+            devices,
+            target_c=float(args.temp),
+            evidence_path=temperature_truth_path,
+            stage="pre_sample",
+        ):
+            raise RuntimeError("V1_5_POINT_TEMPERATURE_TRUTH_PRE_SAMPLE_GATE_FAILED")
+
         runner._set_point_runtime_fields(
             point,
             phase="co2",
@@ -1796,6 +2005,13 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         sample_window_started_at = _now_iso()
         runner._sample_and_log(point, phase="co2", point_tag=f"open_flow_{int(args.co2_source_ppm)}ppm")
         sample_window_ended_at = _now_iso()
+        post_sample_temperature_ok = _verify_v1_5_point_temperature_truth(
+            runtime_cfg,
+            devices,
+            target_c=float(args.temp),
+            evidence_path=temperature_truth_path,
+            stage="post_sample",
+        )
         machine_sample_paths = _write_machine_readable_samples(logger.run_dir, runner._all_samples)
         tables = analyze_sample_rows(runner._all_samples, cfg=runtime_cfg, gas="co2", modes=("current",))
         outputs = write_validation_report(
@@ -1818,6 +2034,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                     str(runtime_snapshot_path),
                     str(meta_path),
                     str(reference_source_path),
+                    str(operator_confirmation_path),
+                    str(temperature_truth_path),
                     str(purge_path),
                 ]
                 + ([str(n2_purge_path)] if n2_purge_path else []),
@@ -1867,6 +2085,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             tables=tables,
         )
         _log(f"Formal open-flow sampling validation saved: {outputs['workbook']}")
+        if not post_sample_temperature_ok:
+            raise RuntimeError("V1_5_POINT_TEMPERATURE_TRUTH_POST_SAMPLE_GATE_FAILED")
         formal_sampling_completed = True
     except Exception as exc:
         _log(f"Formal open-flow sampling failed: {exc}")
@@ -1907,8 +2127,12 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         except Exception as exc:
             finalization_failures.append(f"route_timing_write_failed:{exc}")
             _log(f"CO2 route timing evidence write failed: {exc}")
-        pace_stop_status = _stop_continuous_atmosphere(devices.get("pace"))
-        if formal_sampling_completed and pace_stop_status.get("ok") is not True:
+        pace_stop_status = (
+            _stop_continuous_atmosphere(devices.get("pace"))
+            if pace_atmosphere_cleanup_required
+            else _not_required_atmosphere_stop_status()
+        )
+        if pace_atmosphere_cleanup_required and pace_stop_status.get("ok") is not True:
             finalization_failures.append(
                 "pace_atmosphere_stop_failed:"
                 + ",".join(pace_stop_status.get("errors") or ["unknown"])
@@ -1945,6 +2169,14 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             "critical_failures": physical_failures,
             "overall_status": "fail" if physical_failures else "pass",
         }
+        try:
+            _write_physical_shutdown_status(
+                logger.run_dir,
+                physical_shutdown_status,
+            )
+        except Exception as exc:
+            finalization_failures.append(f"shutdown_status_write_failed:{exc}")
+            _log(f"CO2 physical shutdown status write failed: {exc}")
         if sidecar_metadata_path is not None and sidecar_metadata_path.is_file():
             try:
                 _write_shutdown_status_to_sidecar(
@@ -1952,8 +2184,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                     physical_shutdown_status,
                 )
             except Exception as exc:
-                finalization_failures.append(f"shutdown_status_write_failed:{exc}")
-                _log(f"CO2 physical shutdown status write failed: {exc}")
+                finalization_failures.append(f"shutdown_sidecar_binding_failed:{exc}")
+                _log(f"CO2 physical shutdown sidecar binding failed: {exc}")
         try:
             bundle_path = _write_formal_evidence_bundle_manifest(
                 logger.run_dir,

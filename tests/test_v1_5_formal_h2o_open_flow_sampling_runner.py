@@ -45,7 +45,7 @@ def test_formal_h2o_open_flow_default_purge_is_720s():
     assert args.purge_s == 720.0
     assert args.minimum_purge_s == 720.0
     assert args.analyzer_acquisition == "active_stream_1hz"
-    assert args.allow_ftd_write is True
+    assert args.allow_ftd_write is False
     assert args.open_flow_pressure_transient_grace_s == 30.0
     assert args.open_flow_pressure_safety_hard_limit_hpa == 1300.0
 
@@ -95,8 +95,8 @@ def test_prepare_runtime_cfg_blocks_writes_and_uses_1hz_active_stream_for_h2o():
     assert out["workflow"]["skip_h2o"] is False
     assert out["workflow"]["pressure"]["continuous_atmosphere_hold"] is False
     assert out["workflow"]["analyzer_mode2_init"]["read_first_before_config"] is True
-    assert out["workflow"]["analyzer_mode2_init"]["write_config_on_read_first_fail"] is True
-    assert out["workflow"]["analyzer_mode2_init"]["send_active_freq"] is True
+    assert out["workflow"]["analyzer_mode2_init"]["write_config_on_read_first_fail"] is False
+    assert out["workflow"]["analyzer_mode2_init"]["send_active_freq"] is False
     assert out["workflow"]["analyzer_mode2_init"]["skip_config_when_read_first_ready"] is True
     assert out["workflow"]["analyzer_mode2_init"]["command_gap_s"] >= 1.0
     assert out["workflow"]["stability"]["temperature"]["analyzer_chamber_temp_span_c"] == 0.08
@@ -112,16 +112,22 @@ def test_prepare_runtime_cfg_blocks_writes_and_uses_1hz_active_stream_for_h2o():
     assert out["workflow"]["startup_pressure_sensor_calibration"]["apply_write"] is False
     assert out["metadata"]["writes_senco"] is False
     assert out["metadata"]["writes_device_id"] is False
-    assert out["metadata"]["analyzer_acquisition_policy"] == "active_mode2_stream_1hz_ftd01_controlled"
-    assert out["metadata"]["analyzer_stream_target_hz"] == 1.0
-    assert out["metadata"]["analyzer_stream_native_hz"] == 1.0
-    assert out["metadata"]["analyzer_stream_frequency_control"] == "FTD01_written"
-    assert out["metadata"]["formal_sample_decimation"] == (
-        "nearest_usable_mode2_frame_at_1hz_anchor_from_1hz_stream"
+    assert out["metadata"]["analyzer_acquisition_policy"] == (
+        "active_mode2_stream_existing_rate_no_ftd_requested_1hz"
     )
-    assert out["metadata"]["ftd_write_enabled"] is True
+    assert out["metadata"]["analyzer_stream_target_hz"] == 1.0
+    assert out["metadata"]["analyzer_stream_native_hz"] is None
+    assert out["metadata"]["analyzer_stream_frequency_control"] == (
+        "existing_device_setting_no_ftd_write"
+    )
+    assert out["metadata"]["formal_sample_decimation"] == (
+        "nearest_usable_mode2_frame_at_1hz_anchor_from_existing_stream_no_ftd"
+    )
+    assert out["metadata"]["ftd_write_enabled"] is False
     assert out["metadata"]["idle_continuous_atmosphere_hold"] is False
-    assert out["metadata"]["startup_mode2_missing_policy"] == "mode2_stream_config_then_sampling_qc"
+    assert out["metadata"]["startup_mode2_missing_policy"] == (
+        "read_existing_stream_fail_closed_no_config_write"
+    )
     assert out["metadata"]["h2o_open_flow_hgen_flow_control"] == "not_controlled_by_default"
     assert out["metadata"]["h2o_open_flow_hgen_flow_lpm"] is None
     assert out["metadata"]["h2o_hgen_shutdown_policy"] == "safe_stop_after_point"
@@ -478,7 +484,10 @@ def test_h2o_pressure_diagnostic_after_purge_flag_requires_diagnostic_only_inten
     assert args.pressure_diagnostic_analyzer_drain_s == 0.18
 
 
-def test_h2o_pressure_diagnostic_observe_hgen_only_does_not_command_hgen(tmp_path, monkeypatch):
+def test_h2o_diagnostic_shutdown_failure_overrides_success_and_does_not_command_hgen(
+    tmp_path,
+    monkeypatch,
+):
     clock = [0.0]
     monkeypatch.setattr(h2o_tool.time, "time", lambda: clock[0])
     monkeypatch.setattr(h2o_tool.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + float(seconds)))
@@ -496,7 +505,11 @@ def test_h2o_pressure_diagnostic_observe_hgen_only_does_not_command_hgen(tmp_pat
     monkeypatch.setattr(
         h2o_tool,
         "_stop_continuous_atmosphere",
-        lambda pace: {"ok": True, "status": "pass", "errors": []},
+        lambda pace: {
+            "ok": False,
+            "status": "fail",
+            "errors": ["stop_atmosphere_hold_failed:hold_stuck"],
+        },
     )
     monkeypatch.setattr(
         h2o_tool,
@@ -534,6 +547,9 @@ def test_h2o_pressure_diagnostic_observe_hgen_only_does_not_command_hgen(tmp_pat
 
         def read_pressure(self):
             return self.value
+
+        def enter_atmosphere_mode(self, **kwargs):
+            return None
 
     class Analyzer:
         def __init__(self):
@@ -611,10 +627,13 @@ def test_h2o_pressure_diagnostic_observe_hgen_only_does_not_command_hgen(tmp_pat
             "--pressure-diagnostic-min-samples",
             "1",
             "--no-prompt",
+            "--engineering-probe-only",
+            "--operator-confirmation",
+            h2o_tool.V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT,
         ]
     )
 
-    assert rc == 0
+    assert rc == 1
     run_dir = tmp_path / "observe_hgen"
     observe = json.loads((run_dir / "h2o_pressure_diagnostic_hgen_observe_only.json").read_text(encoding="utf-8"))
     metadata = json.loads((run_dir / "formal_h2o_open_flow_sidecar_metadata.json").read_text(encoding="utf-8"))
@@ -624,6 +643,14 @@ def test_h2o_pressure_diagnostic_observe_hgen_only_does_not_command_hgen(tmp_pat
     assert metadata["pressure_diagnostic_observe_hgen_only"] is True
     assert metadata["h2o_pressure_diagnostic_hgen_control_role"] == "observe_only_no_prepare_no_flow_no_safe_stop"
     assert flow["flow_control_role"] == "observe_only_no_hgen_flow_command"
+    shutdown = json.loads(
+        (run_dir / "physical_shutdown_status.json").read_text(encoding="utf-8")
+    )
+    assert shutdown["overall_status"] == "fail"
+    assert any(
+        "pace_atmosphere_stop_failed" in reason
+        for reason in shutdown["critical_failures"]
+    )
 
 
 def test_h2o_pressure_route_closed_baseline_keeps_valves_closed_and_does_not_command_hgen(tmp_path, monkeypatch):
@@ -753,6 +780,9 @@ def test_h2o_pressure_route_closed_baseline_keeps_valves_closed_and_does_not_com
             "--pressure-diagnostic-min-samples",
             "1",
             "--no-prompt",
+            "--engineering-probe-only",
+            "--operator-confirmation",
+            h2o_tool.V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT,
         ]
     )
 
@@ -1320,7 +1350,51 @@ def test_h2o_reference_source_record_separates_concentration_from_flow(tmp_path)
         "actual_pressure_measurement_bound_in_samples"
         in record["h2o_concentration_reference"]["primary_quantities"]
     )
+    assert record["h2o_concentration_reference"]["observed_pressure_fields"] == [
+        "pressure_hpa"
+    ]
+    assert record["h2o_concentration_reference"]["observed_pressure_counts"] == {
+        "pressure_hpa": 1
+    }
     assert (tmp_path / "formal_reference_source_record.json").exists()
+
+
+def test_h2o_reference_source_rejects_config_and_internal_analyzer_pressure(
+    tmp_path,
+):
+    (tmp_path / "h2o_humidity_reference_review.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "v1_5_formal_h2o_open_flow_humidity_reference_review_v0",
+                "dewpoint_snapshot": {"dewpoint_c": 16.11, "flow_lpm": 1.58},
+                "humidity_reference_check": {"status": "pass", "hard_block": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "formal_h2o_open_flow_hgen_flow_set.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "v1_5_h2o_open_flow_hgen_flow_set_v0",
+                "ok": True,
+                "observed_flow_lpm": 1.58,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "samples_machine_readable.csv").write_text(
+        (
+            "sample_ts,pressure_gate_window_s,pressure_kpa\n"
+            "2026-07-26T00:00:00,60,104.1\n"
+        ),
+        encoding="utf-8",
+    )
+
+    record = _write_h2o_reference_source_record(tmp_path, run_id="run001")
+
+    assert record["reference_source_status"] == "fail"
+    assert record["h2o_concentration_reference"]["observed_pressure_fields"] == []
+    assert "actual_pressure_measurement_missing" in record["reasons"]
 
 
 def test_h2o_reference_source_record_rejects_hard_reference_contradiction(tmp_path):

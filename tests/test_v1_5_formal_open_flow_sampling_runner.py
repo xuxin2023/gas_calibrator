@@ -13,6 +13,7 @@ from gas_calibrator.tools.run_v1_5_formal_open_flow_sampling import (
     _build_nitrogen_purge_open_valves,
     _configured_analyzer_labels,
     _defer_startup_mode2_disabled_analyzers,
+    _engineering_probe_authorization_errors,
     _enter_continuous_atmosphere,
     _formal_sampling_completion_code,
     _nitrogen_purge_source_valve,
@@ -20,6 +21,8 @@ from gas_calibrator.tools.run_v1_5_formal_open_flow_sampling import (
     _prepare_runtime_cfg,
     _stop_continuous_atmosphere,
     _verify_v1_5_point_temperature_truth,
+    _write_operator_confirmation_record,
+    _write_physical_shutdown_status,
     _write_shutdown_status_to_sidecar,
     _write_formal_evidence_bundle_manifest,
     _wait_open_flow_co2_dewpoint_gate,
@@ -33,7 +36,9 @@ from gas_calibrator.validation.v1_5_component_qc_generator_contract import (
 )
 
 
-def test_point_temperature_truth_gate_checks_thermometer_and_commanded_chamber_target():
+def test_point_temperature_truth_gate_checks_thermometer_and_commanded_chamber_target(
+    tmp_path,
+):
     cfg = {
         "workflow": {
             "stability": {
@@ -56,6 +61,8 @@ def test_point_temperature_truth_gate_checks_thermometer_and_commanded_chamber_t
         },
         target_c=25.0,
         log=logs.append,
+        evidence_path=tmp_path / "temperature_truth_trace.jsonl",
+        stage="pre_route",
     )
     assert not _verify_v1_5_point_temperature_truth(
         cfg,
@@ -74,6 +81,53 @@ def test_point_temperature_truth_gate_checks_thermometer_and_commanded_chamber_t
     )
     assert any("ok=True" in message for message in logs)
     assert any("ok=False" in message for message in logs)
+    trace_rows = [
+        json.loads(line)
+        for line in (tmp_path / "temperature_truth_trace.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert trace_rows[0]["stage"] == "pre_route"
+    assert trace_rows[0]["thermometer_c"] == 25.0
+    assert trace_rows[0]["chamber_c"] == 25.5
+    assert trace_rows[0]["ok"] is True
+
+
+def test_engineering_probe_requires_two_unlocks_and_rejects_ftd_write(tmp_path):
+    base = SimpleNamespace(
+        no_prompt=True,
+        engineering_probe_only=False,
+        operator_confirmation="",
+        allow_ftd_write=False,
+    )
+    assert _engineering_probe_authorization_errors(base) == [
+        "engineering_probe_only_unlock_missing",
+        "operator_confirmation_mismatch",
+    ]
+
+    authorized = SimpleNamespace(
+        no_prompt=True,
+        engineering_probe_only=True,
+        operator_confirmation=co2_tool.V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT,
+        allow_ftd_write=False,
+    )
+    assert _engineering_probe_authorization_errors(authorized) == []
+    record_path = _write_operator_confirmation_record(
+        tmp_path,
+        run_id="probe001",
+        args=authorized,
+        scope="unit_test",
+    )
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    assert record["engineering_probe_only"] is True
+    assert record["no_write"] is True
+    assert record["promotion_state"] == "blocked"
+    assert record["not_real_acceptance_evidence"] is True
+
+    authorized.allow_ftd_write = True
+    assert _engineering_probe_authorization_errors(authorized) == [
+        "ftd_write_forbidden_in_no_write_engineering_probe"
+    ]
 
 
 class _SequencePressure:
@@ -183,6 +237,19 @@ def test_shutdown_status_is_bound_into_existing_sidecar_metadata(tmp_path):
     assert sidecar_binding["sha256"] == hashlib.sha256(sidecar.read_bytes()).hexdigest()
 
 
+def test_physical_shutdown_status_is_persisted_as_standalone_evidence(tmp_path):
+    shutdown = {
+        "route_kind": "co2",
+        "overall_status": "fail",
+        "critical_failures": ["pace_atmosphere_stop_failed:hold_stuck"],
+    }
+
+    path = _write_physical_shutdown_status(tmp_path, shutdown)
+
+    assert path.name == "physical_shutdown_status.json"
+    assert json.loads(path.read_text(encoding="utf-8")) == shutdown
+
+
 def test_formal_co2_open_flow_default_purge_is_360s():
     args = _parse_args(["--config", "config.json", "--co2-source-ppm", "100"])
 
@@ -191,7 +258,7 @@ def test_formal_co2_open_flow_default_purge_is_360s():
     assert args.n2_prepurge_s == 0.0
     assert args.n2_purge_source_valve is None
     assert args.analyzer_acquisition == "active_stream_1hz"
-    assert args.allow_ftd_write is True
+    assert args.allow_ftd_write is False
     assert args.analyzer_gate_required_labels == ""
     assert args.co2_ratio_f_preseal_tol is None
     assert args.co2_ratio_f_preseal_window_s is None
@@ -505,6 +572,9 @@ def test_co2_reference_source_failure_blocks_before_device_construction(
             "--reference-source-catalog",
             str(tmp_path / "missing_catalog.json"),
             "--no-prompt",
+            "--engineering-probe-only",
+            "--operator-confirmation",
+            co2_tool.V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT,
         ]
     )
 
@@ -609,7 +679,7 @@ def test_certificate_target_replaces_nominal_after_valve_selection():
     assert point.co2_group == "B"
 
 
-def test_prepare_runtime_cfg_blocks_writes_and_uses_1hz_active_stream_with_ftd01():
+def test_prepare_runtime_cfg_blocks_writes_and_uses_existing_active_stream_without_ftd():
     cfg = {
         "devices": {
             "humidity_generator": {"enabled": True},
@@ -646,8 +716,8 @@ def test_prepare_runtime_cfg_blocks_writes_and_uses_1hz_active_stream_with_ftd01
     assert out["workflow"]["route_mode"] == "co2_open_flow_sidecar"
     assert out["workflow"]["skip_h2o"] is True
     assert out["workflow"]["analyzer_mode2_init"]["read_first_before_config"] is True
-    assert out["workflow"]["analyzer_mode2_init"]["write_config_on_read_first_fail"] is True
-    assert out["workflow"]["analyzer_mode2_init"]["send_active_freq"] is True
+    assert out["workflow"]["analyzer_mode2_init"]["write_config_on_read_first_fail"] is False
+    assert out["workflow"]["analyzer_mode2_init"]["send_active_freq"] is False
     assert out["workflow"]["analyzer_mode2_init"]["skip_config_when_read_first_ready"] is True
     assert out["workflow"]["analyzer_mode2_init"]["reapply_attempts"] >= 2
     assert out["workflow"]["analyzer_mode2_init"]["stream_attempts"] >= 15
@@ -678,17 +748,23 @@ def test_prepare_runtime_cfg_blocks_writes_and_uses_1hz_active_stream_with_ftd01
         "prefer_all_stable_with_bounded_grace_then_independent_grade_or_reject"
     )
     assert contract["pressure_role"] == "traceability_and_qc_input_not_co2_fit_variable"
-    assert out["metadata"]["analyzer_acquisition_policy"] == "active_mode2_stream_1hz_ftd01_controlled"
+    assert out["metadata"]["analyzer_acquisition_policy"] == (
+        "active_mode2_stream_existing_rate_no_ftd_requested_1hz"
+    )
     assert out["metadata"]["analyzer_stream_target_hz"] == 1.0
-    assert out["metadata"]["analyzer_stream_native_hz"] == 1.0
-    assert out["metadata"]["analyzer_stream_frequency_control"] == "FTD01_written"
+    assert out["metadata"]["analyzer_stream_native_hz"] is None
+    assert out["metadata"]["analyzer_stream_frequency_control"] == (
+        "existing_device_setting_no_ftd_write"
+    )
     assert out["metadata"]["formal_sample_anchor_interval_s"] == 1.0
     assert out["metadata"]["formal_sample_decimation"] == (
-        "nearest_usable_mode2_frame_at_1hz_anchor_from_1hz_stream"
+        "nearest_usable_mode2_frame_at_1hz_anchor_from_existing_stream_no_ftd"
     )
-    assert out["metadata"]["ftd_write_enabled"] is True
+    assert out["metadata"]["ftd_write_enabled"] is False
     assert out["metadata"]["idle_continuous_atmosphere_hold"] is False
-    assert out["metadata"]["startup_mode2_missing_policy"] == "mode2_stream_config_then_sampling_qc"
+    assert out["metadata"]["startup_mode2_missing_policy"] == (
+        "read_existing_stream_fail_closed_no_config_write"
+    )
     assert out["devices"]["gas_analyzer"]["active_send"] is True
     assert out["devices"]["gas_analyzer"]["ftd_hz"] == 1
     assert [item["active_send"] for item in out["devices"]["gas_analyzers"]] == [True, True]

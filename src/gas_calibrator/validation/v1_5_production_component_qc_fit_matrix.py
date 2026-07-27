@@ -19,8 +19,10 @@ from typing import Any, Mapping, Sequence
 
 from .v1_5_component_qc_generator_contract import (
     FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS,
+    FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS_V1,
     FORMAL_EVIDENCE_BUNDLE_FILENAME,
     FORMAL_EVIDENCE_BUNDLE_SCHEMA,
+    FORMAL_EVIDENCE_BUNDLE_SCHEMA_V1,
     FORMAL_REFERENCE_SOURCE_RECORD_FILENAME,
     FORMAL_REFERENCE_SOURCE_RECORD_SCHEMA,
     evaluate_component_qc_temporal_window,
@@ -223,10 +225,18 @@ def _verify_formal_evidence_bundle(
     manifest_path = point_dir / FORMAL_EVIDENCE_BUNDLE_FILENAME
     manifest, read_error = _read_optional_json(manifest_path)
     reasons: list[str] = []
-    required = FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS[component]
+    manifest_schema = manifest.get("schema_version")
+    required_by_schema = {
+        FORMAL_EVIDENCE_BUNDLE_SCHEMA: FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS,
+        FORMAL_EVIDENCE_BUNDLE_SCHEMA_V1: FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS_V1,
+    }
+    required = required_by_schema.get(
+        manifest_schema,
+        FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS,
+    )[component]
     if read_error:
         reasons.append("bundle_manifest_json_invalid")
-    if manifest.get("schema_version") != FORMAL_EVIDENCE_BUNDLE_SCHEMA:
+    if manifest_schema not in required_by_schema:
         reasons.append("bundle_manifest_schema_mismatch")
     if _run_id(manifest.get("run_id")) != expected_run_id:
         reasons.append("bundle_manifest_run_id_mismatch")
@@ -276,6 +286,64 @@ def _verify_formal_evidence_bundle(
             recorded_size = -1
         if recorded_size != path.stat().st_size:
             reasons.append(f"bundle_manifest_size_mismatch:{role}")
+
+    if manifest_schema == FORMAL_EVIDENCE_BUNDLE_SCHEMA:
+        operator_record, operator_error = _read_optional_json(
+            point_dir / required["operator_confirmation"]
+        )
+        if operator_error:
+            reasons.append("operator_confirmation_record_invalid")
+        else:
+            if operator_record.get("engineering_probe_only") is not True:
+                reasons.append("operator_confirmation_engineering_probe_only_missing")
+            if operator_record.get("operator_confirmation_matches_required") is not True:
+                reasons.append("operator_confirmation_mismatch")
+            if operator_record.get("no_write") is not True:
+                reasons.append("operator_confirmation_no_write_false")
+            if operator_record.get("ftd_write_enabled") is not False:
+                reasons.append("operator_confirmation_ftd_write_not_false")
+            if operator_record.get("promotion_state") != "blocked":
+                reasons.append("operator_confirmation_promotion_state_not_blocked")
+            if operator_record.get("not_real_acceptance_evidence") is not True:
+                reasons.append("operator_confirmation_real_acceptance_flag_invalid")
+
+        shutdown, shutdown_error = _read_optional_json(
+            point_dir / required["physical_shutdown"]
+        )
+        if shutdown_error:
+            reasons.append("physical_shutdown_status_invalid")
+        else:
+            if str(shutdown.get("route_kind") or "").lower() != component:
+                reasons.append("physical_shutdown_route_kind_mismatch")
+            if shutdown.get("overall_status") != "pass":
+                reasons.append("physical_shutdown_not_pass")
+            if list(shutdown.get("critical_failures") or []):
+                reasons.append("physical_shutdown_critical_failures_present")
+
+        temperature_trace_path = point_dir / required["temperature_truth_trace"]
+        temperature_rows: list[Mapping[str, Any]] = []
+        try:
+            for line in temperature_trace_path.read_text(encoding="utf-8-sig").splitlines():
+                if not line.strip():
+                    continue
+                payload = json.loads(line)
+                if not isinstance(payload, Mapping):
+                    raise ValueError("temperature_trace_row_not_object")
+                temperature_rows.append(payload)
+        except (OSError, ValueError, json.JSONDecodeError):
+            reasons.append("temperature_truth_trace_invalid")
+        required_temperature_stages = {"pre_route", "pre_sample", "post_sample"}
+        observed_temperature_stages = {
+            str(row.get("stage") or "") for row in temperature_rows
+        }
+        if not required_temperature_stages.issubset(observed_temperature_stages):
+            reasons.append("temperature_truth_required_stages_missing")
+        if any(
+            row.get("ok") is not True
+            for row in temperature_rows
+            if str(row.get("stage") or "") in required_temperature_stages
+        ):
+            reasons.append("temperature_truth_stage_not_pass")
 
     canonical = {
         key: manifest.get(key)

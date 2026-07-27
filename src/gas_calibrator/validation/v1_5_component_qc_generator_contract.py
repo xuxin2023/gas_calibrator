@@ -15,11 +15,12 @@ from .v1_5_component_qc_authority_audit import SCHEMA as AUTHORITY_SCHEMA
 
 SCHEMA = "v1_5_component_qc_generator_contract_review_v1"
 CONTRACT_SCHEMA = "v1_5_component_qc_generator_contract_v1"
-FORMAL_EVIDENCE_BUNDLE_SCHEMA = "v1_5_formal_evidence_bundle_v1"
+FORMAL_EVIDENCE_BUNDLE_SCHEMA_V1 = "v1_5_formal_evidence_bundle_v1"
+FORMAL_EVIDENCE_BUNDLE_SCHEMA = "v1_5_formal_evidence_bundle_v2"
 FORMAL_EVIDENCE_BUNDLE_FILENAME = "formal_evidence_bundle_manifest.json"
 FORMAL_REFERENCE_SOURCE_RECORD_SCHEMA = "v1_5_formal_reference_source_record_v1"
 FORMAL_REFERENCE_SOURCE_RECORD_FILENAME = "formal_reference_source_record.json"
-FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS = {
+FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS_V1 = {
     "co2": {
         "run_directory_claim": "run_directory_claim.json",
         "reference_source": FORMAL_REFERENCE_SOURCE_RECORD_FILENAME,
@@ -37,6 +38,35 @@ FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS = {
         "frame_qc": "frame_quality_summary.csv",
         "runtime_config": "runtime_config_snapshot.json",
         "sidecar": "formal_h2o_open_flow_sidecar_metadata.json",
+        "hgen_flow_set": "formal_h2o_open_flow_hgen_flow_set.json",
+        "humidity_reference_review": "h2o_humidity_reference_review.json",
+        "point_timing_summary": "point_timing_summary.csv",
+    },
+}
+FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS = {
+    "co2": {
+        "run_directory_claim": "run_directory_claim.json",
+        "reference_source": FORMAL_REFERENCE_SOURCE_RECORD_FILENAME,
+        "samples": "samples_machine_readable.csv",
+        "frame_qc": "frame_quality_summary.csv",
+        "runtime_config": "runtime_config_snapshot.json",
+        "sidecar": "formal_open_flow_sidecar_metadata.json",
+        "operator_confirmation": "operator_confirmation_record.json",
+        "temperature_truth_trace": "temperature_truth_trace.jsonl",
+        "physical_shutdown": "physical_shutdown_status.json",
+        "route_timing": "formal_open_flow_route_timing.json",
+        "point_timing_summary": "point_timing_summary.csv",
+    },
+    "h2o": {
+        "run_directory_claim": "run_directory_claim.json",
+        "reference_source": FORMAL_REFERENCE_SOURCE_RECORD_FILENAME,
+        "samples": "samples_machine_readable.csv",
+        "frame_qc": "frame_quality_summary.csv",
+        "runtime_config": "runtime_config_snapshot.json",
+        "sidecar": "formal_h2o_open_flow_sidecar_metadata.json",
+        "operator_confirmation": "operator_confirmation_record.json",
+        "temperature_truth_trace": "temperature_truth_trace.jsonl",
+        "physical_shutdown": "physical_shutdown_status.json",
         "hgen_flow_set": "formal_h2o_open_flow_hgen_flow_set.json",
         "humidity_reference_review": "h2o_humidity_reference_review.json",
         "point_timing_summary": "point_timing_summary.csv",
@@ -484,8 +514,10 @@ def write_v1_5_component_qc_generator_contract_review(
 __all__ = [
     "CONTRACT_SCHEMA",
     "FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS",
+    "FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS_V1",
     "FORMAL_EVIDENCE_BUNDLE_FILENAME",
     "FORMAL_EVIDENCE_BUNDLE_SCHEMA",
+    "FORMAL_EVIDENCE_BUNDLE_SCHEMA_V1",
     "FORMAL_REFERENCE_SOURCE_RECORD_FILENAME",
     "FORMAL_REFERENCE_SOURCE_RECORD_SCHEMA",
     "SCHEMA",
