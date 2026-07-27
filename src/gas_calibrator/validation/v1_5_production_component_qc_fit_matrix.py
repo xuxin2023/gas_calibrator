@@ -18,6 +18,16 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .v1_5_component_qc_generator_contract import (
+    FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS,
+    FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS_V1,
+    FORMAL_EVIDENCE_BUNDLE_FILENAME,
+    FORMAL_EVIDENCE_BUNDLE_SCHEMA,
+    FORMAL_EVIDENCE_BUNDLE_SCHEMA_V1,
+    FORMAL_ENGINEERING_PROBE_CONFIRMATION_TEXT,
+    FORMAL_REFERENCE_SOURCE_RECORD_FILENAME,
+    FORMAL_REFERENCE_SOURCE_RECORD_SCHEMA,
+    FORMAL_TEMPERATURE_TRUTH_SOURCE,
+    evaluate_component_qc_temporal_window,
     validate_v1_5_component_qc_generator_contract,
 )
 
@@ -182,6 +192,550 @@ def _required_count(runtime: Mapping[str, Any], component: str, contract: Mappin
     return max(1, count)
 
 
+def _expected_sample_interval_s(
+    runtime: Mapping[str, Any], component: str
+) -> float | None:
+    sampling = _nested(runtime, ("workflow", "sampling"), {})
+    if not isinstance(sampling, Mapping):
+        return None
+    for key in (f"{component}_interval_s", "interval_s"):
+        value = _finite(sampling.get(key))
+        if value is not None and value > 0:
+            return value
+    return None
+
+
+def _run_id(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _read_optional_json(path: Path) -> tuple[dict[str, Any], str | None]:
+    if not path.is_file():
+        return {}, None
+    try:
+        return _read_json(path), None
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {}, "json_invalid"
+
+
+def _verify_formal_evidence_bundle(
+    point_dir: Path,
+    *,
+    component: str,
+    expected_run_id: str,
+) -> dict[str, Any]:
+    manifest_path = point_dir / FORMAL_EVIDENCE_BUNDLE_FILENAME
+    manifest, read_error = _read_optional_json(manifest_path)
+    reasons: list[str] = []
+    manifest_schema = manifest.get("schema_version")
+    required_by_schema = {
+        FORMAL_EVIDENCE_BUNDLE_SCHEMA: FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS,
+        FORMAL_EVIDENCE_BUNDLE_SCHEMA_V1: FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS_V1,
+    }
+    required = required_by_schema.get(
+        manifest_schema,
+        FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS,
+    )[component]
+    if read_error:
+        reasons.append("bundle_manifest_json_invalid")
+    if manifest_schema not in required_by_schema:
+        reasons.append("bundle_manifest_schema_mismatch")
+    if _run_id(manifest.get("run_id")) != expected_run_id:
+        reasons.append("bundle_manifest_run_id_mismatch")
+    if str(manifest.get("route_kind") or "").lower() != component:
+        reasons.append("bundle_manifest_route_kind_mismatch")
+    if manifest.get("identity_contract") != "immutable_claim_runtime_run_id_and_sha256_bundle":
+        reasons.append("bundle_manifest_identity_contract_mismatch")
+    if manifest.get("bundle_complete") is not True:
+        reasons.append("bundle_manifest_not_complete")
+    if list(manifest.get("missing_required_roles") or []):
+        reasons.append("bundle_manifest_missing_required_roles")
+    if sorted(manifest.get("required_roles") or []) != sorted(required):
+        reasons.append("bundle_manifest_required_roles_mismatch")
+
+    artifact_rows = manifest.get("artifacts")
+    artifact_index: dict[str, Mapping[str, Any]] = {}
+    if not isinstance(artifact_rows, list):
+        reasons.append("bundle_manifest_artifacts_not_list")
+        artifact_rows = []
+    for row in artifact_rows:
+        if not isinstance(row, Mapping):
+            reasons.append("bundle_manifest_artifact_row_invalid")
+            continue
+        role = str(row.get("role") or "")
+        if not role or role in artifact_index:
+            reasons.append("bundle_manifest_artifact_role_invalid_or_duplicate")
+            continue
+        artifact_index[role] = row
+    if sorted(artifact_index) != sorted(required):
+        reasons.append("bundle_manifest_artifact_roles_mismatch")
+    for role, filename in required.items():
+        row = artifact_index.get(role)
+        if not row:
+            continue
+        if str(row.get("filename") or "") != filename:
+            reasons.append(f"bundle_manifest_filename_mismatch:{role}")
+            continue
+        path = point_dir / filename
+        if not path.is_file():
+            reasons.append(f"bundle_manifest_source_missing:{role}")
+            continue
+        if str(row.get("sha256") or "") != _sha256(path):
+            reasons.append(f"bundle_manifest_sha_mismatch:{role}")
+        try:
+            recorded_size = int(row.get("size_bytes"))
+        except (TypeError, ValueError):
+            recorded_size = -1
+        if recorded_size != path.stat().st_size:
+            reasons.append(f"bundle_manifest_size_mismatch:{role}")
+
+    if manifest_schema == FORMAL_EVIDENCE_BUNDLE_SCHEMA:
+        operator_record, operator_error = _read_optional_json(
+            point_dir / required["operator_confirmation"]
+        )
+        if operator_error:
+            reasons.append("operator_confirmation_record_invalid")
+        else:
+            expected_confirmation_sha256 = hashlib.sha256(
+                FORMAL_ENGINEERING_PROBE_CONFIRMATION_TEXT.encode("utf-8")
+            ).hexdigest()
+            operator_confirmation_text = str(
+                operator_record.get("operator_confirmation_text") or ""
+            )
+            if (
+                operator_record.get("schema_version")
+                != "v1_5_operator_confirmation_record_v0"
+            ):
+                reasons.append("operator_confirmation_schema_invalid")
+            if str(operator_record.get("run_id") or "") != expected_run_id:
+                reasons.append("operator_confirmation_run_id_mismatch")
+            if (
+                str(operator_record.get("scope") or "")
+                != f"v1_5_{component}_open_flow_single_point_no_write_engineering_probe"
+            ):
+                reasons.append("operator_confirmation_scope_mismatch")
+            if (
+                operator_confirmation_text
+                != FORMAL_ENGINEERING_PROBE_CONFIRMATION_TEXT
+            ):
+                reasons.append("operator_confirmation_text_mismatch")
+            if (
+                str(operator_record.get("operator_confirmation_sha256") or "")
+                != hashlib.sha256(operator_confirmation_text.encode("utf-8")).hexdigest()
+            ):
+                reasons.append("operator_confirmation_sha_invalid")
+            if (
+                str(operator_record.get("operator_confirmation_sha256") or "")
+                != expected_confirmation_sha256
+            ):
+                reasons.append("operator_confirmation_required_sha_mismatch")
+            if operator_record.get("engineering_probe_only") is not True:
+                reasons.append("operator_confirmation_engineering_probe_only_missing")
+            if operator_record.get("operator_confirmation_matches_required") is not True:
+                reasons.append("operator_confirmation_mismatch")
+            if operator_record.get("no_write") is not True:
+                reasons.append("operator_confirmation_no_write_false")
+            if operator_record.get("ftd_write_enabled") is not False:
+                reasons.append("operator_confirmation_ftd_write_not_false")
+            if operator_record.get("promotion_state") != "blocked":
+                reasons.append("operator_confirmation_promotion_state_not_blocked")
+            if operator_record.get("not_real_acceptance_evidence") is not True:
+                reasons.append("operator_confirmation_real_acceptance_flag_invalid")
+
+        shutdown, shutdown_error = _read_optional_json(
+            point_dir / required["physical_shutdown"]
+        )
+        if shutdown_error:
+            reasons.append("physical_shutdown_status_invalid")
+        else:
+            if (
+                shutdown.get("schema_version")
+                != "v1_5_formal_physical_shutdown_status_v0"
+            ):
+                reasons.append("physical_shutdown_schema_invalid")
+            if str(shutdown.get("route_kind") or "").lower() != component:
+                reasons.append("physical_shutdown_route_kind_mismatch")
+            if shutdown.get("overall_status") != "pass":
+                reasons.append("physical_shutdown_not_pass")
+            if list(shutdown.get("critical_failures") or []):
+                reasons.append("physical_shutdown_critical_failures_present")
+            route_close = shutdown.get("route_close")
+            if not (
+                isinstance(route_close, Mapping)
+                and route_close.get("required") is True
+                and route_close.get("attempted") is True
+                and route_close.get("ok") is True
+                and route_close.get("status") == "pass"
+            ):
+                reasons.append("physical_shutdown_route_close_invalid")
+            pace_stop = shutdown.get("pace_atmosphere_stop")
+            if not (
+                isinstance(pace_stop, Mapping)
+                and pace_stop.get("ok") is True
+                and pace_stop.get("status") == "pass"
+                and not list(pace_stop.get("errors") or [])
+            ):
+                reasons.append("physical_shutdown_pace_stop_invalid")
+            device_close = shutdown.get("device_transport_close")
+            if not (
+                isinstance(device_close, Mapping)
+                and device_close.get("status") == "best_effort_invoked"
+            ):
+                reasons.append("physical_shutdown_device_close_invalid")
+            if component == "h2o":
+                hgen_stop = shutdown.get("humidity_generator_safe_stop")
+                if not (
+                    isinstance(hgen_stop, Mapping)
+                    and hgen_stop.get("ok") is True
+                    and hgen_stop.get("status")
+                    in {"pass", "delegated_to_queue_final_safe_stop"}
+                ):
+                    reasons.append(
+                        "physical_shutdown_humidity_generator_safe_stop_invalid"
+                    )
+
+        temperature_trace_path = point_dir / required["temperature_truth_trace"]
+        temperature_rows: list[Mapping[str, Any]] = []
+        try:
+            for line in temperature_trace_path.read_text(encoding="utf-8-sig").splitlines():
+                if not line.strip():
+                    continue
+                payload = json.loads(line)
+                if not isinstance(payload, Mapping):
+                    raise ValueError("temperature_trace_row_not_object")
+                temperature_rows.append(payload)
+        except (OSError, ValueError, json.JSONDecodeError):
+            reasons.append("temperature_truth_trace_invalid")
+        required_temperature_stages = {"pre_route", "pre_sample", "post_sample"}
+        temperature_stage_counts = Counter(
+            str(row.get("stage") or "") for row in temperature_rows
+        )
+        if any(
+            temperature_stage_counts.get(stage, 0) != 1
+            for stage in required_temperature_stages
+        ):
+            reasons.append("temperature_truth_required_stages_missing")
+        for row in temperature_rows:
+            if str(row.get("stage") or "") not in required_temperature_stages:
+                continue
+            if (
+                row.get("schema_version")
+                != "v1_5_temperature_truth_snapshot_v0"
+            ):
+                reasons.append("temperature_truth_schema_invalid")
+            if (
+                row.get("temperature_truth_source")
+                != FORMAL_TEMPERATURE_TRUTH_SOURCE
+            ):
+                reasons.append("temperature_truth_source_invalid")
+            if row.get("required") is not True:
+                reasons.append("temperature_truth_required_not_true")
+            numeric_fields = (
+                "target_c",
+                "command_target_c",
+                "command_offset_c",
+                "thermometer_truth_tol_c",
+                "chamber_control_tol_c",
+                "thermometer_c",
+                "chamber_c",
+                "thermometer_delta_c",
+                "chamber_delta_c",
+            )
+            numeric_values: dict[str, float] = {}
+            for field in numeric_fields:
+                raw_value = row.get(field)
+                if isinstance(raw_value, bool):
+                    reasons.append("temperature_truth_measurement_missing_or_invalid")
+                    break
+                try:
+                    value = float(raw_value)
+                except (TypeError, ValueError):
+                    reasons.append("temperature_truth_measurement_missing_or_invalid")
+                    break
+                if not math.isfinite(value):
+                    reasons.append("temperature_truth_measurement_missing_or_invalid")
+                    break
+                numeric_values[field] = value
+            if len(numeric_values) == len(numeric_fields):
+                target_c = numeric_values["target_c"]
+                command_target_c = numeric_values["command_target_c"]
+                command_offset_c = numeric_values["command_offset_c"]
+                thermometer_tol_c = numeric_values["thermometer_truth_tol_c"]
+                chamber_tol_c = numeric_values["chamber_control_tol_c"]
+                thermometer_c = numeric_values["thermometer_c"]
+                chamber_c = numeric_values["chamber_c"]
+                thermometer_delta_c = numeric_values["thermometer_delta_c"]
+                chamber_delta_c = numeric_values["chamber_delta_c"]
+                if thermometer_tol_c < 0.0 or chamber_tol_c < 0.0:
+                    reasons.append("temperature_truth_tolerance_invalid")
+                if not math.isclose(
+                    command_target_c,
+                    target_c + command_offset_c,
+                    rel_tol=0.0,
+                    abs_tol=1e-9,
+                ):
+                    reasons.append("temperature_truth_command_target_mismatch")
+                if not math.isclose(
+                    thermometer_delta_c,
+                    thermometer_c - target_c,
+                    rel_tol=0.0,
+                    abs_tol=1e-9,
+                ):
+                    reasons.append("temperature_truth_thermometer_delta_mismatch")
+                if not math.isclose(
+                    chamber_delta_c,
+                    chamber_c - command_target_c,
+                    rel_tol=0.0,
+                    abs_tol=1e-9,
+                ):
+                    reasons.append("temperature_truth_chamber_delta_mismatch")
+                if (
+                    abs(thermometer_delta_c) > thermometer_tol_c
+                    or abs(chamber_delta_c) > chamber_tol_c
+                ):
+                    reasons.append("temperature_truth_out_of_tolerance")
+            if row.get("ok") is not True:
+                reasons.append("temperature_truth_stage_not_pass")
+            if row.get("reason") != "within_tolerance":
+                reasons.append("temperature_truth_reason_invalid")
+
+    canonical = {
+        key: manifest.get(key)
+        for key in (
+            "schema_version",
+            "run_id",
+            "route_kind",
+            "identity_contract",
+            "required_roles",
+            "artifacts",
+            "missing_required_roles",
+            "bundle_complete",
+        )
+    }
+    computed_bundle_sha256 = _payload_sha256(canonical)
+    recorded_bundle_sha256 = str(manifest.get("bundle_sha256") or "")
+    if computed_bundle_sha256 != recorded_bundle_sha256:
+        reasons.append("bundle_manifest_digest_mismatch")
+    return {
+        "verified": not reasons,
+        "reason_codes": sorted(set(reasons)),
+        "bundle_sha256": recorded_bundle_sha256,
+        "member_count": len(artifact_index),
+    }
+
+
+def _evaluate_evidence_identity(
+    *,
+    point_dir: Path,
+    component: str,
+    sample_rows: Sequence[Mapping[str, Any]],
+    runtime: Mapping[str, Any],
+    sidecar: Mapping[str, Any],
+    route_timing: Mapping[str, Any],
+    bound_paths: Mapping[str, Path],
+) -> dict[str, Any]:
+    expected_run_id = point_dir.name
+    reasons: list[str] = []
+    sample_run_ids = sorted(
+        {
+            _run_id(row.get("run_id"))
+            for row in sample_rows
+            if _run_id(row.get("run_id"))
+        }
+    )
+    if len(sample_run_ids) != 1:
+        reasons.append("sample_run_id_missing_or_changes")
+    elif sample_run_ids[0] != expected_run_id:
+        reasons.append("sample_run_id_mismatch")
+    sidecar_run_id = _run_id(sidecar.get("run_id"))
+    if not sidecar_run_id:
+        reasons.append("sidecar_run_id_missing")
+    elif sidecar_run_id != expected_run_id:
+        reasons.append("sidecar_run_id_mismatch")
+    route_timing_run_id = _run_id(route_timing.get("run_id"))
+    if component == "co2":
+        if not route_timing_run_id:
+            reasons.append("route_timing_run_id_missing")
+        elif route_timing_run_id != expected_run_id:
+            reasons.append("route_timing_run_id_mismatch")
+
+    runtime_run_id = _run_id((runtime.get("metadata") or {}).get("run_id"))
+    claim_path = point_dir / "run_directory_claim.json"
+    manifest_path = point_dir / FORMAL_EVIDENCE_BUNDLE_FILENAME
+    claim, claim_error = _read_optional_json(claim_path)
+    claim_run_id = _run_id(claim.get("run_id"))
+    strict_marker_present = (
+        claim_path.is_file() or manifest_path.is_file() or bool(runtime_run_id)
+    )
+    bundle_verified = False
+    if strict_marker_present:
+        mode = "strict_claim_runtime_bundle"
+        if claim_error:
+            reasons.append("run_directory_claim_json_invalid")
+        if not claim_path.is_file():
+            reasons.append("run_directory_claim_missing")
+        elif claim.get("schema_version") != "immutable_run_directory_claim_v1":
+            reasons.append("run_directory_claim_schema_mismatch")
+        if not claim_run_id:
+            reasons.append("run_directory_claim_run_id_missing")
+        elif claim_run_id != expected_run_id:
+            reasons.append("run_directory_claim_run_id_mismatch")
+        if not runtime_run_id:
+            reasons.append("runtime_config_run_id_missing")
+        elif runtime_run_id != expected_run_id:
+            reasons.append("runtime_config_run_id_mismatch")
+        if not manifest_path.is_file():
+            reasons.append("formal_evidence_bundle_manifest_missing")
+            bundle = {
+                "verified": False,
+                "reason_codes": [],
+                "bundle_sha256": "",
+                "member_count": 0,
+            }
+        else:
+            bundle = _verify_formal_evidence_bundle(
+                point_dir,
+                component=component,
+                expected_run_id=expected_run_id,
+            )
+            bundle_verified = bundle["verified"]
+            reasons.extend(bundle["reason_codes"])
+    else:
+        mode = "legacy_run_id_consensus"
+        members = [
+            {
+                "role": role,
+                "filename": path.name,
+                "sha256": _sha256(path),
+                "size_bytes": path.stat().st_size,
+            }
+            for role, path in sorted(bound_paths.items())
+            if path.is_file()
+        ]
+        bundle = {
+            "verified": False,
+            "reason_codes": [],
+            "bundle_sha256": _payload_sha256(
+                {
+                    "schema_version": "v1_5_legacy_review_evidence_bundle_v1",
+                    "run_id": expected_run_id,
+                    "route_kind": component,
+                    "artifacts": members,
+                }
+            ),
+            "member_count": len(members),
+        }
+    return {
+        "evidence_run_id": expected_run_id,
+        "evidence_identity_status": "pass" if not reasons else "fail",
+        "evidence_identity_mode": mode,
+        "evidence_identity_reason_codes": sorted(set(reasons)),
+        "evidence_sample_run_ids": sample_run_ids,
+        "evidence_sidecar_run_id": sidecar_run_id,
+        "evidence_route_timing_run_id": route_timing_run_id,
+        "evidence_runtime_run_id": runtime_run_id,
+        "evidence_claim_run_id": claim_run_id,
+        "evidence_bundle_sha256": bundle["bundle_sha256"],
+        "evidence_bundle_member_count": bundle["member_count"],
+        "evidence_bundle_manifest_verified": bundle_verified,
+        "not_real_acceptance_evidence": True,
+    }
+
+
+def _evaluate_reference_source_record(
+    point_dir: Path,
+    *,
+    component: str,
+    expected_run_id: str,
+    strict_identity: bool,
+) -> dict[str, Any]:
+    path = point_dir / FORMAL_REFERENCE_SOURCE_RECORD_FILENAME
+    if not path.is_file():
+        return {
+            "reference_source_status": (
+                "fail" if strict_identity else "legacy_not_recorded"
+            ),
+            "reference_source_record_present": False,
+            "reference_source_record_valid": False,
+            "reference_source_reason_codes": (
+                ["reference_source_record_missing"] if strict_identity else []
+            ),
+            "reference_asset_id": "",
+            "reference_value_source": "",
+            "reference_source_sha256": "",
+        }
+    record, read_error = _read_optional_json(path)
+    reasons: list[str] = []
+    if read_error:
+        reasons.append("reference_source_record_json_invalid")
+    if record.get("schema_version") != FORMAL_REFERENCE_SOURCE_RECORD_SCHEMA:
+        reasons.append("reference_source_record_schema_invalid")
+    if _run_id(record.get("run_id")) != expected_run_id:
+        reasons.append("reference_source_record_run_id_mismatch")
+    if str(record.get("route_kind") or "").lower() != component:
+        reasons.append("reference_source_record_route_kind_mismatch")
+    if record.get("reference_source_status") != "pass":
+        reasons.append("reference_source_gate_not_passed")
+    if record.get("not_real_acceptance_evidence") is not True:
+        reasons.append("reference_source_real_acceptance_lock_missing")
+    if component == "co2":
+        asset = record.get("selected_asset")
+        if not isinstance(asset, Mapping):
+            reasons.append("co2_reference_asset_missing")
+            asset = {}
+        documents = record.get("documents_verified")
+        if not isinstance(documents, list) or not documents:
+            reasons.append("co2_reference_documents_missing")
+        elif any(not isinstance(row, Mapping) or row.get("verified") is not True for row in documents):
+            reasons.append("co2_reference_document_not_verified")
+        nominal = _finite(asset.get("nominal_co2_ppm"))
+        if nominal == 0.0:
+            if asset.get("reference_value_source") != "operator_confirmed_previous_calibration":
+                reasons.append("co2_zero_reference_value_source_invalid")
+            if asset.get("co2_value_directly_certified") is not False:
+                reasons.append("co2_zero_direct_certificate_claim_invalid")
+        elif asset.get("co2_value_directly_certified") is not True:
+            reasons.append("co2_standard_direct_certificate_missing")
+        asset_id = str(asset.get("asset_id") or "")
+        value_source = str(asset.get("reference_value_source") or "")
+    else:
+        primary = record.get("h2o_concentration_reference")
+        flow = record.get("humidity_generator_flow")
+        route_flow = record.get("route_flow_evidence")
+        if record.get("reference_value_source") != "measured_dewpoint_plus_measured_pressure":
+            reasons.append("h2o_reference_value_source_invalid")
+        if not isinstance(primary, Mapping):
+            reasons.append("h2o_concentration_reference_missing")
+            primary = {}
+        quantities = set(primary.get("primary_quantities") or [])
+        if quantities != {
+            "actual_dewpoint_meter_measurement",
+            "actual_pressure_measurement_bound_in_samples",
+        }:
+            reasons.append("h2o_dewpoint_pressure_reference_incomplete")
+        if not isinstance(flow, Mapping) or flow.get("role") != "source_state_evidence_only":
+            reasons.append("h2o_flow_role_invalid")
+        if (
+            not isinstance(route_flow, Mapping)
+            or route_flow.get("role") != "route_and_process_evidence_only"
+            or route_flow.get("source")
+            not in {"dewpoint_meter_output", "humidity_generator_state_fallback"}
+            or _finite(route_flow.get("observed_flow_lpm")) is None
+        ):
+            reasons.append("h2o_route_flow_evidence_invalid")
+        asset_id = str(record.get("reference_asset_id") or "")
+        value_source = str(record.get("reference_value_source") or "")
+    return {
+        "reference_source_status": "pass" if not reasons else "fail",
+        "reference_source_record_present": True,
+        "reference_source_record_valid": not reasons,
+        "reference_source_reason_codes": sorted(set(reasons)),
+        "reference_asset_id": asset_id,
+        "reference_value_source": value_source,
+        "reference_source_sha256": _sha256(path),
+    }
+
+
 def _point_hard_blockers(
     *,
     component: str,
@@ -222,6 +776,7 @@ def _evaluate_analyzer(
     rows: Sequence[Mapping[str, Any]],
     required_count: int,
     hard_blockers: Sequence[str],
+    temporal_evidence: Mapping[str, Any],
     contract: Mapping[str, Any],
 ) -> dict[str, Any]:
     route = (contract.get("routes") or {})[component]
@@ -237,10 +792,13 @@ def _evaluate_analyzer(
     if len(ids) != 1:
         grade = GRADE_C
         reasons.append("analyzer_identity_missing_or_changes_in_window")
-    timestamps = [str(row.get("sample_ts") or "").strip() for row in rows]
-    if not rows or any(not value for value in timestamps):
+    if temporal_evidence.get("temporal_window_complete") is not True:
         grade = GRADE_C
         reasons.append("missing_timestamps_or_incomplete_window")
+        reasons.extend(
+            f"temporal:{value}"
+            for value in temporal_evidence.get("temporal_reason_codes") or []
+        )
 
     ratios: list[float] = []
     invalid_usable = False
@@ -281,6 +839,9 @@ def _evaluate_analyzer(
             else:
                 grade = _worse(grade, GRADE_B)
                 reasons.append("h2o_ratio_span_above_a_diagnostic_only")
+    if temporal_evidence.get("cadence_warning") is True and grade != GRADE_C:
+        grade = _worse(grade, GRADE_B)
+        reasons.append("cadence_warning_grade_capped_at_b")
     if hard_blockers:
         grade = GRADE_C
         reasons.extend(f"point_wide_hard_blocker:{value}" for value in hard_blockers)
@@ -298,6 +859,7 @@ def _evaluate_analyzer(
         "frame_count": len(rows),
         "usable_ratio_count": len(ratios),
         "required_sample_count": required_count,
+        **temporal_evidence,
         "reason": ";".join(sorted(set(reasons))) if reasons else "within_production_contract",
         "sample_can_enter_calibration_fit": semantics.get("sample_can_enter_calibration_fit") is True,
         "sample_can_enter_diagnostic_model": semantics.get("sample_can_enter_diagnostic_model") is True,
@@ -329,15 +891,64 @@ def _evaluate_candidate(
     runtime_path = _bound_artifact(checks, "runtime_config", reasons)
     sidecar_role = "sidecar"
     sidecar_path = _bound_artifact(checks, sidecar_role, reasons)
-    _bound_artifact(checks, "frame_qc", reasons)
+    frame_qc_path = _bound_artifact(checks, "frame_qc", reasons)
     route_timing_path = _bound_artifact(checks, "route_timing", reasons) if component == "co2" else None
     humidity_path = _bound_artifact(checks, "humidity_reference_review", reasons) if component == "h2o" else None
+    hgen_flow_path = _bound_artifact(checks, "hgen_flow_set", reasons) if component == "h2o" else None
+    point_timing_path = (
+        _bound_artifact(checks, "point_timing_summary", reasons)
+        if component == "h2o" or "point_timing_summary" in checks
+        else None
+    )
+    reference_source_path = Path(point_dir) / FORMAL_REFERENCE_SOURCE_RECORD_FILENAME
+    if not reference_source_path.is_file():
+        reference_source_path = None
 
     sample_rows = _read_csv(samples_path) if samples_path else []
     runtime = _read_json(runtime_path) if runtime_path else {}
     sidecar = _read_json(sidecar_path) if sidecar_path else {}
     route_timing = _read_json(route_timing_path) if route_timing_path else {}
     humidity_reference = _read_json(humidity_path) if humidity_path else {}
+    bound_paths = {
+        role: path
+        for role, path in {
+            "samples": samples_path,
+            "frame_qc": frame_qc_path,
+            "runtime_config": runtime_path,
+            "sidecar": sidecar_path,
+            "route_timing": route_timing_path,
+            "hgen_flow_set": hgen_flow_path,
+            "humidity_reference_review": humidity_path,
+            "point_timing_summary": point_timing_path,
+            "reference_source": reference_source_path,
+        }.items()
+        if path is not None
+    }
+    identity_evidence = _evaluate_evidence_identity(
+        point_dir=Path(point_dir),
+        component=component,
+        sample_rows=sample_rows,
+        runtime=runtime,
+        sidecar=sidecar,
+        route_timing=route_timing,
+        bound_paths=bound_paths,
+    ) if component in {"co2", "h2o"} else {
+        "evidence_identity_status": "fail",
+        "evidence_identity_reason_codes": ["route_kind_invalid"],
+    }
+    reference_source_evidence = _evaluate_reference_source_record(
+        Path(point_dir),
+        component=component,
+        expected_run_id=Path(point_dir).name,
+        strict_identity=(
+            identity_evidence.get("evidence_identity_mode")
+            == "strict_claim_runtime_bundle"
+        ),
+    ) if component in {"co2", "h2o"} else {
+        "reference_source_status": "fail",
+        "reference_source_record_valid": False,
+        "reference_source_reason_codes": ["route_kind_invalid"],
+    }
     hard_blockers = _point_hard_blockers(
         component=component,
         candidate=candidate,
@@ -346,11 +957,25 @@ def _evaluate_candidate(
         route_timing=route_timing,
         humidity_reference=humidity_reference,
     ) if component in {"co2", "h2o"} else ["route_specific_physical_reference_invalid"]
+    if identity_evidence.get("evidence_identity_status") != "pass":
+        hard_blockers = sorted(set(hard_blockers + ["evidence_identity_invalid"]))
+    if reference_source_evidence.get("reference_source_status") == "fail":
+        hard_blockers = sorted(set(hard_blockers + ["reference_source_invalid"]))
     if reasons:
         hard_blockers = sorted(set(hard_blockers + ["sample_window_missing"]))
 
     required_count = _required_count(runtime, component, contract) if component in {"co2", "h2o"} else 10
     target = _route_target(component, sample_rows, sidecar) if component in {"co2", "h2o"} else None
+    temporal_evidence = evaluate_component_qc_temporal_window(
+        [row.get("sample_ts") for row in sample_rows],
+        expected_interval_s=(
+            _expected_sample_interval_s(runtime, component)
+            if component in {"co2", "h2o"}
+            else None
+        ),
+        required_count=required_count,
+        contract=contract,
+    )
     analyzer_rows = [
         _evaluate_analyzer(
             component=component,
@@ -358,6 +983,7 @@ def _evaluate_candidate(
             rows=sample_rows,
             required_count=required_count,
             hard_blockers=hard_blockers,
+            temporal_evidence=temporal_evidence,
             contract=contract,
         )
         for prefix in _analyzer_prefixes(sample_rows, component)
@@ -367,12 +993,16 @@ def _evaluate_candidate(
 
     selected = point_dir.casefold() in accepted_composite
     source_hashes = {
-        "source_samples_sha256": _sha256(samples_path) if samples_path else "",
-        "source_frame_qc_sha256": str((checks.get("frame_qc") or {}).get("recorded_sha256") or ""),
-        "source_runtime_config_sha256": _sha256(runtime_path) if runtime_path else "",
-        "source_sidecar_sha256": _sha256(sidecar_path) if sidecar_path else "",
+        **{
+            f"source_{role}_sha256": _sha256(path)
+            for role, path in sorted(bound_paths.items())
+        },
         "contract_sha256": _payload_sha256(contract),
     }
+    source_hashes.setdefault(
+        "source_reference_source_sha256",
+        str(reference_source_evidence.get("reference_source_sha256") or ""),
+    )
     qc_rows: list[dict[str, Any]] = []
     decisions: list[dict[str, Any]] = []
     for analyzer in analyzer_rows:
@@ -384,6 +1014,8 @@ def _evaluate_candidate(
             "anchor_role": _anchor_role(component, target),
             "accepted_composite_member": selected,
             **analyzer,
+            **identity_evidence,
+            **reference_source_evidence,
             **source_hashes,
         }
         qc_rows.append(qc)
@@ -431,6 +1063,7 @@ def _evaluate_candidate(
         "grade_b_count": sum(row["grade"] == GRADE_B for row in analyzer_rows),
         "grade_c_count": sum(row["grade"] == GRADE_C for row in analyzer_rows),
         "hard_blockers": ";".join(hard_blockers),
+        **reference_source_evidence,
         "evaluation_reasons": ";".join(sorted(set(reasons))),
         "evaluation_status": "evaluated" if analyzer_rows and not reasons else "review_required",
     }

@@ -61,10 +61,58 @@ def _write_config(tmp_path: Path, points_path: Path) -> Path:
                         "sensor_check": True,
                     },
                     "stability": {
-                        "temperature": {"tol": 0.5, "window_s": 0.2, "timeout_s": 2.0},
-                        "humidity": {"tol_dp": 0.5, "window_s": 0.2, "timeout_s": 2.0},
-                        "pressure": {"tol_hpa": 1.0, "window_s": 0.2, "timeout_s": 2.0},
+                        "temperature": {
+                            "tol": 0.5,
+                            "window_s": 0.2,
+                            "soak_after_reach_s": 0.0,
+                            "timeout_s": 2.0,
+                            "transition_check_window_s": 0.0,
+                            "analyzer_chamber_temp_enabled": False,
+                        },
+                        "humidity": {
+                            "tol_dp": 0.5,
+                            "window_s": 0.2,
+                            "soak_after_reach_s": 0.0,
+                            "timeout_s": 2.0,
+                        },
+                        "humidity_generator": {
+                            "temp_tol_c": 0.5,
+                            "rh_tol_pct": 0.5,
+                            "window_s": 0.1,
+                            "rh_stable_span_pct": 0.1,
+                            "timeout_s": 1.0,
+                            "poll_s": 0.1,
+                        },
+                        "h2o_route": {"preseal_soak_s": 0.0},
+                        "dewpoint": {
+                            "window_s": 0.11,
+                            "timeout_s": 1.0,
+                            "poll_s": 0.1,
+                            "temp_match_tol_c": 0.5,
+                            "rh_match_tol_pct": 1.0,
+                            "stability_tol_c": 0.1,
+                            "min_samples": 2,
+                        },
+                        "co2_route": {
+                            "preseal_soak_s": 0.0,
+                            "first_point_preseal_soak_s": 0.0,
+                            "post_h2o_zero_ppm_soak_s": 0.0,
+                        },
+                        "pressure": {
+                            "tol_hpa": 1.0,
+                            "window_s": 0.2,
+                            "soak_after_reach_s": 0.0,
+                            "timeout_s": 2.0,
+                        },
                         "signal": {"tol_pct": 1.0, "window_s": 0.2, "timeout_s": 2.0},
+                    },
+                    "pressure": {
+                        "vent_time_s": 0.0,
+                        "stabilize_timeout_s": 2.0,
+                        "pressurize_wait_after_vent_off_s": 0.0,
+                        "co2_post_h2o_vent_off_wait_s": 0.0,
+                        "post_stable_sample_delay_s": 0.0,
+                        "co2_post_stable_sample_delay_s": 0.0,
                     },
                 },
                 "paths": {
@@ -87,7 +135,9 @@ def test_create_calibration_service_loads_points(tmp_path: Path) -> None:
     service = create_calibration_service(str(config_path), simulation_mode=True)
 
     status = service.get_status()
-    assert status.total_points == 2
+    assert status.total_points == 4
+    assert len(service._points) == 2
+    assert len(service._progress_point_keys) == 4
     assert service.point_parser is not None
     assert service.device_factory.simulation_mode is True
 
@@ -136,7 +186,7 @@ def test_create_calibration_service_resolves_paths_relative_to_config(tmp_path: 
     assert Path(service.config.paths.points_excel) == points_path.resolve()
     assert Path(service.config.paths.output_dir) == (config_dir / "output").resolve()
     assert Path(service.config.paths.logs_dir) == (config_dir / "logs").resolve()
-    assert service.get_status().total_points == 2
+    assert service.get_status().total_points == 4
 
 
 def test_create_calibration_service_attaches_raw_cfg_and_preserves_alias_fields(tmp_path: Path) -> None:
@@ -193,7 +243,9 @@ def test_run_calibration_in_simulation_mode(tmp_path: Path) -> None:
         on_log=logs.append,
     )
 
-    assert len(results) == 4
+    assert len(results) == 8
+    assert len({result.point_tag for result in results}) == 4
+    assert {result.sample_index for result in results} == {1, 2}
     assert CalibrationPhase.COMPLETED in phases
     assert results[0].analyzer_id == "gas_analyzer_0"
     assert results[0].temperature_c is not None

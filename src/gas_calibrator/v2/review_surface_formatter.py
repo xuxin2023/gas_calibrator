@@ -12,8 +12,6 @@ from .core.phase_evidence_display_contracts import (
 from .core.reviewer_summary_builders import (
     build_measurement_digest_compact_summary as _build_measurement_compact,
     build_readiness_digest_compact_summary as _build_readiness_compact,
-    build_v12_alignment_compact_summary as _build_v12_compact,
-    REVIEWER_SUMMARY_BUILDERS_VERSION as _BUILDERS_VERSION,
 )
 from .core.phase_taxonomy_contract import (
     GAP_CLASSIFICATION_FAMILY,
@@ -35,7 +33,6 @@ from .core.reviewer_fragments_contract import (
     fragment_text_replacements,
 )
 from .ui_v2.i18n import (
-    display_fragment_value,
     display_fragment_values,
     display_phase,
     display_route,
@@ -43,6 +40,9 @@ from .ui_v2.i18n import (
     display_taxonomy_values,
     t,
 )
+
+_TAXONOMY_TEXT_REPLACEMENTS = tuple(taxonomy_text_replacements())
+_FRAGMENT_TEXT_REPLACEMENTS = tuple(fragment_text_replacements())
 
 _OFFLINE_DIAGNOSTIC_DISPLAY_LABELS = {
     "artifacts": _FORMATTER_LABELS["artifacts"],
@@ -205,19 +205,10 @@ _REVIEW_SURFACE_PREFIX_LABELS = {
         _PREFIX_LABELS["payload_completeness"],
     ),
     "phase gaps": ("results.review_center.detail.measurement.phase_gaps", _PREFIX_LABELS["phase_gaps"]),
-    "blockers": ("results.review_center.detail.measurement.blockers", _PREFIX_LABELS["blockers"]),
     "next artifacts": ("results.review_center.detail.measurement.next_artifacts", _PREFIX_LABELS["next_artifacts"]),
     "preseal partial guidance": (
         "results.review_center.detail.measurement.preseal_partial_guidance",
         _PREFIX_LABELS["preseal_partial_guidance"],
-    ),
-    "linked method confirmation items": (
-        "results.review_center.detail.measurement.linked_method_items",
-        _PREFIX_LABELS["linked_method_items"],
-    ),
-    "linked uncertainty inputs": (
-        "results.review_center.detail.measurement.linked_uncertainty_inputs",
-        _PREFIX_LABELS["linked_uncertainty_inputs"],
     ),
     "linked traceability stub nodes": (
         "results.review_center.detail.measurement.linked_traceability_nodes",
@@ -470,9 +461,9 @@ def humanize_review_surface_text(summary_value: str) -> str:
     text = humanize_review_center_coverage_text(text)
     for source, (key, default) in _MEASUREMENT_BUCKET_LABELS.items():
         text = text.replace(source, t(key, default=default))
-    for source, target in taxonomy_text_replacements():
+    for source, target in _TAXONOMY_TEXT_REPLACEMENTS:
         text = text.replace(source, target)
-    for source, target in fragment_text_replacements():
+    for source, target in _FRAGMENT_TEXT_REPLACEMENTS:
         text = text.replace(source, target)
     for source, target in _REVIEW_SURFACE_INLINE_REPLACEMENTS:
         text = text.replace(source, target)
@@ -867,14 +858,6 @@ def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, 
             if str(row.get("coverage_bucket") or "").strip() != "actual_simulated_run_with_payload_complete"
         )
     ) or humanize_review_surface_text(str(digest.get("readiness_impact_summary") or t("common.none")))
-    blocker_summary = " | ".join(
-        _dedupe(
-            f"{_display_route_phase(row)}: {_display_blockers(row)}"
-            for row in phase_rows
-            if str(row.get("coverage_bucket") or "").strip() != "actual_simulated_run_with_payload_complete"
-            and (list(row.get("blocker_fragments") or []) or list(row.get("blockers") or []))
-        )
-    ) or humanize_review_surface_text(str(digest.get("blocker_summary") or t("common.none")))
     phase_contrast_fallback = _localized_phase_contrast_summary(
         phase_rows,
         str(digest.get("phase_contrast_summary") or ""),
@@ -1171,21 +1154,6 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
     ) or humanize_review_surface_text(str(digest.get("reviewer_next_step_digest") or t("common.none")))
     boundary_summary = _display_boundary_summary(raw)
     non_claim_summary = _display_non_claim_summary(raw)
-    scope_overview_summary = humanize_review_surface_text(
-        str(
-            digest.get("scope_overview_summary")
-            or dict(raw.get("scope_overview") or {}).get("summary")
-            or t("common.none")
-        )
-    )
-    decision_rule_summary = humanize_review_surface_text(
-        str(
-            digest.get("decision_rule_summary")
-            or dict(raw.get("decision_rule_overview") or {}).get("summary")
-            or raw.get("decision_rule_id")
-            or t("common.none")
-        )
-    )
     conformity_boundary_summary = humanize_review_surface_text(
         str(
             digest.get("conformity_boundary_summary")

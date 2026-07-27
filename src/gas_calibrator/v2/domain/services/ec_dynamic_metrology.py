@@ -8,10 +8,12 @@ metrics and never promotes the result to real acceptance evidence.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from math import atan, isfinite, log, pi, sqrt
+from math import atan, log, pi, sqrt
 from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
+
+from gas_calibrator.utils.converters import finite_float as _finite_or_none
 
 
 SUPPORTED_GASES = {"co2", "h2o"}
@@ -618,14 +620,6 @@ def _integer_array(values: Sequence[Any]) -> np.ndarray:
     except (TypeError, ValueError):
         return np.asarray([], dtype=int)
     return array if array.ndim == 1 else np.asarray([], dtype=int)
-
-
-def _finite_or_none(value: Any) -> float | None:
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return None
-    return numeric if isfinite(numeric) else None
 
 
 def _round_or_none(value: float | None, digits: int = 9) -> float | None:

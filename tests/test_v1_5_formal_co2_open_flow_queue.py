@@ -1,5 +1,6 @@
 import csv
 import json
+import types
 
 from gas_calibrator.tools import run_v1_5_formal_co2_open_flow_queue as co2_queue_module
 from gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue import (
@@ -167,10 +168,15 @@ def test_queue_point_command_keeps_no_write_open_flow_sidecar_contract(tmp_path)
             str(tmp_path),
             "--no-prompt",
             "--no-ftd-write",
+            "--engineering-probe-only",
+            "--operator-confirmation",
+            co2_queue_module.V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT,
             "--n2-prepurge-s",
             "180",
             "--n2-purge-source-valve",
             "27",
+            "--reference-source-catalog",
+            "catalog.json",
             "--analyzer-gate-required-labels",
             "ga02,ga03",
             "--analyzer-gate-prefer-all-stable-grace-s",
@@ -195,6 +201,7 @@ def test_queue_point_command_keeps_no_write_open_flow_sidecar_contract(tmp_path)
             "source_nominal_ppm": 900.0,
             "certificate_co2_ppm": "897.04",
             "certificate_uncertainty_ppm": "8.9704",
+            "reference_asset_id": "co2-standard-897-test",
             "co2_group": "B",
             "sample_role": "fit",
             "purge_s": 360.0,
@@ -210,11 +217,18 @@ def test_queue_point_command_keeps_no_write_open_flow_sidecar_contract(tmp_path)
     assert "--pressure-target-hpa" not in cmd
     assert "--no-ftd-write" in cmd
     assert "--no-prompt" in cmd
+    assert "--engineering-probe-only" in cmd
+    assert (
+        "--operator-confirmation "
+        + co2_queue_module.V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT
+    ) in text
     assert "--n2-prepurge-s 180" in text
     assert "--n2-purge-source-valve 27" in text
     assert "--co2-source-ppm 900" in text
     assert "--certificate-co2-ppm 897.04" in text
     assert "--certificate-uncertainty-ppm 8.9704" in text
+    assert "--reference-source-catalog catalog.json" in text
+    assert "--reference-asset-id co2-standard-897-test" in text
     assert "--analyzer-gate-required-labels ga02,ga03" in text
     assert "--analyzer-gate-prefer-all-stable-grace-s 45" in text
     assert "--co2-ratio-f-preseal-tol 0.0002" in text
@@ -228,6 +242,80 @@ def test_queue_point_command_keeps_no_write_open_flow_sidecar_contract(tmp_path)
     assert "--gas-route-dewpoint-require-dry-enough" in cmd
     assert "--gas-route-dewpoint-dry-enough-c -28" in text
     assert "--gas-route-dewpoint-gate-max-total-wait-s 1800" in text
+
+
+def test_queue_point_command_preserves_numeric_zero_reference_value(tmp_path):
+    args = _parse_args(
+        [
+            "--config",
+            "config.json",
+            "--queue-csv",
+            "queue.csv",
+            "--output-dir",
+            str(tmp_path),
+            "--no-prompt",
+        ]
+    )
+
+    cmd = _build_point_command(
+        config_path="config.json",
+        output_dir=tmp_path,
+        row={
+            "temp_c": 20.0,
+            "source_nominal_ppm": 0.0,
+            "certificate_co2_ppm": 0.0,
+            "co2_group": "A",
+            "sample_role": "fit",
+            "purge_s": 360.0,
+            "sample_count": 10,
+        },
+        run_id="zero_point",
+        args=args,
+    )
+
+    text = " ".join(cmd)
+    assert "--certificate-co2-ppm 0" in text
+
+
+def test_queue_point_command_uses_frozen_row_reference_catalog_when_cli_omits_it(
+    tmp_path,
+):
+    args = _parse_args(
+        [
+            "--config",
+            "config.json",
+            "--queue-csv",
+            "queue.csv",
+            "--output-dir",
+            str(tmp_path),
+            "--no-prompt",
+        ]
+    )
+
+    cmd = _build_point_command(
+        config_path="config.json",
+        output_dir=tmp_path,
+        row={
+            "temp_c": 20.0,
+            "source_nominal_ppm": 600.0,
+            "certificate_co2_ppm": 598.22,
+            "reference_asset_id": "co2-standard-600-test",
+            "reference_source_catalog": "configs/frozen_reference_catalog.json",
+            "co2_group": "B",
+            "sample_role": "fit",
+            "purge_s": 360.0,
+            "sample_count": 10,
+        },
+        run_id="frozen_catalog_point",
+        args=args,
+    )
+
+    text = " ".join(cmd)
+    assert (
+        "--reference-source-catalog configs/frozen_reference_catalog.json"
+        in text
+    )
+    assert "--reference-asset-id co2-standard-600-test" in text
 
 
 def test_queue_point_command_preserves_explicit_relaxed_dewpoint_warn_policy(tmp_path):
@@ -312,7 +400,12 @@ def test_co2_temperature_settle_creates_missing_output_dir_before_logging(tmp_pa
     )
 
     ok = co2_queue_module._settle_temperature_group(
-        {"devices": {"temperature_chamber": {"enabled": True}}},
+        {
+            "devices": {
+                "temperature_chamber": {"enabled": True},
+                "thermometer": {"enabled": True},
+            }
+        },
         temp_c=40.0,
         output_dir=output_dir,
         run_id="co2_T40_temperature_settle",
@@ -488,6 +581,7 @@ def test_temperature_runtime_inherits_formal_soak_without_shortening(tmp_path):
         "paths": {"output_dir": str(tmp_path / "logs")},
         "devices": {
             "temperature_chamber": {"enabled": True, "port": "COM19"},
+            "thermometer": {"enabled": True, "port": "COM18"},
             "pressure_controller": {"enabled": True},
             "pressure_gauge": {"enabled": True},
             "dewpoint_meter": {"enabled": True},
@@ -521,12 +615,16 @@ def test_temperature_runtime_inherits_formal_soak_without_shortening(tmp_path):
 
     temp_cfg = runtime_cfg["workflow"]["stability"]["temperature"]
     assert temp_cfg["soak_after_reach_s"] == 1800
+    assert temp_cfg["temperature_truth_source"] == "in_chamber_platinum_resistance_digital_thermometer"
+    assert temp_cfg["thermometer_truth_required"] is True
+    assert temp_cfg["temperature_chamber_setpoint_substitution_forbidden"] is True
     assert runtime_cfg["workflow"]["skip_h2o"] is True
     assert runtime_cfg["metadata"]["writes_senco"] is False
     assert runtime_cfg["devices"]["temperature_chamber"]["enabled"] is True
     assert runtime_cfg["devices"]["pressure_controller"]["enabled"] is False
     assert runtime_cfg["devices"]["dewpoint_meter"]["enabled"] is False
     assert runtime_cfg["devices"]["humidity_generator"]["enabled"] is False
+    assert runtime_cfg["devices"]["thermometer"]["enabled"] is True
 
 
 def test_point_run_id_is_short_for_windows_artifact_paths():
@@ -550,24 +648,23 @@ def test_queue_dry_run_writes_manifest_without_real_com(tmp_path):
         encoding="utf-8",
     )
 
-    rc = main(
-        [
-            "--config",
-            str(config_path),
-            "--queue-csv",
-            str(queue_path),
-            "--output-dir",
-            str(tmp_path / "out"),
-            "--run-id",
-            "queue_dry",
-            "--dry-run",
-            "--no-prompt",
-            "--n2-prepurge-s",
-            "120",
-            "--n2-purge-source-valve",
-            "27",
-        ]
-    )
+    argv = [
+        "--config",
+        str(config_path),
+        "--queue-csv",
+        str(queue_path),
+        "--output-dir",
+        str(tmp_path / "out"),
+        "--run-id",
+        "queue_dry",
+        "--dry-run",
+        "--no-prompt",
+        "--n2-prepurge-s",
+        "120",
+        "--n2-purge-source-valve",
+        "27",
+    ]
+    rc = main(argv)
 
     assert rc == 0
     manifest = tmp_path / "out" / "queue_dry" / "queue_manifest.csv"
@@ -594,6 +691,60 @@ def test_queue_dry_run_writes_manifest_without_real_com(tmp_path):
     assert audit["status_counts"] == {"dry_run": 2}
     assert (tmp_path / "out" / "queue_dry" / "queue_failure_audit" / "queue_failure_audit.json").exists()
     assert (tmp_path / "out" / "queue_dry" / "queue_failure_audit" / "queue_failure_audit_zh.md").exists()
+    summary_bytes = summary.read_bytes()
+    assert main(argv) == 2
+    assert summary.read_bytes() == summary_bytes
+
+
+def test_queue_continues_after_point_failure_but_returns_nonzero(tmp_path, monkeypatch):
+    queue_path = tmp_path / "co2_runner_queue.csv"
+    _write_queue(queue_path)
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "paths": {"output_dir": str(tmp_path / "logs")},
+                "devices": {"temperature_chamber": {"enabled": False}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    returncodes = iter([1, 0])
+    point_commands = []
+
+    def fake_run(command, **_kwargs):
+        point_commands.append(command)
+        return types.SimpleNamespace(returncode=next(returncodes))
+
+    monkeypatch.setattr(co2_queue_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(co2_queue_module.time, "sleep", lambda _seconds: None)
+
+    rc = main(
+        [
+            "--config",
+            str(config_path),
+            "--queue-csv",
+            str(queue_path),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--run-id",
+            "queue_mixed_result",
+            "--no-control-temperature",
+            "--no-prompt",
+            "--engineering-probe-only",
+            "--operator-confirmation",
+            co2_queue_module.V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT,
+        ]
+    )
+
+    assert rc == 1
+    assert len(point_commands) == 2
+    summary = json.loads(
+        (tmp_path / "out" / "queue_mixed_result" / "queue_summary.json").read_text(encoding="utf-8")
+    )
+    assert summary["ok_points"] == 1
+    assert summary["failed_points"] == 1
+    assert summary["hard_failure"] is False
 
 
 def test_queue_writes_failure_audit_when_temperature_settle_fails_before_points(tmp_path, monkeypatch):
@@ -623,6 +774,9 @@ def test_queue_writes_failure_audit_when_temperature_settle_fails_before_points(
             "--run-id",
             "queue_temp_fail",
             "--no-prompt",
+            "--engineering-probe-only",
+            "--operator-confirmation",
+            co2_queue_module.V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT,
         ]
     )
 

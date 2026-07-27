@@ -3,6 +3,8 @@ from pathlib import Path
 from pathlib import PureWindowsPath
 from types import SimpleNamespace
 
+import pytest
+
 from gas_calibrator.v2.core.point_parser import PointParser
 from gas_calibrator.v2.core.route_planner import RoutePlanner
 from gas_calibrator.v2.entry import load_config_bundle
@@ -23,15 +25,19 @@ COMPARE_FIXTURE_DIR = (
     / "output"
     / "v1_v2_compare"
 )
+COMPARE_POLICY_FIXTURE = COMPARE_FIXTURE_DIR / "compare_collect_config_0c_v2.json"
 
 
 def _compare_fixture_paths() -> list[Path]:
     return sorted(COMPARE_FIXTURE_DIR.glob("compare_collect_config*.json"))
 
 
+@pytest.mark.skipif(
+    not COMPARE_POLICY_FIXTURE.is_file(),
+    reason="requires the retained real compare collection fixture",
+)
 def test_build_runtime_config_preserves_compare_missing_pressure_policy() -> None:
-    config_path = COMPARE_FIXTURE_DIR / "compare_collect_config_0c_v2.json"
-    _, raw_cfg, _ = load_config_bundle(str(config_path))
+    _, raw_cfg, _ = load_config_bundle(str(COMPARE_POLICY_FIXTURE))
 
     runtime_cfg = _build_runtime_config(raw_cfg)
 

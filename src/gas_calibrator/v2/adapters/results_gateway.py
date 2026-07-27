@@ -9,7 +9,6 @@ from ..config import build_step2_config_governance_handoff
 from ..core.acceptance_model import normalize_evidence_source
 from ..core.phase_evidence_display_contracts import (
     RESULTS_FALLBACK_LABELS as _RESULTS_LABELS,
-    RESULTS_FALLBACK_LABELS_EN as _RESULTS_LABELS_EN,
     COMPATIBILITY_ROW_LABELS as _COMPAT_LABELS,
     RESULTS_SUMMARY_LABELS as _RESULTS_SUMMARY_LABELS,
 )
@@ -27,14 +26,10 @@ from ..core.engineering_isolation_gate_artifact_entry import (
     build_engineering_isolation_gate_artifact_entry,
 )
 from ..core.engineering_isolation_gate_evaluator import (
-    ENGINEERING_ISOLATION_BLOCKERS_ARTIFACT_KEY,
-    ENGINEERING_ISOLATION_BLOCKERS_FILENAME,
     ENGINEERING_ISOLATION_GATE_ARTIFACT_KEY,
     ENGINEERING_ISOLATION_GATE_DIGEST_FILENAME,
     ENGINEERING_ISOLATION_GATE_REVIEWER_ARTIFACT_KEY,
     ENGINEERING_ISOLATION_GATE_RESULT_FILENAME,
-    ENGINEERING_ISOLATION_WARNINGS_ARTIFACT_KEY,
-    ENGINEERING_ISOLATION_WARNINGS_FILENAME,
 )
 from ..core.engineering_isolation_gate_repository import FileBackedEngineeringIsolationGateRepository
 from ..core.controlled_state_machine_profile import (
@@ -51,14 +46,6 @@ from ..core.measurement_phase_coverage import (
     MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME,
 )
 from ..core.artifact_compatibility import (
-    ARTIFACT_CONTRACT_CATALOG_FILENAME,
-    ARTIFACT_CONTRACT_CATALOG_MARKDOWN_FILENAME,
-    COMPATIBILITY_SCAN_SUMMARY_FILENAME,
-    COMPATIBILITY_SCAN_SUMMARY_MARKDOWN_FILENAME,
-    REINDEX_MANIFEST_FILENAME,
-    REINDEX_MANIFEST_MARKDOWN_FILENAME,
-    RUN_ARTIFACT_INDEX_FILENAME,
-    RUN_ARTIFACT_INDEX_MARKDOWN_FILENAME,
     load_or_build_artifact_compatibility_payloads,
 )
 from ..core import human_governance_artifacts as human_governance
@@ -134,12 +121,6 @@ from ..core.reviewer_summary_packs import (
     build_phase_evidence_pack,
     build_governance_handoff_pack,
     build_parity_resilience_pack,
-)
-from ..core.reviewer_summary_builders import (
-    build_v12_alignment_compact_summary,
-    build_phase_evidence_compact_summary,
-    build_governance_handoff_compact_summary,
-    build_parity_resilience_compact_summary,
 )
 from ..core.compact_summary_budget import (
     build_surface_render_result,
@@ -3262,36 +3243,6 @@ class ResultsGateway:
             if phase_coverage_summary
             else ""
         )
-        measurement_core_payload_phase_text = (
-            str(phase_coverage_digest.get("payload_phase_summary") or "").strip()
-            if phase_coverage_summary
-            else ""
-        )
-        measurement_core_payload_complete_text = (
-            str(phase_coverage_digest.get("payload_complete_phase_summary") or "").strip()
-            if phase_coverage_summary
-            else ""
-        )
-        measurement_core_payload_partial_text = (
-            str(phase_coverage_digest.get("payload_partial_phase_summary") or "").strip()
-            if phase_coverage_summary
-            else ""
-        )
-        measurement_core_trace_only_text = (
-            str(phase_coverage_digest.get("trace_only_phase_summary") or "").strip()
-            if phase_coverage_summary
-            else ""
-        )
-        measurement_core_payload_completeness_text = (
-            str(phase_coverage_digest.get("payload_completeness_summary") or "").strip()
-            if phase_coverage_summary
-            else ""
-        )
-        measurement_core_next_artifacts_text = (
-            str(phase_coverage_digest.get("next_required_artifacts_summary") or "").strip()
-            if phase_coverage_summary
-            else ""
-        )
         measurement_core_sidecar_text = (
             " | ".join(
                 f"{key} {len(list(value or []))}"
@@ -4561,11 +4512,6 @@ class ResultsGateway:
         ).strip()
         recommendation_text = str(
             compatibility_overview.get("regenerate_recommendation_display")
-            or ""
-        ).strip()
-        boundary_text = str(
-            compatibility_overview.get("non_primary_boundary_display")
-            or compatibility_overview.get("non_primary_chain_display")
             or ""
         ).strip()
         entry_lines = [

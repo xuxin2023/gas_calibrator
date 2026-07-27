@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = (
@@ -14,6 +16,10 @@ BASE_NO_OUTP_CONFIG_PATH = (
     / "site_v1_5_no_write_current_hardware_co2_20c_1000ppm_full_pressure_no_tempwait_no_outp.json"
 )
 DEFAULT_CONFIG_PATH = REPO_ROOT / "configs" / "default_config.json"
+pytestmark = pytest.mark.skipif(
+    not CONFIG_PATH.is_file() or not BASE_NO_OUTP_CONFIG_PATH.is_file(),
+    reason="real-COM no-OUTP engineering configs are not restored",
+)
 
 
 def _load(path: Path) -> dict:

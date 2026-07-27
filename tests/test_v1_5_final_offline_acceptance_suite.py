@@ -18,6 +18,7 @@ from gas_calibrator.validation.v1_5_final_offline_acceptance_suite import (
     REVIEW_STATUS,
     SCHEMA,
     SUITE_TEST_FILES,
+    V1_PRESSURE_SAFETY_COVERAGE_MAP,
     build_v1_5_final_offline_acceptance_suite,
     write_v1_5_final_offline_acceptance_suite,
 )
@@ -66,6 +67,21 @@ def test_suite_plan_binds_current_offline_contracts_and_stays_locked() -> None:
     ):
         assert model[key] is False
     assert model["not_real_acceptance_evidence"] is True
+
+
+def test_v1_pressure_safety_coverage_map_is_executable_and_allowlisted() -> None:
+    assert V1_PRESSURE_SAFETY_COVERAGE_MAP
+    for requirement, nodeids in V1_PRESSURE_SAFETY_COVERAGE_MAP.items():
+        assert requirement
+        assert nodeids
+        for nodeid in nodeids:
+            relative, separator, test_name = nodeid.partition("::")
+            assert separator == "::"
+            assert relative in SUITE_TEST_FILES
+            test_path = ROOT / relative
+            assert test_path.is_file()
+            source = test_path.read_text(encoding="utf-8")
+            assert f"def {test_name}(" in source
 
 
 def test_passing_allowlisted_execution_closes_only_offline_program_layer() -> None:

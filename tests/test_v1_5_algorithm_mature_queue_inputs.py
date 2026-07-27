@@ -23,6 +23,7 @@ from gas_calibrator.validation.v1_5_entrypoint_inventory import (
 
 ROOT = Path(__file__).resolve().parents[1]
 PROFILE = ROOT / "configs" / "v1_5_algorithm_route_profiles.json"
+REFERENCE_CATALOG = ROOT / "configs" / "v1_5_reference_source_catalog.json"
 
 
 @pytest.mark.parametrize(
@@ -65,6 +66,42 @@ def test_new_algorithm_supplements_are_inside_mature_queue_segments() -> None:
     assert co2.index((-20.0, 600.0)) == co2.index((-20.0, 400.0)) + 1
     assert co2.index((-10.0, 600.0)) == co2.index((-10.0, 400.0)) + 1
     assert h2o.index((40.0, 30.0, 30.0)) < h2o.index((40.0, 30.0, 50.0))
+
+
+@pytest.mark.parametrize(
+    ("profile_id", "co2_count", "h2o_count"),
+    [
+        ("legacy_ratio_production", 45, 13),
+        ("absorption_ratio_shadow", 47, 14),
+    ],
+)
+def test_reference_catalog_binds_every_mature_queue_row(
+    profile_id: str,
+    co2_count: int,
+    h2o_count: int,
+) -> None:
+    model = build_v1_5_algorithm_mature_queue_inputs(
+        profile_path=PROFILE,
+        profile_id=profile_id,
+        reference_source_catalog=REFERENCE_CATALOG,
+    )
+
+    assert model["reference_source_binding_status"] == "bound"
+    assert model["bound_co2_reference_asset_count"] == 11
+    assert len(model["reference_source_catalog_sha256"]) == 64
+    assert len(model["co2_rows"]) == co2_count
+    assert len(model["h2o_rows"]) == h2o_count
+    assert all(row["reference_asset_id"] for row in model["co2_rows"])
+    assert all(row["certificate_co2_ppm"] is not None for row in model["co2_rows"])
+    assert {
+        row["reference_gate_mode"] for row in model["co2_rows"]
+    } == {"strict_pre_device_construction"}
+    assert {
+        row["reference_asset_id"] for row in model["h2o_rows"]
+    } == {"dynamic_h2o_dewpoint_pressure_reference"}
+    assert {
+        row["reference_gate_mode"] for row in model["h2o_rows"]
+    } == {"strict_post_sample_evidence_bundle"}
 
 
 def test_written_csvs_are_consumed_by_unchanged_mature_queue_loaders(
@@ -129,6 +166,8 @@ def test_cli_is_offline_formal_support(tmp_path: Path) -> None:
                 "legacy_ratio_production",
                 "--output-dir",
                 str(output),
+                "--reference-source-catalog",
+                str(REFERENCE_CATALOG),
             ]
         )
         == 0
@@ -141,3 +180,23 @@ def test_cli_is_offline_formal_support(tmp_path: Path) -> None:
     assert entry.formal_status == "formal_support"
     assert entry.risk_level == "offline"
     assert entry.opens_com_ports is False
+
+
+def test_reference_catalog_missing_nominal_blocks_queue_freeze(
+    tmp_path: Path,
+) -> None:
+    catalog = json.loads(REFERENCE_CATALOG.read_text(encoding="utf-8"))
+    catalog["assets"] = [
+        row
+        for row in catalog["assets"]
+        if float(row["nominal_co2_ppm"]) != 600.0
+    ]
+    altered = tmp_path / "reference_catalog.json"
+    altered.write_text(json.dumps(catalog), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="600 ppm must bind exactly one"):
+        build_v1_5_algorithm_mature_queue_inputs(
+            profile_path=PROFILE,
+            profile_id="absorption_ratio_shadow",
+            reference_source_catalog=altered,
+        )

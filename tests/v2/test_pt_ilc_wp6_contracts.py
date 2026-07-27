@@ -1038,11 +1038,12 @@ class TestReviewerSurfaceContractsSingleSource:
         source = inspect.getsource(af)
         assert "_SHARED_WP6_CLOSEOUT_KEYS" in source
 
-    def test_device_workbench_imports_shared_keys(self) -> None:
+    def test_device_workbench_uses_shared_payload_extractor(self) -> None:
         import gas_calibrator.v2.ui_v2.controllers.device_workbench as dw
         import inspect
         source = inspect.getsource(dw)
-        assert "_SHARED_WP6_CLOSEOUT_KEYS" in source
+        assert "_extract_wp6_closeout_payloads" in source
+        assert "_SHARED_WP6_CLOSEOUT_KEYS" not in source
 
 
 class TestReviewerSurfaceKeyOrderConsistency:
@@ -1673,12 +1674,13 @@ class TestDeviceWorkbenchNoDeadLocalVars:
         assert 'pt_ilc_registry = _wp6_closeout["pt_ilc_registry"]' not in source
         assert "_wp6_closeout = _extract_wp6_closeout_payloads" in source
 
-    def test_output_dict_uses_wp6_closeout_directly(self) -> None:
+    def test_output_dict_preserves_closeout_digest_fallback(self) -> None:
         import gas_calibrator.v2.ui_v2.controllers.device_workbench as dw
         import inspect
         source = inspect.getsource(dw)
         assert '"pt_ilc_registry": _wp6_closeout["pt_ilc_registry"]' in source
-        assert '"step2_closeout_digest": _wp6_closeout["step2_closeout_digest"]' in source
+        assert 'payload.get("step2_closeout_digest") or _wp6_closeout["step2_closeout_digest"]' in source
+        assert '"step2_closeout_digest": step2_closeout_digest' in source
 
 
 class TestStep25Boundary:

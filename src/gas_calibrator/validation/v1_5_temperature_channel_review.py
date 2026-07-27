@@ -930,15 +930,58 @@ def export_temperature_channel_review(
             )
         )
     output_dir.mkdir(parents=True, exist_ok=True)
+    summary_rows = build_temperature_channel_summary(
+        observations,
+        target_device_ids=target_device_ids,
+    )
+    summary_by_device = {
+        str(row.get("analyzer_id") or "").zfill(3): row for row in summary_rows
+    }
+    command_eligibility: Dict[tuple[str, str], tuple[bool, str]] = {}
+    for device_id in [str(item).zfill(3) for item in target_device_ids]:
+        device_rows = [
+            row
+            for row in observations
+            if str(row.get("analyzer_id") or "").zfill(3) == device_id
+        ]
+        coverage_status = str(
+            summary_by_device.get(device_id, {}).get("coverage_status") or ""
+        )
+        for senco_channel, valid_key, reason_key in (
+            ("SENCO7", "valid_for_cell_fit", "cell_fit_gate_reason"),
+            ("SENCO8", "valid_for_shell_fit", "shell_fit_gate_reason"),
+        ):
+            blocked_reasons = sorted(
+                {
+                    str(row.get(reason_key) or "").strip()
+                    for row in device_rows
+                    if not row.get(valid_key) and str(row.get(reason_key) or "").strip()
+                }
+            )
+            if blocked_reasons:
+                command_eligibility[(device_id, senco_channel)] = (
+                    False,
+                    "temperature_channel_has_blocked_segments:"
+                    + ",".join(blocked_reasons),
+                )
+            elif coverage_status.startswith("blocked_"):
+                command_eligibility[(device_id, senco_channel)] = (
+                    False,
+                    coverage_status,
+                )
+            elif not coverage_status:
+                command_eligibility[(device_id, senco_channel)] = (
+                    False,
+                    "temperature_channel_summary_missing",
+                )
+            else:
+                command_eligibility[(device_id, senco_channel)] = (True, "")
     temp_bundle = export_temperature_compensation_artifacts(
         output_dir,
         observations,
         polynomial_order=3,
         export_commands=export_commands,
-    )
-    summary_rows = build_temperature_channel_summary(
-        observations,
-        target_device_ids=target_device_ids,
+        command_eligibility=command_eligibility,
     )
     summary_csv = output_dir / "temperature_channel_summary.csv"
     _write_dicts(summary_csv, summary_rows)

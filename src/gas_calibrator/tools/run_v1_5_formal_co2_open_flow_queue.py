@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from ..config import load_config
-from ..logging_utils import RunLogger
+from ..logging_utils import RunLogger, _claim_immutable_run_dir
 from ..validation.v1_5_co2_queue_failure_audit import (
     audit_and_write as _audit_co2_queue_failures,
     classify_point_failure_from_log as _classify_point_failure_from_log,
@@ -33,9 +33,13 @@ from .run_headless import _build_devices, _close_devices
 from .run_v1_5_formal_open_flow_sampling import (
     FORMAL_OPEN_FLOW_DEWPOINT_GATE_MAX_TOTAL_WAIT_S,
     FORMAL_OPEN_FLOW_ANALYZER_GATE_PREFER_ALL_STABLE_GRACE_S,
+    V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT,
     _apply_analyzer_acquisition_policy,
+    _apply_v1_5_temperature_truth_contract,
     _defer_startup_mode2_disabled_analyzers,
+    _engineering_probe_authorization_errors,
     _formal_open_flow_dewpoint_gate_max_wait_s,
+    _write_operator_confirmation_record,
 )
 
 
@@ -48,6 +52,14 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         description="Run V1.5 no-write CO2 open-flow sampling queue across temperature groups."
     )
     parser.add_argument("--config", required=True, help="Runtime config JSON.")
+    parser.add_argument(
+        "--reference-source-catalog",
+        default=None,
+        help=(
+            "Controlled CO2 reference-source catalog forwarded to every point. "
+            "Defaults to the catalog beside the runtime config."
+        ),
+    )
     parser.add_argument("--queue-csv", required=True, help="Canonical co2_runner_queue.csv.")
     parser.add_argument("--output-dir", required=True, help="Output directory for queue evidence.")
     parser.add_argument("--run-id", default=None, help="Optional queue run id.")
@@ -114,7 +126,7 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default="active_stream_1hz",
     )
     ftd_group = parser.add_mutually_exclusive_group()
-    ftd_group.add_argument("--allow-ftd-write", dest="allow_ftd_write", action="store_true", default=True)
+    ftd_group.add_argument("--allow-ftd-write", dest="allow_ftd_write", action="store_true", default=False)
     ftd_group.add_argument("--no-ftd-write", dest="allow_ftd_write", action="store_false")
     parser.add_argument(
         "--min-valid-analyzers",
@@ -247,6 +259,15 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         help="Write the queue manifest and commands without opening any COM port.",
     )
     parser.add_argument("--no-prompt", action="store_true")
+    parser.add_argument("--engineering-probe-only", action="store_true")
+    parser.add_argument(
+        "--operator-confirmation",
+        default="",
+        help=(
+            "Exact second-unlock text required for a real queue: "
+            f"{V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT!r}."
+        ),
+    )
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -260,6 +281,14 @@ def _safe_float(value: Any) -> Optional[float]:
     if numeric != numeric:
         return None
     return numeric
+
+
+def _first_present_row_value(row: Mapping[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = row.get(key)
+        if value not in (None, "", "None", "null"):
+            return value
+    return None
 
 
 def _format_value(value: Any) -> str:
@@ -455,6 +484,7 @@ def _prepare_temperature_runtime_cfg(
     if not isinstance(devices_cfg.get("temperature_chamber"), dict):
         raise RuntimeError("temperature_chamber config is missing")
     devices_cfg["temperature_chamber"]["enabled"] = True
+    temp_cfg = _apply_v1_5_temperature_truth_contract(runtime_cfg, require_device_config=True)
 
     _apply_analyzer_acquisition_policy(
         runtime_cfg,
@@ -464,7 +494,6 @@ def _prepare_temperature_runtime_cfg(
         allow_ftd_write=allow_ftd_write,
     )
 
-    temp_cfg = runtime_cfg["workflow"].setdefault("stability", {}).setdefault("temperature", {})
     temp_cfg["wait_for_target_before_continue"] = True
     temp_cfg["analyzer_chamber_temp_enabled"] = True
     if soak_after_reach_s is not None:
@@ -523,7 +552,12 @@ def _settle_temperature_group(
         analyzer_timeout_s=args.temperature_analyzer_timeout_s,
     )
     output_dir.mkdir(parents=True, exist_ok=True)
-    logger = RunLogger(output_dir, run_id=run_id, cfg=runtime_cfg)
+    logger = RunLogger(
+        output_dir,
+        run_id=run_id,
+        cfg=runtime_cfg,
+        immutable_run_dir=True,
+    )
     snapshot_path = logger.run_dir / "temperature_settle_runtime_config_snapshot.json"
     snapshot_path.write_text(
         json.dumps(runtime_cfg, ensure_ascii=False, indent=2, default=str) + "\n",
@@ -641,8 +675,14 @@ def _build_point_command(
         str(min_valid_analyzers),
         "--no-prompt",
     ]
-    if not args.allow_ftd_write:
-        cmd.append("--no-ftd-write")
+    cmd.append("--allow-ftd-write" if args.allow_ftd_write else "--no-ftd-write")
+    if bool(getattr(args, "engineering_probe_only", False)):
+        cmd.append("--engineering-probe-only")
+    operator_confirmation = str(
+        getattr(args, "operator_confirmation", "") or ""
+    ).strip()
+    if operator_confirmation:
+        cmd.extend(["--operator-confirmation", operator_confirmation])
     point_n2_prepurge_source = (
         args.n2_prepurge_s if n2_prepurge_s_for_point is None else n2_prepurge_s_for_point
     )
@@ -705,16 +745,32 @@ def _build_point_command(
         ]
     )
     certificate_co2_ppm = _safe_float(
-        row.get("certificate_co2_ppm")
-        or row.get("standard_gas_certificate_value_ppm")
-        or row.get("certificate_value_ppm")
+        _first_present_row_value(
+            row,
+            "certificate_co2_ppm",
+            "standard_gas_certificate_value_ppm",
+            "certificate_value_ppm",
+        )
     )
     if certificate_co2_ppm is not None:
         cmd.extend(["--certificate-co2-ppm", _format_value(certificate_co2_ppm)])
+    reference_source_catalog = str(
+        getattr(args, "reference_source_catalog", "")
+        or row.get("reference_source_catalog")
+        or ""
+    ).strip()
+    if reference_source_catalog:
+        cmd.extend(["--reference-source-catalog", reference_source_catalog])
+    reference_asset_id = str(row.get("reference_asset_id") or "").strip()
+    if reference_asset_id:
+        cmd.extend(["--reference-asset-id", reference_asset_id])
     certificate_uncertainty_ppm = _safe_float(
-        row.get("certificate_uncertainty_ppm")
-        or row.get("standard_gas_certificate_uncertainty_ppm")
-        or row.get("certificate_uncertainty_abs_ppm")
+        _first_present_row_value(
+            row,
+            "certificate_uncertainty_ppm",
+            "standard_gas_certificate_uncertainty_ppm",
+            "certificate_uncertainty_abs_ppm",
+        )
     )
     if certificate_uncertainty_ppm is not None:
         cmd.extend(["--certificate-uncertainty-ppm", _format_value(certificate_uncertainty_ppm)])
@@ -843,8 +899,15 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     args.gas_route_dewpoint_gate_max_total_wait_s = _formal_open_flow_dewpoint_gate_max_wait_s(
         args.gas_route_dewpoint_gate_max_total_wait_s
     )
-    if not args.no_prompt:
-        _log("Refusing to run real CO2 queue without --no-prompt.")
+    authorization_errors = _engineering_probe_authorization_errors(
+        args,
+        dry_run=bool(args.dry_run),
+    )
+    if authorization_errors:
+        _log(
+            "Refusing V1.5 CO2 queue engineering probe: "
+            + ",".join(authorization_errors)
+        )
         return 2
 
     cfg_path = str(Path(args.config).resolve())
@@ -852,7 +915,19 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     output_dir = Path(args.output_dir).resolve()
     queue_run_id = args.run_id or f"v1_5_co2_open_flow_queue_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     queue_dir = output_dir / queue_run_id
-    queue_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        _claim_immutable_run_dir(queue_dir, run_id=queue_run_id)
+    except FileExistsError as exc:
+        _log(str(exc))
+        return 2
+    operator_confirmation_path: Optional[Path] = None
+    if not args.dry_run:
+        operator_confirmation_path = _write_operator_confirmation_record(
+            queue_dir,
+            run_id=queue_run_id,
+            args=args,
+            scope="v1_5_co2_open_flow_queue_no_write_engineering_probe",
+        )
     point_log_dir = queue_dir / "point_logs"
     point_log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -879,6 +954,11 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         "queue_run_id": queue_run_id,
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "config_path": cfg_path,
+        "reference_source_catalog": str(
+            Path(args.reference_source_catalog).resolve()
+            if args.reference_source_catalog
+            else Path(cfg_path).resolve().parent / "v1_5_reference_source_catalog.json"
+        ),
         "queue_csv": str(queue_path),
         "output_dir": str(output_dir),
         "selected_points": len(selected),
@@ -886,7 +966,17 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         "roles": sorted(_parse_text_filter(args.roles)),
         "control_temperature": bool(args.control_temperature),
         "dry_run": bool(args.dry_run),
-        "no_write": True,
+        "no_write": not bool(args.allow_ftd_write),
+        "no_write_scope": (
+            "no_analyzer_persistent_configuration_no_senco_no_device_id_"
+            "no_calibration_coefficient_write"
+        ),
+        "operator_confirmation_record": (
+            str(operator_confirmation_path) if operator_confirmation_path else None
+        ),
+        "engineering_probe_only": bool(args.engineering_probe_only),
+        "promotion_state": "blocked",
+        "not_real_acceptance_evidence": True,
         "sealed_pressure_control": False,
         "writes_senco": False,
         "writes_device_id": False,
@@ -1087,7 +1177,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         encoding="utf-8",
     )
     _log(f"Queue summary: ok={ok_count} failed={fail_count} dry_run={dry_count} dir={queue_dir}")
-    if hard_failure:
+    if hard_failure or fail_count:
         return 1
     if not args.dry_run and ok_count == 0:
         return 1

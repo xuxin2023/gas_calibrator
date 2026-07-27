@@ -22,7 +22,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from ..config import load_config
 from ..data.points import CalibrationPoint
-from ..logging_utils import RunLogger
+from ..logging_utils import RunLogger, _claim_immutable_run_dir
 from ..validation.v1_5_h2o_queue_failure_audit import (
     audit_and_write as _audit_h2o_queue_failures,
     classify_point_failure_from_log as _classify_point_failure_from_log,
@@ -31,13 +31,16 @@ from ..validation.v1_5_open_flow_purge_contract import resolve_v1_5_open_flow_pu
 from ..workflow.runner import CalibrationRunner
 from .run_headless import _build_devices, _close_devices
 from .run_v1_5_formal_h2o_open_flow_sampling import (
-    DEFAULT_H2O_OPEN_FLOW_PURGE_S,
     _safe_stop_humidity_generator,
 )
 from .run_v1_5_formal_open_flow_sampling import (
     FORMAL_OPEN_FLOW_ANALYZER_GATE_PREFER_ALL_STABLE_GRACE_S,
+    V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT,
     _apply_analyzer_acquisition_policy,
+    _apply_v1_5_temperature_truth_contract,
     _defer_startup_mode2_disabled_analyzers,
+    _engineering_probe_authorization_errors,
+    _write_operator_confirmation_record,
 )
 
 
@@ -70,7 +73,7 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default="active_stream_1hz",
     )
     ftd_group = parser.add_mutually_exclusive_group()
-    ftd_group.add_argument("--allow-ftd-write", dest="allow_ftd_write", action="store_true", default=True)
+    ftd_group.add_argument("--allow-ftd-write", dest="allow_ftd_write", action="store_true", default=False)
     ftd_group.add_argument("--no-ftd-write", dest="allow_ftd_write", action="store_false")
     parser.add_argument("--min-valid-analyzers", type=int, default=1)
     parser.add_argument(
@@ -122,6 +125,15 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--stop-on-point-fail", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--no-prompt", action="store_true")
+    parser.add_argument("--engineering-probe-only", action="store_true")
+    parser.add_argument(
+        "--operator-confirmation",
+        default="",
+        help=(
+            "Exact second-unlock text required for a real queue: "
+            f"{V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT!r}."
+        ),
+    )
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -260,6 +272,7 @@ def _prepare_temperature_runtime_cfg(
     if not isinstance(devices_cfg.get("temperature_chamber"), dict):
         raise RuntimeError("temperature_chamber config is missing")
     devices_cfg["temperature_chamber"]["enabled"] = True
+    temp_cfg = _apply_v1_5_temperature_truth_contract(runtime_cfg, require_device_config=True)
 
     _apply_analyzer_acquisition_policy(
         runtime_cfg,
@@ -269,7 +282,6 @@ def _prepare_temperature_runtime_cfg(
         allow_ftd_write=allow_ftd_write,
     )
 
-    temp_cfg = workflow_cfg.setdefault("stability", {}).setdefault("temperature", {})
     temp_cfg["wait_for_target_before_continue"] = True
     temp_cfg["analyzer_chamber_temp_enabled"] = True
     if soak_after_reach_s is not None:
@@ -376,8 +388,12 @@ def _prewarm_humidity_generator_for_group(
 
     runtime_cfg = _prepare_humidity_prewarm_runtime_cfg(cfg, output_dir=output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    logger = RunLogger(output_dir, run_id=run_id, cfg=runtime_cfg)
-    logger.run_dir.mkdir(parents=True, exist_ok=True)
+    logger = RunLogger(
+        output_dir,
+        run_id=run_id,
+        cfg=runtime_cfg,
+        immutable_run_dir=True,
+    )
     runtime_config_snapshot_error: Optional[str] = None
     runtime_config_snapshot_path = logger.run_dir / "humidity_prewarm_runtime_config_snapshot.json"
     try:
@@ -459,8 +475,12 @@ def _safe_stop_humidity_generator_after_queue(
 ) -> bool:
     runtime_cfg = _prepare_humidity_prewarm_runtime_cfg(cfg, output_dir=output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    logger = RunLogger(output_dir, run_id=run_id, cfg=runtime_cfg)
-    logger.run_dir.mkdir(parents=True, exist_ok=True)
+    logger = RunLogger(
+        output_dir,
+        run_id=run_id,
+        cfg=runtime_cfg,
+        immutable_run_dir=True,
+    )
     (logger.run_dir / "hgen_final_safe_stop_runtime_config.json").write_text(
         json.dumps(runtime_cfg, ensure_ascii=False, indent=2, default=str) + "\n",
         encoding="utf-8",
@@ -485,7 +505,17 @@ def _safe_stop_humidity_generator_after_queue(
     try:
         devices = _build_devices(runtime_cfg, io_logger=logger)
         summary["before_snapshot"] = _read_humidity_generator_snapshot(devices.get("humidity_gen"))
-        _safe_stop_humidity_generator(devices)
+        safe_stop_status = _safe_stop_humidity_generator(devices)
+        summary["safe_stop_status"] = safe_stop_status
+        if not isinstance(safe_stop_status, dict) or safe_stop_status.get("ok") is not True:
+            raise RuntimeError(
+                "HUMIDITY_GENERATOR_FINAL_SAFE_STOP_NOT_CONFIRMED:"
+                + str(
+                    safe_stop_status.get("error", "unreported")
+                    if isinstance(safe_stop_status, dict)
+                    else "unreported"
+                )
+            )
         summary["after_snapshot"] = _read_humidity_generator_snapshot(devices.get("humidity_gen"))
         summary["ok"] = True
         return True
@@ -535,7 +565,12 @@ def _settle_temperature_group(
         analyzer_timeout_s=args.temperature_analyzer_timeout_s,
     )
     output_dir.mkdir(parents=True, exist_ok=True)
-    logger = RunLogger(output_dir, run_id=run_id, cfg=runtime_cfg)
+    logger = RunLogger(
+        output_dir,
+        run_id=run_id,
+        cfg=runtime_cfg,
+        immutable_run_dir=True,
+    )
     (logger.run_dir / "temperature_settle_runtime_config_snapshot.json").write_text(
         json.dumps(runtime_cfg, ensure_ascii=False, indent=2, default=str) + "\n",
         encoding="utf-8",
@@ -666,8 +701,14 @@ def _build_point_command(
         cmd.extend(["--certificate-uncertainty-mmol", _format_value(row["certificate_uncertainty_mmol"])])
     if args.hgen_flow_lpm is not None:
         cmd.extend(["--hgen-flow-lpm", _format_value(args.hgen_flow_lpm)])
-    if not args.allow_ftd_write:
-        cmd.append("--no-ftd-write")
+    cmd.append("--allow-ftd-write" if args.allow_ftd_write else "--no-ftd-write")
+    if bool(getattr(args, "engineering_probe_only", False)):
+        cmd.append("--engineering-probe-only")
+    operator_confirmation = str(
+        getattr(args, "operator_confirmation", "") or ""
+    ).strip()
+    if operator_confirmation:
+        cmd.extend(["--operator-confirmation", operator_confirmation])
     if args.strict_humidity_reference_match:
         cmd.append("--strict-humidity-reference-match")
     if args.skip_humidity_generator_gate:
@@ -697,14 +738,24 @@ def _write_queue_exclusion_evidence(
     queue_summary: Mapping[str, Any],
     manifest_rows: Sequence[Mapping[str, Any]],
     reason: str,
+    exclude_all_points: bool = False,
 ) -> None:
-    """Record failed/aborted H2O queue rows as diagnostic-only evidence."""
+    """Record unsafe H2O queue rows as diagnostic-only evidence."""
 
     now = datetime.now().isoformat(timespec="seconds")
+    exclusion_scope = (
+        "queue_all_points" if exclude_all_points else "failed_or_aborted_points"
+    )
     candidate_rows = [
         row
         for row in manifest_rows
-        if str(row.get("status") or "").lower() not in {"ok", "dry_run"}
+        if (
+            str(row.get("status") or "").lower() != "dry_run"
+            and (
+                exclude_all_points
+                or str(row.get("status") or "").lower() != "ok"
+            )
+        )
     ]
     if not candidate_rows:
         candidate_rows = [
@@ -743,10 +794,19 @@ def _write_queue_exclusion_evidence(
                 "exclude_from_acceptance": True,
                 "exclude_from_senco_review": True,
                 "exclusion_reason": reason,
+                "exclusion_scope": exclusion_scope,
                 "physical_meaning": (
-                    "This H2O open-flow point did not complete under a continuous, stable "
-                    "humidity-route sampling contract. Partial frames remain diagnostic "
-                    "evidence only and must not enter H2O fitting, acceptance, or SENCO review."
+                    (
+                        "The queue-level humidity-generator final safe-stop failed, so no "
+                        "sampled point in this queue retains a complete physical safety "
+                        "closure. All queue points remain diagnostic evidence only."
+                    )
+                    if exclude_all_points
+                    else (
+                        "This H2O open-flow point did not complete under a continuous, stable "
+                        "humidity-route sampling contract. Partial frames remain diagnostic "
+                        "evidence only and must not enter H2O fitting, acceptance, or SENCO review."
+                    )
                 ),
             }
         )
@@ -764,6 +824,7 @@ def _write_queue_exclusion_evidence(
                 "created_at": now,
                 "queue_run_id": queue_summary.get("queue_run_id", ""),
                 "reason": reason,
+                "exclusion_scope": exclusion_scope,
                 "exclude_from_fit": True,
                 "exclude_from_acceptance": True,
                 "exclude_from_senco_review": True,
@@ -826,8 +887,15 @@ def _queue_dir_name(output_dir: Path, queue_run_id: str) -> str:
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = _parse_args(argv)
-    if not args.no_prompt:
-        _log("Refusing to run real H2O queue without --no-prompt.")
+    authorization_errors = _engineering_probe_authorization_errors(
+        args,
+        dry_run=bool(args.dry_run),
+    )
+    if authorization_errors:
+        _log(
+            "Refusing V1.5 H2O queue engineering probe: "
+            + ",".join(authorization_errors)
+        )
         return 2
 
     cfg_path = str(Path(args.config).resolve())
@@ -835,7 +903,19 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     output_dir = Path(args.output_dir).resolve()
     queue_run_id = args.run_id or f"v1_5_h2o_open_flow_queue_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     queue_dir = _queue_output_dir(output_dir, queue_run_id)
-    queue_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        _claim_immutable_run_dir(queue_dir, run_id=queue_run_id)
+    except FileExistsError as exc:
+        _log(str(exc))
+        return 2
+    operator_confirmation_path: Optional[Path] = None
+    if not args.dry_run:
+        operator_confirmation_path = _write_operator_confirmation_record(
+            queue_dir,
+            run_id=queue_run_id,
+            args=args,
+            scope="v1_5_h2o_open_flow_queue_no_write_engineering_probe",
+        )
     point_log_dir = queue_dir / "point_logs"
     point_log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -862,7 +942,17 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         "temperature_order": args.temperature_order,
         "control_temperature": bool(args.control_temperature),
         "dry_run": bool(args.dry_run),
-        "no_write": True,
+        "no_write": not bool(args.allow_ftd_write),
+        "no_write_scope": (
+            "no_analyzer_persistent_configuration_no_senco_no_device_id_"
+            "no_calibration_coefficient_write"
+        ),
+        "operator_confirmation_record": (
+            str(operator_confirmation_path) if operator_confirmation_path else None
+        ),
+        "engineering_probe_only": bool(args.engineering_probe_only),
+        "promotion_state": "blocked",
+        "not_real_acceptance_evidence": True,
         "sealed_pressure_control": False,
         "writes_senco": False,
         "writes_device_id": False,
@@ -889,6 +979,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         return 1
 
     hard_failure = False
+    queue_wide_exclusion = False
     hgen_final_safe_stop_ok: Optional[bool] = None
     # Keep this evidence run id short. Queue output directories can already be
     # deep on Windows, and final safe-stop must not be blocked by path length.
@@ -1048,6 +1139,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         )
         if not hgen_final_safe_stop_ok:
             hard_failure = True
+            queue_wide_exclusion = True
+            abort_reason = "humidity_generator_final_safe_stop_failed"
 
     ok_count = sum(1 for row in manifest_rows if str(row.get("status")) == "ok")
     fail_count = sum(1 for row in manifest_rows if str(row.get("status")) == "failed")
@@ -1059,6 +1152,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             "failed_points": fail_count,
             "dry_run_points": dry_count,
             "hard_failure": hard_failure,
+            "queue_wide_exclusion": queue_wide_exclusion,
             "hgen_final_safe_stop_ok": hgen_final_safe_stop_ok,
             "hgen_final_safe_stop_run_id": (
                 hgen_final_safe_stop_run_id
@@ -1073,6 +1167,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             queue_summary=queue_summary,
             manifest_rows=manifest_rows,
             reason=abort_reason or "h2o_queue_failed",
+            exclude_all_points=queue_wide_exclusion,
         )
     try:
         queue_summary["failure_audit"] = _write_queue_failure_audit(queue_dir)
@@ -1086,7 +1181,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         encoding="utf-8",
     )
     _log(f"H2O queue summary: ok={ok_count} failed={fail_count} dry_run={dry_count} dir={queue_dir}")
-    if hard_failure:
+    if hard_failure or fail_count:
         return 1
     if not args.dry_run and ok_count == 0:
         return 1

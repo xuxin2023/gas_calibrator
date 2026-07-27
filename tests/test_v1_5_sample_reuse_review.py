@@ -151,11 +151,16 @@ def test_sample_reuse_review_classifies_each_device_independently(tmp_path):
     )
 
     by_device = {row["analyzer_device_id"]: row for row in tables["sample_reuse_by_device"]}
-    assert context["decision_counts"] == {"can_fit": 1, "needs_verification": 1, "reject": 1}
-    assert by_device["001"]["reuse_decision_cn"] == "可拟合"
-    assert by_device["033"]["reuse_decision_cn"] == "需复验"
+    assert context["decision_counts"] == {"needs_verification": 2, "reject": 1}
+    assert by_device["001"]["reuse_decision"] == "needs_verification"
+    assert "independent_verification_missing" in by_device["001"]["reuse_reasons"]
+    assert (
+        "source_verification_samples_reused_for_fit_requires_new_independent_verification"
+        in by_device["001"]["reuse_reasons"]
+    )
+    assert by_device["033"]["reuse_decision"] == "needs_verification"
     assert "a_grade_single_target_review_only" in by_device["033"]["reuse_reasons"]
-    assert by_device["027"]["reuse_decision_cn"] == "拒绝"
+    assert by_device["027"]["reuse_decision"] == "reject"
     assert "open_flow_candidate_not_allowed" in by_device["027"]["formal_review_blockers"]
     assert "this_analyzer_device_id_only" in by_device["027"]["scope_boundary"]
 
@@ -230,5 +235,5 @@ def test_sample_reuse_review_cli_writes_no_write_artifacts(tmp_path):
     assert summary[0]["opens_com_ports"] == "False"
     assert summary[0]["controls_water_or_gas_routes"] == "False"
     assert summary[0]["writes_coefficients"] == "False"
-    assert {row["reuse_decision_cn"] for row in rows} == {"可拟合", "需复验", "拒绝"}
+    assert {row["reuse_decision"] for row in rows} == {"needs_verification", "reject"}
     assert (output_dir / "sample_reuse_review_report.md").exists()

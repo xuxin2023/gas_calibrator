@@ -95,6 +95,58 @@ def test_summary_filter_and_traceability_cannot_be_weakened(tmp_path: Path) -> N
     assert "output_traceability_field_missing:source_samples_sha256" in model["blocker_codes"]
 
 
+def test_temporal_thresholds_and_evidence_fields_cannot_be_weakened(
+    tmp_path: Path,
+) -> None:
+    contract = _contract_copy(tmp_path)
+    payload = json.loads(contract.read_text(encoding="utf-8"))
+    payload["cadence_and_alignment_contract"]["minimum_window_duration_fraction"] = 0.5
+    payload["output_contract"]["required_fields"].remove("actual_window_duration_s")
+    contract.write_text(json.dumps(payload), encoding="utf-8")
+
+    model = build_v1_5_component_qc_generator_contract_review(
+        authority_audit_json_path=_authority(tmp_path),
+        contract_json_path=contract,
+    )
+
+    assert model["overall_status"] == "blocked_invalid_component_qc_contract"
+    assert (
+        "cadence_minimum_window_duration_fraction_invalid"
+        in model["blocker_codes"]
+    )
+    assert (
+        "output_traceability_field_missing:actual_window_duration_s"
+        in model["blocker_codes"]
+    )
+
+
+def test_evidence_identity_contract_cannot_be_weakened(tmp_path: Path) -> None:
+    contract = _contract_copy(tmp_path)
+    payload = json.loads(contract.read_text(encoding="utf-8"))
+    payload["evidence_identity_contract"]["identity_mismatch_grade"] = (
+        "B_diagnostic_model_only"
+    )
+    payload["output_contract"]["required_fields"].remove(
+        "evidence_bundle_manifest_verified"
+    )
+    contract.write_text(json.dumps(payload), encoding="utf-8")
+
+    model = build_v1_5_component_qc_generator_contract_review(
+        authority_audit_json_path=_authority(tmp_path),
+        contract_json_path=contract,
+    )
+
+    assert model["overall_status"] == "blocked_invalid_component_qc_contract"
+    assert (
+        "evidence_identity_identity_mismatch_grade_invalid"
+        in model["blocker_codes"]
+    )
+    assert (
+        "output_traceability_field_missing:evidence_bundle_manifest_verified"
+        in model["blocker_codes"]
+    )
+
+
 def test_writer_cli_and_entrypoint_are_offline(tmp_path: Path) -> None:
     authority = _authority(tmp_path)
     model = build_v1_5_component_qc_generator_contract_review(

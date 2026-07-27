@@ -871,7 +871,7 @@ def test_pressure_rise_during_flowthrough_triggers_vent_keepalive(tmp_path: Path
 
 def test_pressure_rise_after_keepalive_fails_atmosphere_path_insufficient(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
-    runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    runner = CalibrationRunner({"workflow": {"pressure": {"continuous_atmosphere_fail_delta_hpa": 30.0}}}, {}, logger, lambda *_: None, lambda *_: None)
     point = _co2_point()
     runner._last_atmosphere_gate_summary = {"ambient_hpa": 1012.0, "atmosphere_ready": True}
     runner._continuous_atmosphere_state = {

@@ -71,14 +71,6 @@ def validate_staging_schemas(core_schema: str, evidence_schema: str) -> StagingS
     return StagingSchemas(core=core, evidence=evidence)
 
 
-def sha256_file(path: str | Path) -> str:
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def load_json_object(path: str | Path) -> dict[str, Any]:
     source = Path(path)
     if not source.exists() or not source.is_file():

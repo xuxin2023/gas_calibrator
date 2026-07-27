@@ -38,6 +38,61 @@ def _point_co2() -> CalibrationPoint:
     )
 
 
+def _force_h2o_route_mechanics(runner: CalibrationRunner, mode: str = "h2o_then_co2") -> None:
+    runner._route_mode = types.MethodType(lambda self: mode, runner)
+
+
+def _allow_open_route_sampling(runner: CalibrationRunner) -> None:
+    runner._require_continuous_atmosphere_flow_active = types.MethodType(
+        lambda self, point, **kwargs: False,
+        runner,
+    )
+
+
+def _allow_preseal_final_atmosphere_exit(runner: CalibrationRunner) -> None:
+    runner._verify_preseal_final_atmosphere_exit = types.MethodType(
+        lambda self, point, **kwargs: True,
+        runner,
+    )
+
+
+def _isolate_co2_source_sequence(runner: CalibrationRunner) -> None:
+    runner._open_co2_route_for_conditioning = types.MethodType(
+        lambda self, point, point_tag="": True,
+        runner,
+    )
+    runner._block_seal_pressure_operation = types.MethodType(
+        lambda self, point, **kwargs: False,
+        runner,
+    )
+    runner._wait_co2_preseal_baseline_sanity_gate = types.MethodType(
+        lambda self, point: True,
+        runner,
+    )
+    _allow_open_route_sampling(runner)
+
+
+def _valid_preseal_ready_state(
+    point: CalibrationPoint,
+    *,
+    ready_verification_pending: bool = False,
+) -> dict:
+    return {
+        "phase": "co2",
+        "point_row": point.index,
+        "target_pressure_hpa": point.target_pressure_hpa,
+        "recorded_wall_ts": runner_module.time.time(),
+        "route_sealed": True,
+        "atmosphere_hold_stopped": True,
+        "seal_all_solenoids_closed": True,
+        "seal_total_route_valve_closed": True,
+        "seal_transition_completed": True,
+        "keepalive_stopped_before_seal": True,
+        "ready_verification_pending": ready_verification_pending,
+        "failures": [],
+    }
+
+
 def _load_pressure_trace_rows(logger: RunLogger):
     path = logger.run_dir / "pressure_transition_trace.csv"
     if not path.exists():
@@ -151,8 +206,8 @@ def test_run_h2o_point_wait_order(tmp_path: Path) -> None:
         "set_pressure",
         "wait_pressure_delay",
         "sample_h2o",
-        "vent_True",
         "baseline_route",
+        "vent_True",
     ]
 
 
@@ -232,8 +287,8 @@ def test_run_h2o_point_wait_order_when_prepared(tmp_path: Path) -> None:
         "set_pressure",
         "wait_pressure_delay",
         "sample_h2o",
-        "vent_True",
         "baseline_route",
+        "vent_True",
     ]
 
 
@@ -268,6 +323,7 @@ def test_run_h2o_point_restores_vent_after_completion(tmp_path: Path) -> None:
 def test_run_h2o_group_ambient_only_samples_open_route_without_pressure_control(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    _allow_open_route_sampling(runner)
     calls = []
     point = _point_h2o()
     ambient_ref = runner._ambient_pressure_reference_point(point)
@@ -319,8 +375,8 @@ def test_run_h2o_group_ambient_only_samples_open_route_without_pressure_control(
         "wait_hgen_setpoint",
         "open_route_ready",
         "sample_h2o_h2o_20c_30rh_ambient",
-        "vent_True",
         "baseline_route",
+        "vent_True",
     ]
     trace_rows = _load_pressure_trace_rows(logger)
     sampling_begin_rows = [row for row in trace_rows if row["trace_stage"] == "sampling_begin"]
@@ -331,6 +387,7 @@ def test_run_h2o_group_ambient_only_samples_open_route_without_pressure_control(
 def test_run_h2o_group_runs_ambient_before_sealed_pressure_control(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    _allow_open_route_sampling(runner)
     calls = []
     point = _point_h2o()
     ambient_ref = runner._ambient_pressure_reference_point(point)
@@ -398,8 +455,8 @@ def test_run_h2o_group_runs_ambient_before_sealed_pressure_control(tmp_path: Pat
         "set_pressure",
         "wait_pressure_delay",
         "sample_h2o_h2o_20c_30rh_1100hpa",
-        "vent_True",
         "baseline_route",
+        "vent_True",
     ]
 
 
@@ -412,8 +469,8 @@ def test_open_h2o_route_keeps_vent_on_until_seal(tmp_path: Path) -> None:
         lambda self, vent_on, reason="": calls.append(f"vent_{bool(vent_on)}:{reason}"),
         runner,
     )
-    runner._set_h2o_path = types.MethodType(
-        lambda self, is_open, point=None: calls.append(f"h2o_path_{bool(is_open)}"),
+    runner._open_route_with_pressure_guard = types.MethodType(
+        lambda self, point, **kwargs: calls.append("route_pressure_guard") or True,
         runner,
     )
     runner._ensure_dewpoint_meter_ready = types.MethodType(
@@ -424,13 +481,21 @@ def test_open_h2o_route_keeps_vent_on_until_seal(tmp_path: Path) -> None:
         lambda self, point=None: calls.append(f"dewpoint_stable_{getattr(point, 'index', None)}") or True,
         runner,
     )
+    runner._wait_h2o_route_dewpoint_gate_before_sampling = types.MethodType(
+        lambda self, point, log_context="": True,
+        runner,
+    )
+    runner._wait_h2o_precondition_primary_sensor_gate = types.MethodType(
+        lambda self, point: True,
+        runner,
+    )
 
     assert runner._open_h2o_route_and_wait_ready(_point_h2o()) is True
     logger.close()
 
     assert calls == [
         "vent_True:during H2O route pre-seal preparation",
-        "h2o_path_True",
+        "route_pressure_guard",
         "dewpoint_ready",
         "dewpoint_stable_2",
     ]
@@ -735,6 +800,7 @@ def test_pressurize_h2o_captures_preseal_dewpoint_snapshot(tmp_path: Path) -> No
         lambda *_: None,
         lambda *_: None,
     )
+    _allow_preseal_final_atmosphere_exit(runner)
     calls = []
 
     class _FakePace:
@@ -747,14 +813,13 @@ def test_pressurize_h2o_captures_preseal_dewpoint_snapshot(tmp_path: Path) -> No
         runner,
     )
     runner._set_pressure_controller_vent = types.MethodType(
-        lambda self, vent_on, reason="": calls.append(f"vent_{bool(vent_on)}:{reason}"),
+        lambda self, vent_on, reason="", **_kwargs: calls.append(f"vent_{bool(vent_on)}:{reason}"),
         runner,
     )
     runner._set_h2o_path = types.MethodType(
         lambda self, is_open, point=None: calls.append(f"h2o_path_{bool(is_open)}"),
         runner,
     )
-
     assert runner._pressurize_and_hold(_point_h2o(), route="h2o") is True
     logger.close()
 
@@ -816,6 +881,7 @@ def test_pressurize_co2_seals_directly_after_vent_off_settle(tmp_path: Path) -> 
         lambda *_: None,
         lambda *_: None,
     )
+    _allow_preseal_final_atmosphere_exit(runner)
     calls = []
 
     class _FakePace:
@@ -838,7 +904,7 @@ def test_pressurize_co2_seals_directly_after_vent_off_settle(tmp_path: Path) -> 
     )
     runner.devices["pace"] = _FakePace()
     runner._set_pressure_controller_vent = types.MethodType(
-        lambda self, vent_on, reason="": calls.append(f"vent_{bool(vent_on)}:{reason}"),
+        lambda self, vent_on, reason="", **_kwargs: calls.append(f"vent_{bool(vent_on)}:{reason}"),
         runner,
     )
     runner._apply_valve_states = types.MethodType(
@@ -872,6 +938,7 @@ def test_pressurize_co2_logs_preseal_pressure_window(monkeypatch, tmp_path: Path
         messages.append,
         lambda *_: None,
     )
+    _allow_preseal_final_atmosphere_exit(runner)
 
     class _FakePace:
         def __init__(self, sealed: dict[str, bool]) -> None:
@@ -908,7 +975,7 @@ def test_pressurize_co2_logs_preseal_pressure_window(monkeypatch, tmp_path: Path
     runner.devices["pace"] = _FakePace(sealed)
     runner.devices["pressure_gauge"] = _FakeGauge()
     runner._set_pressure_controller_vent = types.MethodType(
-        lambda self, vent_on, reason="": calls.append(f"vent_{bool(vent_on)}:{reason}"),
+        lambda self, vent_on, reason="", **_kwargs: calls.append(f"vent_{bool(vent_on)}:{reason}"),
         runner,
     )
     runner._apply_valve_states = types.MethodType(
@@ -946,6 +1013,7 @@ def test_pressurize_co2_seals_early_when_pressure_gauge_reaches_threshold(monkey
         messages.append,
         lambda *_: None,
     )
+    _allow_preseal_final_atmosphere_exit(runner)
 
     class _FakePace:
         def __init__(self, sealed: dict[str, bool]) -> None:
@@ -984,7 +1052,7 @@ def test_pressurize_co2_seals_early_when_pressure_gauge_reaches_threshold(monkey
     runner.devices["pressure_gauge"] = _FakeGauge()
     runner.devices["dewpoint"] = _FakeDew()
     runner._set_pressure_controller_vent = types.MethodType(
-        lambda self, vent_on, reason="": calls.append(f"vent_{bool(vent_on)}:{reason}"),
+        lambda self, vent_on, reason="", **_kwargs: calls.append(f"vent_{bool(vent_on)}:{reason}"),
         runner,
     )
     runner._apply_valve_states = types.MethodType(
@@ -1010,11 +1078,12 @@ def test_pressurize_co2_seals_early_when_pressure_gauge_reaches_threshold(monkey
     trigger_row = trigger_rows[0]
     assert trigger_row["trigger_reason"] == "pressure_gauge_threshold"
     assert float(trigger_row["pressure_gauge_hpa"]) == 1110.0
-    assert float(trigger_row["pace_pressure_hpa"]) == 1082.1
+    assert trigger_row["pace_pressure_hpa"] == ""
     assert float(trigger_row["dewpoint_c"]) == -12.3
     assert float(trigger_row["dew_temp_c"]) == 24.5
     assert float(trigger_row["dew_rh_pct"]) == 45.6
-    assert any(row["trace_stage"] == "route_sealed" for row in trace_rows)
+    route_row = next(row for row in trace_rows if row["trace_stage"] == "route_sealed")
+    assert float(route_row["pace_pressure_hpa"]) == 1082.1
 
 
 def test_pressurize_co2_uses_transition_gauge_cache_before_direct_read(monkeypatch, tmp_path: Path) -> None:
@@ -1039,6 +1108,7 @@ def test_pressurize_co2_uses_transition_gauge_cache_before_direct_read(monkeypat
         messages.append,
         lambda *_: None,
     )
+    _allow_preseal_final_atmosphere_exit(runner)
 
     class _FakePace:
         def __init__(self, sealed: dict[str, bool]) -> None:
@@ -1063,10 +1133,7 @@ def test_pressurize_co2_uses_transition_gauge_cache_before_direct_read(monkeypat
 
     sealed = {"done": False}
     runner.devices["pace"].sealed = sealed
-    runner._set_pressure_controller_vent = types.MethodType(
-        lambda self, vent_on, reason="": None,
-        runner,
-    )
+    runner._set_pressure_controller_vent = types.MethodType(lambda self, vent_on, reason="", **_kwargs: None, runner)
     runner._apply_valve_states = types.MethodType(
         lambda self, states: sealed.__setitem__("done", True),
         runner,
@@ -1115,6 +1182,7 @@ def test_pressurize_co2_uses_cached_fast_trace_values_for_trigger_and_route_seal
         messages.append,
         lambda *_: None,
     )
+    _allow_preseal_final_atmosphere_exit(runner)
 
     class _FailIfPaceRead:
         def read_pressure(self):
@@ -1136,7 +1204,7 @@ def test_pressurize_co2_uses_cached_fast_trace_values_for_trigger_and_route_seal
     runner.devices["pressure_gauge"] = _FailIfGaugeRead()
     runner.devices["dewpoint"] = _FailIfDewRead()
     runner._set_pressure_controller_vent = types.MethodType(
-        lambda self, vent_on, reason="": calls.append(f"vent_{bool(vent_on)}:{reason}"),
+        lambda self, vent_on, reason="", **_kwargs: calls.append(f"vent_{bool(vent_on)}:{reason}"),
         runner,
     )
     runner._apply_valve_states = types.MethodType(
@@ -1211,6 +1279,7 @@ def test_pressurize_co2_no_topoff_uses_cached_fast_trace_values_and_defers_live_
         messages.append,
         lambda *_: None,
     )
+    _allow_preseal_final_atmosphere_exit(runner)
 
     class _FailIfGaugeRead:
         def read_pressure(self):
@@ -1229,7 +1298,7 @@ def test_pressurize_co2_no_topoff_uses_cached_fast_trace_values_and_defers_live_
     runner.devices["dewpoint"] = _FailIfDewRead()
     runner._active_route_requires_preseal_topoff = False
     runner._set_pressure_controller_vent = types.MethodType(
-        lambda self, vent_on, reason="": calls.append(f"vent_{bool(vent_on)}:{reason}"),
+        lambda self, vent_on, reason="", **_kwargs: calls.append(f"vent_{bool(vent_on)}:{reason}"),
         runner,
     )
     runner._apply_valve_states = types.MethodType(
@@ -1304,6 +1373,7 @@ def test_pressurize_co2_no_topoff_waits_open_route_before_sealing_by_default(
         messages.append,
         lambda *_: None,
     )
+    _allow_preseal_final_atmosphere_exit(runner)
 
     class _FailIfGaugeRead:
         def read_pressure(self):
@@ -1333,7 +1403,7 @@ def test_pressurize_co2_no_topoff_waits_open_route_before_sealing_by_default(
     runner.devices["dewpoint"] = _FailIfDewRead()
     runner._active_route_requires_preseal_topoff = False
     runner._set_pressure_controller_vent = types.MethodType(
-        lambda self, vent_on, reason="": calls.append(f"vent_{bool(vent_on)}:{reason}"),
+        lambda self, vent_on, reason="", **_kwargs: calls.append(f"vent_{bool(vent_on)}:{reason}"),
         runner,
     )
     runner._apply_valve_states = types.MethodType(
@@ -1514,20 +1584,12 @@ def test_set_pressure_to_target_reuses_preseal_ready_state_without_repeating_ven
     runner = CalibrationRunner({}, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
     vent_calls: list[str] = []
     runner._set_pressure_controller_vent = types.MethodType(
-        lambda self, vent_on, reason="": vent_calls.append(f"{vent_on}:{reason}") or True,
+        lambda self, vent_on, reason="", **_kwargs: vent_calls.append(f"{vent_on}:{reason}") or True,
         runner,
     )
 
     point = _point_co2()
-    runner._preseal_pressure_control_ready_state = {
-        "phase": "co2",
-        "point_row": point.index,
-        "target_pressure_hpa": point.target_pressure_hpa,
-        "recorded_wall_ts": runner_module.time.time(),
-        "route_sealed": True,
-        "atmosphere_hold_stopped": True,
-        "failures": [],
-    }
+    runner._preseal_pressure_control_ready_state = _valid_preseal_ready_state(point)
 
     assert runner._set_pressure_to_target(point) is True
     logger.close()
@@ -1572,7 +1634,7 @@ def test_set_pressure_to_target_reuses_deferred_preseal_ready_state_without_repe
     vent_calls: list[str] = []
     ready_calls: list[tuple[str, bool, str]] = []
     runner._set_pressure_controller_vent = types.MethodType(
-        lambda self, vent_on, reason="": vent_calls.append(f"{vent_on}:{reason}") or True,
+        lambda self, vent_on, reason="", **_kwargs: vent_calls.append(f"{vent_on}:{reason}") or True,
         runner,
     )
 
@@ -1591,16 +1653,10 @@ def test_set_pressure_to_target_reuses_deferred_preseal_ready_state_without_repe
     runner._ensure_pressure_controller_ready_for_control = types.MethodType(_fake_ensure_ready, runner)
 
     point = _point_co2()
-    runner._preseal_pressure_control_ready_state = {
-        "phase": "co2",
-        "point_row": point.index,
-        "target_pressure_hpa": point.target_pressure_hpa,
-        "recorded_wall_ts": runner_module.time.time(),
-        "route_sealed": True,
-        "atmosphere_hold_stopped": True,
-        "ready_verification_pending": True,
-        "failures": [],
-    }
+    runner._preseal_pressure_control_ready_state = _valid_preseal_ready_state(
+        point,
+        ready_verification_pending=True,
+    )
 
     assert runner._set_pressure_to_target(point) is True
     logger.close()
@@ -1609,7 +1665,7 @@ def test_set_pressure_to_target_reuses_deferred_preseal_ready_state_without_repe
     assert ready_calls == [
         (
             "co2",
-            True,
+            False,
             "reused preseal vent-off state; deferred live ready check before setpoint",
         )
     ]
@@ -1619,15 +1675,12 @@ def test_set_pressure_to_target_reuses_deferred_preseal_ready_state_without_repe
 def test_run_co2_point_skips_downstream_flow_when_preseal_analyzer_gate_fails(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    _isolate_co2_source_sequence(runner)
     calls = []
 
     runner._set_temperature = types.MethodType(lambda self, target: True, runner)
     runner._set_co2_route_baseline = types.MethodType(
         lambda self, reason="": calls.append(f"co2_baseline:{reason}"),
-        runner,
-    )
-    runner._set_valves_for_co2 = types.MethodType(
-        lambda self, point: calls.append(f"co2_valves_{getattr(point, 'index', None)}"),
         runner,
     )
     runner._refresh_pressure_controller_atmosphere_hold = types.MethodType(
@@ -1651,8 +1704,6 @@ def test_run_co2_point_skips_downstream_flow_when_preseal_analyzer_gate_fails(tm
     logger.close()
 
     assert calls == [
-        "co2_baseline:before CO2 route conditioning",
-        "co2_valves_3",
         "co2_soak_3",
         "co2_preseal_sensor_gate_3",
         "co2_baseline:after CO2 preseal analyzer gate failure",
@@ -1662,11 +1713,11 @@ def test_run_co2_point_skips_downstream_flow_when_preseal_analyzer_gate_fails(tm
 def test_run_co2_point_waits_after_pressure_stable_before_sampling(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    _isolate_co2_source_sequence(runner)
     calls = []
 
     runner._set_temperature = types.MethodType(lambda self, target: True, runner)
     runner._set_co2_route_baseline = types.MethodType(lambda self, reason="": calls.append(f"co2_baseline:{reason}"), runner)
-    runner._set_valves_for_co2 = types.MethodType(lambda self, point: calls.append("co2_valves"), runner)
     runner._refresh_pressure_controller_atmosphere_hold = types.MethodType(
         lambda self, force=False, reason="": calls.append(f"refresh_{bool(force)}:{reason}"),
         runner,
@@ -1694,8 +1745,6 @@ def test_run_co2_point_waits_after_pressure_stable_before_sampling(tmp_path: Pat
     logger.close()
 
     assert calls == [
-        "co2_baseline:before CO2 route conditioning",
-        "co2_valves",
         "co2_soak",
         "co2_preseal_sensor_gate",
         "pressurize",
@@ -1709,13 +1758,13 @@ def test_run_co2_point_waits_after_pressure_stable_before_sampling(tmp_path: Pat
 def test_run_co2_point_ambient_only_samples_open_route_without_pressure_control(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    _isolate_co2_source_sequence(runner)
     calls = []
     point = _point_co2()
     ambient_ref = runner._ambient_pressure_reference_point(point)
 
     runner._set_temperature = types.MethodType(lambda self, target: True, runner)
     runner._set_co2_route_baseline = types.MethodType(lambda self, reason="": calls.append(f"co2_baseline:{reason}"), runner)
-    runner._set_valves_for_co2 = types.MethodType(lambda self, point: calls.append("co2_valves"), runner)
     runner._wait_co2_route_soak_before_seal = types.MethodType(lambda self, point: calls.append("co2_soak") or True, runner)
     runner._wait_co2_preseal_primary_sensor_gate = types.MethodType(
         lambda self, point: calls.append("co2_preseal_sensor_gate") or True,
@@ -1736,8 +1785,6 @@ def test_run_co2_point_ambient_only_samples_open_route_without_pressure_control(
     logger.close()
 
     assert calls == [
-        "co2_baseline:before CO2 route conditioning",
-        "co2_valves",
         "co2_soak",
         "co2_preseal_sensor_gate",
         "sample_co2_co2_groupa_200ppm_ambient",
@@ -1753,6 +1800,7 @@ def test_run_co2_point_ambient_only_samples_open_route_without_pressure_control(
 def test_run_co2_point_runs_ambient_before_sealed_pressure_control(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    _isolate_co2_source_sequence(runner)
     calls = []
     point = _point_co2()
     ambient_ref = runner._ambient_pressure_reference_point(point)
@@ -1770,7 +1818,6 @@ def test_run_co2_point_runs_ambient_before_sealed_pressure_control(tmp_path: Pat
 
     runner._set_temperature = types.MethodType(lambda self, target: True, runner)
     runner._set_co2_route_baseline = types.MethodType(lambda self, reason="": calls.append(f"co2_baseline:{reason}"), runner)
-    runner._set_valves_for_co2 = types.MethodType(lambda self, point: calls.append("co2_valves"), runner)
     runner._wait_co2_route_soak_before_seal = types.MethodType(lambda self, point: calls.append("co2_soak") or True, runner)
     runner._wait_co2_preseal_primary_sensor_gate = types.MethodType(
         lambda self, point: calls.append("co2_preseal_sensor_gate") or True,
@@ -1791,8 +1838,6 @@ def test_run_co2_point_runs_ambient_before_sealed_pressure_control(tmp_path: Pat
     logger.close()
 
     assert calls == [
-        "co2_baseline:before CO2 route conditioning",
-        "co2_valves",
         "co2_soak",
         "co2_preseal_sensor_gate",
         "sample_co2_co2_groupa_200ppm_ambient",
@@ -1818,6 +1863,7 @@ def test_run_co2_point_flushes_ambient_exports_after_route_seal(tmp_path: Path) 
         lambda *_: None,
         lambda *_: None,
     )
+    _isolate_co2_source_sequence(runner)
     order: list[str] = []
     point = _point_co2()
     ambient_ref = runner._ambient_pressure_reference_point(point)
@@ -1835,7 +1881,6 @@ def test_run_co2_point_flushes_ambient_exports_after_route_seal(tmp_path: Path) 
 
     runner._set_temperature = types.MethodType(lambda self, target: True, runner)
     runner._set_co2_route_baseline = types.MethodType(lambda self, reason="": None, runner)
-    runner._set_valves_for_co2 = types.MethodType(lambda self, point: None, runner)
     runner._wait_co2_route_soak_before_seal = types.MethodType(lambda self, point: True, runner)
     runner._wait_co2_preseal_primary_sensor_gate = types.MethodType(lambda self, point: True, runner)
     runner._wait_for_sampling_freshness_gate = types.MethodType(
@@ -1900,6 +1945,7 @@ def test_run_co2_point_flushes_ambient_exports_after_route_seal(tmp_path: Path) 
 def test_run_co2_point_skips_preseal_topoff_when_1100_not_selected(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    _isolate_co2_source_sequence(runner)
     calls = []
     point = _point_co2()
     ambient_ref = runner._ambient_pressure_reference_point(point)
@@ -1917,7 +1963,6 @@ def test_run_co2_point_skips_preseal_topoff_when_1100_not_selected(tmp_path: Pat
 
     runner._set_temperature = types.MethodType(lambda self, target: True, runner)
     runner._set_co2_route_baseline = types.MethodType(lambda self, reason="": calls.append(f"co2_baseline:{reason}"), runner)
-    runner._set_valves_for_co2 = types.MethodType(lambda self, point: calls.append("co2_valves"), runner)
     runner._wait_co2_route_soak_before_seal = types.MethodType(lambda self, point: calls.append("co2_soak") or True, runner)
     runner._wait_co2_preseal_primary_sensor_gate = types.MethodType(
         lambda self, point: calls.append("co2_preseal_sensor_gate") or True,
@@ -1943,8 +1988,6 @@ def test_run_co2_point_skips_preseal_topoff_when_1100_not_selected(tmp_path: Pat
     logger.close()
 
     assert calls == [
-        "co2_baseline:before CO2 route conditioning",
-        "co2_valves",
         "co2_soak",
         "co2_preseal_sensor_gate",
         "sample_co2_co2_groupa_200ppm_ambient",
@@ -1959,6 +2002,7 @@ def test_run_co2_point_skips_preseal_topoff_when_1100_not_selected(tmp_path: Pat
 def test_run_co2_point_keeps_preseal_topoff_when_1100_selected(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    _isolate_co2_source_sequence(runner)
     calls = []
     point = _point_co2()
     ambient_ref = runner._ambient_pressure_reference_point(point)
@@ -1976,7 +2020,6 @@ def test_run_co2_point_keeps_preseal_topoff_when_1100_selected(tmp_path: Path) -
 
     runner._set_temperature = types.MethodType(lambda self, target: True, runner)
     runner._set_co2_route_baseline = types.MethodType(lambda self, reason="": calls.append(f"co2_baseline:{reason}"), runner)
-    runner._set_valves_for_co2 = types.MethodType(lambda self, point: calls.append("co2_valves"), runner)
     runner._wait_co2_route_soak_before_seal = types.MethodType(lambda self, point: calls.append("co2_soak") or True, runner)
     runner._wait_co2_preseal_primary_sensor_gate = types.MethodType(
         lambda self, point: calls.append("co2_preseal_sensor_gate") or True,
@@ -2002,8 +2045,6 @@ def test_run_co2_point_keeps_preseal_topoff_when_1100_selected(tmp_path: Path) -
     logger.close()
 
     assert calls == [
-        "co2_baseline:before CO2 route conditioning",
-        "co2_valves",
         "co2_soak",
         "co2_preseal_sensor_gate",
         "sample_co2_co2_groupa_200ppm_ambient",
@@ -2024,6 +2065,7 @@ def test_run_co2_point_reseals_once_after_pressure_timeout(tmp_path: Path) -> No
         lambda *_: None,
         lambda *_: None,
     )
+    _isolate_co2_source_sequence(runner)
     calls = []
     pressure_attempts = {"count": 0}
     pressure_ref = CalibrationPoint(
@@ -2040,10 +2082,6 @@ def test_run_co2_point_reseals_once_after_pressure_timeout(tmp_path: Path) -> No
 
     runner._set_temperature = types.MethodType(lambda self, target: True, runner)
     runner._set_co2_route_baseline = types.MethodType(lambda self, reason="": calls.append(f"co2_baseline:{reason}"), runner)
-    runner._set_valves_for_co2 = types.MethodType(
-        lambda self, point: calls.append(f"co2_valves_{int(point.co2_ppm or 0)}"),
-        runner,
-    )
     runner._wait_co2_route_soak_before_seal = types.MethodType(lambda self, point: calls.append("co2_soak") or True, runner)
     runner._wait_co2_preseal_primary_sensor_gate = types.MethodType(
         lambda self, point: calls.append("co2_preseal_sensor_gate") or True,
@@ -2073,8 +2111,6 @@ def test_run_co2_point_reseals_once_after_pressure_timeout(tmp_path: Path) -> No
     logger.close()
 
     assert calls == [
-        "co2_baseline:before CO2 route conditioning",
-        "co2_valves_200",
         "co2_soak",
         "co2_preseal_sensor_gate",
         "pressurize_co2_200",
@@ -2089,6 +2125,7 @@ def test_run_co2_point_reseals_once_after_pressure_timeout(tmp_path: Path) -> No
 def test_run_co2_point_falls_back_to_lower_pressure_when_highest_seal_fails(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    _isolate_co2_source_sequence(runner)
     calls = []
     pressure_refs = [
         CalibrationPoint(
@@ -2131,7 +2168,6 @@ def test_run_co2_point_falls_back_to_lower_pressure_when_highest_seal_fails(tmp_
         lambda self, reason="": calls.append(f"co2_baseline:{reason}"),
         runner,
     )
-    runner._set_valves_for_co2 = types.MethodType(lambda self, point: calls.append(f"co2_valves_{int(point.co2_ppm or 0)}"), runner)
     runner._wait_co2_route_soak_before_seal = types.MethodType(lambda self, point: calls.append("co2_soak") or True, runner)
     runner._wait_co2_preseal_primary_sensor_gate = types.MethodType(
         lambda self, point: calls.append("co2_preseal_sensor_gate") or True,
@@ -2160,8 +2196,6 @@ def test_run_co2_point_falls_back_to_lower_pressure_when_highest_seal_fails(tmp_
     logger.close()
 
     assert calls == [
-        "co2_baseline:before CO2 route conditioning",
-        "co2_valves_200",
         "co2_soak",
         "co2_preseal_sensor_gate",
         "pressurize_1100",
@@ -2220,6 +2254,8 @@ def test_wait_co2_preseal_primary_sensor_gate_uses_preseal_overrides(tmp_path: P
     assert runner._wait_co2_preseal_primary_sensor_gate(point) is True
     logger.close()
 
+    loop_callback = captured.pop("loop_callback")
+    assert callable(loop_callback)
     assert captured == {
         "point": point,
         "value_key": "co2_ratio_f",
@@ -2263,6 +2299,7 @@ def test_wait_h2o_precondition_primary_sensor_gate_uses_preseal_overrides(tmp_pa
         lambda *_: None,
         lambda *_: None,
     )
+    _allow_open_route_sampling(runner)
     point = _point_h2o()
     captured: dict[str, object] = {}
     trace_stages: list[str] = []
@@ -2346,8 +2383,8 @@ def test_open_h2o_route_and_wait_ready_runs_water_route_gates(tmp_path: Path) ->
         lambda self, vent_on, reason="": calls.append(f"vent_{bool(vent_on)}"),
         runner,
     )
-    runner._set_h2o_path = types.MethodType(
-        lambda self, is_open, point=None: calls.append(f"h2o_path_{bool(is_open)}"),
+    runner._open_route_with_pressure_guard = types.MethodType(
+        lambda self, point, **kwargs: calls.append("route_pressure_guard") or True,
         runner,
     )
     runner._append_pressure_trace_row = types.MethodType(lambda self, **kwargs: None, runner)
@@ -2370,7 +2407,7 @@ def test_open_h2o_route_and_wait_ready_runs_water_route_gates(tmp_path: Path) ->
 
     assert calls == [
         "vent_True",
-        "h2o_path_True",
+        "route_pressure_guard",
         "dew_ready",
         "dew_alignment",
         "dew_gate:H2O route opened",
@@ -2667,7 +2704,7 @@ def test_run_co2_point_stops_when_cold_quality_gate_rejects(tmp_path: Path) -> N
         runner,
     )
     runner._open_co2_route_for_conditioning = types.MethodType(
-        lambda self, point_arg, point_tag="": None,
+        lambda self, point_arg, point_tag="": True,
         runner,
     )
     runner._wait_co2_route_soak_before_seal = types.MethodType(lambda self, point_arg: True, runner)
@@ -2789,6 +2826,7 @@ def test_wait_co2_route_soak_runs_dewpoint_gate_only_after_fixed_soak_and_waits_
         lambda *_: None,
         lambda *_: None,
     )
+    _allow_open_route_sampling(runner)
     point = _point_co2()
     clock = {"now": 0.0}
     gate_read_times: list[float] = []
@@ -2878,6 +2916,7 @@ def test_wait_co2_route_soak_tolerates_single_transient_dewpoint_gate_read_missi
         lambda *_: None,
         lambda *_: None,
     )
+    _allow_open_route_sampling(runner)
     point = _point_co2()
     clock = {"now": 0.0}
     reads: list[str] = []
@@ -2950,6 +2989,7 @@ def test_wait_co2_route_soak_fails_when_dewpoint_gate_times_out(monkeypatch, tmp
         lambda *_: None,
         lambda *_: None,
     )
+    _allow_open_route_sampling(runner)
     point = _point_co2()
     clock = {"now": 0.0}
     dewpoints = iter([-30.0, -29.8, -29.6, -29.4, -29.2, -29.0])
@@ -3014,6 +3054,7 @@ def test_wait_first_co2_route_soak_uses_after_soak_timeout_budget(
         lambda *_: None,
         lambda *_: None,
     )
+    _allow_open_route_sampling(runner)
     point = _point_co2()
     clock = {"now": 0.0}
     dewpoints = iter([-30.0, -29.8, -29.6, -29.4, -29.2, -29.0])
@@ -3078,6 +3119,7 @@ def test_wait_co2_route_soak_warn_policy_allows_following_pressure_seal(
         lambda *_: None,
         lambda *_: None,
     )
+    _allow_open_route_sampling(runner)
     point = _point_co2()
     clock = {"now": 0.0}
     dewpoints = iter([-30.0, -29.8, -29.6, -29.4, -29.2, -29.0])
@@ -3142,6 +3184,7 @@ def test_wait_h2o_route_dewpoint_gate_warn_policy_allows_open_route_sampling(
         lambda *_: None,
         lambda *_: None,
     )
+    _allow_open_route_sampling(runner)
     point = _point_h2o()
     clock = {"now": 0.0}
     dewpoints = iter([-9.0, -8.8, -8.6, -8.4, -8.2, -8.0])
@@ -3243,12 +3286,13 @@ def test_pressurize_and_hold_uses_post_h2o_vent_off_wait(monkeypatch, tmp_path: 
         lambda *_: None,
         lambda *_: None,
     )
+    _allow_preseal_final_atmosphere_exit(runner)
     sleeps: list[float] = []
     point = _point_co2()
     clock = {"now": 0.0}
 
     runner._active_post_h2o_co2_zero_flush = True
-    runner._set_pressure_controller_vent = types.MethodType(lambda self, vent_on, reason="": None, runner)
+    runner._set_pressure_controller_vent = types.MethodType(lambda self, vent_on, reason="", **_kwargs: None, runner)
     runner._apply_valve_states = types.MethodType(lambda self, open_valves: None, runner)
     monkeypatch.setattr(runner_module.time, "time", lambda: clock["now"])
 
@@ -3288,6 +3332,7 @@ def test_pressurize_and_hold_waits_for_invalid_gauge_before_timeout_when_thresho
         messages.append,
         lambda *_: None,
     )
+    _allow_preseal_final_atmosphere_exit(runner)
     point = _point_co2()
     sleeps: list[float] = []
     clock = {"now": 0.0}
@@ -3301,7 +3346,7 @@ def test_pressurize_and_hold_waits_for_invalid_gauge_before_timeout_when_thresho
 
     runner.devices["pressure_gauge"] = _FakeGauge()
     runner._active_post_h2o_co2_zero_flush = False
-    runner._set_pressure_controller_vent = types.MethodType(lambda self, vent_on, reason="": None, runner)
+    runner._set_pressure_controller_vent = types.MethodType(lambda self, vent_on, reason="", **_kwargs: None, runner)
     runner._apply_valve_states = types.MethodType(lambda self, open_valves: None, runner)
     monkeypatch.setattr(runner_module.time, "time", lambda: clock["now"])
 
@@ -3340,12 +3385,13 @@ def test_pressurize_and_hold_keeps_timeout_fallback_when_pressure_gauge_is_unava
         messages.append,
         lambda *_: None,
     )
+    _allow_preseal_final_atmosphere_exit(runner)
     point = _point_co2()
     sleeps: list[float] = []
     clock = {"now": 0.0}
 
     runner._active_post_h2o_co2_zero_flush = False
-    runner._set_pressure_controller_vent = types.MethodType(lambda self, vent_on, reason="": None, runner)
+    runner._set_pressure_controller_vent = types.MethodType(lambda self, vent_on, reason="", **_kwargs: None, runner)
     runner._apply_valve_states = types.MethodType(lambda self, open_valves: None, runner)
     monkeypatch.setattr(runner_module.time, "time", lambda: clock["now"])
 
@@ -3397,7 +3443,7 @@ def test_pressurize_and_hold_fails_when_valid_pressure_gauge_stalls_below_thresh
             return next(self.values)
 
     runner.devices["pressure_gauge"] = _FakeGauge()
-    runner._set_pressure_controller_vent = types.MethodType(lambda self, vent_on, reason="": None, runner)
+    runner._set_pressure_controller_vent = types.MethodType(lambda self, vent_on, reason="", **_kwargs: None, runner)
     runner._apply_valve_states = types.MethodType(lambda self, open_valves: None, runner)
     monkeypatch.setattr(runner_module.time, "time", lambda: clock["now"])
 
@@ -3440,6 +3486,7 @@ def test_pressurize_and_hold_h2o_seals_early_when_pressure_gauge_reaches_thresho
         messages.append,
         lambda *_: None,
     )
+    _allow_preseal_final_atmosphere_exit(runner)
 
     class _FakePace:
         def read_pressure(self):
@@ -3475,7 +3522,7 @@ def test_pressurize_and_hold_h2o_seals_early_when_pressure_gauge_reaches_thresho
         runner,
     )
     runner._set_pressure_controller_vent = types.MethodType(
-        lambda self, vent_on, reason="": calls.append(f"vent_{bool(vent_on)}:{reason}"),
+        lambda self, vent_on, reason="", **_kwargs: calls.append(f"vent_{bool(vent_on)}:{reason}"),
         runner,
     )
     runner._set_h2o_path = types.MethodType(
@@ -3524,6 +3571,7 @@ def test_pressurize_and_hold_h2o_waits_for_invalid_gauge_before_timeout_when_thr
         messages.append,
         lambda *_: None,
     )
+    _allow_preseal_final_atmosphere_exit(runner)
     point = _point_h2o()
     sleeps: list[float] = []
     clock = {"now": 0.0}
@@ -3544,7 +3592,7 @@ def test_pressurize_and_hold_h2o_waits_for_invalid_gauge_before_timeout_when_thr
         ),
         runner,
     )
-    runner._set_pressure_controller_vent = types.MethodType(lambda self, vent_on, reason="": None, runner)
+    runner._set_pressure_controller_vent = types.MethodType(lambda self, vent_on, reason="", **_kwargs: None, runner)
     runner._set_h2o_path = types.MethodType(lambda self, is_open, point=None: None, runner)
     monkeypatch.setattr(runner_module.time, "time", lambda: clock["now"])
 
@@ -3583,6 +3631,7 @@ def test_pressurize_and_hold_seals_immediately_when_preseal_topoff_disabled(
         messages.append,
         lambda *_: None,
     )
+    _allow_preseal_final_atmosphere_exit(runner)
     point = _point_co2()
     sleeps: list[float] = []
     clock = {"now": 0.0}
@@ -3594,7 +3643,7 @@ def test_pressurize_and_hold_seals_immediately_when_preseal_topoff_disabled(
         runner,
     )
     runner._set_pressure_controller_vent = types.MethodType(
-        lambda self, vent_on, reason="": calls.append(f"vent_{bool(vent_on)}:{reason}"),
+        lambda self, vent_on, reason="", **_kwargs: calls.append(f"vent_{bool(vent_on)}:{reason}"),
         runner,
     )
     runner._apply_valve_states = types.MethodType(
@@ -3631,6 +3680,7 @@ def test_pressurize_and_hold_seals_immediately_when_preseal_topoff_disabled(
 def test_run_h2o_group_skips_preseal_topoff_when_1100_not_selected(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    _allow_open_route_sampling(runner)
     calls = []
     lead = _point_h2o()
     ambient_ref = runner._ambient_pressure_reference_point(lead)
@@ -3697,14 +3747,15 @@ def test_run_h2o_group_skips_preseal_topoff_when_1100_not_selected(tmp_path: Pat
         "set_pressure_500",
         "wait_pressure_delay_500",
         "sample_h2o_h2o_20c_30rh_500hpa",
-        "vent_True",
         "baseline_route",
+        "vent_True",
     ]
 
 
 def test_run_h2o_group_ambient_only_skips_preseal_soak(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    _allow_open_route_sampling(runner)
     calls = []
     lead = _point_h2o()
     ambient_ref = runner._ambient_pressure_reference_point(lead)
@@ -3744,8 +3795,8 @@ def test_run_h2o_group_ambient_only_skips_preseal_soak(tmp_path: Path) -> None:
         "wait_hgen_setpoint",
         "open_route_ready",
         "sample_h2o_h2o_20c_30rh_ambient",
-        "vent_True",
         "baseline_route",
+        "vent_True",
     ]
 
 
@@ -3773,6 +3824,7 @@ def test_run_temperature_group_skip_h2o_only_runs_co2(tmp_path: Path) -> None:
 def test_run_temperature_group_h2o_only_skips_co2(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({"workflow": {"route_mode": "h2o_only"}}, {}, logger, lambda *_: None, lambda *_: None)
+    _force_h2o_route_mechanics(runner, "h2o_only")
     calls = []
 
     runner._run_h2o_group = types.MethodType(
@@ -3883,6 +3935,7 @@ def test_run_temperature_group_ambient_only_filters_h2o_group_rows_before_execut
         lambda *_: None,
         lambda *_: None,
     )
+    _force_h2o_route_mechanics(runner, "h2o_only")
     calls: list[dict[str, object]] = []
 
     runner._run_h2o_group = types.MethodType(
@@ -3923,6 +3976,7 @@ def test_run_temperature_group_ambient_only_without_explicit_h2o_rows_still_runs
         lambda *_: None,
         lambda *_: None,
     )
+    _force_h2o_route_mechanics(runner, "h2o_only")
     calls: list[dict[str, object]] = []
 
     runner._run_h2o_group = types.MethodType(
@@ -3963,6 +4017,7 @@ def test_run_temperature_group_ambient_only_preconditions_next_group_h2o_without
         lambda *_: None,
         lambda *_: None,
     )
+    _force_h2o_route_mechanics(runner)
     prepared: list[dict[str, object]] = []
 
     runner._prepare_humidity_generator = types.MethodType(

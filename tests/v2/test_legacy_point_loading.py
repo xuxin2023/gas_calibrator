@@ -8,6 +8,9 @@ from gas_calibrator.v2.core.calibration_service import CalibrationService
 from gas_calibrator.v2.core.point_parser import LegacyExcelPointLoader, PointParser
 
 
+REPO_POINTS = Path(__file__).resolve().parents[2] / "points.xlsx"
+
+
 def test_point_parser_uses_legacy_excel_loader_for_title_row_workbooks(tmp_path: Path) -> None:
     openpyxl = pytest.importorskip("openpyxl")
     h2o_text = (
@@ -45,6 +48,10 @@ def test_point_parser_uses_legacy_excel_loader_for_title_row_workbooks(tmp_path:
     assert points[1].pressure_hpa == 1100.0
 
 
+@pytest.mark.skipif(
+    not REPO_POINTS.exists(),
+    reason="real repository points.xlsx fixture is not present; do not fabricate legacy calibration points",
+)
 def test_calibration_service_load_points_matches_v1_legacy_order_for_repo_points(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[2]
     config = AppConfig.from_dict(
@@ -73,6 +80,10 @@ def test_calibration_service_load_points_matches_v1_legacy_order_for_repo_points
         assert routes == sorted(routes, key=lambda route: 0 if route == "h2o" else 1)
 
 
+@pytest.mark.skipif(
+    not REPO_POINTS.exists(),
+    reason="real repository points.xlsx fixture is not present; do not fabricate legacy calibration points",
+)
 def test_calibration_service_applies_selected_temperature_filter_before_grouping(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[2]
     config = AppConfig.from_dict(

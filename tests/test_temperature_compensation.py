@@ -7,6 +7,9 @@ from gas_calibrator.calibration.temperature_compensation_fit import (
     fit_temperature_compensation,
     format_senco_coeffs,
 )
+from gas_calibrator.export.temperature_compensation_export import (
+    build_temperature_compensation_results,
+)
 from gas_calibrator.logging_utils import RunLogger
 from gas_calibrator.workflow.runner import CalibrationRunner
 from gas_calibrator.data.points import CalibrationPoint
@@ -44,6 +47,61 @@ def test_fit_temperature_compensation_downgrades_safely() -> None:
 def test_format_senco_coeffs_uses_scientific_notation() -> None:
     formatted = format_senco_coeffs((0.0, 1.0, -0.15, 2.5e-6))
     assert formatted == ("0.00000e00", "1.00000e00", "-1.50000e-01", "2.50000e-06")
+
+
+def test_temperature_fit_export_requires_fit_even_when_channel_gate_allows() -> None:
+    observations = [
+        {
+            "analyzer_id": "001",
+            "ref_temp_c": 20.0,
+            "ref_temp_source": "digital_thermometer",
+            "cell_temp_raw_c": 20.5,
+            "shell_temp_raw_c": 21.0,
+            "valid_for_cell_fit": True,
+            "valid_for_shell_fit": True,
+        }
+    ]
+
+    results = build_temperature_compensation_results(
+        observations,
+        polynomial_order=3,
+        export_commands=True,
+        command_eligibility={
+            ("001", "SENCO7"): (True, ""),
+            ("001", "SENCO8"): (True, ""),
+        },
+    )
+
+    assert {row["fit_ok"] for row in results} == {False}
+    assert {row["write_eligible"] for row in results} == {False}
+    assert {row["write_block_reason"] for row in results} == {"temperature_fit_not_ok"}
+    assert {row["command_string"] for row in results} == {""}
+
+
+def test_temperature_fit_export_keeps_valid_multi_point_commands() -> None:
+    observations = [
+        {
+            "analyzer_id": "001",
+            "ref_temp_c": ref_temp_c,
+            "ref_temp_source": "digital_thermometer",
+            "cell_temp_raw_c": raw_temp_c,
+            "shell_temp_raw_c": raw_temp_c + 0.2,
+            "valid_for_cell_fit": True,
+            "valid_for_shell_fit": True,
+        }
+        for raw_temp_c, ref_temp_c in ((0.5, 0.0), (20.5, 20.0), (40.5, 40.0))
+    ]
+
+    results = build_temperature_compensation_results(
+        observations,
+        polynomial_order=3,
+        export_commands=True,
+    )
+
+    assert {row["fit_ok"] for row in results} == {True}
+    assert {row["write_eligible"] for row in results} == {True}
+    assert {row["write_block_reason"] for row in results} == {""}
+    assert all(str(row["command_string"]).startswith(row["senco_channel"]) for row in results)
 
 
 class _FakeAnalyzer:
@@ -107,7 +165,7 @@ class _FakeChamber:
         return None
 
 
-def test_runner_temperature_calibration_snapshot_and_export(tmp_path: Path) -> None:
+def test_runner_single_temperature_snapshot_blocks_unfitted_commands(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     cfg = {
         "temperature_calibration": {
@@ -156,8 +214,15 @@ def test_runner_temperature_calibration_snapshot_and_export(tmp_path: Path) -> N
     shell_row = next(row for row in rows if row["fit_type"] == "shell")
     assert cell_row["senco_channel"] == "SENCO7"
     assert shell_row["senco_channel"] == "SENCO8"
-    assert cell_row["command_string"] == "SENCO7,YGAS,FFF,0.00000e00,1.00000e00,0.00000e00,0.00000e00"
-    assert shell_row["command_string"] == "SENCO8,YGAS,FFF,0.00000e00,1.00000e00,0.00000e00,0.00000e00"
+    assert cell_row["fit_ok"] == "False"
+    assert shell_row["fit_ok"] == "False"
+    assert cell_row["write_eligible"] == "False"
+    assert shell_row["write_eligible"] == "False"
+    assert cell_row["write_block_reason"] == "temperature_fit_not_ok"
+    assert shell_row["write_block_reason"] == "temperature_fit_not_ok"
+    assert cell_row["command_string"] == ""
+    assert shell_row["command_string"] == ""
+    assert commands_txt.read_text(encoding="utf-8") == ""
 
 
 def test_runner_temperature_calibration_shell_missing_downgrades(tmp_path: Path) -> None:

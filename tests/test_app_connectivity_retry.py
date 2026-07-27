@@ -6,6 +6,7 @@ from gas_calibrator.ui import app as app_mod
 
 def _make_stub_app():
     app = app_mod.App.__new__(app_mod.App)
+    app.root = None
     app.statuses = []
     app.logs = []
     app.set_status = app.statuses.append

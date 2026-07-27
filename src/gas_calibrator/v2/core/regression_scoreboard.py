@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from gas_calibrator.utils.file_io import write_json
+
 from .golden_dataset_registry import (
     GOLDEN_DATASET_REGISTRY_FILENAME,
     build_golden_dataset_registry,
@@ -285,9 +287,9 @@ def generate_regression_scoreboard(
         **_BOUNDARY_FIELDS,
     }
 
-    _write_json(target_dir / REGRESSION_SCOREBOARD_FILENAME, scoreboard)
-    _write_json(target_dir / BUNDLE_DIFF_SUMMARY_FILENAME, bundle_diff_summary)
-    _write_json(target_dir / ARTIFACT_SCHEMA_DIFF_FILENAME, artifact_schema_diff)
+    write_json(target_dir / REGRESSION_SCOREBOARD_FILENAME, scoreboard)
+    write_json(target_dir / BUNDLE_DIFF_SUMMARY_FILENAME, bundle_diff_summary)
+    write_json(target_dir / ARTIFACT_SCHEMA_DIFF_FILENAME, artifact_schema_diff)
     (target_dir / REGRESSION_SCOREBOARD_MARKDOWN_FILENAME).write_text(
         _render_scoreboard_markdown(scoreboard),
         encoding="utf-8",
@@ -1183,8 +1185,3 @@ def _load_json(path: Path) -> dict[str, Any]:
     except Exception:
         return {}
     return dict(payload) if isinstance(payload, dict) else {}
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

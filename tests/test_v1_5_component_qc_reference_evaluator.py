@@ -64,6 +64,19 @@ def test_mixed_fixture_keeps_analyzer_fit_eligibility_independent() -> None:
     assert model["point_summary"]["informational_only"] is True
     assert model["point_summary"]["one_analyzer_failure_blocks_other_analyzers"] is False
     assert model["sample_alignment_ok"] is False
+    assert ga01["timestamps_strictly_increasing"] is True
+    assert ga01["actual_window_duration_s"] == pytest.approx(9.0)
+    assert ga01["minimum_window_duration_s"] == pytest.approx(8.1)
+    assert ga01["cadence_warning"] is False
+    assert ga01["evidence_identity_status"] == "pass"
+    assert ga01["evidence_identity_mode"] == "synthetic_reference"
+    assert ga01["evidence_bundle_manifest_verified"] is False
+    assert len(ga01["evidence_bundle_sha256"]) == 64
+    assert ga01["evidence_bundle_member_count"] == 4
+    assert ga01["reference_source_status"] == "synthetic_not_formal_reference"
+    assert ga01["reference_source_record_present"] is False
+    assert ga01["reference_source_record_valid"] is False
+    assert len(ga01["source_reference_source_sha256"]) == 64
 
 
 @pytest.mark.parametrize(
@@ -136,6 +149,77 @@ def test_cadence_warning_caps_one_analyzer_but_incomplete_window_rejects() -> No
     model = evaluate_v1_5_component_qc_reference_fixture(fixture, _contract())
     assert _row(model, "ga01")["grade"] == "B_diagnostic_model_only"
     assert _row(model, "ga02")["grade"] == "C_reject"
+
+
+@pytest.mark.parametrize(
+    ("timestamps", "reason"),
+    [
+        ([index * 0.1 for index in range(10)], "sample_window_duration_below_minimum"),
+        ([0, 1, 2, 3, 4, 5, 6, 6, 8, 9], "timestamps_not_strictly_increasing"),
+        ([0, 1, 2, 3, 4, "bad", 6, 7, 8, 9], "timestamp_missing_or_unparseable"),
+    ],
+)
+def test_derived_temporal_hard_failures_reject_without_manual_flags(
+    timestamps, reason
+) -> None:
+    fixture = _fixture()
+    for row, timestamp in zip(fixture["sample_rows"], timestamps):
+        row["timestamp_s"] = timestamp
+
+    evaluated = _row(
+        evaluate_v1_5_component_qc_reference_fixture(fixture, _contract())
+    )
+
+    assert evaluated["temporal_window_complete"] is False
+    assert evaluated["grade"] == "C_reject"
+    assert f"temporal:{reason}" in evaluated["reason"]
+
+
+def test_timestamp_row_count_below_required_rejects_instead_of_degrading_to_b() -> None:
+    fixture = _fixture()
+    fixture["sample_rows"].pop()
+
+    evaluated = _row(
+        evaluate_v1_5_component_qc_reference_fixture(fixture, _contract())
+    )
+
+    assert evaluated["timestamp_count"] == 9
+    assert evaluated["required_timestamp_count"] == 10
+    assert evaluated["grade"] == "C_reject"
+    assert "temporal:timestamp_count_below_required:9<10" in evaluated["reason"]
+
+
+def test_derived_cadence_warning_caps_grade_when_window_duration_is_complete() -> None:
+    fixture = _fixture()
+    timestamps = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10.1]
+    for row, timestamp in zip(fixture["sample_rows"], timestamps):
+        row["timestamp_s"] = timestamp
+
+    evaluated = _row(
+        evaluate_v1_5_component_qc_reference_fixture(fixture, _contract())
+    )
+
+    assert evaluated["temporal_window_complete"] is True
+    assert evaluated["cadence_warning"] is True
+    assert evaluated["maximum_observed_interval_s"] == pytest.approx(2.1)
+    assert evaluated["grade"] == "B_diagnostic_model_only"
+    assert "cadence_warning_grade_capped_at_b" in evaluated["reason"]
+
+
+def test_minimum_window_duration_boundary_is_inclusive() -> None:
+    fixture = _fixture()
+    for index, row in enumerate(fixture["sample_rows"]):
+        row["timestamp_s"] = index * 0.9
+
+    evaluated = _row(
+        evaluate_v1_5_component_qc_reference_fixture(fixture, _contract())
+    )
+
+    assert evaluated["actual_window_duration_s"] == pytest.approx(8.1)
+    assert evaluated["minimum_window_duration_s"] == pytest.approx(8.1)
+    assert evaluated["temporal_window_complete"] is True
+    assert evaluated["cadence_warning"] is False
+    assert evaluated["grade"] == "A_calibration_eligible"
 
 
 def test_missing_ratio_in_usable_frame_is_c() -> None:

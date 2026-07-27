@@ -92,6 +92,9 @@ def test_h2o_point_command_keeps_no_write_open_flow_sidecar_contract(tmp_path):
             str(tmp_path),
             "--no-prompt",
             "--no-ftd-write",
+            "--engineering-probe-only",
+            "--operator-confirmation",
+            h2o_queue_module.V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT,
             "--analyzer-gate-prefer-all-stable-grace-s",
             "75",
         ]
@@ -119,6 +122,11 @@ def test_h2o_point_command_keeps_no_write_open_flow_sidecar_contract(tmp_path):
     assert "--pressure-target-hpa" not in cmd
     assert "--no-ftd-write" in cmd
     assert "--no-prompt" in cmd
+    assert "--engineering-probe-only" in cmd
+    assert (
+        "--operator-confirmation "
+        + h2o_queue_module.V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT
+    ) in text
     assert "--hgen-temp 20" in text
     assert "--hgen-rh 70" in text
     assert "--certificate-h2o-mmol 16.3715" in text
@@ -183,7 +191,12 @@ def test_h2o_temperature_settle_creates_missing_output_dir_before_logging(tmp_pa
     )
 
     ok = h2o_queue_module._settle_temperature_group(
-        {"devices": {"temperature_chamber": {"enabled": True}}},
+        {
+            "devices": {
+                "temperature_chamber": {"enabled": True},
+                "thermometer": {"enabled": True},
+            }
+        },
         temp_c=10.0,
         output_dir=output_dir,
         run_id="h2o_T10_temperature_settle",
@@ -335,6 +348,9 @@ def test_h2o_temperature_runtime_inherits_formal_soak_without_shortening(tmp_pat
 
     temp_cfg = runtime_cfg["workflow"]["stability"]["temperature"]
     assert temp_cfg["soak_after_reach_s"] == 1800
+    assert temp_cfg["temperature_truth_source"] == "in_chamber_platinum_resistance_digital_thermometer"
+    assert temp_cfg["thermometer_truth_required"] is True
+    assert temp_cfg["temperature_chamber_setpoint_substitution_forbidden"] is True
     assert runtime_cfg["workflow"]["skip_h2o"] is True
     assert runtime_cfg["metadata"]["writes_senco"] is False
     assert runtime_cfg["devices"]["temperature_chamber"]["enabled"] is True
@@ -423,20 +439,19 @@ def test_h2o_queue_dry_run_writes_manifest_without_real_com(tmp_path):
         encoding="utf-8",
     )
 
-    rc = main(
-        [
-            "--config",
-            str(config_path),
-            "--queue-csv",
-            str(queue_path),
-            "--output-dir",
-            str(tmp_path / "out"),
-            "--run-id",
-            "queue_dry",
-            "--dry-run",
-            "--no-prompt",
-        ]
-    )
+    argv = [
+        "--config",
+        str(config_path),
+        "--queue-csv",
+        str(queue_path),
+        "--output-dir",
+        str(tmp_path / "out"),
+        "--run-id",
+        "queue_dry",
+        "--dry-run",
+        "--no-prompt",
+    ]
+    rc = main(argv)
 
     assert rc == 0
     manifest = tmp_path / "out" / "queue_dry" / "queue_manifest.csv"
@@ -460,6 +475,148 @@ def test_h2o_queue_dry_run_writes_manifest_without_real_com(tmp_path):
     assert payload["hgen_final_safe_stop_required"] is True
     assert (tmp_path / "out" / "queue_dry" / "queue_failure_audit" / "h2o_queue_failure_audit.json").exists()
     assert (tmp_path / "out" / "queue_dry" / "queue_failure_audit" / "queue_failure_audit.json").exists()
+    summary_bytes = summary.read_bytes()
+    assert main(argv) == 2
+    assert summary.read_bytes() == summary_bytes
+
+
+def test_h2o_queue_continues_after_point_failure_but_returns_nonzero(tmp_path, monkeypatch):
+    queue_path = tmp_path / "h2o_runner_queue.csv"
+    _write_queue(queue_path)
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "paths": {"output_dir": str(tmp_path / "logs")},
+                "devices": {
+                    "temperature_chamber": {"enabled": False},
+                    "humidity_generator": {"enabled": True},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    returncodes = iter([1, 0])
+    point_commands = []
+
+    def fake_run(command, **_kwargs):
+        point_commands.append(command)
+        return types.SimpleNamespace(returncode=next(returncodes))
+
+    monkeypatch.setattr(
+        h2o_queue_module,
+        "_prewarm_humidity_generator_for_group",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        h2o_queue_module,
+        "_safe_stop_humidity_generator_after_queue",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(h2o_queue_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(h2o_queue_module.time, "sleep", lambda _seconds: None)
+
+    rc = main(
+        [
+            "--config",
+            str(config_path),
+            "--queue-csv",
+            str(queue_path),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--run-id",
+            "queue_mixed_result",
+            "--no-control-temperature",
+            "--no-prompt",
+            "--engineering-probe-only",
+            "--operator-confirmation",
+            h2o_queue_module.V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT,
+        ]
+    )
+
+    assert rc == 1
+    assert len(point_commands) == 2
+    summary = json.loads(
+        (tmp_path / "out" / "queue_mixed_result" / "queue_summary.json").read_text(encoding="utf-8")
+    )
+    assert summary["ok_points"] == 1
+    assert summary["failed_points"] == 1
+    assert summary["hard_failure"] is False
+    assert summary["hgen_final_safe_stop_ok"] is True
+
+
+def test_h2o_queue_final_safe_stop_failure_propagates_queue_wide_exclusion(
+    tmp_path,
+    monkeypatch,
+):
+    queue_path = tmp_path / "h2o_runner_queue.csv"
+    _write_queue(queue_path)
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "paths": {"output_dir": str(tmp_path / "logs")},
+                "devices": {
+                    "temperature_chamber": {"enabled": False},
+                    "humidity_generator": {"enabled": True},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        h2o_queue_module,
+        "_prewarm_humidity_generator_for_group",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        h2o_queue_module,
+        "_safe_stop_humidity_generator_after_queue",
+        lambda *_args, **_kwargs: False,
+    )
+    monkeypatch.setattr(
+        h2o_queue_module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: types.SimpleNamespace(returncode=0),
+    )
+    monkeypatch.setattr(h2o_queue_module.time, "sleep", lambda _seconds: None)
+
+    rc = main(
+        [
+            "--config",
+            str(config_path),
+            "--queue-csv",
+            str(queue_path),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--run-id",
+            "queue_final_safe_stop_failed",
+            "--no-control-temperature",
+            "--no-prompt",
+            "--engineering-probe-only",
+            "--operator-confirmation",
+            h2o_queue_module.V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT,
+        ]
+    )
+
+    queue_dir = tmp_path / "out" / "queue_final_safe_stop_failed"
+    summary = json.loads(
+        (queue_dir / "queue_summary.json").read_text(encoding="utf-8")
+    )
+    exclusion = json.loads(
+        (queue_dir / "queue_abort_exclusion.json").read_text(encoding="utf-8")
+    )
+
+    assert rc == 1
+    assert summary["ok_points"] == 2
+    assert summary["queue_wide_exclusion"] is True
+    assert summary["hgen_final_safe_stop_ok"] is False
+    assert exclusion["reason"] == "humidity_generator_final_safe_stop_failed"
+    assert exclusion["exclusion_scope"] == "queue_all_points"
+    assert {row["point_id"] for row in exclusion["rows"]} == {
+        "h2o_T10_HGEN10C_30RH_ambient",
+        "h2o_T20_HGEN20C_50RH_ambient",
+    }
 
 
 def test_h2o_queue_prewarms_humidity_generator_before_temperature_settle(tmp_path, monkeypatch):
@@ -517,6 +674,9 @@ def test_h2o_queue_prewarms_humidity_generator_before_temperature_settle(tmp_pat
             "--temps",
             "10",
             "--no-prompt",
+            "--engineering-probe-only",
+            "--operator-confirmation",
+            h2o_queue_module.V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT,
         ]
     )
 
@@ -586,7 +746,11 @@ def test_h2o_queue_final_hgen_safe_stop_creates_evidence_dir(tmp_path, monkeypat
         "_read_humidity_generator_snapshot",
         lambda _dev: {"raw": "ok", "data": {"Fl": 0.0}},
     )
-    monkeypatch.setattr(h2o_queue_module, "_safe_stop_humidity_generator", lambda _devices: None)
+    monkeypatch.setattr(
+        h2o_queue_module,
+        "_safe_stop_humidity_generator",
+        lambda _devices: {"ok": True, "status": "pass"},
+    )
     monkeypatch.setattr(h2o_queue_module, "_close_devices", lambda _devices: None)
 
     ok = h2o_queue_module._safe_stop_humidity_generator_after_queue(
@@ -600,9 +764,59 @@ def test_h2o_queue_final_hgen_safe_stop_creates_evidence_dir(tmp_path, monkeypat
     assert (run_dir / "hgen_final_safe_stop_runtime_config.json").exists()
     summary = json.loads((run_dir / "humidity_generator_queue_final_safe_stop.json").read_text(encoding="utf-8"))
     assert summary["ok"] is True
+    assert summary["safe_stop_status"]["ok"] is True
     assert summary["route_opened"] is False
     assert summary["writes_senco"] is False
     assert summary["writes_device_id"] is False
+
+
+def test_h2o_queue_final_hgen_safe_stop_failure_is_not_marked_success(
+    tmp_path,
+    monkeypatch,
+):
+    cfg = {
+        "paths": {"output_dir": str(tmp_path / "logs")},
+        "devices": {"humidity_generator": {"enabled": True, "port": "COM16"}},
+    }
+    monkeypatch.setattr(
+        h2o_queue_module,
+        "_build_devices",
+        lambda *_args, **_kwargs: {"humidity_gen": object()},
+    )
+    monkeypatch.setattr(
+        h2o_queue_module,
+        "_read_humidity_generator_snapshot",
+        lambda _dev: {"raw": "ok"},
+    )
+    monkeypatch.setattr(
+        h2o_queue_module,
+        "_safe_stop_humidity_generator",
+        lambda _devices: {
+            "ok": False,
+            "status": "fail",
+            "error": "humidity_generator_safe_stop_failed:stuck",
+        },
+    )
+    monkeypatch.setattr(h2o_queue_module, "_close_devices", lambda _devices: None)
+
+    ok = h2o_queue_module._safe_stop_humidity_generator_after_queue(
+        cfg,
+        output_dir=tmp_path / "out",
+        run_id="hgen_final_stop_failed",
+    )
+
+    assert ok is False
+    summary = json.loads(
+        (
+            tmp_path
+            / "out"
+            / "hgen_final_stop_failed"
+            / "humidity_generator_queue_final_safe_stop.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert summary["ok"] is False
+    assert summary["safe_stop_status"]["ok"] is False
+    assert "FINAL_SAFE_STOP_NOT_CONFIRMED" in summary["error"]
 
 
 def test_h2o_queue_final_hgen_safe_stop_uses_short_snapshot_name_for_long_paths(tmp_path, monkeypatch):
@@ -617,7 +831,11 @@ def test_h2o_queue_final_hgen_safe_stop_uses_short_snapshot_name_for_long_paths(
         "_read_humidity_generator_snapshot",
         lambda _dev: {"raw": "ok", "data": {"Fl": 0.0}},
     )
-    monkeypatch.setattr(h2o_queue_module, "_safe_stop_humidity_generator", lambda _devices: None)
+    monkeypatch.setattr(
+        h2o_queue_module,
+        "_safe_stop_humidity_generator",
+        lambda _devices: {"ok": True, "status": "pass"},
+    )
     monkeypatch.setattr(h2o_queue_module, "_close_devices", lambda _devices: None)
 
     long_dir = tmp_path / ("post_write_reverify_" + "001_077_084_091_" * 2)
@@ -670,3 +888,56 @@ def test_h2o_queue_exclusion_evidence_blocks_aborted_rows_from_fit(tmp_path):
     assert rows[0]["exclusion_reason"] == "operator_interrupted"
     assert payload["exclude_from_fit"] is True
     assert payload["rows"][0]["source_status"] == "aborted"
+
+
+def test_h2o_queue_final_safe_stop_failure_excludes_all_sampled_points(tmp_path):
+    queue_dir = tmp_path / "queue"
+    queue_dir.mkdir()
+    summary = {"queue_run_id": "h2o_final_safe_stop_failed_r1"}
+    manifest_rows = [
+        {
+            "point_run_id": "p001_T20_HG20C_30RH_h2o",
+            "point_id": "h2o_T20_30RH",
+            "temp_c": 20.0,
+            "hgen_temp_c": 20.0,
+            "hgen_rh_pct": 30.0,
+            "reference_dewpoint_c": 1.97,
+            "reference_h2o_mmol": 6.95,
+            "sample_role": "fit",
+            "status": "ok",
+            "point_log": str(queue_dir / "point_1.log"),
+        },
+        {
+            "point_run_id": "p002_T20_HG20C_50RH_h2o",
+            "point_id": "h2o_T20_50RH",
+            "temp_c": 20.0,
+            "hgen_temp_c": 20.0,
+            "hgen_rh_pct": 50.0,
+            "reference_dewpoint_c": 9.27,
+            "reference_h2o_mmol": 11.69,
+            "sample_role": "fit",
+            "status": "ok",
+            "point_log": str(queue_dir / "point_2.log"),
+        },
+    ]
+
+    _write_queue_exclusion_evidence(
+        queue_dir,
+        queue_summary=summary,
+        manifest_rows=manifest_rows,
+        reason="humidity_generator_final_safe_stop_failed",
+        exclude_all_points=True,
+    )
+
+    payload = json.loads(
+        (queue_dir / "queue_abort_exclusion.json").read_text(encoding="utf-8")
+    )
+
+    assert {row["point_id"] for row in payload["rows"]} == {
+        "h2o_T20_30RH",
+        "h2o_T20_50RH",
+    }
+    assert {row["source_status"] for row in payload["rows"]} == {"ok"}
+    assert {row["exclusion_scope"] for row in payload["rows"]} == {
+        "queue_all_points"
+    }

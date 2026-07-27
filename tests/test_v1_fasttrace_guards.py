@@ -27,6 +27,21 @@ def _point_co2() -> CalibrationPoint:
     )
 
 
+def _valid_preseal_ready_state(point: CalibrationPoint) -> dict:
+    return {
+        "phase": "co2",
+        "point_row": point.index,
+        "target_pressure_hpa": point.target_pressure_hpa,
+        "recorded_wall_ts": runner_module.time.time(),
+        "route_sealed": True,
+        "atmosphere_hold_stopped": True,
+        "seal_all_solenoids_closed": True,
+        "seal_total_route_valve_closed": True,
+        "seal_transition_completed": True,
+        "keepalive_stopped_before_seal": True,
+    }
+
+
 def test_default_and_fasttrace_pressure_flags_are_conservative() -> None:
     default_cfg = load_config(ROOT / "configs" / "default_config.json")
     co2_cfg = load_config(ROOT / "configs" / "headless_real_smoke_co2_fasttrace.json")
@@ -84,15 +99,7 @@ def test_preseal_ready_state_requires_target_age_and_invalidation_match(tmp_path
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
     point = _point_co2()
-    runner._preseal_pressure_control_ready_state = {
-        "phase": "co2",
-        "point_row": point.index,
-        "target_pressure_hpa": point.target_pressure_hpa,
-        "recorded_wall_ts": runner_module.time.time(),
-        "route_sealed": True,
-        "atmosphere_hold_stopped": True,
-        "failures": [],
-    }
+    runner._preseal_pressure_control_ready_state = _valid_preseal_ready_state(point)
 
     state, reason = runner._matching_preseal_pressure_control_ready_state(point, phase="co2")
     assert state is not None
@@ -118,15 +125,7 @@ def test_preseal_ready_state_requires_target_age_and_invalidation_match(tmp_path
     assert state is None
     assert reason.startswith("snapshot_age_exceeded:")
 
-    runner._preseal_pressure_control_ready_state = {
-        "phase": "co2",
-        "point_row": point.index,
-        "target_pressure_hpa": point.target_pressure_hpa,
-        "recorded_wall_ts": runner_module.time.time(),
-        "route_sealed": True,
-        "atmosphere_hold_stopped": True,
-        "failures": [],
-    }
+    runner._preseal_pressure_control_ready_state = _valid_preseal_ready_state(point)
     runner._clear_preseal_pressure_control_ready_state(reason="vent_on:test", point=point, phase="co2")
     state, reason = runner._matching_preseal_pressure_control_ready_state(point, phase="co2")
     logger.close()

@@ -24,6 +24,7 @@ Step 2 的硬边界：
 - [GA-D3 气体分析仪综合工作包络](../../../docs/metrology/ga_d3_gas_analyzer_operating_envelope.md)
 - [GA-D4 气体分析仪真实台架协议准备度](../../../docs/metrology/ga_d4_gas_analyzer_bench_readiness.md)
 - [GA-D5 0620/0621 计量资产资料包准备度](../../../docs/metrology/ga_d5_0620_0621_asset_dossier_readiness.md)
+- [GA-D6B 业主确认的证书运行资料门禁](docs/certificate_operational_admission.md)
 
 ## 推荐入口
 

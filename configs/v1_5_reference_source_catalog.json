@@ -1,0 +1,257 @@
+{
+  "schema_version": "v1_5_reference_source_catalog_v1",
+  "catalog_id": "v1_5_desktop_certificate_photos_20260726",
+  "authorization_scope": "operator_confirmed_desktop_certificate_photos",
+  "document_storage_policy": "reference_original_file_by_user_profile_relative_path_and_sha256_without_copy",
+  "not_real_acceptance_evidence": true,
+  "assets": [
+    {
+      "asset_id": "co2-dry-air-zero-20260416-L227106187",
+      "route_kind": "co2",
+      "physical_role": "co2_zero_gas",
+      "nominal_co2_ppm": 0.0,
+      "certificate_co2_ppm": 0.0,
+      "reference_value_source": "operator_confirmed_previous_calibration",
+      "co2_value_directly_certified": false,
+      "matrix_gas": "dry_air",
+      "cylinder_number": "L227106187",
+      "batch_number": "260413-L227106187",
+      "issue_date": "2026-04-16",
+      "valid_through": "2027-04-15",
+      "document_kind": "full_certificate_photo_pair",
+      "documentary_use_status": "operator_authorized_for_v1_5_evidence",
+      "calibration_fit_reference_allowed": true,
+      "physical_interpretation": "The certificate identifies dry air and its O2/N2 composition. The 0 ppm CO2 value is an operator-confirmed value from the previous calibration process, not a CO2 value printed on this certificate.",
+      "documents": [
+        {
+          "source_path_kind": "user_profile_relative",
+          "relative_path": "Desktop/微信图片_20260528161327_244_36.jpg",
+          "page_role": "certificate_page_1",
+          "size_bytes": 1838617,
+          "sha256": "d6cc4dd0339a23d88d8117aca30c648fda0e2a6460afb9c17721323733f3a3d0"
+        },
+        {
+          "source_path_kind": "user_profile_relative",
+          "relative_path": "Desktop/微信图片_20260528161329_245_36.jpg",
+          "page_role": "certificate_page_2",
+          "size_bytes": 1466921,
+          "sha256": "f583f4e206cede81c639c1c420e42754b704e698a7180754928ea72249f0782a"
+        }
+      ]
+    },
+    {
+      "asset_id": "co2-standard-100-20260416-163260404111",
+      "route_kind": "co2",
+      "physical_role": "co2_standard_gas",
+      "nominal_co2_ppm": 100.0,
+      "certificate_co2_ppm": 99.94,
+      "certificate_uncertainty": {"value": 1.0, "unit": "percent_relative"},
+      "reference_value_source": "certificate_photo",
+      "co2_value_directly_certified": true,
+      "matrix_gas": "air",
+      "cylinder_number": "163260404111",
+      "batch_number": "260413-163260404111",
+      "issue_date": "2026-04-16",
+      "valid_through": "2027-04-15",
+      "document_kind": "full_certificate_photo_pair",
+      "documentary_use_status": "operator_authorized_for_v1_5_evidence",
+      "calibration_fit_reference_allowed": true,
+      "documents": [
+        {"source_path_kind": "user_profile_relative", "relative_path": "Desktop/微信图片_20260527154435_237_36.jpg", "page_role": "certificate_page_1", "size_bytes": 2149916, "sha256": "65a82a69fda120584c39b2a2ae62391cbee9aa7185fcc14de0ab173b0567bd2e"},
+        {"source_path_kind": "user_profile_relative", "relative_path": "Desktop/微信图片_20260527154433_236_36.jpg", "page_role": "certificate_page_2", "size_bytes": 1298220, "sha256": "32ece7e3f4860adf5fab81faf190060441059677346f5a20a9bc39b4df9a9dfe"}
+      ]
+    },
+    {
+      "asset_id": "co2-standard-200-20260401-200307091",
+      "route_kind": "co2",
+      "physical_role": "co2_standard_gas",
+      "nominal_co2_ppm": 200.0,
+      "certificate_co2_ppm": 200.1,
+      "certificate_uncertainty": {"value": 1.0, "unit": "percent_relative"},
+      "reference_value_source": "certificate_photo",
+      "co2_value_directly_certified": true,
+      "matrix_gas": "air",
+      "cylinder_number": "200307091",
+      "batch_number": "260326-200307091",
+      "issue_date": "2026-04-01",
+      "valid_through": "2027-03-31",
+      "document_kind": "full_certificate_photo_pair",
+      "documentary_use_status": "operator_authorized_for_v1_5_evidence",
+      "calibration_fit_reference_allowed": true,
+      "documents": [
+        {"source_path_kind": "user_profile_relative", "relative_path": "Desktop/微信图片_20260528161418_246_36.jpg", "page_role": "certificate_page_1", "size_bytes": 1900863, "sha256": "a72e05c15a7885c1c2854cf58821ed83b4cb82880c5f91cdd3cc4ec09d967589"},
+        {"source_path_kind": "user_profile_relative", "relative_path": "Desktop/微信图片_20260528161420_247_36.jpg", "page_role": "certificate_page_2", "size_bytes": 1242981, "sha256": "4cada53b877d9fbbc1b66612d2cf55bf649b440375a4abc1859714a29576bfa2"}
+      ]
+    },
+    {
+      "asset_id": "co2-standard-300-20260304-WB05108",
+      "route_kind": "co2",
+      "physical_role": "co2_standard_gas",
+      "nominal_co2_ppm": 300.0,
+      "certificate_co2_ppm": 299.73,
+      "reference_value_source": "certificate_label_photo",
+      "co2_value_directly_certified": true,
+      "matrix_gas": "air",
+      "cylinder_number": "WB05108",
+      "issue_date": "2026-03-04",
+      "valid_through": "2027-03-03",
+      "document_kind": "cylinder_certificate_label_photo_pair",
+      "documentary_use_status": "operator_authorized_for_v1_5_evidence",
+      "calibration_fit_reference_allowed": true,
+      "documents": [
+        {"source_path_kind": "user_profile_relative", "relative_path": "Desktop/微信图片_20260527160742_240_36.jpg", "page_role": "cylinder_label", "size_bytes": 460466, "sha256": "625c82518641df5e03e2acbc6a7f1c006cb5615d16dd8c833969c2b37a0541b0"},
+        {"source_path_kind": "user_profile_relative", "relative_path": "Desktop/微信图片_20260527160743_241_36.jpg", "page_role": "certificate_label", "size_bytes": 501158, "sha256": "438d6aa1654935f33c8a91dc9f3a81bfd98094068e7fc0ef92eaa783cc86b482"}
+      ]
+    },
+    {
+      "asset_id": "co2-standard-400-20260304-96504149",
+      "route_kind": "co2",
+      "physical_role": "co2_standard_gas",
+      "nominal_co2_ppm": 400.0,
+      "certificate_co2_ppm": 399.56,
+      "certificate_uncertainty": {"value": 1.0, "unit": "percent_relative"},
+      "reference_value_source": "certificate_photo",
+      "co2_value_directly_certified": true,
+      "matrix_gas": "air",
+      "cylinder_number": "96504149",
+      "batch_number": "260303-96504149",
+      "issue_date": "2026-03-04",
+      "valid_through": "2027-03-03",
+      "document_kind": "full_certificate_photo_pair",
+      "documentary_use_status": "operator_authorized_for_v1_5_evidence",
+      "calibration_fit_reference_allowed": true,
+      "documents": [
+        {"source_path_kind": "user_profile_relative", "relative_path": "Desktop/微信图片_20260528161507_248_36.jpg", "page_role": "certificate_page_1", "size_bytes": 1371602, "sha256": "508ea1517d2f2091124dfd5053d4d777c07d120e21fca79751d2d72eef362029"},
+        {"source_path_kind": "user_profile_relative", "relative_path": "Desktop/微信图片_20260528161509_249_36.jpg", "page_role": "certificate_page_2", "size_bytes": 1331733, "sha256": "fd925340a6d7afaffd6a050b495b31b7b95d31c23bcf0b44f22739dce463d685"}
+      ]
+    },
+    {
+      "asset_id": "co2-standard-500-20260313-156260307152",
+      "route_kind": "co2",
+      "physical_role": "co2_standard_gas",
+      "nominal_co2_ppm": 500.0,
+      "certificate_co2_ppm": 500.13,
+      "certificate_uncertainty": {"value": 2.0, "unit": "percent_relative"},
+      "reference_value_source": "certificate_photo",
+      "co2_value_directly_certified": true,
+      "matrix_gas": "air",
+      "cylinder_number": "156260307152",
+      "batch_number": "260311-156260307152",
+      "issue_date": "2026-03-13",
+      "valid_through": "2027-03-12",
+      "document_kind": "full_certificate_photo_pair",
+      "documentary_use_status": "operator_authorized_for_v1_5_evidence",
+      "calibration_fit_reference_allowed": true,
+      "documents": [
+        {"source_path_kind": "user_profile_relative", "relative_path": "Desktop/微信图片_20260527160740_238_36.jpg", "page_role": "certificate_page_1", "size_bytes": 363095, "sha256": "4ef554c92eb0f20608b0b0a73963e46f8c225f3a9c1b798b1a4f19228f591bb1"},
+        {"source_path_kind": "user_profile_relative", "relative_path": "Desktop/微信图片_20260527160741_239_36.jpg", "page_role": "certificate_page_2", "size_bytes": 487429, "sha256": "7170c38625536ac116b1088f8e99b2260432e059f86c051836a51ee177e13494"}
+      ]
+    },
+    {
+      "asset_id": "co2-standard-600-20260416-82505112",
+      "route_kind": "co2",
+      "physical_role": "co2_standard_gas",
+      "nominal_co2_ppm": 600.0,
+      "certificate_co2_ppm": 599.54,
+      "certificate_uncertainty": {"value": 1.0, "unit": "percent_relative"},
+      "reference_value_source": "certificate_photo",
+      "co2_value_directly_certified": true,
+      "matrix_gas": "air",
+      "cylinder_number": "82505112",
+      "batch_number": "260414-82505112",
+      "issue_date": "2026-04-16",
+      "valid_through": "2027-04-15",
+      "document_kind": "full_certificate_photo_pair",
+      "documentary_use_status": "operator_authorized_for_v1_5_evidence",
+      "calibration_fit_reference_allowed": true,
+      "documents": [
+        {"source_path_kind": "user_profile_relative", "relative_path": "Desktop/微信图片_20260528161556_250_36.jpg", "page_role": "certificate_page_1", "size_bytes": 1424009, "sha256": "b87f8009abffec1b6a992f53ef29261e278ddbce607ab26509d41aa30e94dea7"},
+        {"source_path_kind": "user_profile_relative", "relative_path": "Desktop/微信图片_20260528161558_251_36.jpg", "page_role": "certificate_page_2", "size_bytes": 1381673, "sha256": "6348d5452fc88e0e6f38a794fe84c019786c3fe64788cd5dcd8b59f7b30ba8db"}
+      ]
+    },
+    {
+      "asset_id": "co2-standard-700-20260304-156250097017",
+      "route_kind": "co2",
+      "physical_role": "co2_standard_gas",
+      "nominal_co2_ppm": 700.0,
+      "certificate_co2_ppm": 700.33,
+      "reference_value_source": "certificate_label_photo",
+      "co2_value_directly_certified": true,
+      "matrix_gas": "air",
+      "cylinder_number": "156250097017",
+      "issue_date": "2026-03-04",
+      "valid_through": "2027-03-03",
+      "document_kind": "cylinder_certificate_label_photo_pair",
+      "documentary_use_status": "operator_authorized_for_v1_5_evidence",
+      "calibration_fit_reference_allowed": true,
+      "documents": [
+        {"source_path_kind": "user_profile_relative", "relative_path": "Desktop/微信图片_20260527161922_242_36.jpg", "page_role": "cylinder_label", "size_bytes": 1638784, "sha256": "d59d714808fd99861a57f38e5f0be77d40049e7d4023e6714c49197411abfcb9"},
+        {"source_path_kind": "user_profile_relative", "relative_path": "Desktop/微信图片_20260527161924_243_36.jpg", "page_role": "certificate_label", "size_bytes": 1787728, "sha256": "79a5c32423002162bec3322e795ae53974983f30333d1e545b7b90067b7c0c7c"}
+      ]
+    },
+    {
+      "asset_id": "co2-standard-800-20260401-810822029",
+      "route_kind": "co2",
+      "physical_role": "co2_standard_gas",
+      "nominal_co2_ppm": 800.0,
+      "certificate_co2_ppm": 800.59,
+      "certificate_uncertainty": {"value": 1.0, "unit": "percent_relative"},
+      "reference_value_source": "certificate_photo",
+      "co2_value_directly_certified": true,
+      "matrix_gas": "air",
+      "cylinder_number": "810822029",
+      "batch_number": "260326-810822029",
+      "issue_date": "2026-04-01",
+      "valid_through": "2027-03-31",
+      "document_kind": "full_certificate_photo_pair",
+      "documentary_use_status": "operator_authorized_for_v1_5_evidence",
+      "calibration_fit_reference_allowed": true,
+      "documents": [
+        {"source_path_kind": "user_profile_relative", "relative_path": "Desktop/微信图片_20260528161648_252_36.jpg", "page_role": "certificate_page_1", "size_bytes": 1873830, "sha256": "f35d4fecaaf5a302c53de20ef85e3b731444b9ef97453dd01c12d2fc0ebe2d55"},
+        {"source_path_kind": "user_profile_relative", "relative_path": "Desktop/微信图片_20260528161651_253_36.jpg", "page_role": "certificate_page_2", "size_bytes": 1605422, "sha256": "eba105a3a4369bd9d258b4a88e71992345171fb52a99d3d68d3ba5ba6bb14651"}
+      ]
+    },
+    {
+      "asset_id": "co2-standard-897-20260304-156230414008",
+      "route_kind": "co2",
+      "physical_role": "co2_standard_gas",
+      "nominal_co2_ppm": 900.0,
+      "certificate_co2_ppm": 897.04,
+      "reference_value_source": "certificate_label_photo",
+      "co2_value_directly_certified": true,
+      "matrix_gas": "air",
+      "cylinder_number": "156230414008",
+      "issue_date": "2026-03-04",
+      "valid_through": "2027-03-03",
+      "document_kind": "cylinder_certificate_label_photo_pair",
+      "documentary_use_status": "operator_authorized_for_v1_5_evidence",
+      "calibration_fit_reference_allowed": true,
+      "documents": [
+        {"source_path_kind": "user_profile_relative", "relative_path": "Desktop/微信图片_20260525191354_234_36.jpg", "page_role": "cylinder_label", "size_bytes": 1617386, "sha256": "0023a93a76178a3f94aee94f3a1a39abe19010bf218a370e8473dc2362d272be"},
+        {"source_path_kind": "user_profile_relative", "relative_path": "Desktop/微信图片_20260525191355_235_36.jpg", "page_role": "certificate_label", "size_bytes": 1408350, "sha256": "e3826235b41b27ff6a28e19d64ed0d8e83a11aa85b58cf080002fb33480b9788"}
+      ]
+    },
+    {
+      "asset_id": "co2-standard-999-20260416-L83002038",
+      "route_kind": "co2",
+      "physical_role": "co2_standard_gas",
+      "nominal_co2_ppm": 1000.0,
+      "certificate_co2_ppm": 998.62,
+      "certificate_uncertainty": {"value": 1.0, "unit": "percent_relative"},
+      "reference_value_source": "certificate_photo",
+      "co2_value_directly_certified": true,
+      "matrix_gas": "air",
+      "cylinder_number": "L83002038",
+      "batch_number": "260413-L83002038",
+      "issue_date": "2026-04-16",
+      "valid_through": "2027-04-15",
+      "document_kind": "full_certificate_photo_pair",
+      "documentary_use_status": "operator_authorized_for_v1_5_evidence",
+      "calibration_fit_reference_allowed": true,
+      "documents": [
+        {"source_path_kind": "user_profile_relative", "relative_path": "Desktop/微信图片_20260528161731_254_36.jpg", "page_role": "certificate_page_1", "size_bytes": 1544948, "sha256": "16d56dca94bb17799c12c878af57a0c5a64d9ff34801ad20b0c550138bb85237"},
+        {"source_path_kind": "user_profile_relative", "relative_path": "Desktop/微信图片_20260528161733_255_36.jpg", "page_role": "certificate_page_2", "size_bytes": 1238036, "sha256": "f0004f0d6dd503286162135a890df843b6bd4a055d2e73d8f9a98a672c7bdd0c"}
+      ]
+    }
+  ]
+}

@@ -6,7 +6,7 @@ import csv
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
 from openpyxl import Workbook
 
@@ -59,6 +59,8 @@ RESULT_FIELDS: List[str] = [
     "B",
     "C",
     "D",
+    "write_eligible",
+    "write_block_reason",
     "command_string",
 ]
 
@@ -105,6 +107,7 @@ def _build_fit_result(
     *,
     export_commands: bool,
     polynomial_order: int,
+    command_eligibility: Mapping[tuple[str, str], tuple[bool, str]] | None = None,
 ) -> Dict[str, Any]:
     valid_key = "valid_for_cell_fit" if fit_type == "cell" else "valid_for_shell_fit"
     temp_key = "cell_temp_raw_c" if fit_type == "cell" else "shell_temp_raw_c"
@@ -122,10 +125,39 @@ def _build_fit_result(
         fit_result["C"],
         fit_result["D"],
     )
+    fit_ok = bool(fit_result["fit_ok"])
+    # This exporter owns fitted temperature candidates only. Initialization
+    # neutralization remains in the dedicated controlled SENCO7/SENCO8 writer.
+    default_eligible = availability == "available" and fit_ok
+    if command_eligibility is None:
+        write_eligible = default_eligible
+        if availability != "available":
+            write_block_reason = "temperature_channel_unavailable"
+        elif not fit_ok:
+            write_block_reason = "temperature_fit_not_ok"
+        else:
+            write_block_reason = ""
+    else:
+        channel_eligible, channel_block_reason = command_eligibility.get(
+            (analyzer_id, senco_channel),
+            (False, "temperature_channel_gate_missing"),
+        )
+        channel_eligible = bool(channel_eligible)
+        write_eligible = default_eligible and channel_eligible
+        if not channel_eligible:
+            write_block_reason = str(
+                channel_block_reason or "temperature_channel_gate_blocked"
+            )
+        elif availability != "available":
+            write_block_reason = "temperature_channel_unavailable"
+        elif not fit_ok:
+            write_block_reason = "temperature_fit_not_ok"
+        else:
+            write_block_reason = ""
     command_string = _build_command_string(
         senco_channel,
         coeffs,
-        export_commands=export_commands and availability == "available",
+        export_commands=export_commands and write_eligible,
     )
     return {
         "analyzer_id": analyzer_id,
@@ -133,7 +165,7 @@ def _build_fit_result(
         "senco_channel": senco_channel,
         "ref_temp_source": ref_source,
         "n_points": int(fit_result["n_points"]),
-        "fit_ok": bool(fit_result["fit_ok"]),
+        "fit_ok": fit_ok,
         "availability": availability,
         "polynomial_degree_used": int(fit_result["polynomial_degree_used"]),
         "rmse": fit_result["rmse"],
@@ -142,6 +174,8 @@ def _build_fit_result(
         "B": float(fit_result["B"]),
         "C": float(fit_result["C"]),
         "D": float(fit_result["D"]),
+        "write_eligible": write_eligible,
+        "write_block_reason": write_block_reason,
         "command_string": command_string,
     }
 
@@ -151,6 +185,7 @@ def build_temperature_compensation_results(
     *,
     polynomial_order: int,
     export_commands: bool,
+    command_eligibility: Mapping[tuple[str, str], tuple[bool, str]] | None = None,
 ) -> List[Dict[str, Any]]:
     grouped: Dict[str, List[Dict[str, Any]]] = {}
     for row in observations:
@@ -169,6 +204,7 @@ def build_temperature_compensation_results(
                 rows,
                 export_commands=export_commands,
                 polynomial_order=polynomial_order,
+                command_eligibility=command_eligibility,
             )
         )
         results.append(
@@ -178,6 +214,7 @@ def build_temperature_compensation_results(
                 rows,
                 export_commands=export_commands,
                 polynomial_order=polynomial_order,
+                command_eligibility=command_eligibility,
             )
         )
     return results
@@ -216,6 +253,7 @@ def export_temperature_compensation_artifacts(
     *,
     polynomial_order: int = 3,
     export_commands: bool = True,
+    command_eligibility: Mapping[tuple[str, str], tuple[bool, str]] | None = None,
 ) -> Dict[str, Any]:
     run_dir.mkdir(parents=True, exist_ok=True)
     observations_rows = [dict(row) for row in observations]
@@ -223,6 +261,7 @@ def export_temperature_compensation_artifacts(
         observations_rows,
         polynomial_order=polynomial_order,
         export_commands=export_commands,
+        command_eligibility=command_eligibility,
     )
 
     observations_csv = run_dir / "temperature_calibration_observations.csv"

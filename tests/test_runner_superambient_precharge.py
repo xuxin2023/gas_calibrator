@@ -283,9 +283,10 @@ def test_same_gas_non_superambient_target_does_not_switch_to_superambient_handof
     )
     point = _co2_point(pressure_hpa=1000.0, index=1)
     follow_on_point = _co2_point(pressure_hpa=800.0, index=2)
-    runner._set_pressure_controller_vent = lambda vent_on, reason="": True
+    runner._set_pressure_controller_vent = lambda vent_on, reason="", **_kwargs: True
     runner._ensure_pressure_controller_ready_for_control = lambda *_args, **_kwargs: True
     runner._verify_pressure_controller_output_on = lambda *_args, **_kwargs: True
+    runner._verify_full_seal_before_pressure_control = lambda *_args, **_kwargs: True
     runner._atmosphere_reference_hpa = 1006.0
     runner._record_pressure_sequence_context(point, phase="co2", reason="unit test non-superambient")
 

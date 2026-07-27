@@ -132,7 +132,7 @@ def _check(
 
 def _authorization_requirements() -> list[dict[str, Any]]:
     return [
-        {"order": 1, "requirement": "exact_profile_and_queue_hashes", "value": "profile plus CO2-47 and H2O-14 CSV SHA256", "purpose": "prevent point-plan substitution"},
+        {"order": 1, "requirement": "exact_profile_catalog_and_queue_hashes", "value": "profile, reference-source catalog, CO2-47 and H2O-14 CSV SHA256", "purpose": "prevent point-plan or reference-source substitution"},
         {"order": 2, "requirement": "exact_mature_runner_hashes", "value": "CO2/H2O queue and sampling-worker SHA256", "purpose": "prevent route-kernel substitution"},
         {"order": 3, "requirement": "active_analyzers", "value": "1-6 devices with unique 8-digit SN/device_code and reviewed COM/GA/protocol-ID mapping", "purpose": "bind physical devices"},
         {"order": 4, "requirement": "current_readiness", "value": "initialization, S9 pressure, route, certificates, runtime and CHECK policy pass", "purpose": "prevent stale readiness reuse"},
@@ -176,10 +176,12 @@ def build_v1_5_new_algorithm_mature_queue_live_handoff(
     repo_root: str | Path,
     profile_path: str | Path,
     mature_route_contract_json: str | Path,
+    reference_source_catalog_json: str | Path,
 ) -> dict[str, Any]:
     root = Path(repo_root).resolve()
     profile_file = Path(profile_path).resolve()
     mature_contract_file = Path(mature_route_contract_json).resolve()
+    reference_catalog_file = Path(reference_source_catalog_json).resolve()
     profile_payload = _read_json(profile_file)
     mature_payload = _read_json(mature_contract_file)
     legacy_profile = _profile(profile_payload, LEGACY_PROFILE_ID)
@@ -193,10 +195,12 @@ def build_v1_5_new_algorithm_mature_queue_live_handoff(
         legacy_model = build_v1_5_algorithm_mature_queue_inputs(
             profile_path=profile_file,
             profile_id=LEGACY_PROFILE_ID,
+            reference_source_catalog=reference_catalog_file,
         )
         new_model = build_v1_5_algorithm_mature_queue_inputs(
             profile_path=profile_file,
             profile_id=NEW_PROFILE_ID,
+            reference_source_catalog=reference_catalog_file,
         )
     except (KeyError, TypeError, ValueError) as exc:
         build_reasons.append(f"immutable_queue_materialization_failed:{exc}")
@@ -320,6 +324,63 @@ def build_v1_5_new_algorithm_mature_queue_live_handoff(
         )
     )
 
+    reference_reasons: list[str] = []
+    catalog_sha256 = str(new_model.get("reference_source_catalog_sha256") or "")
+    if new_model.get("reference_source_binding_status") != "bound":
+        reference_reasons.append("reference_source_catalog_not_bound")
+    if not catalog_sha256:
+        reference_reasons.append("reference_source_catalog_sha256_missing")
+    if int(new_model.get("bound_co2_reference_asset_count") or 0) != 11:
+        reference_reasons.append("co2_reference_asset_count_not_11")
+    for row in new_co2:
+        nominal = float(row["source_nominal_ppm"])
+        if not str(row.get("reference_asset_id") or ""):
+            reference_reasons.append(f"co2_reference_asset_missing:{nominal:g}")
+        if row.get("certificate_co2_ppm") in (None, ""):
+            reference_reasons.append(f"co2_certificate_value_missing:{nominal:g}")
+        if row.get("reference_gate_mode") != "strict_pre_device_construction":
+            reference_reasons.append(f"co2_reference_gate_mode_invalid:{nominal:g}")
+        if str(row.get("reference_source_catalog_sha256") or "") != catalog_sha256:
+            reference_reasons.append(f"co2_reference_catalog_hash_mismatch:{nominal:g}")
+    for row in new_h2o:
+        point_id = str(row.get("point_id") or "")
+        if row.get("reference_asset_id") != "dynamic_h2o_dewpoint_pressure_reference":
+            reference_reasons.append(f"h2o_reference_asset_invalid:{point_id}")
+        if row.get("reference_value_source") != "measured_dewpoint_plus_measured_pressure":
+            reference_reasons.append(f"h2o_reference_value_source_invalid:{point_id}")
+        if (
+            row.get("route_flow_source_policy")
+            != "dewpoint_meter_output_preferred_hgen_state_fallback"
+        ):
+            reference_reasons.append(f"h2o_route_flow_policy_invalid:{point_id}")
+        if row.get("reference_gate_mode") != "strict_post_sample_evidence_bundle":
+            reference_reasons.append(f"h2o_reference_gate_mode_invalid:{point_id}")
+        if str(row.get("reference_source_catalog_sha256") or "") != catalog_sha256:
+            reference_reasons.append(f"h2o_reference_catalog_hash_mismatch:{point_id}")
+    checks.append(
+        _check(
+            "controlled_reference_source_binding",
+            reference_reasons,
+            physical_meaning=(
+                "Every CO2 queue row binds one controlled cylinder asset and certificate value. "
+                "Every H2O row binds the dynamic dewpoint-plus-pressure reference contract; "
+                "dewpoint-instrument flow remains route evidence only."
+            ),
+            details={
+                "catalog_path": _portable_path(reference_catalog_file, root),
+                "catalog_sha256": catalog_sha256,
+                "catalog_asset_count": new_model.get(
+                    "reference_source_catalog_asset_count"
+                ),
+                "bound_co2_reference_asset_count": new_model.get(
+                    "bound_co2_reference_asset_count"
+                ),
+                "co2_queue_row_count": len(new_co2),
+                "h2o_queue_row_count": len(new_h2o),
+            },
+        )
+    )
+
     mature_manifest = mature_payload.get("manifest") or {}
     mature_contract = mature_manifest.get("mature_route_contract") or {}
     runner_reasons: list[str] = []
@@ -413,6 +474,20 @@ def build_v1_5_new_algorithm_mature_queue_live_handoff(
             "mature_point_execution_is_not_copied_or_modified": new_model.get(
                 "mature_point_execution_is_not_copied_or_modified"
             ),
+            "reference_source_binding_status": new_model.get(
+                "reference_source_binding_status"
+            ),
+            "reference_source_catalog": new_model.get(
+                "reference_source_catalog"
+            ),
+            "reference_source_catalog_sha256": catalog_sha256,
+            "bound_co2_reference_asset_count": new_model.get(
+                "bound_co2_reference_asset_count"
+            ),
+            "h2o_reference_policy": new_model.get("h2o_reference_policy"),
+            "route_flow_source_policy": new_model.get(
+                "route_flow_source_policy"
+            ),
         },
         "runner_source_bindings": runner_sources,
         "authorization_requirements": _authorization_requirements(),
@@ -423,6 +498,14 @@ def build_v1_5_new_algorithm_mature_queue_live_handoff(
             "profile_sha256": _sha256(profile_file),
             "mature_route_contract_json": _portable_path(mature_contract_file, root),
             "mature_route_contract_sha256": _sha256(mature_contract_file),
+            "reference_source_catalog_json": _portable_path(
+                reference_catalog_file, root
+            ),
+            "reference_source_catalog_sha256": (
+                _sha256(reference_catalog_file)
+                if reference_catalog_file.is_file()
+                else ""
+            ),
         },
         "execution_supported": False,
         "live_queue_execution_allowed": False,
@@ -537,6 +620,53 @@ def build_v1_5_new_algorithm_mature_queue_live_handoff_blocked_executor(
         reasons.append("source_live_queue_lock_not_false")
     if payload.get("production_live_gap_closed") is not False:
         reasons.append("source_live_gap_must_remain_open")
+    queue_contract = payload.get("queue_contract")
+    if not isinstance(queue_contract, Mapping):
+        reasons.append("queue_contract_missing")
+        queue_contract = {}
+    source_bindings = payload.get("source_bindings")
+    if not isinstance(source_bindings, Mapping):
+        reasons.append("source_bindings_missing")
+        source_bindings = {}
+    catalog_sha256 = str(
+        queue_contract.get("reference_source_catalog_sha256") or ""
+    )
+    source_catalog_sha256 = str(
+        source_bindings.get("reference_source_catalog_sha256") or ""
+    )
+    if queue_contract.get("reference_source_binding_status") != "bound":
+        reasons.append("reference_source_catalog_not_bound")
+    if len(catalog_sha256) != 64 or any(
+        char not in "0123456789abcdef" for char in catalog_sha256.lower()
+    ):
+        reasons.append("reference_source_catalog_sha256_invalid")
+    if source_catalog_sha256 != catalog_sha256:
+        reasons.append("reference_source_catalog_sha256_mismatch")
+    if not str(source_bindings.get("reference_source_catalog_json") or ""):
+        reasons.append("reference_source_catalog_path_missing")
+    if int(queue_contract.get("bound_co2_reference_asset_count") or 0) != 11:
+        reasons.append("co2_reference_asset_count_invalid")
+    if (
+        queue_contract.get("h2o_reference_policy")
+        != "measured_dewpoint_plus_measured_pressure"
+    ):
+        reasons.append("h2o_reference_policy_invalid")
+    if (
+        queue_contract.get("route_flow_source_policy")
+        != "dewpoint_meter_output_preferred_hgen_state_fallback"
+    ):
+        reasons.append("route_flow_source_policy_invalid")
+    reference_check = next(
+        (
+            row
+            for row in payload.get("checks") or []
+            if isinstance(row, Mapping)
+            and row.get("check_id") == "controlled_reference_source_binding"
+        ),
+        None,
+    )
+    if not reference_check or reference_check.get("status") != "pass":
+        reasons.append("controlled_reference_source_binding_not_passed")
     return {
         "schema": BLOCKED_EXECUTOR_SCHEMA,
         "generated_at": _now(),

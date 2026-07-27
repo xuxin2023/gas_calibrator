@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -62,6 +62,125 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _portable_catalog_path(catalog_path: Path, profile_path: Path) -> str:
+    candidate_root = profile_path.resolve().parent.parent
+    try:
+        return catalog_path.resolve().relative_to(candidate_root).as_posix()
+    except ValueError:
+        return str(catalog_path.resolve())
+
+
+def _bind_reference_sources(
+    *,
+    co2_rows: list[dict[str, Any]],
+    h2o_rows: list[dict[str, Any]],
+    catalog_path: Path,
+    profile_path: Path,
+) -> dict[str, Any]:
+    if not catalog_path.is_file():
+        raise ValueError("V1.5 reference-source catalog is missing")
+    payload = json.loads(catalog_path.read_text(encoding="utf-8-sig"))
+    if not isinstance(payload, dict):
+        raise ValueError("V1.5 reference-source catalog must be a JSON object")
+    if payload.get("schema_version") != "v1_5_reference_source_catalog_v1":
+        raise ValueError("V1.5 reference-source catalog schema is invalid")
+    if payload.get("not_real_acceptance_evidence") is not True:
+        raise ValueError("V1.5 reference-source catalog safety lock is missing")
+    assets = [
+        dict(row)
+        for row in payload.get("assets") or []
+        if isinstance(row, Mapping) and str(row.get("route_kind") or "").lower() == "co2"
+    ]
+    by_nominal: dict[float, list[dict[str, Any]]] = {}
+    for asset in assets:
+        try:
+            nominal = float(asset["nominal_co2_ppm"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("Reference asset nominal CO2 value is invalid") from exc
+        by_nominal.setdefault(nominal, []).append(asset)
+    portable_catalog = _portable_catalog_path(catalog_path, profile_path)
+    catalog_sha256 = _sha(catalog_path)
+    checked_on = date.today()
+    bound_asset_ids: set[str] = set()
+    for row in co2_rows:
+        nominal = float(row["source_nominal_ppm"])
+        matches = by_nominal.get(nominal, [])
+        if len(matches) != 1:
+            raise ValueError(
+                f"CO2 nominal {nominal:g} ppm must bind exactly one reference asset"
+            )
+        asset = matches[0]
+        asset_id = str(asset.get("asset_id") or "").strip()
+        cylinder_number = str(asset.get("cylinder_number") or "").strip()
+        documents = asset.get("documents")
+        if not asset_id or not cylinder_number:
+            raise ValueError(f"CO2 nominal {nominal:g} ppm reference identity is incomplete")
+        if asset.get("documentary_use_status") != "operator_authorized_for_v1_5_evidence":
+            raise ValueError(f"CO2 nominal {nominal:g} ppm reference is not operator authorized")
+        if asset.get("calibration_fit_reference_allowed") is not True:
+            raise ValueError(f"CO2 nominal {nominal:g} ppm reference is not fit-eligible")
+        if not isinstance(documents, list) or not documents:
+            raise ValueError(f"CO2 nominal {nominal:g} ppm reference documents are missing")
+        if any(
+            not isinstance(document, Mapping)
+            or not str(document.get("sha256") or "").strip()
+            or int(document.get("size_bytes") or 0) <= 0
+            for document in documents
+        ):
+            raise ValueError(f"CO2 nominal {nominal:g} ppm document binding is incomplete")
+        try:
+            issue_date = date.fromisoformat(str(asset.get("issue_date") or ""))
+            valid_through = date.fromisoformat(str(asset.get("valid_through") or ""))
+        except ValueError as exc:
+            raise ValueError(f"CO2 nominal {nominal:g} ppm validity dates are invalid") from exc
+        if not issue_date <= checked_on <= valid_through:
+            raise ValueError(f"CO2 nominal {nominal:g} ppm reference is outside validity")
+        row.update(
+            {
+                "reference_asset_id": asset_id,
+                "certificate_co2_ppm": float(asset["certificate_co2_ppm"]),
+                "reference_value_source": str(asset.get("reference_value_source") or ""),
+                "reference_physical_role": str(asset.get("physical_role") or ""),
+                "reference_cylinder_number": cylinder_number,
+                "reference_valid_through": valid_through.isoformat(),
+                "reference_document_count": len(documents),
+                "co2_value_directly_certified": asset.get(
+                    "co2_value_directly_certified"
+                ),
+                "reference_source_catalog": portable_catalog,
+                "reference_source_catalog_sha256": catalog_sha256,
+                "reference_gate_mode": "strict_pre_device_construction",
+            }
+        )
+        bound_asset_ids.add(asset_id)
+    for row in h2o_rows:
+        row.update(
+            {
+                "reference_asset_id": "dynamic_h2o_dewpoint_pressure_reference",
+                "reference_value_source": "measured_dewpoint_plus_measured_pressure",
+                "reference_physical_role": "h2o_dynamic_wet_point",
+                "route_flow_source_policy": (
+                    "dewpoint_meter_output_preferred_hgen_state_fallback"
+                ),
+                "reference_source_catalog": portable_catalog,
+                "reference_source_catalog_sha256": catalog_sha256,
+                "reference_gate_mode": "strict_post_sample_evidence_bundle",
+            }
+        )
+    return {
+        "reference_source_binding_status": "bound",
+        "reference_source_catalog": portable_catalog,
+        "reference_source_catalog_sha256": catalog_sha256,
+        "reference_source_catalog_schema": payload["schema_version"],
+        "reference_source_catalog_asset_count": len(assets),
+        "bound_co2_reference_asset_count": len(bound_asset_ids),
+        "h2o_reference_policy": "measured_dewpoint_plus_measured_pressure",
+        "route_flow_source_policy": (
+            "dewpoint_meter_output_preferred_hgen_state_fallback"
+        ),
+    }
+
+
 def _write_csv(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
     fields: list[str] = []
     for row in rows:
@@ -79,6 +198,7 @@ def build_v1_5_algorithm_mature_queue_inputs(
     *,
     profile_path: str | Path,
     profile_id: str,
+    reference_source_catalog: str | Path | None = None,
 ) -> dict[str, Any]:
     profile_file = Path(profile_path).resolve()
     if profile_id not in EXPECTED_COUNTS:
@@ -117,6 +237,25 @@ def build_v1_5_algorithm_mature_queue_inputs(
             raise ValueError("Generated queue row references a forbidden migrated source")
         row["runner_integration_status"] = "profile_generated_mature_queue_input"
         row["queue_source_contract"] = "generated_from_reviewed_profile_only"
+    reference_binding = {
+        "reference_source_binding_status": "not_requested",
+        "reference_source_catalog": "",
+        "reference_source_catalog_sha256": "",
+        "reference_source_catalog_schema": "",
+        "reference_source_catalog_asset_count": 0,
+        "bound_co2_reference_asset_count": 0,
+        "h2o_reference_policy": "measured_dewpoint_plus_measured_pressure",
+        "route_flow_source_policy": (
+            "dewpoint_meter_output_preferred_hgen_state_fallback"
+        ),
+    }
+    if reference_source_catalog is not None:
+        reference_binding = _bind_reference_sources(
+            co2_rows=co2_rows,
+            h2o_rows=h2o_rows,
+            catalog_path=Path(reference_source_catalog).resolve(),
+            profile_path=profile_file,
+        )
     return {
         "schema": SCHEMA,
         "generated_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
@@ -138,6 +277,7 @@ def build_v1_5_algorithm_mature_queue_inputs(
         "formal_release_allowed": False,
         "database_import_allowed": False,
         "not_real_acceptance_evidence": True,
+        **reference_binding,
         "co2_rows": co2_rows,
         "h2o_rows": h2o_rows,
     }
@@ -149,10 +289,12 @@ def write_v1_5_algorithm_mature_queue_inputs(
     profile_id: str,
     output_dir: str | Path,
     recorded_output_dir: str | Path | None = None,
+    reference_source_catalog: str | Path | None = None,
 ) -> dict[str, Any]:
     model = build_v1_5_algorithm_mature_queue_inputs(
         profile_path=profile_path,
         profile_id=profile_id,
+        reference_source_catalog=reference_source_catalog,
     )
     output = Path(output_dir)
     recorded_output = Path(recorded_output_dir) if recorded_output_dir else output

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from collections import defaultdict
 from itertools import product
-from math import isfinite
 from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
+
+from gas_calibrator.utils.converters import finite_float as _finite_or_none
 
 
 _EPSILON = 1e-12
@@ -1162,14 +1163,6 @@ def _max_or_none(values: Iterable[Any]) -> float | None:
         if item is not None
     ]
     return None if not finite else round(max(finite), 12)
-
-
-def _finite_or_none(value: Any) -> float | None:
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return None
-    return numeric if isfinite(numeric) else None
 
 
 def _integer_or_none(value: Any) -> int | None:

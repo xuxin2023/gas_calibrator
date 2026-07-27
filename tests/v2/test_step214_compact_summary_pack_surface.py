@@ -401,9 +401,9 @@ class TestVersionUpgrade:
         from gas_calibrator.v2.core.compact_summary_budget import COMPACT_SUMMARY_BUDGET_VERSION
         assert COMPACT_SUMMARY_BUDGET_VERSION == "2.16.0"
 
-    def test_rendering_version_2160(self):
+    def test_rendering_version_2170(self):
         from gas_calibrator.v2.core.compact_summary_rendering import COMPACT_SUMMARY_RENDERING_VERSION
-        assert COMPACT_SUMMARY_RENDERING_VERSION == "2.16.0"
+        assert COMPACT_SUMMARY_RENDERING_VERSION == "2.17.0"
 
 
 # ===========================================================================

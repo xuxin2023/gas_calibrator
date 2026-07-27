@@ -25061,12 +25061,51 @@ class CalibrationRunner:
 
     def _set_temperature(self, target_c: float) -> bool:
         chamber = self.devices.get("temp_chamber")
-        if not chamber:
-            return True
         temp_cfg_raw = self.cfg.get("workflow", {}).get("stability", {}).get("temperature", {})
         if not isinstance(temp_cfg_raw, dict):
             temp_cfg_raw = {}
         tol = float(self._wf("workflow.stability.temperature.tol", 0.2))
+        thermometer_truth_required = bool(
+            temp_cfg_raw.get("thermometer_truth_required", False)
+            or temp_cfg_raw.get("temperature_chamber_setpoint_substitution_forbidden", False)
+        )
+        thermometer_truth_tol_c = abs(
+            float(temp_cfg_raw.get("thermometer_truth_tol_c", tol) or tol)
+        )
+        chamber_control_tol_c = abs(
+            float(temp_cfg_raw.get("chamber_control_tol_c", tol) or tol)
+        )
+        thermometer = self.devices.get("thermometer")
+        if thermometer_truth_required:
+            if thermometer is None or not callable(getattr(thermometer, "read_temp_c", None)):
+                self.log(
+                    "Temperature wait blocked: digital thermometer truth is required "
+                    "but no readable thermometer is available"
+                )
+                return False
+            self.log(
+                "Digital thermometer target gate enabled: "
+                f"target={target_c:.2f}, truth_tol=±{thermometer_truth_tol_c:.2f}, "
+                f"chamber_control_tol=±{chamber_control_tol_c:.2f}"
+            )
+        if not chamber:
+            if thermometer_truth_required:
+                self.log(
+                    "Temperature wait blocked: digital thermometer truth gate "
+                    "also requires a readable chamber controller"
+                )
+                return False
+            return True
+
+        def _read_thermometer_truth_c() -> Optional[float]:
+            if not thermometer_truth_required:
+                return None
+            try:
+                return self._as_float(thermometer.read_temp_c())
+            except Exception as exc:
+                self.log(f"Digital thermometer truth read failed: {exc}")
+                return None
+
         timeout_s = float(self._wf("workflow.stability.temperature.timeout_s", 1800))
         soak_s = float(
             self._wf(
@@ -25112,6 +25151,7 @@ class CalibrationRunner:
         reuse_running_in_tol = bool(self._wf("workflow.stability.temperature.reuse_running_in_tol_without_soak", True))
 
         current_temp: Optional[float] = None
+        current_thermometer_temp: Optional[float] = None
         current_run_state: Optional[int] = None
         if chamber and target_changed and need_soak and reuse_running_in_tol:
             try:
@@ -25129,13 +25169,27 @@ class CalibrationRunner:
                     current_run_state = state_int
             except Exception as exc:
                 self.log(f"Chamber pre-check run-state read failed: {exc}")
-            in_target_range = current_temp is not None and abs(current_temp - target_c) <= tol
+            if thermometer_truth_required:
+                current_thermometer_temp = _read_thermometer_truth_c()
+                in_target_range = (
+                    current_temp is not None
+                    and abs(current_temp - command_target_c) <= chamber_control_tol_c
+                    and current_thermometer_temp is not None
+                    and abs(current_thermometer_temp - target_c) <= thermometer_truth_tol_c
+                )
+            else:
+                in_target_range = current_temp is not None and abs(current_temp - target_c) <= tol
             chamber_running = current_run_state is None or int(current_run_state) == 1
             if in_target_range and chamber_running:
                 self.log(
                     "Chamber already in target range at startup; reuse current thermal state "
                     f"for soak/stability wait: temp={current_temp:.2f}, target={target_c:.2f}, "
                     f"run_state={current_run_state}"
+                    + (
+                        f", thermometer={current_thermometer_temp:.2f}"
+                        if current_thermometer_temp is not None
+                        else ""
+                    )
                 )
                 target_changed = False
             if in_target_range and not chamber_running:
@@ -25149,6 +25203,7 @@ class CalibrationRunner:
             try:
                 current_state: Optional[int] = None
                 current_temp_same_target: Optional[float] = None
+                current_thermometer_same_target: Optional[float] = None
                 if hasattr(chamber, "read_run_state"):
                     try:
                         current_state = self._as_int(chamber.read_run_state())
@@ -25159,15 +25214,33 @@ class CalibrationRunner:
                         current_temp_same_target = self._as_float(chamber.read_temp_c())
                     except Exception as exc:
                         self.log(f"Chamber temp read failed: {exc}")
+                if thermometer_truth_required:
+                    current_thermometer_same_target = _read_thermometer_truth_c()
+                if thermometer_truth_required:
+                    same_target_in_tol = (
+                        current_temp_same_target is not None
+                        and abs(float(current_temp_same_target) - command_target_c) <= chamber_control_tol_c
+                        and current_thermometer_same_target is not None
+                        and abs(float(current_thermometer_same_target) - target_c) <= thermometer_truth_tol_c
+                    )
+                else:
+                    same_target_in_tol = (
+                        current_temp_same_target is not None
+                        and abs(float(current_temp_same_target) - float(target_c)) <= tol
+                    )
                 if (
                     current_state == 1
                     and self._last_temp_soak_done
-                    and current_temp_same_target is not None
-                    and abs(float(current_temp_same_target) - float(target_c)) <= tol
+                    and same_target_in_tol
                 ):
                     self.log(
                         "Chamber target unchanged; keep current command and reuse current thermal state: "
                         f"target={target_c:.2f}, temp={current_temp_same_target:.2f}, run_state={current_state}"
+                        + (
+                            f", thermometer={current_thermometer_same_target:.2f}"
+                            if current_thermometer_same_target is not None
+                            else ""
+                        )
                     )
                     return True
                 if current_state == 1:
@@ -25255,6 +25328,12 @@ class CalibrationRunner:
                 return False
 
         if not wait_for_target_before_continue:
+            if thermometer_truth_required:
+                self.log(
+                    "Temperature wait blocked: digital thermometer truth gate "
+                    "cannot be skipped by configuration"
+                )
+                return False
             self.log(
                 "Chamber target wait skipped by configuration: "
                 f"target={target_c:.2f}, command={command_target_c:.2f}"
@@ -25274,6 +25353,7 @@ class CalibrationRunner:
         last_report_s = 0.0
         start = time.time()
         last_temp: Optional[float] = None
+        last_thermometer_temp: Optional[float] = None
         best_abs_error: Optional[float] = None
         last_progress_ts = start
         last_progress_log_ts: Optional[float] = None
@@ -25285,20 +25365,49 @@ class CalibrationRunner:
             self._refresh_live_analyzer_snapshots(reason="temperature target wait")
 
             temp = chamber.read_temp_c() if chamber else None
+            thermometer_temp = _read_thermometer_truth_c()
             now = time.time()
             if temp is not None:
                 last_temp = float(temp)
-                abs_error = abs(float(temp) - float(target_c))
-                if best_abs_error is None or abs_error <= (best_abs_error - float(progress_min_delta_c)):
+                if thermometer_temp is not None:
+                    last_thermometer_temp = float(thermometer_temp)
+                if thermometer_truth_required:
+                    chamber_abs_error = abs(float(temp) - command_target_c)
+                    thermometer_abs_error = (
+                        abs(float(thermometer_temp) - float(target_c))
+                        if thermometer_temp is not None
+                        else None
+                    )
+                    abs_error = (
+                        max(chamber_abs_error, thermometer_abs_error)
+                        if thermometer_abs_error is not None
+                        else None
+                    )
+                    in_tol = (
+                        chamber_abs_error <= chamber_control_tol_c
+                        and thermometer_abs_error is not None
+                        and thermometer_abs_error <= thermometer_truth_tol_c
+                    )
+                else:
+                    abs_error = abs(float(temp) - float(target_c))
+                    in_tol = abs_error <= tol
+                if (
+                    abs_error is not None
+                    and (best_abs_error is None or abs_error <= (best_abs_error - float(progress_min_delta_c)))
+                ):
                     best_abs_error = abs_error
                     last_progress_ts = now
-                in_tol = abs_error <= tol
                 if in_tol and reach_start is None:
                     reach_start = now
                     if need_soak:
                         self.log(
                             f"Chamber reached target range: temp={temp:.2f}, "
                             f"start soak {int(soak_s)}s"
+                            + (
+                                f", thermometer={float(thermometer_temp):.2f}"
+                                if thermometer_temp is not None
+                                else ""
+                            )
                         )
                     else:
                         if not self._wait_analyzer_chamber_temp_stable(target_c):
@@ -25317,12 +25426,24 @@ class CalibrationRunner:
                                 self.log("Analyzer chamber temp did not stabilize after chamber soak")
                                 return False
                             self._last_temp_soak_done = True
-                            self.log(f"Chamber soak done: temp={temp:.2f}")
+                            self.log(
+                                f"Chamber soak done: temp={temp:.2f}"
+                                + (
+                                    f", thermometer={float(thermometer_temp):.2f}"
+                                    if thermometer_temp is not None
+                                    else ""
+                                )
+                            )
                             return True
 
                         self.log(
                             f"Chamber soak expired out of tol: temp={temp:.2f}, "
                             f"target={target_c:.2f}, tol=±{tol:.2f}; restart soak"
+                            + (
+                                f", thermometer={float(thermometer_temp):.2f}"
+                                if thermometer_temp is not None
+                                else ""
+                            )
                         )
                         reach_start = None
                         last_report_s = 0.0
@@ -25352,6 +25473,11 @@ class CalibrationRunner:
                             "Chamber still moving toward target after reach timeout; continue waiting: "
                             f"temp={float(temp):.2f}, target={target_c:.2f}, "
                             f"best_abs_error={best_error_text}, last_progress_age_s={last_progress_age_s:.1f}"
+                            + (
+                                f", thermometer={float(thermometer_temp):.2f}"
+                                if thermometer_temp is not None
+                                else ""
+                            )
                         )
 
             if reach_start is None:
@@ -25367,6 +25493,7 @@ class CalibrationRunner:
                     self.log(
                         "Chamber wait stalled before reaching target: "
                         f"target={target_c:.2f}, last_temp={last_temp}, "
+                        f"last_thermometer_temp={last_thermometer_temp}, "
                         f"best_abs_error={best_abs_error}, last_progress_age_s={last_progress_age_s:.1f}, "
                         f"run_state={timeout_run_state}, reason=hard_max_wait_exceeded"
                     )
@@ -25381,6 +25508,7 @@ class CalibrationRunner:
                     self.log(
                         "Chamber wait stalled before reaching target: "
                         f"target={target_c:.2f}, last_temp={last_temp}, "
+                        f"last_thermometer_temp={last_thermometer_temp}, "
                         f"best_abs_error={best_abs_error}, last_progress_age_s={last_progress_age_s:.1f}, "
                         f"run_state={timeout_run_state}, reason=reach_timeout"
                     )
@@ -25395,6 +25523,7 @@ class CalibrationRunner:
                     self.log(
                         "Chamber wait stalled before reaching target: "
                         f"target={target_c:.2f}, last_temp={last_temp}, "
+                        f"last_thermometer_temp={last_thermometer_temp}, "
                         f"best_abs_error={best_abs_error}, last_progress_age_s={last_progress_age_s:.1f}, "
                         f"run_state={timeout_run_state}"
                     )

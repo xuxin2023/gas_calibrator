@@ -8,6 +8,8 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+from gas_calibrator.utils.file_io import write_json
+
 from ...config import (
     build_step2_config_governance_handoff,
     build_step2_config_safety_review,
@@ -21,10 +23,6 @@ from ...core.multi_source_stability import (
     SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME,
 )
 from ...core.measurement_phase_coverage import MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME
-from ...core import recognition_readiness_artifacts as recognition_readiness
-from ...core.reviewer_surface_contracts import (
-    WP6_CLOSEOUT_ARTIFACT_KEYS as _SHARED_WP6_CLOSEOUT_KEYS,
-)
 from ...core.reviewer_surface_payloads import (
     extract_wp6_closeout_payloads as _extract_wp6_closeout_payloads,
 )
@@ -334,7 +332,6 @@ class DeviceWorkbenchController:
             return {}
         stability_digest = dict(stability.get("digest") or {})
         transition_digest = dict(transition.get("digest") or {})
-        phase_coverage_digest = dict(phase_coverage.get("digest") or {})
         stability_policy_profile = dict(stability.get("stability_policy_profile") or {})
         stability_decision_rollup = dict(stability.get("stability_decision_rollup") or {})
         shadow_stability_diff = dict(stability.get("shadow_stability_diff") or {})
@@ -1254,12 +1251,6 @@ class DeviceWorkbenchController:
                 dict(item) for item in list(qc_evidence_section.get("sections") or review_sections) if isinstance(item, dict)
             ],
             "cards": [dict(item) for item in list(qc_evidence_section.get("cards") or []) if isinstance(item, dict)],
-            "evidence_section": {
-                "title": t("results.review_center.detail.qc_summary", default="质控摘要"),
-                "summary": summary,
-                "lines": [str(item).strip() for item in review_card_lines if str(item).strip()],
-                "sections": review_sections,
-            },
             "evidence_section": dict(qc_evidence_section),
             "run_gate": run_gate,
             "point_gate_summary": point_gate,
@@ -3070,6 +3061,7 @@ class DeviceWorkbenchController:
         }
 
     def execute_action(self, target_device: str, action: str, **params: Any) -> dict[str, Any]:
+        defer_snapshot = bool(params.pop("_defer_snapshot", False))
         normalized_kind = str(target_device or "").strip().lower()
         normalized_action = str(action or "").strip().lower()
         extras: dict[str, Any] = {}
@@ -3131,20 +3123,25 @@ class DeviceWorkbenchController:
             )
         if ok or self._should_log_failed_action(normalized_kind, normalized_action):
             self.facade.log_ui(message)
-        snapshot = self.build_snapshot()
-        if entry is not None and self._should_capture_snapshot(normalized_kind, normalized_action):
-            self._capture_snapshot(entry=entry, snapshot=snapshot)
+        snapshot: dict[str, Any] = {}
+        if not defer_snapshot:
             snapshot = self.build_snapshot()
-        if ok and normalized_action == "run_preset":
-            current_device = normalized_kind
-            if normalized_kind == "workbench":
-                current_device = self._normalize_device_kind(params.get("device_kind") or params.get("current_device") or "workbench")
-            auto_evidence = self._generate_diagnostic_evidence(
-                current_device=current_device,
-                current_action=normalized_action,
-            )
-            extras["evidence_report"] = dict(auto_evidence)
-            snapshot = self.build_snapshot()
+            if entry is not None and self._should_capture_snapshot(normalized_kind, normalized_action):
+                self._capture_snapshot(entry=entry, snapshot=snapshot)
+                snapshot = self.build_snapshot()
+            if ok and normalized_action == "run_preset":
+                current_device = normalized_kind
+                if normalized_kind == "workbench":
+                    current_device = self._normalize_device_kind(
+                        params.get("device_kind") or params.get("current_device") or "workbench"
+                    )
+                auto_evidence = self._generate_diagnostic_evidence(
+                    current_device=current_device,
+                    current_action=normalized_action,
+                    snapshot=snapshot,
+                )
+                extras["evidence_report"] = dict(auto_evidence)
+                snapshot = self.build_snapshot()
         response = {
             "ok": ok,
             "message": message,
@@ -4537,7 +4534,6 @@ class DeviceWorkbenchController:
         suite_analytics_payload = dict(self.facade.results_gateway.load_json("suite_analytics_summary.json") or {})
         lineage_summary_payload = dict(self.facade.results_gateway.load_json("lineage_summary.json") or {})
         suite_summary_path = Path(self.facade.results_gateway.run_dir) / "suite_summary.json"
-        suite_analytics_path = Path(self.facade.results_gateway.run_dir) / "suite_analytics_summary.json"
         analytics_summary_path = Path(self.facade.results_gateway.run_dir) / "analytics_summary.json"
         lineage_summary_path = Path(self.facade.results_gateway.run_dir) / "lineage_summary.json"
         suite_counts = dict(suite_summary_payload.get("counts", {}) or {})
@@ -5359,20 +5355,20 @@ class DeviceWorkbenchController:
         normalized = str(scenario_id or "analyzer_partial_frame").strip().lower()
         if normalized == "analyzer_partial_frame":
             analyzer_index = int(params.get("analyzer_index", self._selected_analyzer_index) or self._selected_analyzer_index)
-            self.execute_action("analyzer", "inject_fault", analyzer_index=analyzer_index, fault="partial_frame")
-            self.execute_action("analyzer", "read_frame", analyzer_index=analyzer_index)
+            self._run_step("analyzer", "inject_fault", analyzer_index=analyzer_index, fault="partial_frame")
+            self._run_step("analyzer", "read_frame", analyzer_index=analyzer_index)
         elif normalized == "pace_cleanup_no_response":
-            self.execute_action("pace", "inject_fault", fault="cleanup_no_response")
-            self.execute_action("pace", "query_error")
+            self._run_step("pace", "inject_fault", fault="cleanup_no_response")
+            self._run_step("pace", "query_error")
         elif normalized == "relay_stuck":
             relay_name = str(params.get("relay_name") or "relay").strip().lower() or "relay"
             channel = int(params.get("channel", 1) or 1)
-            self.execute_action("relay", "inject_fault", relay_name=relay_name, fault="stuck_channel", stuck_channels=[channel])
-            self.execute_action("relay", "write_channel", relay_name=relay_name, channel=channel, enabled=True)
+            self._run_step("relay", "inject_fault", relay_name=relay_name, fault="stuck_channel", stuck_channels=[channel])
+            self._run_step("relay", "write_channel", relay_name=relay_name, channel=channel, enabled=True)
         elif normalized == "thermometer_stale":
-            self.execute_action("thermometer", "set_mode", mode="stale")
+            self._run_step("thermometer", "set_mode", mode="stale")
         elif normalized == "pressure_wrong_unit":
-            self.execute_action("pressure_gauge", "inject_fault", fault="wrong_unit_configuration")
+            self._run_step("pressure_gauge", "inject_fault", fault="wrong_unit_configuration")
         else:
             raise ValueError(f"unsupported quick scenario: {scenario_id}")
         return t(
@@ -5547,7 +5543,7 @@ class DeviceWorkbenchController:
         )
 
     def _run_step(self, device_kind: str, action: str, **params: Any) -> None:
-        result = self.execute_action(device_kind, action, **params)
+        result = self.execute_action(device_kind, action, _defer_snapshot=True, **params)
         if not bool(result.get("ok", False)):
             raise RuntimeError(str(result.get("message") or f"{device_kind}:{action} failed"))
 
@@ -5579,8 +5575,9 @@ class DeviceWorkbenchController:
         *,
         current_device: str,
         current_action: str,
+        snapshot: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        snapshot = self.build_snapshot()
+        snapshot = dict(snapshot or self.build_snapshot())
         history_payload = dict(snapshot.get("history", {}) or {})
         workbench_payload = dict(snapshot.get("workbench", {}) or {})
         meta = dict(snapshot.get("meta", {}) or {})
@@ -5849,28 +5846,6 @@ class DeviceWorkbenchController:
             ]
             if str(line).strip()
         ) or f"- {t('common.none')}"
-        analytics_ai_sidecar_payload = dict(report_payload.get("analytics_ai_sidecar", {}) or {})
-        analytics_ai_sidecar_lines = "\n".join(
-            f"- {line}"
-            for line in [
-                *[
-                    str(item)
-                    for item in list(analytics_ai_sidecar_payload.get("summary_lines") or [])
-                    if str(item).strip()
-                ],
-                *[
-                    str(item)
-                    for item in list(analytics_ai_sidecar_payload.get("boundary_lines") or [])
-                    if str(item).strip()
-                ],
-                *[
-                    f"{label}: {path}"
-                    for label, path in dict(analytics_ai_sidecar_payload.get("artifact_paths") or {}).items()
-                    if str(path or "").strip()
-                ],
-            ]
-            if str(line).strip()
-        ) or f"- {t('common.none')}"
         return "\n".join(
             [
                 f"# {t('pages.devices.workbench.report.title')}",
@@ -6004,7 +5979,7 @@ class DeviceWorkbenchController:
         summary_payload["point_taxonomy_summary"] = dict(summary.get("point_taxonomy_summary", {}) or {})
         summary_payload["artifact_role_summary"] = dict(stats["artifact_role_summary"])
         summary_payload["workbench_evidence_summary"] = dict(summary)
-        self._write_json_dict(summary_path, summary_payload)
+        write_json(summary_path, summary_payload)
 
         manifest_path = Path(self.facade.result_store.run_dir) / "manifest.json"
         manifest_payload = self._load_json_dict(manifest_path)
@@ -6023,7 +5998,7 @@ class DeviceWorkbenchController:
         artifacts["role_catalog"] = role_catalog
         manifest_payload["artifacts"] = artifacts
         manifest_payload["workbench_evidence"] = dict(summary)
-        self._write_json_dict(manifest_path, manifest_payload)
+        write_json(manifest_path, manifest_payload)
 
     @staticmethod
     def _load_json_dict(path: Path) -> dict[str, Any]:
@@ -6034,11 +6009,6 @@ class DeviceWorkbenchController:
         except Exception:
             return {}
         return dict(payload) if isinstance(payload, dict) else {}
-
-    @staticmethod
-    def _write_json_dict(path: Path, payload: dict[str, Any]) -> None:
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
     def _device_config(self, device_name: str, *, analyzer_index: Optional[int] = None) -> dict[str, Any]:
         devices = getattr(self.facade.config, "devices", None)
         if device_name == "pressure_controller":
