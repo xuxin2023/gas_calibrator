@@ -10,6 +10,8 @@ from gas_calibrator.tools.export_v1_5_candidate_model_selection_review import (
 )
 from gas_calibrator.tools.export_v1_5_production_component_qc_fit_matrix import main
 from gas_calibrator.tools.run_v1_5_formal_open_flow_sampling import (
+    V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT,
+    V1_5_TEMPERATURE_TRUTH_SOURCE,
     _write_formal_evidence_bundle_manifest,
 )
 from gas_calibrator.validation.v1_5_component_qc_generator_contract import (
@@ -203,6 +205,11 @@ def _seed_packet(
             {
                 "schema_version": "v1_5_operator_confirmation_record_v0",
                 "run_id": point.name,
+                "scope": f"v1_5_{component}_open_flow_single_point_no_write_engineering_probe",
+                "operator_confirmation_text": V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT,
+                "operator_confirmation_sha256": hashlib.sha256(
+                    V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT.encode("utf-8")
+                ).hexdigest(),
                 "engineering_probe_only": True,
                 "operator_confirmation_matches_required": True,
                 "no_write": True,
@@ -217,7 +224,19 @@ def _seed_packet(
                     {
                         "schema_version": "v1_5_temperature_truth_snapshot_v0",
                         "stage": stage,
+                        "temperature_truth_source": V1_5_TEMPERATURE_TRUTH_SOURCE,
+                        "required": True,
+                        "target_c": 20.0,
+                        "command_target_c": 20.0,
+                        "command_offset_c": 0.0,
+                        "thermometer_truth_tol_c": 0.2,
+                        "chamber_control_tol_c": 0.2,
+                        "thermometer_c": 20.0,
+                        "chamber_c": 20.0,
+                        "thermometer_delta_c": 0.0,
+                        "chamber_delta_c": 0.0,
                         "ok": True,
+                        "reason": "within_tolerance",
                     }
                 )
                 for stage in ("pre_route", "pre_sample", "post_sample")
@@ -232,6 +251,30 @@ def _seed_packet(
                 "route_kind": component,
                 "overall_status": "pass",
                 "critical_failures": [],
+                "route_close": {
+                    "required": True,
+                    "attempted": True,
+                    "ok": True,
+                    "status": "pass",
+                },
+                "pace_atmosphere_stop": {
+                    "ok": True,
+                    "status": "pass",
+                    "errors": [],
+                },
+                "device_transport_close": {
+                    "status": "best_effort_invoked",
+                },
+                **(
+                    {
+                        "humidity_generator_safe_stop": {
+                            "ok": True,
+                            "status": "pass",
+                        }
+                    }
+                    if component == "h2o"
+                    else {}
+                ),
             },
         )
 
@@ -468,6 +511,123 @@ def test_strict_v2_bundle_rejects_temperature_truth_failure_even_when_rebound(
     )
     assert all(
         "temperature_truth_stage_not_pass"
+        in row["evidence_identity_reason_codes"]
+        for row in model["analyzer_qc"]
+    )
+
+
+def test_strict_v2_bundle_rejects_forged_operator_summary_even_when_rebound(
+    tmp_path,
+):
+    preflight, catalog, discovery, point = _seed_packet(tmp_path, strict_bundle=True)
+    operator_record = point / "operator_confirmation_record.json"
+    payload = json.loads(operator_record.read_text(encoding="utf-8"))
+    payload["operator_confirmation_text"] = "FORGED_CONFIRMATION"
+    payload["operator_confirmation_sha256"] = hashlib.sha256(
+        payload["operator_confirmation_text"].encode("utf-8")
+    ).hexdigest()
+    _write_json(operator_record, payload)
+    _refresh_preflight_hash(
+        preflight,
+        role="operator_confirmation",
+        path=operator_record,
+    )
+    _write_formal_evidence_bundle_manifest(
+        point,
+        run_id=point.name,
+        route_kind="co2",
+    )
+
+    model = _build_packet(preflight, catalog, discovery)
+
+    assert all(
+        row["evidence_bundle_manifest_verified"] is False
+        for row in model["analyzer_qc"]
+    )
+    assert all(
+        "operator_confirmation_text_mismatch"
+        in row["evidence_identity_reason_codes"]
+        for row in model["analyzer_qc"]
+    )
+
+
+def test_strict_v2_bundle_rejects_temperature_summary_without_measurements(
+    tmp_path,
+):
+    preflight, catalog, discovery, point = _seed_packet(tmp_path, strict_bundle=True)
+    trace = point / "temperature_truth_trace.jsonl"
+    trace.write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "schema_version": "v1_5_temperature_truth_snapshot_v0",
+                    "stage": stage,
+                    "temperature_truth_source": V1_5_TEMPERATURE_TRUTH_SOURCE,
+                    "required": False,
+                    "ok": True,
+                    "reason": "not_required",
+                }
+            )
+            for stage in ("pre_route", "pre_sample", "post_sample")
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _refresh_preflight_hash(
+        preflight,
+        role="temperature_truth_trace",
+        path=trace,
+    )
+    _write_formal_evidence_bundle_manifest(
+        point,
+        run_id=point.name,
+        route_kind="co2",
+    )
+
+    model = _build_packet(preflight, catalog, discovery)
+
+    assert all(
+        row["evidence_bundle_manifest_verified"] is False
+        for row in model["analyzer_qc"]
+    )
+    assert all(
+        "temperature_truth_required_not_true"
+        in row["evidence_identity_reason_codes"]
+        for row in model["analyzer_qc"]
+    )
+
+
+def test_strict_v2_bundle_rejects_shutdown_summary_without_actions(tmp_path):
+    preflight, catalog, discovery, point = _seed_packet(tmp_path, strict_bundle=True)
+    shutdown = point / "physical_shutdown_status.json"
+    _write_json(
+        shutdown,
+        {
+            "schema_version": "v1_5_formal_physical_shutdown_status_v0",
+            "route_kind": "co2",
+            "overall_status": "pass",
+            "critical_failures": [],
+        },
+    )
+    _refresh_preflight_hash(
+        preflight,
+        role="physical_shutdown",
+        path=shutdown,
+    )
+    _write_formal_evidence_bundle_manifest(
+        point,
+        run_id=point.name,
+        route_kind="co2",
+    )
+
+    model = _build_packet(preflight, catalog, discovery)
+
+    assert all(
+        row["evidence_bundle_manifest_verified"] is False
+        for row in model["analyzer_qc"]
+    )
+    assert all(
+        "physical_shutdown_route_close_invalid"
         in row["evidence_identity_reason_codes"]
         for row in model["analyzer_qc"]
     )

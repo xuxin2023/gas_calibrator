@@ -48,7 +48,45 @@ SUITE_TEST_FILES: tuple[str, ...] = (
     "tests/v2/test_run_simulation_suite.py",
     "tests/v2/test_export_resilience.py",
     "tests/v2/test_summary_parity.py",
+    "tests/test_runner_pressure_control_order.py",
+    "tests/test_runner_pressure_vent0_phase.py",
+    "tests/test_runner_seal_pressure_verification.py",
+    "tests/test_runner_h2o_sequence.py",
+    "tests/test_v1_fasttrace_guards.py",
 )
+
+V1_PRESSURE_SAFETY_COVERAGE_MAP: Mapping[str, tuple[str, ...]] = {
+    "atmosphere_keepalive_stops_before_sealed_control": (
+        "tests/test_runner_pressure_control_order.py::"
+        "test_continuous_atmosphere_background_keepalive_stops_before_sealed_guard",
+    ),
+    "all_route_valves_closed_before_sealed_control": (
+        "tests/test_runner_pressure_control_order.py::"
+        "test_sealed_control_blocks_when_any_required_solenoid_remains_open",
+        "tests/test_runner_pressure_control_order.py::"
+        "test_sealed_control_blocks_when_total_route_valve_remains_open",
+    ),
+    "no_vent_command_after_pressure_hold_start": (
+        "tests/test_runner_pressure_vent0_phase.py::"
+        "test_pressure_hold_rejects_vent0_after_hold_start",
+    ),
+    "vent_exits_before_setpoint_and_output": (
+        "tests/test_runner_pressure_control_order.py::"
+        "test_set_pressure_to_target_closes_vent_before_setpoint_and_output",
+    ),
+    "seal_pressure_evidence_fails_closed": (
+        "tests/test_runner_seal_pressure_verification.py::"
+        "test_seal_pressure_gate_requires_explicit_verification",
+    ),
+    "h2o_route_keeps_vent_until_seal": (
+        "tests/test_runner_h2o_sequence.py::"
+        "test_open_h2o_route_keeps_vent_on_until_seal",
+    ),
+    "v1_workflow_does_not_write_device_id": (
+        "tests/test_v1_fasttrace_guards.py::"
+        "test_v1_workflow_and_headless_do_not_call_set_device_id",
+    ),
+}
 
 
 @dataclass(frozen=True)

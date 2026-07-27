@@ -23,8 +23,10 @@ from .v1_5_component_qc_generator_contract import (
     FORMAL_EVIDENCE_BUNDLE_FILENAME,
     FORMAL_EVIDENCE_BUNDLE_SCHEMA,
     FORMAL_EVIDENCE_BUNDLE_SCHEMA_V1,
+    FORMAL_ENGINEERING_PROBE_CONFIRMATION_TEXT,
     FORMAL_REFERENCE_SOURCE_RECORD_FILENAME,
     FORMAL_REFERENCE_SOURCE_RECORD_SCHEMA,
+    FORMAL_TEMPERATURE_TRUTH_SOURCE,
     evaluate_component_qc_temporal_window,
     validate_v1_5_component_qc_generator_contract,
 )
@@ -294,6 +296,39 @@ def _verify_formal_evidence_bundle(
         if operator_error:
             reasons.append("operator_confirmation_record_invalid")
         else:
+            expected_confirmation_sha256 = hashlib.sha256(
+                FORMAL_ENGINEERING_PROBE_CONFIRMATION_TEXT.encode("utf-8")
+            ).hexdigest()
+            operator_confirmation_text = str(
+                operator_record.get("operator_confirmation_text") or ""
+            )
+            if (
+                operator_record.get("schema_version")
+                != "v1_5_operator_confirmation_record_v0"
+            ):
+                reasons.append("operator_confirmation_schema_invalid")
+            if str(operator_record.get("run_id") or "") != expected_run_id:
+                reasons.append("operator_confirmation_run_id_mismatch")
+            if (
+                str(operator_record.get("scope") or "")
+                != f"v1_5_{component}_open_flow_single_point_no_write_engineering_probe"
+            ):
+                reasons.append("operator_confirmation_scope_mismatch")
+            if (
+                operator_confirmation_text
+                != FORMAL_ENGINEERING_PROBE_CONFIRMATION_TEXT
+            ):
+                reasons.append("operator_confirmation_text_mismatch")
+            if (
+                str(operator_record.get("operator_confirmation_sha256") or "")
+                != hashlib.sha256(operator_confirmation_text.encode("utf-8")).hexdigest()
+            ):
+                reasons.append("operator_confirmation_sha_invalid")
+            if (
+                str(operator_record.get("operator_confirmation_sha256") or "")
+                != expected_confirmation_sha256
+            ):
+                reasons.append("operator_confirmation_required_sha_mismatch")
             if operator_record.get("engineering_probe_only") is not True:
                 reasons.append("operator_confirmation_engineering_probe_only_missing")
             if operator_record.get("operator_confirmation_matches_required") is not True:
@@ -313,12 +348,51 @@ def _verify_formal_evidence_bundle(
         if shutdown_error:
             reasons.append("physical_shutdown_status_invalid")
         else:
+            if (
+                shutdown.get("schema_version")
+                != "v1_5_formal_physical_shutdown_status_v0"
+            ):
+                reasons.append("physical_shutdown_schema_invalid")
             if str(shutdown.get("route_kind") or "").lower() != component:
                 reasons.append("physical_shutdown_route_kind_mismatch")
             if shutdown.get("overall_status") != "pass":
                 reasons.append("physical_shutdown_not_pass")
             if list(shutdown.get("critical_failures") or []):
                 reasons.append("physical_shutdown_critical_failures_present")
+            route_close = shutdown.get("route_close")
+            if not (
+                isinstance(route_close, Mapping)
+                and route_close.get("required") is True
+                and route_close.get("attempted") is True
+                and route_close.get("ok") is True
+                and route_close.get("status") == "pass"
+            ):
+                reasons.append("physical_shutdown_route_close_invalid")
+            pace_stop = shutdown.get("pace_atmosphere_stop")
+            if not (
+                isinstance(pace_stop, Mapping)
+                and pace_stop.get("ok") is True
+                and pace_stop.get("status") == "pass"
+                and not list(pace_stop.get("errors") or [])
+            ):
+                reasons.append("physical_shutdown_pace_stop_invalid")
+            device_close = shutdown.get("device_transport_close")
+            if not (
+                isinstance(device_close, Mapping)
+                and device_close.get("status") == "best_effort_invoked"
+            ):
+                reasons.append("physical_shutdown_device_close_invalid")
+            if component == "h2o":
+                hgen_stop = shutdown.get("humidity_generator_safe_stop")
+                if not (
+                    isinstance(hgen_stop, Mapping)
+                    and hgen_stop.get("ok") is True
+                    and hgen_stop.get("status")
+                    in {"pass", "delegated_to_queue_final_safe_stop"}
+                ):
+                    reasons.append(
+                        "physical_shutdown_humidity_generator_safe_stop_invalid"
+                    )
 
         temperature_trace_path = point_dir / required["temperature_truth_trace"]
         temperature_rows: list[Mapping[str, Any]] = []
@@ -333,17 +407,97 @@ def _verify_formal_evidence_bundle(
         except (OSError, ValueError, json.JSONDecodeError):
             reasons.append("temperature_truth_trace_invalid")
         required_temperature_stages = {"pre_route", "pre_sample", "post_sample"}
-        observed_temperature_stages = {
+        temperature_stage_counts = Counter(
             str(row.get("stage") or "") for row in temperature_rows
-        }
-        if not required_temperature_stages.issubset(observed_temperature_stages):
-            reasons.append("temperature_truth_required_stages_missing")
+        )
         if any(
-            row.get("ok") is not True
-            for row in temperature_rows
-            if str(row.get("stage") or "") in required_temperature_stages
+            temperature_stage_counts.get(stage, 0) != 1
+            for stage in required_temperature_stages
         ):
-            reasons.append("temperature_truth_stage_not_pass")
+            reasons.append("temperature_truth_required_stages_missing")
+        for row in temperature_rows:
+            if str(row.get("stage") or "") not in required_temperature_stages:
+                continue
+            if (
+                row.get("schema_version")
+                != "v1_5_temperature_truth_snapshot_v0"
+            ):
+                reasons.append("temperature_truth_schema_invalid")
+            if (
+                row.get("temperature_truth_source")
+                != FORMAL_TEMPERATURE_TRUTH_SOURCE
+            ):
+                reasons.append("temperature_truth_source_invalid")
+            if row.get("required") is not True:
+                reasons.append("temperature_truth_required_not_true")
+            numeric_fields = (
+                "target_c",
+                "command_target_c",
+                "command_offset_c",
+                "thermometer_truth_tol_c",
+                "chamber_control_tol_c",
+                "thermometer_c",
+                "chamber_c",
+                "thermometer_delta_c",
+                "chamber_delta_c",
+            )
+            numeric_values: dict[str, float] = {}
+            for field in numeric_fields:
+                raw_value = row.get(field)
+                if isinstance(raw_value, bool):
+                    reasons.append("temperature_truth_measurement_missing_or_invalid")
+                    break
+                try:
+                    value = float(raw_value)
+                except (TypeError, ValueError):
+                    reasons.append("temperature_truth_measurement_missing_or_invalid")
+                    break
+                if not math.isfinite(value):
+                    reasons.append("temperature_truth_measurement_missing_or_invalid")
+                    break
+                numeric_values[field] = value
+            if len(numeric_values) == len(numeric_fields):
+                target_c = numeric_values["target_c"]
+                command_target_c = numeric_values["command_target_c"]
+                command_offset_c = numeric_values["command_offset_c"]
+                thermometer_tol_c = numeric_values["thermometer_truth_tol_c"]
+                chamber_tol_c = numeric_values["chamber_control_tol_c"]
+                thermometer_c = numeric_values["thermometer_c"]
+                chamber_c = numeric_values["chamber_c"]
+                thermometer_delta_c = numeric_values["thermometer_delta_c"]
+                chamber_delta_c = numeric_values["chamber_delta_c"]
+                if thermometer_tol_c < 0.0 or chamber_tol_c < 0.0:
+                    reasons.append("temperature_truth_tolerance_invalid")
+                if not math.isclose(
+                    command_target_c,
+                    target_c + command_offset_c,
+                    rel_tol=0.0,
+                    abs_tol=1e-9,
+                ):
+                    reasons.append("temperature_truth_command_target_mismatch")
+                if not math.isclose(
+                    thermometer_delta_c,
+                    thermometer_c - target_c,
+                    rel_tol=0.0,
+                    abs_tol=1e-9,
+                ):
+                    reasons.append("temperature_truth_thermometer_delta_mismatch")
+                if not math.isclose(
+                    chamber_delta_c,
+                    chamber_c - command_target_c,
+                    rel_tol=0.0,
+                    abs_tol=1e-9,
+                ):
+                    reasons.append("temperature_truth_chamber_delta_mismatch")
+                if (
+                    abs(thermometer_delta_c) > thermometer_tol_c
+                    or abs(chamber_delta_c) > chamber_tol_c
+                ):
+                    reasons.append("temperature_truth_out_of_tolerance")
+            if row.get("ok") is not True:
+                reasons.append("temperature_truth_stage_not_pass")
+            if row.get("reason") != "within_tolerance":
+                reasons.append("temperature_truth_reason_invalid")
 
     canonical = {
         key: manifest.get(key)

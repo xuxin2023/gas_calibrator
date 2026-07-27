@@ -18,6 +18,12 @@ CONTRACT_SCHEMA = "v1_5_component_qc_generator_contract_v1"
 FORMAL_EVIDENCE_BUNDLE_SCHEMA_V1 = "v1_5_formal_evidence_bundle_v1"
 FORMAL_EVIDENCE_BUNDLE_SCHEMA = "v1_5_formal_evidence_bundle_v2"
 FORMAL_EVIDENCE_BUNDLE_FILENAME = "formal_evidence_bundle_manifest.json"
+FORMAL_ENGINEERING_PROBE_CONFIRMATION_TEXT = (
+    "I_CONFIRM_V1_5_ENGINEERING_PROBE_ONLY_NO_WRITE_NOT_REAL_ACCEPTANCE"
+)
+FORMAL_TEMPERATURE_TRUTH_SOURCE = (
+    "in_chamber_platinum_resistance_digital_thermometer"
+)
 FORMAL_REFERENCE_SOURCE_RECORD_SCHEMA = "v1_5_formal_reference_source_record_v1"
 FORMAL_REFERENCE_SOURCE_RECORD_FILENAME = "formal_reference_source_record.json"
 FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS_V1 = {
@@ -518,8 +524,10 @@ __all__ = [
     "FORMAL_EVIDENCE_BUNDLE_FILENAME",
     "FORMAL_EVIDENCE_BUNDLE_SCHEMA",
     "FORMAL_EVIDENCE_BUNDLE_SCHEMA_V1",
+    "FORMAL_ENGINEERING_PROBE_CONFIRMATION_TEXT",
     "FORMAL_REFERENCE_SOURCE_RECORD_FILENAME",
     "FORMAL_REFERENCE_SOURCE_RECORD_SCHEMA",
+    "FORMAL_TEMPERATURE_TRUTH_SOURCE",
     "SCHEMA",
     "build_v1_5_component_qc_generator_contract_review",
     "evaluate_component_qc_temporal_window",

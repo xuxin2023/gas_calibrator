@@ -738,14 +738,24 @@ def _write_queue_exclusion_evidence(
     queue_summary: Mapping[str, Any],
     manifest_rows: Sequence[Mapping[str, Any]],
     reason: str,
+    exclude_all_points: bool = False,
 ) -> None:
-    """Record failed/aborted H2O queue rows as diagnostic-only evidence."""
+    """Record unsafe H2O queue rows as diagnostic-only evidence."""
 
     now = datetime.now().isoformat(timespec="seconds")
+    exclusion_scope = (
+        "queue_all_points" if exclude_all_points else "failed_or_aborted_points"
+    )
     candidate_rows = [
         row
         for row in manifest_rows
-        if str(row.get("status") or "").lower() not in {"ok", "dry_run"}
+        if (
+            str(row.get("status") or "").lower() != "dry_run"
+            and (
+                exclude_all_points
+                or str(row.get("status") or "").lower() != "ok"
+            )
+        )
     ]
     if not candidate_rows:
         candidate_rows = [
@@ -784,10 +794,19 @@ def _write_queue_exclusion_evidence(
                 "exclude_from_acceptance": True,
                 "exclude_from_senco_review": True,
                 "exclusion_reason": reason,
+                "exclusion_scope": exclusion_scope,
                 "physical_meaning": (
-                    "This H2O open-flow point did not complete under a continuous, stable "
-                    "humidity-route sampling contract. Partial frames remain diagnostic "
-                    "evidence only and must not enter H2O fitting, acceptance, or SENCO review."
+                    (
+                        "The queue-level humidity-generator final safe-stop failed, so no "
+                        "sampled point in this queue retains a complete physical safety "
+                        "closure. All queue points remain diagnostic evidence only."
+                    )
+                    if exclude_all_points
+                    else (
+                        "This H2O open-flow point did not complete under a continuous, stable "
+                        "humidity-route sampling contract. Partial frames remain diagnostic "
+                        "evidence only and must not enter H2O fitting, acceptance, or SENCO review."
+                    )
                 ),
             }
         )
@@ -805,6 +824,7 @@ def _write_queue_exclusion_evidence(
                 "created_at": now,
                 "queue_run_id": queue_summary.get("queue_run_id", ""),
                 "reason": reason,
+                "exclusion_scope": exclusion_scope,
                 "exclude_from_fit": True,
                 "exclude_from_acceptance": True,
                 "exclude_from_senco_review": True,
@@ -959,6 +979,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         return 1
 
     hard_failure = False
+    queue_wide_exclusion = False
     hgen_final_safe_stop_ok: Optional[bool] = None
     # Keep this evidence run id short. Queue output directories can already be
     # deep on Windows, and final safe-stop must not be blocked by path length.
@@ -1118,6 +1139,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         )
         if not hgen_final_safe_stop_ok:
             hard_failure = True
+            queue_wide_exclusion = True
+            abort_reason = "humidity_generator_final_safe_stop_failed"
 
     ok_count = sum(1 for row in manifest_rows if str(row.get("status")) == "ok")
     fail_count = sum(1 for row in manifest_rows if str(row.get("status")) == "failed")
@@ -1129,6 +1152,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             "failed_points": fail_count,
             "dry_run_points": dry_count,
             "hard_failure": hard_failure,
+            "queue_wide_exclusion": queue_wide_exclusion,
             "hgen_final_safe_stop_ok": hgen_final_safe_stop_ok,
             "hgen_final_safe_stop_run_id": (
                 hgen_final_safe_stop_run_id
@@ -1143,6 +1167,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             queue_summary=queue_summary,
             manifest_rows=manifest_rows,
             reason=abort_reason or "h2o_queue_failed",
+            exclude_all_points=queue_wide_exclusion,
         )
     try:
         queue_summary["failure_audit"] = _write_queue_failure_audit(queue_dir)

@@ -31,8 +31,10 @@ from ..validation.v1_5_component_qc_generator_contract import (
     FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS,
     FORMAL_EVIDENCE_BUNDLE_FILENAME,
     FORMAL_EVIDENCE_BUNDLE_SCHEMA,
+    FORMAL_ENGINEERING_PROBE_CONFIRMATION_TEXT,
     FORMAL_REFERENCE_SOURCE_RECORD_FILENAME,
     FORMAL_REFERENCE_SOURCE_RECORD_SCHEMA,
+    FORMAL_TEMPERATURE_TRUTH_SOURCE,
 )
 from ..validation.reporting import ValidationMetadata, write_validation_report
 from ..workflow.runner import CalibrationRunner
@@ -44,7 +46,7 @@ FORMAL_OPEN_FLOW_DEWPOINT_GATE_MAX_TOTAL_WAIT_S = 1800.0
 FORMAL_OPEN_FLOW_ANALYZER_GATE_MAX_WAIT_S = 1800.0
 FORMAL_OPEN_FLOW_ANALYZER_GATE_PREFER_ALL_STABLE_GRACE_S = 120.0
 V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT = (
-    "I_CONFIRM_V1_5_ENGINEERING_PROBE_ONLY_NO_WRITE_NOT_REAL_ACCEPTANCE"
+    FORMAL_ENGINEERING_PROBE_CONFIRMATION_TEXT
 )
 V1_5_OPERATOR_CONFIRMATION_RECORD_FILENAME = "operator_confirmation_record.json"
 V1_5_PHYSICAL_SHUTDOWN_STATUS_FILENAME = "physical_shutdown_status.json"
@@ -811,7 +813,7 @@ def _enable_formal_summary_outlier_filter(runtime_cfg: Dict[str, Any]) -> None:
         thresholds.setdefault("h2o_ratio_f", 0.001)
 
 
-V1_5_TEMPERATURE_TRUTH_SOURCE = "in_chamber_platinum_resistance_digital_thermometer"
+V1_5_TEMPERATURE_TRUTH_SOURCE = FORMAL_TEMPERATURE_TRUTH_SOURCE
 
 
 def _apply_v1_5_temperature_truth_contract(
