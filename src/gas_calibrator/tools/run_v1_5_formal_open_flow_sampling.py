@@ -13,17 +13,26 @@ from __future__ import annotations
 import argparse
 import copy
 import csv
+import hashlib
 import json
 import sys
 import time
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from ..config import load_config
 from ..data.points import CalibrationPoint
 from ..logging_utils import RunLogger
+from ..utils.file_io import sha256_file
 from ..validation.common import analyze_sample_rows
+from ..validation.v1_5_component_qc_generator_contract import (
+    FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS,
+    FORMAL_EVIDENCE_BUNDLE_FILENAME,
+    FORMAL_EVIDENCE_BUNDLE_SCHEMA,
+    FORMAL_REFERENCE_SOURCE_RECORD_FILENAME,
+    FORMAL_REFERENCE_SOURCE_RECORD_SCHEMA,
+)
 from ..validation.reporting import ValidationMetadata, write_validation_report
 from ..workflow.runner import CalibrationRunner
 from .run_headless import _build_devices, _close_devices
@@ -33,6 +42,16 @@ FORMAL_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S = 1.0
 FORMAL_OPEN_FLOW_DEWPOINT_GATE_MAX_TOTAL_WAIT_S = 1800.0
 FORMAL_OPEN_FLOW_ANALYZER_GATE_MAX_WAIT_S = 1800.0
 FORMAL_OPEN_FLOW_ANALYZER_GATE_PREFER_ALL_STABLE_GRACE_S = 120.0
+
+
+def _formal_sampling_completion_code(
+    *,
+    sampling_completed: bool,
+    finalization_failures: Iterable[str],
+) -> int:
+    """Return success only when sampling and its evidence finalization both close."""
+
+    return 0 if sampling_completed and not list(finalization_failures) else 1
 
 
 def _formal_open_flow_dewpoint_gate_max_wait_s(value: Any, *, default: Optional[float] = None) -> float:
@@ -87,6 +106,22 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         type=float,
         default=None,
         help="Certificate uncertainty stored as evidence metadata.",
+    )
+    parser.add_argument(
+        "--reference-source-catalog",
+        default=None,
+        help=(
+            "Controlled reference-source catalog. Defaults to "
+            "v1_5_reference_source_catalog.json beside the runtime config."
+        ),
+    )
+    parser.add_argument(
+        "--reference-asset-id",
+        default=None,
+        help=(
+            "Explicit controlled certificate asset. When omitted, exactly one asset must match "
+            "the certificate CO2 value and nominal source."
+        ),
     )
     parser.add_argument("--pressure-target-hpa", type=float, default=None)
     parser.add_argument(
@@ -263,6 +298,207 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--skip-stability-gate", action="store_true")
     parser.add_argument("--no-prompt", action="store_true")
     return parser.parse_args(list(argv) if argv is not None else None)
+
+
+def _resolve_reference_document_path(
+    catalog_path: Path,
+    document: Dict[str, Any],
+) -> Path:
+    kind = str(document.get("source_path_kind") or "").strip()
+    relative_text = str(document.get("relative_path") or "").strip()
+    relative_path = Path(relative_text)
+    if not relative_text or relative_path.is_absolute() or ".." in relative_path.parts:
+        raise ValueError("reference_document_relative_path_invalid")
+    if kind == "user_profile_relative":
+        root = Path.home().resolve()
+    elif kind == "catalog_relative":
+        root = catalog_path.resolve().parent
+    else:
+        raise ValueError(f"reference_document_path_kind_unsupported:{kind}")
+    resolved = (root / relative_path).resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValueError("reference_document_path_outside_allowed_root") from exc
+    return resolved
+
+
+def _build_co2_reference_source_record(
+    catalog_path: Path,
+    *,
+    run_id: str,
+    co2_source_ppm: float,
+    certificate_co2_ppm: Optional[float],
+    reference_asset_id: Optional[str] = None,
+    today: Optional[date] = None,
+) -> Dict[str, Any]:
+    """Validate one CO2 source before any device can be constructed."""
+
+    checked_on = today or datetime.now().date()
+    record: Dict[str, Any] = {
+        "schema_version": FORMAL_REFERENCE_SOURCE_RECORD_SCHEMA,
+        "run_id": str(run_id),
+        "route_kind": "co2",
+        "reference_source_status": "fail",
+        "selection_mode": "explicit_asset_id" if reference_asset_id else "unique_value_and_nominal_match",
+        "catalog_path": str(catalog_path.resolve()),
+        "catalog_sha256": None,
+        "requested_reference_asset_id": str(reference_asset_id or ""),
+        "input": {
+            "co2_source_ppm": float(co2_source_ppm),
+            "certificate_co2_ppm": (
+                None if certificate_co2_ppm is None else float(certificate_co2_ppm)
+            ),
+        },
+        "selected_asset": None,
+        "documents_verified": [],
+        "checked_on": checked_on.isoformat(),
+        "physical_reference_contract": (
+            "CO2 formal target uses the selected controlled asset value. Dry-air zero remains a "
+            "separate operator-confirmed previous-calibration anchor and is not represented as a "
+            "CO2 value printed on the dry-air certificate."
+        ),
+        "not_real_acceptance_evidence": True,
+        "promotion_state": "blocked",
+        "reasons": [],
+    }
+    reasons: List[str] = record["reasons"]
+    try:
+        if not catalog_path.is_file():
+            raise ValueError("reference_source_catalog_missing")
+        record["catalog_sha256"] = sha256_file(catalog_path)
+        with catalog_path.open("r", encoding="utf-8-sig") as handle:
+            catalog = json.load(handle)
+        if not isinstance(catalog, dict):
+            raise ValueError("reference_source_catalog_not_object")
+        if catalog.get("schema_version") != "v1_5_reference_source_catalog_v1":
+            raise ValueError("reference_source_catalog_schema_invalid")
+        if catalog.get("not_real_acceptance_evidence") is not True:
+            raise ValueError("reference_source_catalog_real_acceptance_lock_missing")
+        assets = [
+            row
+            for row in catalog.get("assets", [])
+            if isinstance(row, dict) and str(row.get("route_kind") or "").lower() == "co2"
+        ]
+        if reference_asset_id:
+            matches = [
+                row for row in assets if str(row.get("asset_id") or "") == str(reference_asset_id)
+            ]
+        elif certificate_co2_ppm is None:
+            matches = []
+            reasons.append("certificate_co2_ppm_required_for_automatic_selection")
+        else:
+            matches = [
+                row
+                for row in assets
+                if abs(float(row.get("certificate_co2_ppm")) - float(certificate_co2_ppm)) <= 0.005
+                and abs(float(row.get("nominal_co2_ppm")) - float(co2_source_ppm)) <= 1.0
+            ]
+        if len(matches) != 1:
+            reasons.append(f"reference_asset_match_count:{len(matches)}")
+            return record
+        asset = copy.deepcopy(matches[0])
+        record["selected_asset"] = asset
+        if not str(asset.get("asset_id") or "").strip():
+            reasons.append("reference_asset_id_missing")
+        if not str(asset.get("cylinder_number") or "").strip():
+            reasons.append("reference_asset_cylinder_number_missing")
+        if str(asset.get("document_kind") or "") not in {
+            "full_certificate_photo_pair",
+            "cylinder_certificate_label_photo_pair",
+        }:
+            reasons.append("reference_asset_document_kind_invalid")
+        if abs(float(asset.get("nominal_co2_ppm")) - float(co2_source_ppm)) > 1.0:
+            reasons.append("reference_asset_nominal_source_mismatch")
+        if certificate_co2_ppm is None:
+            reasons.append("certificate_co2_ppm_missing")
+        elif abs(float(asset.get("certificate_co2_ppm")) - float(certificate_co2_ppm)) > 0.005:
+            reasons.append("reference_asset_certificate_value_mismatch")
+        if asset.get("documentary_use_status") != "operator_authorized_for_v1_5_evidence":
+            reasons.append("reference_asset_not_operator_authorized")
+        if asset.get("calibration_fit_reference_allowed") is not True:
+            reasons.append("reference_asset_not_allowed_for_fit_reference")
+        if float(asset.get("nominal_co2_ppm")) == 0.0:
+            if asset.get("physical_role") != "co2_zero_gas":
+                reasons.append("dry_air_zero_physical_role_invalid")
+            if asset.get("reference_value_source") != "operator_confirmed_previous_calibration":
+                reasons.append("dry_air_zero_value_source_invalid")
+            if asset.get("co2_value_directly_certified") is not False:
+                reasons.append("dry_air_zero_must_not_claim_direct_co2_certification")
+        elif asset.get("co2_value_directly_certified") is not True:
+            reasons.append("standard_gas_direct_co2_certification_missing")
+        elif asset.get("physical_role") != "co2_standard_gas":
+            reasons.append("standard_gas_physical_role_invalid")
+        try:
+            issue_date = date.fromisoformat(str(asset.get("issue_date") or ""))
+            valid_through = date.fromisoformat(str(asset.get("valid_through") or ""))
+        except ValueError:
+            reasons.append("reference_asset_validity_date_invalid")
+        else:
+            if valid_through < issue_date:
+                reasons.append("reference_asset_validity_range_invalid")
+            if checked_on < issue_date:
+                reasons.append("reference_asset_not_yet_valid")
+            if checked_on > valid_through:
+                reasons.append("reference_asset_expired")
+        documents = asset.get("documents")
+        if not isinstance(documents, list) or not documents:
+            reasons.append("reference_asset_documents_missing")
+        else:
+            verified: List[Dict[str, Any]] = []
+            for index, document in enumerate(documents):
+                if not isinstance(document, dict):
+                    reasons.append(f"reference_document_invalid:{index}")
+                    continue
+                try:
+                    source_path = _resolve_reference_document_path(catalog_path, document)
+                except ValueError as exc:
+                    reasons.append(f"{exc}:{index}")
+                    continue
+                expected_size = int(document.get("size_bytes") or -1)
+                expected_sha = str(document.get("sha256") or "").lower()
+                row = {
+                    "page_role": str(document.get("page_role") or ""),
+                    "source_path_kind": str(document.get("source_path_kind") or ""),
+                    "relative_path": str(document.get("relative_path") or ""),
+                    "expected_size_bytes": expected_size,
+                    "expected_sha256": expected_sha,
+                    "observed_size_bytes": None,
+                    "observed_sha256": None,
+                    "verified": False,
+                }
+                if not source_path.is_file():
+                    reasons.append(f"reference_document_missing:{index}")
+                else:
+                    row["observed_size_bytes"] = source_path.stat().st_size
+                    row["observed_sha256"] = sha256_file(source_path)
+                    row["verified"] = (
+                        row["observed_size_bytes"] == expected_size
+                        and row["observed_sha256"] == expected_sha
+                    )
+                    if row["observed_size_bytes"] != expected_size:
+                        reasons.append(f"reference_document_size_mismatch:{index}")
+                    if row["observed_sha256"] != expected_sha:
+                        reasons.append(f"reference_document_sha256_mismatch:{index}")
+                verified.append(row)
+            record["documents_verified"] = verified
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        reasons.append(str(exc))
+    record["reasons"] = sorted(set(str(reason) for reason in reasons if reason))
+    record["reference_source_status"] = "pass" if not record["reasons"] else "fail"
+    return record
+
+
+def _write_formal_reference_source_record(
+    run_dir: Path,
+    payload: Dict[str, Any],
+) -> Path:
+    path = run_dir / FORMAL_REFERENCE_SOURCE_RECORD_FILENAME
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
+    return path
 
 
 def _configured_analyzer_labels(cfg: Dict[str, Any]) -> List[str]:
@@ -483,6 +719,77 @@ def _enable_formal_summary_outlier_filter(runtime_cfg: Dict[str, Any]) -> None:
         thresholds.setdefault("h2o_ratio_f", 0.001)
 
 
+V1_5_TEMPERATURE_TRUTH_SOURCE = "in_chamber_platinum_resistance_digital_thermometer"
+
+
+def _apply_v1_5_temperature_truth_contract(
+    runtime_cfg: Dict[str, Any],
+    *,
+    require_device_config: bool = False,
+) -> Dict[str, Any]:
+    devices_cfg = runtime_cfg.setdefault("devices", {})
+    thermometer_cfg = devices_cfg.get("thermometer")
+    if not isinstance(thermometer_cfg, dict):
+        if require_device_config:
+            raise RuntimeError("thermometer config is missing for V1.5 temperature truth")
+    else:
+        thermometer_cfg["enabled"] = True
+
+    temp_cfg = runtime_cfg.setdefault("workflow", {}).setdefault("stability", {}).setdefault(
+        "temperature",
+        {},
+    )
+    temp_cfg["temperature_truth_source"] = V1_5_TEMPERATURE_TRUTH_SOURCE
+    temp_cfg["thermometer_truth_required"] = True
+    temp_cfg["temperature_chamber_setpoint_substitution_forbidden"] = True
+    return temp_cfg
+
+
+def _verify_v1_5_point_temperature_truth(
+    runtime_cfg: Dict[str, Any],
+    devices: Dict[str, Any],
+    *,
+    target_c: float,
+    log: Any = _log,
+) -> bool:
+    temp_cfg = runtime_cfg.get("workflow", {}).get("stability", {}).get("temperature", {})
+    required = bool(
+        temp_cfg.get("thermometer_truth_required", False)
+        or temp_cfg.get("temperature_chamber_setpoint_substitution_forbidden", False)
+    )
+    if not required:
+        return True
+
+    thermometer = devices.get("thermometer")
+    chamber = devices.get("temp_chamber")
+    if not callable(getattr(thermometer, "read_temp_c", None)) or not callable(
+        getattr(chamber, "read_temp_c", None)
+    ):
+        log("V1.5 point temperature truth gate failed: thermometer or chamber is unavailable")
+        return False
+    try:
+        thermometer_c = float(thermometer.read_temp_c())
+        chamber_c = float(chamber.read_temp_c())
+    except (TypeError, ValueError, OSError, RuntimeError) as exc:
+        log(f"V1.5 point temperature truth gate failed: {exc}")
+        return False
+
+    tol_c = abs(float(temp_cfg.get("thermometer_truth_tol_c", temp_cfg.get("tol", 0.2)) or 0.2))
+    chamber_tol_c = abs(float(temp_cfg.get("chamber_control_tol_c", temp_cfg.get("tol", 0.2)) or 0.2))
+    command_offset_c = float(temp_cfg.get("command_offset_c", 0.0) or 0.0)
+    command_target_c = float(target_c) + command_offset_c
+    ok = (
+        abs(thermometer_c - float(target_c)) <= tol_c
+        and abs(chamber_c - command_target_c) <= chamber_tol_c
+    )
+    log(
+        "V1.5 point temperature truth gate: "
+        f"ok={ok}, target={float(target_c):.2f}, thermometer={thermometer_c:.2f}, "
+        f"chamber={chamber_c:.2f}, command_target={command_target_c:.2f}"
+    )
+    return ok
+
+
 def _prepare_runtime_cfg(
     cfg: Dict[str, Any],
     *,
@@ -537,6 +844,7 @@ def _prepare_runtime_cfg(
         "normal_point_timeout_s": FORMAL_OPEN_FLOW_ANALYZER_GATE_MAX_WAIT_S,
         "extreme_display_values_require_factory_signal_root_cause_review": True,
     }
+    _apply_v1_5_temperature_truth_contract(runtime_cfg)
 
     devices_cfg = runtime_cfg.setdefault("devices", {})
     if isinstance(devices_cfg.get("humidity_generator"), dict):
@@ -1062,6 +1370,67 @@ def _write_machine_readable_samples(run_dir: Path, rows: List[Dict[str, Any]]) -
     return {"jsonl": str(jsonl_path), "csv": str(csv_path)}
 
 
+def _write_formal_evidence_bundle_manifest(
+    run_dir: Path,
+    *,
+    run_id: str,
+    route_kind: str,
+    require_complete: bool = False,
+) -> Path:
+    """Bind one formal point's required artifacts without mutating source files."""
+
+    root = run_dir.resolve()
+    required = FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS.get(str(route_kind).lower())
+    if not required:
+        raise ValueError(f"unsupported_formal_evidence_route:{route_kind}")
+    artifacts: list[dict[str, Any]] = []
+    missing_roles: list[str] = []
+    for role, filename in sorted(required.items()):
+        path = root / filename
+        if not path.is_file():
+            missing_roles.append(role)
+            continue
+        artifacts.append(
+            {
+                "role": role,
+                "filename": filename,
+                "size_bytes": path.stat().st_size,
+                "sha256": sha256_file(path),
+            }
+        )
+    canonical = {
+        "schema_version": FORMAL_EVIDENCE_BUNDLE_SCHEMA,
+        "run_id": str(run_id),
+        "route_kind": str(route_kind).lower(),
+        "identity_contract": "immutable_claim_runtime_run_id_and_sha256_bundle",
+        "required_roles": sorted(required),
+        "artifacts": artifacts,
+        "missing_required_roles": sorted(missing_roles),
+        "bundle_complete": not missing_roles,
+    }
+    rendered = json.dumps(
+        canonical,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    payload = {
+        **canonical,
+        "bundle_sha256": hashlib.sha256(rendered).hexdigest(),
+    }
+    manifest_path = root / FORMAL_EVIDENCE_BUNDLE_FILENAME
+    manifest_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    if require_complete and missing_roles:
+        raise RuntimeError(
+            "formal_evidence_bundle_incomplete:" + ",".join(sorted(missing_roles))
+        )
+    return manifest_path
+
+
 def _enter_continuous_atmosphere(
     pace: Any,
     *,
@@ -1074,21 +1443,57 @@ def _enter_continuous_atmosphere(
         enter(timeout_s=30.0, poll_s=0.25, hold_open=True, hold_interval_s=hold_interval_s)
 
 
-def _stop_continuous_atmosphere(pace: Any) -> None:
+def _stop_continuous_atmosphere(pace: Any) -> Dict[str, Any]:
+    report: Dict[str, Any] = {
+        "action": "stop_continuous_atmosphere",
+        "device_present": pace is not None,
+        "stop_hold": {"supported": False, "ok": False},
+        "exit_atmosphere": {"supported": False, "ok": False},
+        "errors": [],
+    }
     if pace is None:
-        return
+        report["status"] = "fail"
+        report["errors"].append("pace_not_configured")
+        report["ok"] = False
+        return report
     stop = getattr(pace, "stop_atmosphere_hold", None)
     if callable(stop):
+        report["stop_hold"]["supported"] = True
         try:
             stop(timeout_s=2.0)
-        except Exception:
-            pass
+            report["stop_hold"]["ok"] = True
+        except Exception as exc:
+            report["errors"].append(f"stop_atmosphere_hold_failed:{exc}")
+    else:
+        report["errors"].append("stop_atmosphere_hold_not_supported")
     enter = getattr(pace, "enter_atmosphere_mode", None)
     if callable(enter):
+        report["exit_atmosphere"]["supported"] = True
         try:
             enter(timeout_s=30.0, poll_s=0.25, hold_open=False)
-        except Exception:
-            pass
+            report["exit_atmosphere"]["ok"] = True
+        except Exception as exc:
+            report["errors"].append(f"exit_atmosphere_mode_failed:{exc}")
+    else:
+        report["errors"].append("enter_atmosphere_mode_not_supported")
+    report["ok"] = not report["errors"]
+    report["status"] = "pass" if report["ok"] else "fail"
+    return report
+
+
+def _write_shutdown_status_to_sidecar(
+    sidecar_path: Path,
+    shutdown_status: Dict[str, Any],
+) -> None:
+    with sidecar_path.open("r", encoding="utf-8-sig") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError(f"sidecar_metadata_not_object:{sidecar_path}")
+    payload["physical_shutdown_status"] = shutdown_status
+    sidecar_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _wait_open_flow_co2_dewpoint_gate(
@@ -1162,7 +1567,42 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     runtime_cfg["metadata"]["nitrogen_purge_source_valve"] = _nitrogen_purge_source_valve(runtime_cfg)
     output_dir = Path(runtime_cfg["paths"]["output_dir"]).resolve()
     run_id = args.run_id or f"formal_open_flow_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    logger = RunLogger(output_dir, run_id=run_id, cfg=runtime_cfg)
+    runtime_cfg.setdefault("metadata", {})["run_id"] = run_id
+    runtime_cfg["metadata"]["evidence_identity_contract"] = (
+        "immutable_claim_runtime_run_id_and_sha256_bundle"
+    )
+    logger = RunLogger(
+        output_dir,
+        run_id=run_id,
+        cfg=runtime_cfg,
+        immutable_run_dir=True,
+    )
+    catalog_path = (
+        Path(args.reference_source_catalog).resolve()
+        if args.reference_source_catalog
+        else Path(args.config).resolve().parent / "v1_5_reference_source_catalog.json"
+    )
+    reference_source_record = _build_co2_reference_source_record(
+        catalog_path,
+        run_id=run_id,
+        co2_source_ppm=float(args.co2_source_ppm),
+        certificate_co2_ppm=args.certificate_co2_ppm,
+        reference_asset_id=args.reference_asset_id,
+    )
+    reference_source_path = _write_formal_reference_source_record(
+        logger.run_dir,
+        reference_source_record,
+    )
+    selected_reference_asset = reference_source_record.get("selected_asset")
+    if not isinstance(selected_reference_asset, dict):
+        selected_reference_asset = {}
+    runtime_cfg["metadata"]["reference_source_status"] = reference_source_record[
+        "reference_source_status"
+    ]
+    runtime_cfg["metadata"]["reference_asset_id"] = selected_reference_asset.get("asset_id")
+    runtime_cfg["metadata"]["reference_source_catalog_sha256"] = reference_source_record.get(
+        "catalog_sha256"
+    )
     runtime_snapshot_path = logger.run_dir / "runtime_config_snapshot.json"
     runtime_snapshot_path.write_text(
         json.dumps(runtime_cfg, ensure_ascii=False, indent=2, default=str) + "\n",
@@ -1178,8 +1618,16 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     sample_window_started_at: Optional[str] = None
     sample_window_ended_at: Optional[str] = None
     co2_route_closed_at: Optional[str] = None
+    sidecar_metadata_path: Optional[Path] = None
+    formal_sampling_completed = False
+    finalization_failures: List[str] = []
 
     try:
+        if reference_source_record["reference_source_status"] != "pass":
+            raise RuntimeError(
+                "FORMAL_REFERENCE_SOURCE_GATE_FAILED:"
+                + ",".join(reference_source_record.get("reasons") or ["unknown"])
+            )
         point = _build_open_flow_point(
             temp_c=args.temp,
             co2_source_ppm=args.co2_source_ppm,
@@ -1192,6 +1640,12 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         runner._configure_devices()
         runner._startup_preflight_reset()
         _defer_startup_mode2_disabled_analyzers(runner)
+        if not _verify_v1_5_point_temperature_truth(
+            runtime_cfg,
+            devices,
+            target_c=float(args.temp),
+        ):
+            raise RuntimeError("V1_5_POINT_TEMPERATURE_TRUTH_GATE_FAILED")
 
         pace = devices.get("pace")
         _enter_continuous_atmosphere(
@@ -1231,6 +1685,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         _apply_certificate_target_after_valve_selection(point, args.certificate_co2_ppm)
 
         meta_path = logger.run_dir / "formal_open_flow_sidecar_metadata.json"
+        sidecar_metadata_path = meta_path
         ftd_write_enabled = bool(runtime_cfg["metadata"].get("ftd_write_enabled", False))
         meta_path.write_text(
             json.dumps(
@@ -1241,6 +1696,11 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                     "co2_group": args.co2_group,
                     "certificate_co2_ppm": args.certificate_co2_ppm,
                     "certificate_uncertainty_ppm": args.certificate_uncertainty_ppm,
+                    "reference_asset_id": selected_reference_asset.get("asset_id"),
+                    "reference_value_source": selected_reference_asset.get(
+                        "reference_value_source"
+                    ),
+                    "reference_source_record": str(reference_source_path),
                     "n2_prepurge_enabled": bool(float(args.n2_prepurge_s) > 0.0),
                     "n2_prepurge_s": max(0.0, float(args.n2_prepurge_s)),
                     "n2_purge_source_valve": _nitrogen_purge_source_valve(runtime_cfg),
@@ -1357,6 +1817,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                     str(logger.points_path),
                     str(runtime_snapshot_path),
                     str(meta_path),
+                    str(reference_source_path),
                     str(purge_path),
                 ]
                 + ([str(n2_purge_path)] if n2_purge_path else []),
@@ -1365,6 +1826,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 config_summary={
                     "co2_source_ppm": float(args.co2_source_ppm),
                     "co2_group": str(args.co2_group),
+                    "reference_asset_id": selected_reference_asset.get("asset_id"),
+                    "reference_value_source": selected_reference_asset.get(
+                        "reference_value_source"
+                    ),
                     "n2_prepurge_enabled": bool(float(args.n2_prepurge_s) > 0.0),
                     "n2_prepurge_s": max(0.0, float(args.n2_prepurge_s)),
                     "n2_purge_source_valve": _nitrogen_purge_source_valve(runtime_cfg),
@@ -1402,17 +1867,30 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             tables=tables,
         )
         _log(f"Formal open-flow sampling validation saved: {outputs['workbook']}")
-        return 0
+        formal_sampling_completed = True
     except Exception as exc:
         _log(f"Formal open-flow sampling failed: {exc}")
         return 1
     finally:
+        route_close_status: Dict[str, Any] = {
+            "required": bool(route_opened),
+            "attempted": False,
+            "ok": not route_opened,
+            "status": "not_required" if not route_opened else "pending",
+        }
         if runner is not None and route_opened:
+            route_close_status["attempted"] = True
             try:
                 runner._apply_valve_states([])
                 co2_route_closed_at = _now_iso()
+                route_close_status["ok"] = True
+                route_close_status["status"] = "pass"
                 _log("CO2 open-flow route closed")
             except Exception as exc:
+                route_close_status["ok"] = False
+                route_close_status["status"] = "fail"
+                route_close_status["error"] = str(exc)
+                finalization_failures.append(f"route_close_failed:{exc}")
                 _log(f"CO2 route close failed: {exc}")
         try:
             _write_route_timing(
@@ -1427,13 +1905,79 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 co2_route_closed_at=co2_route_closed_at,
             )
         except Exception as exc:
+            finalization_failures.append(f"route_timing_write_failed:{exc}")
             _log(f"CO2 route timing evidence write failed: {exc}")
-        _stop_continuous_atmosphere(devices.get("pace"))
-        _close_devices(devices)
+        pace_stop_status = _stop_continuous_atmosphere(devices.get("pace"))
+        if formal_sampling_completed and pace_stop_status.get("ok") is not True:
+            finalization_failures.append(
+                "pace_atmosphere_stop_failed:"
+                + ",".join(pace_stop_status.get("errors") or ["unknown"])
+            )
+        device_close_status: Dict[str, Any] = {
+            "status": "best_effort_pending",
+            "fully_observable": False,
+            "note": "Shared device closer preserves V1 behavior and does not expose per-device close errors.",
+        }
+        try:
+            _close_devices(devices)
+            device_close_status["status"] = "best_effort_invoked"
+        except Exception as exc:
+            device_close_status["status"] = "call_failed"
+            device_close_status["error"] = str(exc)
+            finalization_failures.append(f"device_close_call_failed:{exc}")
+        physical_failures = [
+            reason
+            for reason in finalization_failures
+            if reason.startswith(
+                (
+                    "route_close_failed:",
+                    "pace_atmosphere_stop_failed:",
+                    "device_close_call_failed:",
+                )
+            )
+        ]
+        physical_shutdown_status = {
+            "schema_version": "v1_5_formal_physical_shutdown_status_v0",
+            "route_kind": "co2",
+            "route_close": route_close_status,
+            "pace_atmosphere_stop": pace_stop_status,
+            "device_transport_close": device_close_status,
+            "critical_failures": physical_failures,
+            "overall_status": "fail" if physical_failures else "pass",
+        }
+        if sidecar_metadata_path is not None and sidecar_metadata_path.is_file():
+            try:
+                _write_shutdown_status_to_sidecar(
+                    sidecar_metadata_path,
+                    physical_shutdown_status,
+                )
+            except Exception as exc:
+                finalization_failures.append(f"shutdown_status_write_failed:{exc}")
+                _log(f"CO2 physical shutdown status write failed: {exc}")
+        try:
+            bundle_path = _write_formal_evidence_bundle_manifest(
+                logger.run_dir,
+                run_id=run_id,
+                route_kind="co2",
+                require_complete=formal_sampling_completed,
+            )
+            _log(f"CO2 formal evidence bundle saved: {bundle_path}")
+        except Exception as exc:
+            finalization_failures.append(f"evidence_bundle_failed:{exc}")
+            _log(f"CO2 formal evidence bundle write failed: {exc}")
         try:
             logger.close()
         except Exception:
             pass
+    if finalization_failures:
+        _log(
+            "CO2 formal sampling evidence finalization failed: "
+            + " | ".join(finalization_failures)
+        )
+    return _formal_sampling_completion_code(
+        sampling_completed=formal_sampling_completed,
+        finalization_failures=finalization_failures,
+    )
 
 
 if __name__ == "__main__":

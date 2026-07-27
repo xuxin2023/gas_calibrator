@@ -5,15 +5,43 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import math
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from .v1_5_component_qc_authority_audit import SCHEMA as AUTHORITY_SCHEMA
 
 
 SCHEMA = "v1_5_component_qc_generator_contract_review_v1"
 CONTRACT_SCHEMA = "v1_5_component_qc_generator_contract_v1"
+FORMAL_EVIDENCE_BUNDLE_SCHEMA = "v1_5_formal_evidence_bundle_v1"
+FORMAL_EVIDENCE_BUNDLE_FILENAME = "formal_evidence_bundle_manifest.json"
+FORMAL_REFERENCE_SOURCE_RECORD_SCHEMA = "v1_5_formal_reference_source_record_v1"
+FORMAL_REFERENCE_SOURCE_RECORD_FILENAME = "formal_reference_source_record.json"
+FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS = {
+    "co2": {
+        "run_directory_claim": "run_directory_claim.json",
+        "reference_source": FORMAL_REFERENCE_SOURCE_RECORD_FILENAME,
+        "samples": "samples_machine_readable.csv",
+        "frame_qc": "frame_quality_summary.csv",
+        "runtime_config": "runtime_config_snapshot.json",
+        "sidecar": "formal_open_flow_sidecar_metadata.json",
+        "route_timing": "formal_open_flow_route_timing.json",
+        "point_timing_summary": "point_timing_summary.csv",
+    },
+    "h2o": {
+        "run_directory_claim": "run_directory_claim.json",
+        "reference_source": FORMAL_REFERENCE_SOURCE_RECORD_FILENAME,
+        "samples": "samples_machine_readable.csv",
+        "frame_qc": "frame_quality_summary.csv",
+        "runtime_config": "runtime_config_snapshot.json",
+        "sidecar": "formal_h2o_open_flow_sidecar_metadata.json",
+        "hgen_flow_set": "formal_h2o_open_flow_hgen_flow_set.json",
+        "humidity_reference_review": "h2o_humidity_reference_review.json",
+        "point_timing_summary": "point_timing_summary.csv",
+    },
+}
 
 
 def _now() -> str:
@@ -30,6 +58,134 @@ def _read_json(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"Expected JSON object: {path}")
     return payload
+
+
+def _timestamp_seconds(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        text = str(value or "").strip()
+        if not text:
+            return None
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        number = parsed.timestamp()
+    return number if math.isfinite(number) else None
+
+
+def _positive_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) and number > 0 else None
+
+
+def evaluate_component_qc_temporal_window(
+    timestamps: Sequence[Any],
+    *,
+    expected_interval_s: Any,
+    required_count: int,
+    contract: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Derive deterministic sampling-window evidence from source timestamps."""
+
+    cadence = contract.get("cadence_and_alignment_contract") or {}
+    parsed = [_timestamp_seconds(value) for value in timestamps]
+    expected_interval = _positive_float(expected_interval_s)
+    required = max(1, int(required_count))
+    parse_complete = bool(parsed) and all(value is not None for value in parsed)
+    intervals: list[float] = []
+    if parse_complete:
+        numeric = [float(value) for value in parsed if value is not None]
+        intervals = [right - left for left, right in zip(numeric, numeric[1:])]
+    strictly_increasing = parse_complete and all(value > 0 for value in intervals)
+    actual_duration = (
+        round(float(parsed[-1]) - float(parsed[0]), 9)
+        if parse_complete and parsed
+        else None
+    )
+    expected_duration = (
+        round(max(0, required - 1) * expected_interval, 9)
+        if expected_interval is not None
+        else None
+    )
+    minimum_fraction = float(cadence.get("minimum_window_duration_fraction") or 0.9)
+    minimum_duration = (
+        round(expected_duration * minimum_fraction, 9)
+        if expected_duration is not None
+        else None
+    )
+    row_count_complete = len(timestamps) >= required
+    duration_complete = (
+        actual_duration is not None
+        and minimum_duration is not None
+        and actual_duration >= minimum_duration
+    )
+
+    cadence_warning = False
+    min_interval = min(intervals) if intervals else None
+    max_interval = max(intervals) if intervals else None
+    if strictly_increasing and expected_interval is not None and intervals:
+        minimum_interval = expected_interval * float(
+            cadence.get("cadence_min_interval_fraction") or 0.5
+        )
+        maximum_interval = expected_interval * float(
+            cadence.get("cadence_max_interval_fraction") or 2.0
+        )
+        cadence_warning = any(
+            value < minimum_interval or value > maximum_interval
+            for value in intervals
+        )
+
+    reasons: list[str] = []
+    if not row_count_complete:
+        reasons.append(f"timestamp_count_below_required:{len(timestamps)}<{required}")
+    if not parse_complete:
+        reasons.append("timestamp_missing_or_unparseable")
+    elif not strictly_increasing:
+        reasons.append("timestamps_not_strictly_increasing")
+    if expected_interval is None:
+        reasons.append("expected_sample_interval_missing_or_invalid")
+    elif not duration_complete:
+        reasons.append("sample_window_duration_below_minimum")
+    if cadence_warning:
+        reasons.append("sample_interval_cadence_warning")
+
+    temporal_window_complete = (
+        row_count_complete
+        and parse_complete
+        and strictly_increasing
+        and expected_interval is not None
+        and duration_complete
+    )
+    return {
+        "timestamp_count": len(timestamps),
+        "required_timestamp_count": required,
+        "timestamp_parse_complete": parse_complete,
+        "timestamps_strictly_increasing": strictly_increasing,
+        "expected_sample_interval_s": expected_interval,
+        "expected_window_duration_s": expected_duration,
+        "minimum_window_duration_s": minimum_duration,
+        "actual_window_duration_s": actual_duration,
+        "minimum_observed_interval_s": (
+            round(min_interval, 9) if min_interval is not None else None
+        ),
+        "maximum_observed_interval_s": (
+            round(max_interval, 9) if max_interval is not None else None
+        ),
+        "temporal_window_complete": temporal_window_complete,
+        "cadence_warning": cadence_warning,
+        "temporal_reason_codes": sorted(set(reasons)),
+    }
 
 
 def _false_lock_reasons(payload: Mapping[str, Any], keys: tuple[str, ...], prefix: str) -> list[str]:
@@ -96,12 +252,79 @@ def _contract_reasons(contract: Mapping[str, Any]) -> list[str]:
         reasons.append("global_alignment_false_must_not_auto_reject_point")
     if cadence.get("cadence_warning_with_required_rows_grade_ceiling") != "B_diagnostic_model_only":
         reasons.append("cadence_warning_grade_ceiling_invalid")
+    if cadence.get("missing_timestamps_or_incomplete_window_grade") != "C_reject":
+        reasons.append("incomplete_temporal_window_grade_invalid")
+    for key, expected in (
+        ("default_expected_sample_interval_s", 1.0),
+        ("minimum_window_duration_fraction", 0.9),
+        ("cadence_min_interval_fraction", 0.5),
+        ("cadence_max_interval_fraction", 2.0),
+    ):
+        if cadence.get(key) != expected:
+            reasons.append(f"cadence_{key}_invalid")
+    identity = contract.get("evidence_identity_contract") or {}
+    expected_identity = {
+        "expected_run_id_source": "point_directory_name",
+        "legacy_mode": "sample_sidecar_route_timing_run_id_consensus",
+        "strict_mode": "immutable_claim_runtime_run_id_and_sha256_bundle",
+        "strict_mode_trigger": "any_strict_identity_artifact_present",
+        "identity_mismatch_grade": "C_reject",
+        "legacy_missing_bundle_is_not_real_acceptance_evidence": True,
+        "bundle_manifest_filename": FORMAL_EVIDENCE_BUNDLE_FILENAME,
+    }
+    for key, expected in expected_identity.items():
+        if identity.get(key) != expected:
+            reasons.append(f"evidence_identity_{key}_invalid")
+    reference_source = contract.get("evidence_reference_source_contract") or {}
+    expected_reference_source = {
+        "record_filename": FORMAL_REFERENCE_SOURCE_RECORD_FILENAME,
+        "strict_new_point_policy": "required_and_sha256_bound_in_formal_evidence_bundle",
+        "legacy_point_policy": "missing_record_allowed_for_0620_0621_replay_only",
+        "co2_reference_policy": "controlled_asset_certificate_or_operator_confirmed_dry_air_zero",
+        "h2o_reference_policy": "actual_dewpoint_plus_actual_pressure",
+        "humidity_generator_flow_role": "source_state_evidence_only",
+        "route_flow_policy": "dewpoint_meter_output_preferred_hgen_state_fallback_process_evidence_only",
+        "invalid_reference_grade": "C_reject",
+        "co2_zero_is_not_h2o_dry_anchor": True,
+    }
+    for key, expected in expected_reference_source.items():
+        if reference_source.get(key) != expected:
+            reasons.append(f"evidence_reference_source_{key}_invalid")
+    if "reference_source_invalid" not in set(contract.get("point_wide_hard_blockers") or []):
+        reasons.append("reference_source_invalid_hard_blocker_missing")
     output = contract.get("output_contract") or {}
     required_fields = set(output.get("required_fields") or [])
     for field in (
+        "timestamp_count",
+        "required_timestamp_count",
+        "timestamp_parse_complete",
+        "timestamps_strictly_increasing",
+        "expected_sample_interval_s",
+        "expected_window_duration_s",
+        "minimum_window_duration_s",
+        "actual_window_duration_s",
+        "minimum_observed_interval_s",
+        "maximum_observed_interval_s",
+        "temporal_window_complete",
+        "cadence_warning",
+        "temporal_reason_codes",
+        "evidence_run_id",
+        "evidence_identity_status",
+        "evidence_identity_mode",
+        "evidence_identity_reason_codes",
+        "evidence_bundle_sha256",
+        "evidence_bundle_member_count",
+        "evidence_bundle_manifest_verified",
+        "reference_source_status",
+        "reference_source_record_present",
+        "reference_source_record_valid",
+        "reference_source_reason_codes",
+        "reference_asset_id",
+        "reference_value_source",
         "source_samples_sha256",
         "source_frame_qc_sha256",
         "source_runtime_config_sha256",
+        "source_reference_source_sha256",
         "contract_sha256",
     ):
         if field not in required_fields:
@@ -260,8 +483,14 @@ def write_v1_5_component_qc_generator_contract_review(
 
 __all__ = [
     "CONTRACT_SCHEMA",
+    "FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS",
+    "FORMAL_EVIDENCE_BUNDLE_FILENAME",
+    "FORMAL_EVIDENCE_BUNDLE_SCHEMA",
+    "FORMAL_REFERENCE_SOURCE_RECORD_FILENAME",
+    "FORMAL_REFERENCE_SOURCE_RECORD_SCHEMA",
     "SCHEMA",
     "build_v1_5_component_qc_generator_contract_review",
+    "evaluate_component_qc_temporal_window",
     "validate_v1_5_component_qc_generator_contract",
     "write_v1_5_component_qc_generator_contract_review",
 ]

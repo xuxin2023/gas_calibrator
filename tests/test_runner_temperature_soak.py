@@ -58,6 +58,18 @@ class _FakeClock:
         self.now += 0.1
 
 
+class _FakeThermometer:
+    def __init__(self, temps):
+        self._temps = list(temps)
+        self.read_calls = 0
+
+    def read_temp_c(self):
+        self.read_calls += 1
+        if self._temps:
+            return self._temps.pop(0)
+        return None
+
+
 class _FakeAnalyzer:
     pass
 
@@ -137,6 +149,223 @@ def test_set_temperature_with_soak_wait(monkeypatch, tmp_path: Path) -> None:
     assert chamber.set_calls == [25.0]
     assert chamber.read_calls > 1
     assert any("soak" in msg.lower() for msg in logs)
+
+
+def test_default_temperature_contract_does_not_read_optional_thermometer(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    clock = _FakeClock()
+    monkeypatch.setattr(runner_mod.time, "time", clock.time)
+    monkeypatch.setattr(runner_mod.time, "sleep", clock.sleep)
+
+    chamber = _FakeChamber([25.0] * 5)
+    thermometer = _FakeThermometer([30.0] * 5)
+    cfg = {
+        "workflow": {
+            "stability": {
+                "temperature": {
+                    "tol": 0.2,
+                    "soak_after_reach_s": 0.0,
+                    "reuse_running_in_tol_without_soak": False,
+                }
+            }
+        }
+    }
+    logger = RunLogger(tmp_path)
+    try:
+        runner = runner_mod.CalibrationRunner(
+            cfg,
+            {"temp_chamber": chamber, "thermometer": thermometer},
+            logger,
+            lambda *_: None,
+            lambda *_: None,
+        )
+        assert runner._set_temperature(25.0) is True
+    finally:
+        logger.close()
+
+    assert thermometer.read_calls == 0
+
+
+def test_strict_temperature_truth_requires_digital_thermometer(tmp_path: Path) -> None:
+    chamber = _FakeChamber([25.0] * 5)
+    cfg = {
+        "workflow": {
+            "stability": {
+                "temperature": {
+                    "thermometer_truth_required": True,
+                    "temperature_chamber_setpoint_substitution_forbidden": True,
+                }
+            }
+        }
+    }
+    logs = []
+    logger = RunLogger(tmp_path)
+    try:
+        runner = runner_mod.CalibrationRunner(
+            cfg,
+            {"temp_chamber": chamber},
+            logger,
+            logs.append,
+            lambda *_: None,
+        )
+        assert runner._set_temperature(25.0) is False
+    finally:
+        logger.close()
+
+    assert chamber.set_calls == []
+    assert any("digital thermometer truth is required" in message.lower() for message in logs)
+
+
+def test_strict_temperature_truth_requires_chamber_controller(tmp_path: Path) -> None:
+    thermometer = _FakeThermometer([25.0])
+    cfg = {
+        "workflow": {
+            "stability": {
+                "temperature": {
+                    "thermometer_truth_required": True,
+                    "temperature_chamber_setpoint_substitution_forbidden": True,
+                }
+            }
+        }
+    }
+    logs = []
+    logger = RunLogger(tmp_path)
+    try:
+        runner = runner_mod.CalibrationRunner(
+            cfg,
+            {"thermometer": thermometer},
+            logger,
+            logs.append,
+            lambda *_: None,
+        )
+        assert runner._set_temperature(25.0) is False
+    finally:
+        logger.close()
+
+    assert any("requires a readable chamber controller" in message.lower() for message in logs)
+
+
+def test_strict_temperature_truth_blocks_when_only_chamber_reaches_target(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    clock = _FakeClock()
+    monkeypatch.setattr(runner_mod.time, "time", clock.time)
+    monkeypatch.setattr(runner_mod.time, "sleep", clock.sleep)
+
+    chamber = _FakeChamber([25.0] * 30)
+    thermometer = _FakeThermometer([30.0] * 30)
+    cfg = {
+        "workflow": {
+            "stability": {
+                "temperature": {
+                    "tol": 0.2,
+                    "hard_max_wait_s": 0.5,
+                    "reuse_running_in_tol_without_soak": False,
+                    "thermometer_truth_required": True,
+                    "temperature_chamber_setpoint_substitution_forbidden": True,
+                }
+            }
+        }
+    }
+    logs = []
+    logger = RunLogger(tmp_path)
+    try:
+        runner = runner_mod.CalibrationRunner(
+            cfg,
+            {"temp_chamber": chamber, "thermometer": thermometer},
+            logger,
+            logs.append,
+            lambda *_: None,
+        )
+        assert runner._set_temperature(25.0) is False
+    finally:
+        logger.close()
+
+    assert thermometer.read_calls > 0
+    assert any("thermometer" in message.lower() and "target" in message.lower() for message in logs)
+
+
+def test_strict_temperature_truth_rechecks_thermometer_before_reusing_same_target(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    clock = _FakeClock()
+    monkeypatch.setattr(runner_mod.time, "time", clock.time)
+    monkeypatch.setattr(runner_mod.time, "sleep", clock.sleep)
+
+    chamber = _FakeChamber([25.0] * 30)
+    thermometer = _FakeThermometer([25.0] + [30.0] * 30)
+    cfg = {
+        "workflow": {
+            "stability": {
+                "temperature": {
+                    "tol": 0.2,
+                    "hard_max_wait_s": 0.5,
+                    "reuse_running_in_tol_without_soak": False,
+                    "thermometer_truth_required": True,
+                    "temperature_chamber_setpoint_substitution_forbidden": True,
+                }
+            }
+        }
+    }
+    logger = RunLogger(tmp_path)
+    try:
+        runner = runner_mod.CalibrationRunner(
+            cfg,
+            {"temp_chamber": chamber, "thermometer": thermometer},
+            logger,
+            lambda *_: None,
+            lambda *_: None,
+        )
+        assert runner._set_temperature(25.0) is True
+        assert runner._set_temperature(25.0) is False
+    finally:
+        logger.close()
+
+    assert thermometer.read_calls > 1
+
+
+def test_strict_temperature_truth_passes_only_when_chamber_and_thermometer_reach_target(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    clock = _FakeClock()
+    monkeypatch.setattr(runner_mod.time, "time", clock.time)
+    monkeypatch.setattr(runner_mod.time, "sleep", clock.sleep)
+
+    chamber = _FakeChamber([25.0] * 20)
+    thermometer = _FakeThermometer([25.0] * 20)
+    cfg = {
+        "workflow": {
+            "stability": {
+                "temperature": {
+                    "tol": 0.2,
+                    "reuse_running_in_tol_without_soak": False,
+                    "thermometer_truth_required": True,
+                    "temperature_chamber_setpoint_substitution_forbidden": True,
+                }
+            }
+        }
+    }
+    logs = []
+    logger = RunLogger(tmp_path)
+    try:
+        runner = runner_mod.CalibrationRunner(
+            cfg,
+            {"temp_chamber": chamber, "thermometer": thermometer},
+            logger,
+            logs.append,
+            lambda *_: None,
+        )
+        assert runner._set_temperature(25.0) is True
+    finally:
+        logger.close()
+
+    assert thermometer.read_calls > 0
+    assert any("thermometer" in message.lower() and "target" in message.lower() for message in logs)
 
 
 def test_set_temperature_waits_for_analyzer_chamber_temp_stability(monkeypatch, tmp_path: Path) -> None:

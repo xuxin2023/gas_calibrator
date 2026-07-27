@@ -18,12 +18,14 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--repo-root", required=True)
     parser.add_argument("--profile-path", required=True)
     parser.add_argument("--mature-route-contract-json", required=True)
+    parser.add_argument("--reference-source-catalog-json", required=True)
     parser.add_argument("--output-dir", required=True)
     args = parser.parse_args(list(argv) if argv is not None else None)
     model = build_v1_5_new_algorithm_mature_queue_live_handoff(
         repo_root=args.repo_root,
         profile_path=args.profile_path,
         mature_route_contract_json=args.mature_route_contract_json,
+        reference_source_catalog_json=args.reference_source_catalog_json,
     )
     outputs = write_v1_5_new_algorithm_mature_queue_live_handoff(
         model,

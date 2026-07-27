@@ -1,6 +1,6 @@
 {
   "schema": "v1_5_new_algorithm_mature_queue_live_handoff_v1",
-  "generated_at": "2026-07-13T10:39:50Z",
+  "generated_at": "2026-07-27T00:53:16Z",
   "overall_status": "offline_contract_ready_live_execution_blocked",
   "contract_blocker_count": 0,
   "production_blocker_count": 6,
@@ -28,8 +28,8 @@
       "co2": 47,
       "h2o": 14
     },
-    "co2_rows_content_sha256": "491728cd7ee41f240b8f8f1733b05a67b81bdd453cc6b3c0bcecebbe84cb54ad",
-    "h2o_rows_content_sha256": "f44ee9e00ce9f6ac9c4576b9b2d45484ef46387e5c81980e25c66906630a5c34",
+    "co2_rows_content_sha256": "d0cf23c33153c89b3625f04b8446e0054228683b50b1f7f00cb61a554936cac6",
+    "h2o_rows_content_sha256": "333e1dba2230fe889ad7b4360ae1c52a39c1a285152f04b68c4b97fbcd14f2a7",
     "co2_queue_runner": "gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue",
     "h2o_queue_runner": "gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue",
     "route_order": [
@@ -38,39 +38,45 @@
     ],
     "profile_declared_queue_source_is_not_consumed": true,
     "mature_point_execution_is_not_copied_or_modified": true,
+    "reference_source_binding_status": "bound",
+    "reference_source_catalog": "configs/v1_5_reference_source_catalog.json",
+    "reference_source_catalog_sha256": "22c65d4f6c73c29f381e8611c3c1aba809d1a3733ab90cf16b796a06fa8248a8",
+    "bound_co2_reference_asset_count": 11,
+    "h2o_reference_policy": "measured_dewpoint_plus_measured_pressure",
+    "route_flow_source_policy": "dewpoint_meter_output_preferred_hgen_state_fallback",
     "co2_queue_csv": "docs/v1_5_flow_contract/new_algorithm_mature_queue_live_handoff/co2_new_algorithm_47_runner_queue.csv",
     "h2o_queue_csv": "docs/v1_5_flow_contract/new_algorithm_mature_queue_live_handoff/h2o_new_algorithm_14_runner_queue.csv",
-    "co2_queue_csv_sha256": "9700535fc06092732b0a822736beb21380c87e62dbee4c0075e996cfe154f979",
-    "h2o_queue_csv_sha256": "8af815ab6ee7c7c75734496f43c01071819a024b1bd7504d399609cac85fbf18"
+    "co2_queue_csv_sha256": "2c9d25e4fe7c0079816139b3c2e0f945abb9c71861865bd792038df570d41545",
+    "h2o_queue_csv_sha256": "ea691099b3e67f62c8ada6d6647d0a92be7dbba3cead85e4bdd69b1d38041439"
   },
   "runner_source_bindings": [
     {
       "role": "co2_queue",
       "path": "src/gas_calibrator/tools/run_v1_5_formal_co2_open_flow_queue.py",
-      "sha256": "b8f34fcf1f5c60e25f7fe19762d27a247b7e6f01af232c70a362cf2ecf995e8d"
+      "sha256": "0f044d0da71bd52dc8f6025ffc6d8b7bae4ef500b293eb8c9b90ad32afe8134d"
     },
     {
       "role": "h2o_queue",
       "path": "src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_queue.py",
-      "sha256": "cbd763c4de1a9d867d1f5de4559b3c98063c525e26bde69b04d4573641319ba1"
+      "sha256": "c62bfa90fd2cbb41aae11774156289eb22d980c5bb1cd4e76ae77415ac5207c3"
     },
     {
       "role": "co2_sampling_worker",
       "path": "src/gas_calibrator/tools/run_v1_5_formal_open_flow_sampling.py",
-      "sha256": "ba449d548c9be08df3892e31c0e7132f914b0a0fb701a28ef0bb352398383ee3"
+      "sha256": "eaa616826864de173ef0b45aa681de66ed3185b8a689ce0bbf20e7a5fc5f724d"
     },
     {
       "role": "h2o_sampling_worker",
       "path": "src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_sampling.py",
-      "sha256": "b7ccfa6deac7749341308550ee90ac8cb3d801951999e8d18d1f4092800772a7"
+      "sha256": "7dc0b116611a9dcaf5b4c7a789fc75da253492291ac785d3d9746db1c4539112"
     }
   ],
   "authorization_requirements": [
     {
       "order": 1,
-      "requirement": "exact_profile_and_queue_hashes",
-      "value": "profile plus CO2-47 and H2O-14 CSV SHA256",
-      "purpose": "prevent point-plan substitution"
+      "requirement": "exact_profile_catalog_and_queue_hashes",
+      "value": "profile, reference-source catalog, CO2-47 and H2O-14 CSV SHA256",
+      "purpose": "prevent point-plan or reference-source substitution"
     },
     {
       "order": 2,
@@ -224,6 +230,20 @@
       }
     },
     {
+      "check_id": "controlled_reference_source_binding",
+      "status": "pass",
+      "reasons": [],
+      "physical_meaning": "Every CO2 queue row binds one controlled cylinder asset and certificate value. Every H2O row binds the dynamic dewpoint-plus-pressure reference contract; dewpoint-instrument flow remains route evidence only.",
+      "details": {
+        "catalog_path": "configs/v1_5_reference_source_catalog.json",
+        "catalog_sha256": "22c65d4f6c73c29f381e8611c3c1aba809d1a3733ab90cf16b796a06fa8248a8",
+        "catalog_asset_count": 11,
+        "bound_co2_reference_asset_count": 11,
+        "co2_queue_row_count": 47,
+        "h2o_queue_row_count": 14
+      }
+    },
+    {
       "check_id": "mature_0620_0621_runner_binding",
       "status": "pass",
       "reasons": [],
@@ -252,7 +272,9 @@
     "profile_path": "configs/v1_5_algorithm_route_profiles.json",
     "profile_sha256": "5f34c5b38dd5d18bb7a7d6f8bfebe2472c4bebc9544b995241f232c1a1d39456",
     "mature_route_contract_json": "docs/v1_5_flow_contract/mature_route_contract/v1_5_mature_route_contract.json",
-    "mature_route_contract_sha256": "7f40a81ca97d8f09c6dd0d1593d615c498823760c38f849dd8c5b6a6ac03d359"
+    "mature_route_contract_sha256": "7f40a81ca97d8f09c6dd0d1593d615c498823760c38f849dd8c5b6a6ac03d359",
+    "reference_source_catalog_json": "configs/v1_5_reference_source_catalog.json",
+    "reference_source_catalog_sha256": "22c65d4f6c73c29f381e8611c3c1aba809d1a3733ab90cf16b796a06fa8248a8"
   },
   "execution_supported": false,
   "live_queue_execution_allowed": false,

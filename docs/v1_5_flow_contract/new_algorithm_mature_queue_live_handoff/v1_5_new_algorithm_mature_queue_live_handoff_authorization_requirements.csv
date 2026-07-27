@@ -1,5 +1,5 @@
 ﻿order,requirement,value,purpose
-1,exact_profile_and_queue_hashes,profile plus CO2-47 and H2O-14 CSV SHA256,prevent point-plan substitution
+1,exact_profile_catalog_and_queue_hashes,"profile, reference-source catalog, CO2-47 and H2O-14 CSV SHA256",prevent point-plan or reference-source substitution
 2,exact_mature_runner_hashes,CO2/H2O queue and sampling-worker SHA256,prevent route-kernel substitution
 3,active_analyzers,1-6 devices with unique 8-digit SN/device_code and reviewed COM/GA/protocol-ID mapping,bind physical devices
 4,current_readiness,"initialization, S9 pressure, route, certificates, runtime and CHECK policy pass",prevent stale readiness reuse

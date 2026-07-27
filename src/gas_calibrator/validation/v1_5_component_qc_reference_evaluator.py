@@ -11,6 +11,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from .v1_5_component_qc_generator_contract import (
     CONTRACT_SCHEMA,
+    evaluate_component_qc_temporal_window,
     validate_v1_5_component_qc_generator_contract,
 )
 
@@ -142,15 +143,46 @@ def _point_blockers(fixture: Mapping[str, Any], contract: Mapping[str, Any]) -> 
     )
 
 
-def _analyzer_temporal_evidence(fixture: Mapping[str, Any], prefix: str) -> Mapping[str, Any]:
+def _analyzer_temporal_evidence(
+    fixture: Mapping[str, Any],
+    prefix: str,
+    *,
+    required_count: int,
+    contract: Mapping[str, Any],
+) -> dict[str, Any]:
     by_analyzer = fixture.get("analyzer_evidence") or {}
     specific = by_analyzer.get(prefix) or {}
-    return {
-        "temporal_window_complete": specific.get(
-            "temporal_window_complete", fixture.get("temporal_window_complete", True)
+    cadence = contract.get("cadence_and_alignment_contract") or {}
+    expected_interval_s = specific.get(
+        "expected_sample_interval_s",
+        fixture.get(
+            "expected_sample_interval_s",
+            cadence.get("default_expected_sample_interval_s"),
         ),
-        "cadence_warning": specific.get("cadence_warning", fixture.get("cadence_warning", False)),
-    }
+    )
+    evidence = evaluate_component_qc_temporal_window(
+        [row.get("timestamp_s") for row in fixture.get("sample_rows") or []],
+        expected_interval_s=expected_interval_s,
+        required_count=required_count,
+        contract=contract,
+    )
+    declared_complete = specific.get(
+        "temporal_window_complete", fixture.get("temporal_window_complete", True)
+    )
+    declared_warning = specific.get(
+        "cadence_warning", fixture.get("cadence_warning", False)
+    )
+    if declared_complete is not True:
+        evidence["temporal_window_complete"] = False
+        evidence["temporal_reason_codes"] = sorted(
+            set(evidence["temporal_reason_codes"] + ["declared_temporal_window_incomplete"])
+        )
+    evidence["cadence_warning"] = evidence["cadence_warning"] or declared_warning is True
+    if declared_warning is True:
+        evidence["temporal_reason_codes"] = sorted(
+            set(evidence["temporal_reason_codes"] + ["declared_cadence_warning"])
+        )
+    return evidence
 
 
 def _evaluate_analyzer(
@@ -172,11 +204,18 @@ def _evaluate_analyzer(
     reasons: list[str] = []
     grade = GRADE_A
 
-    temporal = _analyzer_temporal_evidence(fixture, prefix)
-    timestamps_complete = all(_finite_float(row.get("timestamp_s")) is not None for row in rows)
-    if temporal.get("temporal_window_complete") is not True or not timestamps_complete:
+    temporal = _analyzer_temporal_evidence(
+        fixture,
+        prefix,
+        required_count=required_count,
+        contract=contract,
+    )
+    if temporal.get("temporal_window_complete") is not True:
         grade = GRADE_C
         reasons.append("missing_timestamps_or_incomplete_window")
+        reasons.extend(
+            f"temporal:{value}" for value in temporal.get("temporal_reason_codes") or []
+        )
 
     ratios: list[float] = []
     invalid_usable_ratio = False
@@ -239,6 +278,7 @@ def _evaluate_analyzer(
         "frame_count": len(rows),
         "usable_ratio_count": len(ratios),
         "required_sample_count": required_count,
+        **temporal,
         "reason": ";".join(sorted(set(reasons))) if reasons else "within_reference_contract",
         "sample_can_enter_calibration_fit": fit_allowed,
         "sample_can_enter_diagnostic_model": diagnostic_allowed,
@@ -286,6 +326,7 @@ def evaluate_v1_5_component_qc_reference_fixture(
         "point_flags": fixture.get("point_flags") or {},
         "temporal_window_complete": fixture.get("temporal_window_complete", True),
         "cadence_warning": fixture.get("cadence_warning", False),
+        "expected_sample_interval_s": fixture.get("expected_sample_interval_s"),
         "analyzer_evidence": fixture.get("analyzer_evidence") or {},
     }
     source_hashes = {
@@ -294,6 +335,37 @@ def evaluate_v1_5_component_qc_reference_fixture(
         "source_runtime_config_sha256": _sha256(runtime_subset),
         "contract_sha256": _sha256(contract),
     }
+    synthetic_reference_evidence = {
+        "reference_source_status": "synthetic_not_formal_reference",
+        "reference_source_record_present": False,
+        "reference_source_record_valid": False,
+        "reference_source_reason_codes": [
+            "synthetic_fixture_has_no_formal_reference_source_record"
+        ],
+        "reference_asset_id": "synthetic_fixture_only",
+        "reference_value_source": "simulated",
+    }
+    source_hashes["source_reference_source_sha256"] = _sha256(
+        synthetic_reference_evidence
+    )
+    source_hashes.update(synthetic_reference_evidence)
+    evidence_run_id = str(fixture.get("point_id") or "synthetic_reference")
+    identity_evidence = {
+        "evidence_run_id": evidence_run_id,
+        "evidence_identity_status": "pass",
+        "evidence_identity_mode": "synthetic_reference",
+        "evidence_identity_reason_codes": [],
+        "evidence_bundle_sha256": _sha256(
+            {
+                "schema_version": "v1_5_synthetic_reference_evidence_bundle_v1",
+                "run_id": evidence_run_id,
+                "source_hashes": source_hashes,
+            }
+        ),
+        "evidence_bundle_member_count": 4,
+        "evidence_bundle_manifest_verified": False,
+    }
+    source_hashes.update(identity_evidence)
     hard_blockers = _point_blockers(fixture, contract)
     analyzer_rows = [
         _evaluate_analyzer(

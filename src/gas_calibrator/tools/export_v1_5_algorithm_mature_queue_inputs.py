@@ -17,11 +17,13 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--profile-path", required=True)
     parser.add_argument("--profile-id", choices=tuple(EXPECTED_COUNTS), required=True)
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--reference-source-catalog", default=None)
     args = parser.parse_args(list(argv) if argv is not None else None)
     model = write_v1_5_algorithm_mature_queue_inputs(
         profile_path=args.profile_path,
         profile_id=args.profile_id,
         output_dir=args.output_dir,
+        reference_source_catalog=args.reference_source_catalog,
     )
     print(json.dumps(model, ensure_ascii=False, indent=2))
     return 0

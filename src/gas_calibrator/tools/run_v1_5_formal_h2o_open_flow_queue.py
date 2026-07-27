@@ -22,7 +22,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from ..config import load_config
 from ..data.points import CalibrationPoint
-from ..logging_utils import RunLogger
+from ..logging_utils import RunLogger, _claim_immutable_run_dir
 from ..validation.v1_5_h2o_queue_failure_audit import (
     audit_and_write as _audit_h2o_queue_failures,
     classify_point_failure_from_log as _classify_point_failure_from_log,
@@ -31,12 +31,12 @@ from ..validation.v1_5_open_flow_purge_contract import resolve_v1_5_open_flow_pu
 from ..workflow.runner import CalibrationRunner
 from .run_headless import _build_devices, _close_devices
 from .run_v1_5_formal_h2o_open_flow_sampling import (
-    DEFAULT_H2O_OPEN_FLOW_PURGE_S,
     _safe_stop_humidity_generator,
 )
 from .run_v1_5_formal_open_flow_sampling import (
     FORMAL_OPEN_FLOW_ANALYZER_GATE_PREFER_ALL_STABLE_GRACE_S,
     _apply_analyzer_acquisition_policy,
+    _apply_v1_5_temperature_truth_contract,
     _defer_startup_mode2_disabled_analyzers,
 )
 
@@ -260,6 +260,7 @@ def _prepare_temperature_runtime_cfg(
     if not isinstance(devices_cfg.get("temperature_chamber"), dict):
         raise RuntimeError("temperature_chamber config is missing")
     devices_cfg["temperature_chamber"]["enabled"] = True
+    temp_cfg = _apply_v1_5_temperature_truth_contract(runtime_cfg, require_device_config=True)
 
     _apply_analyzer_acquisition_policy(
         runtime_cfg,
@@ -269,7 +270,6 @@ def _prepare_temperature_runtime_cfg(
         allow_ftd_write=allow_ftd_write,
     )
 
-    temp_cfg = workflow_cfg.setdefault("stability", {}).setdefault("temperature", {})
     temp_cfg["wait_for_target_before_continue"] = True
     temp_cfg["analyzer_chamber_temp_enabled"] = True
     if soak_after_reach_s is not None:
@@ -376,8 +376,12 @@ def _prewarm_humidity_generator_for_group(
 
     runtime_cfg = _prepare_humidity_prewarm_runtime_cfg(cfg, output_dir=output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    logger = RunLogger(output_dir, run_id=run_id, cfg=runtime_cfg)
-    logger.run_dir.mkdir(parents=True, exist_ok=True)
+    logger = RunLogger(
+        output_dir,
+        run_id=run_id,
+        cfg=runtime_cfg,
+        immutable_run_dir=True,
+    )
     runtime_config_snapshot_error: Optional[str] = None
     runtime_config_snapshot_path = logger.run_dir / "humidity_prewarm_runtime_config_snapshot.json"
     try:
@@ -459,8 +463,12 @@ def _safe_stop_humidity_generator_after_queue(
 ) -> bool:
     runtime_cfg = _prepare_humidity_prewarm_runtime_cfg(cfg, output_dir=output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    logger = RunLogger(output_dir, run_id=run_id, cfg=runtime_cfg)
-    logger.run_dir.mkdir(parents=True, exist_ok=True)
+    logger = RunLogger(
+        output_dir,
+        run_id=run_id,
+        cfg=runtime_cfg,
+        immutable_run_dir=True,
+    )
     (logger.run_dir / "hgen_final_safe_stop_runtime_config.json").write_text(
         json.dumps(runtime_cfg, ensure_ascii=False, indent=2, default=str) + "\n",
         encoding="utf-8",
@@ -485,7 +493,17 @@ def _safe_stop_humidity_generator_after_queue(
     try:
         devices = _build_devices(runtime_cfg, io_logger=logger)
         summary["before_snapshot"] = _read_humidity_generator_snapshot(devices.get("humidity_gen"))
-        _safe_stop_humidity_generator(devices)
+        safe_stop_status = _safe_stop_humidity_generator(devices)
+        summary["safe_stop_status"] = safe_stop_status
+        if not isinstance(safe_stop_status, dict) or safe_stop_status.get("ok") is not True:
+            raise RuntimeError(
+                "HUMIDITY_GENERATOR_FINAL_SAFE_STOP_NOT_CONFIRMED:"
+                + str(
+                    safe_stop_status.get("error", "unreported")
+                    if isinstance(safe_stop_status, dict)
+                    else "unreported"
+                )
+            )
         summary["after_snapshot"] = _read_humidity_generator_snapshot(devices.get("humidity_gen"))
         summary["ok"] = True
         return True
@@ -535,7 +553,12 @@ def _settle_temperature_group(
         analyzer_timeout_s=args.temperature_analyzer_timeout_s,
     )
     output_dir.mkdir(parents=True, exist_ok=True)
-    logger = RunLogger(output_dir, run_id=run_id, cfg=runtime_cfg)
+    logger = RunLogger(
+        output_dir,
+        run_id=run_id,
+        cfg=runtime_cfg,
+        immutable_run_dir=True,
+    )
     (logger.run_dir / "temperature_settle_runtime_config_snapshot.json").write_text(
         json.dumps(runtime_cfg, ensure_ascii=False, indent=2, default=str) + "\n",
         encoding="utf-8",
@@ -835,7 +858,11 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     output_dir = Path(args.output_dir).resolve()
     queue_run_id = args.run_id or f"v1_5_h2o_open_flow_queue_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     queue_dir = _queue_output_dir(output_dir, queue_run_id)
-    queue_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        _claim_immutable_run_dir(queue_dir, run_id=queue_run_id)
+    except FileExistsError as exc:
+        _log(str(exc))
+        return 2
     point_log_dir = queue_dir / "point_logs"
     point_log_dir.mkdir(parents=True, exist_ok=True)
 

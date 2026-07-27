@@ -1,11 +1,11 @@
 ﻿import csv
+import json
 import math
 from pathlib import Path
 
 import gas_calibrator.logging_utils as logging_utils_module
 import pytest
 from openpyxl import load_workbook
-from openpyxl.styles import PatternFill
 
 from gas_calibrator.logging_utils import RunLogger, _dewpoint_to_h2o_mmol_per_mol
 
@@ -60,6 +60,32 @@ def test_run_logger_creates_run_dir_and_io_csv(tmp_path: Path) -> None:
         sample_rows = list(csv.DictReader(f))
     assert len(sample_rows) == 1
     assert sample_rows[0]["a"] == "1"
+
+
+def test_run_logger_immutable_directory_rejects_collision_without_changing_first_artifact(
+    tmp_path: Path,
+) -> None:
+    first = RunLogger(tmp_path, run_id="fixed", immutable_run_dir=True)
+    first.log_sample({"frame": 1, "value": 12.3})
+    first.close()
+    first_bytes = first.samples_path.read_bytes()
+
+    with pytest.raises(FileExistsError, match="IMMUTABLE_RUN_DIR_COLLISION"):
+        RunLogger(tmp_path, run_id="fixed", immutable_run_dir=True)
+
+    assert first.samples_path.read_bytes() == first_bytes
+    claim = json.loads((first.run_dir / "run_directory_claim.json").read_text(encoding="utf-8"))
+    assert claim["run_id"] == "fixed"
+    assert claim["policy"] == "create_once_no_overwrite"
+
+
+def test_run_logger_immutable_directory_can_claim_precreated_empty_directory(tmp_path: Path) -> None:
+    (tmp_path / "empty").mkdir()
+
+    logger = RunLogger(tmp_path, run_id="empty", immutable_run_dir=True)
+    logger.close()
+
+    assert logger.run_directory_claim_path == logger.run_dir / "run_directory_claim.json"
 
 
 def test_run_logger_prunes_empty_core_exports_on_close(tmp_path: Path) -> None:
@@ -1524,7 +1550,9 @@ def test_analyzer_summary_prefers_digital_thermometer_temperature(tmp_path: Path
     assert csv_row["T1"] == "19.93"
 
 
-def test_analyzer_summary_falls_back_to_chamber_temperature_when_thermometer_is_stale(tmp_path: Path) -> None:
+def test_analyzer_summary_legacy_default_falls_back_to_chamber_temperature_when_thermometer_is_stale(
+    tmp_path: Path,
+) -> None:
     logger = RunLogger(tmp_path)
     rows = [
         {
@@ -1585,6 +1613,55 @@ def test_analyzer_summary_falls_back_to_chamber_temperature_when_thermometer_is_
     csv_row = csv_rows[0]
     assert csv_row["Temp"] == "0.005"
     assert csv_row["T1"] == "0.32"
+
+
+def test_analyzer_summary_strict_truth_never_substitutes_chamber_for_thermometer(tmp_path: Path) -> None:
+    logger = RunLogger(
+        tmp_path,
+        cfg={
+            "workflow": {
+                "stability": {
+                    "temperature": {
+                        "thermometer_truth_required": True,
+                        "temperature_chamber_setpoint_substitution_forbidden": True,
+                    }
+                }
+            }
+        },
+    )
+    rows = [
+        {
+            "point_title": "0°C环境，二氧化碳0ppm，气压1100hPa",
+            "point_phase": "co2",
+            "chamber_temp_c": 0.02,
+            "thermometer_temp_c": 18.09,
+            "ga01_id": "001",
+            "ga01_co2_ppm": 0.2,
+            "ga01_h2o_mmol": 0.3,
+            "ga01_co2_ratio_f": 1.2,
+            "ga01_h2o_ratio_f": 0.8,
+            "ga01_ref_signal": 100.0,
+            "ga01_co2_signal": 200.0,
+            "ga01_h2o_signal": 300.0,
+            "ga01_chamber_temp_c": 0.31,
+            "ga01_case_temp_c": 0.52,
+            "ga01_pressure_kpa": 108.1,
+        }
+    ]
+
+    logger.log_analyzer_workbook(rows, analyzer_labels=["ga01"], phase="co2")
+    logger.close()
+
+    with logger.analyzer_summary_csv_path.open("r", encoding="utf-8", newline="") as f:
+        csv_rows = list(csv.DictReader(f))
+
+    assert len(csv_rows) == 1
+    assert csv_rows[0]["Temp"] == "18.09"
+    assert logging_utils_module._select_reference_temp(
+        None,
+        0.02,
+        require_thermometer_truth=True,
+    ) is None
 
 
 def test_analyzer_summary_temp_uses_same_usable_samples_as_analyzer_values(tmp_path: Path) -> None:

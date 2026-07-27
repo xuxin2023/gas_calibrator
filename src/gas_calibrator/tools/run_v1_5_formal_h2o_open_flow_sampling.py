@@ -26,7 +26,11 @@ from typing import Any, Dict, Iterable, List, Optional
 from ..config import load_config
 from ..data.points import CalibrationPoint
 from ..logging_utils import RunLogger
+from ..utils.file_io import sha256_file
 from ..validation.common import analyze_sample_rows
+from ..validation.v1_5_component_qc_generator_contract import (
+    FORMAL_REFERENCE_SOURCE_RECORD_SCHEMA,
+)
 from ..validation.reporting import ValidationMetadata, write_validation_report
 from ..workflow.runner import CalibrationRunner
 from .run_headless import _build_devices, _close_devices
@@ -35,14 +39,20 @@ from .run_v1_5_formal_open_flow_sampling import (
     FORMAL_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S,
     FORMAL_OPEN_FLOW_DEWPOINT_GATE_MAX_TOTAL_WAIT_S,
     _apply_analyzer_acquisition_policy,
+    _apply_v1_5_temperature_truth_contract,
     _configured_analyzer_labels,
     _defer_startup_mode2_disabled_analyzers,
     _enable_formal_summary_outlier_filter,
     _enter_continuous_atmosphere,
+    _formal_sampling_completion_code,
     _formal_open_flow_dewpoint_gate_max_wait_s,
     _read_dewpoint_snapshot,
     _read_optional_float,
     _stop_continuous_atmosphere,
+    _verify_v1_5_point_temperature_truth,
+    _write_shutdown_status_to_sidecar,
+    _write_formal_evidence_bundle_manifest,
+    _write_formal_reference_source_record,
     _write_machine_readable_samples,
     _write_purge_trace,
 )
@@ -326,6 +336,7 @@ def _prepare_runtime_cfg(
         "unstable_analyzer_handling": "prefer_all_stable_with_bounded_grace_then_independent_grade_or_reject",
         "pressure_role": "diagnostic_or_qc_input_not_h2o_fit_hard_blocker",
     }
+    _apply_v1_5_temperature_truth_contract(runtime_cfg)
 
     devices_cfg = runtime_cfg.setdefault("devices", {})
     if isinstance(devices_cfg.get("humidity_generator"), dict):
@@ -534,16 +545,34 @@ def _build_h2o_open_flow_point(
     )
 
 
-def _safe_stop_humidity_generator(devices: Dict[str, Any]) -> None:
+def _safe_stop_humidity_generator(devices: Dict[str, Any]) -> Dict[str, Any]:
     hgen = devices.get("humidity_gen")
+    report: Dict[str, Any] = {
+        "action": "safe_stop_humidity_generator",
+        "device_present": hgen is not None,
+        "supported": False,
+        "attempted": False,
+        "ok": False,
+    }
     if hgen is None:
-        return
+        report["status"] = "fail"
+        report["error"] = "humidity_generator_not_configured"
+        return report
     safe_stop = getattr(hgen, "safe_stop", None)
     if callable(safe_stop):
+        report["supported"] = True
+        report["attempted"] = True
         try:
             safe_stop()
-        except Exception:
-            pass
+            report["ok"] = True
+            report["status"] = "pass"
+        except Exception as exc:
+            report["status"] = "fail"
+            report["error"] = f"humidity_generator_safe_stop_failed:{exc}"
+    else:
+        report["status"] = "fail"
+        report["error"] = "humidity_generator_safe_stop_not_supported"
+    return report
 
 
 def _read_humidity_generator_snapshot(device: Any) -> Dict[str, Any]:
@@ -744,6 +773,169 @@ def _write_humidity_reference_review(
         json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n",
         encoding="utf-8",
     )
+    return payload
+
+
+def _write_h2o_reference_source_record(
+    run_dir: Path,
+    *,
+    run_id: str,
+) -> Dict[str, Any]:
+    """Bind measured dewpoint and pressure separately from generator-flow evidence."""
+
+    root = run_dir.resolve()
+    humidity_review_path = root / "h2o_humidity_reference_review.json"
+    flow_path = root / "formal_h2o_open_flow_hgen_flow_set.json"
+    samples_path = root / "samples_machine_readable.csv"
+    reasons: List[str] = []
+    bound_artifacts: Dict[str, Any] = {}
+    observed_pressure_fields: List[str] = []
+
+    def bind_json(role: str, path: Path) -> Dict[str, Any]:
+        if not path.is_file():
+            reasons.append(f"{role}_missing")
+            return {}
+        try:
+            with path.open("r", encoding="utf-8-sig") as handle:
+                payload = json.load(handle)
+        except (OSError, json.JSONDecodeError) as exc:
+            reasons.append(f"{role}_invalid_json:{exc}")
+            return {}
+        if not isinstance(payload, dict):
+            reasons.append(f"{role}_not_object")
+            return {}
+        bound_artifacts[role] = {
+            "filename": path.name,
+            "size_bytes": path.stat().st_size,
+            "sha256": sha256_file(path),
+        }
+        return payload
+
+    review = bind_json("humidity_reference_review", humidity_review_path)
+    flow = bind_json("humidity_generator_flow", flow_path)
+    if samples_path.is_file():
+        bound_artifacts["samples_with_pressure"] = {
+            "filename": samples_path.name,
+            "size_bytes": samples_path.stat().st_size,
+            "sha256": sha256_file(samples_path),
+        }
+        try:
+            with samples_path.open("r", encoding="utf-8-sig", newline="") as handle:
+                for row in csv.DictReader(handle):
+                    for key, value in row.items():
+                        if "pressure" not in str(key).casefold():
+                            continue
+                        try:
+                            numeric = float(value)
+                        except (TypeError, ValueError):
+                            continue
+                        if numeric > 0.0 and str(key) not in observed_pressure_fields:
+                            observed_pressure_fields.append(str(key))
+        except OSError as exc:
+            reasons.append(f"samples_with_pressure_read_failed:{exc}")
+        if not observed_pressure_fields:
+            reasons.append("actual_pressure_measurement_missing")
+    else:
+        reasons.append("samples_with_pressure_missing")
+
+    dewpoint_snapshot = review.get("dewpoint_snapshot") if isinstance(review, dict) else {}
+    if not isinstance(dewpoint_snapshot, dict) or not _dewpoint_snapshot_has_measurement(
+        dewpoint_snapshot
+    ):
+        reasons.append("measured_dewpoint_reference_missing")
+    reference_check = (
+        review.get("humidity_reference_check") if isinstance(review, dict) else {}
+    )
+    if not isinstance(reference_check, dict):
+        reasons.append("humidity_reference_check_missing")
+        reference_check = {}
+    elif reference_check.get("hard_block") is True:
+        reasons.append("humidity_reference_hard_block")
+    if review and (
+        review.get("schema_version")
+        != "v1_5_formal_h2o_open_flow_humidity_reference_review_v0"
+    ):
+        reasons.append("humidity_reference_review_schema_invalid")
+    if flow and flow.get("schema_version") != "v1_5_h2o_open_flow_hgen_flow_set_v0":
+        reasons.append("humidity_generator_flow_schema_invalid")
+    if flow and flow.get("ok") is not True:
+        reasons.append("humidity_generator_flow_evidence_invalid")
+    dewpoint_flow_lpm = (
+        _pick_snapshot_float(dewpoint_snapshot, "flow_lpm")
+        if isinstance(dewpoint_snapshot, dict)
+        else None
+    )
+    hgen_flow_lpm = None
+    if flow:
+        for key in ("observed_flow_lpm", "requested_flow_lpm"):
+            try:
+                value = flow.get(key)
+                if value is not None:
+                    hgen_flow_lpm = float(value)
+                    break
+            except (TypeError, ValueError):
+                continue
+    route_flow_lpm = dewpoint_flow_lpm if dewpoint_flow_lpm is not None else hgen_flow_lpm
+    route_flow_source = (
+        "dewpoint_meter_output"
+        if dewpoint_flow_lpm is not None
+        else "humidity_generator_state_fallback"
+        if hgen_flow_lpm is not None
+        else "missing"
+    )
+    if route_flow_lpm is None:
+        reasons.append("route_flow_evidence_missing")
+
+    payload = {
+        "schema_version": FORMAL_REFERENCE_SOURCE_RECORD_SCHEMA,
+        "run_id": str(run_id),
+        "route_kind": "h2o",
+        "reference_source_status": "pass" if not reasons else "fail",
+        "reference_asset_id": "dynamic_h2o_dewpoint_pressure_reference",
+        "reference_value_source": "measured_dewpoint_plus_measured_pressure",
+        "h2o_concentration_reference": {
+            "primary_quantities": [
+                "actual_dewpoint_meter_measurement",
+                "actual_pressure_measurement_bound_in_samples",
+            ],
+            "observed_pressure_fields": sorted(observed_pressure_fields),
+            "dewpoint_snapshot": dewpoint_snapshot,
+            "humidity_reference_check": reference_check,
+            "physical_interpretation": (
+                "H2O concentration is determined from the actual dewpoint measurement together "
+                "with the actual gas pressure. The CO2 zero-gas anchor is not reused as an H2O dry point."
+            ),
+        },
+        "humidity_generator_flow": {
+            "role": "source_state_evidence_only",
+            "requested_flow_lpm": flow.get("requested_flow_lpm") if flow else None,
+            "observed_flow_lpm": flow.get("observed_flow_lpm") if flow else None,
+            "flow_control_role": flow.get("flow_control_role") if flow else None,
+            "target_reached": flow.get("target_reached") if flow else None,
+            "physical_interpretation": (
+                "Humidity-generator flow is retained as source-state evidence. The preferred "
+                "observed route flow comes from the dewpoint instrument output when available, "
+                "and neither flow value is the H2O concentration reference."
+            ),
+        },
+        "route_flow_evidence": {
+            "role": "route_and_process_evidence_only",
+            "source": route_flow_source,
+            "observed_flow_lpm": route_flow_lpm,
+            "dewpoint_meter_output_flow_lpm": dewpoint_flow_lpm,
+            "humidity_generator_flow_lpm": hgen_flow_lpm,
+            "physical_interpretation": (
+                "When available, the dewpoint instrument output is the preferred observed route "
+                "flow. Flow proves delivery conditions and never replaces dewpoint-plus-pressure "
+                "as the H2O concentration reference."
+            ),
+        },
+        "bound_artifacts": bound_artifacts,
+        "not_real_acceptance_evidence": True,
+        "promotion_state": "blocked",
+        "reasons": sorted(set(reasons)),
+    }
+    _write_formal_reference_source_record(root, payload)
     return payload
 
 
@@ -1087,15 +1279,34 @@ def _enter_h2o_pressure_diagnostic_atmosphere(
     return True
 
 
-def _close_pace_vent_after_valve_if_opened(pace: Any, opened: bool) -> None:
-    if pace is None or not opened:
-        return
+def _close_pace_vent_after_valve_if_opened(pace: Any, opened: bool) -> Dict[str, Any]:
+    report: Dict[str, Any] = {
+        "action": "close_pace_vent_after_valve",
+        "required": bool(opened),
+        "attempted": False,
+        "ok": not opened,
+        "status": "not_required" if not opened else "pending",
+    }
+    if not opened:
+        return report
+    if pace is None:
+        report["status"] = "fail"
+        report["error"] = "pace_not_configured"
+        return report
     setter = getattr(pace, "set_vent_after_valve_open", None)
     if callable(setter):
+        report["attempted"] = True
         try:
             setter(False)
-        except Exception:
-            pass
+            report["ok"] = True
+            report["status"] = "pass"
+        except Exception as exc:
+            report["status"] = "fail"
+            report["error"] = f"pace_vent_after_valve_close_failed:{exc}"
+    else:
+        report["status"] = "fail"
+        report["error"] = "pace_vent_after_valve_setter_not_supported"
+    return report
 
 
 def _read_h2o_pressure_diagnostic_analyzer_frame(
@@ -1473,7 +1684,16 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     )
     output_dir = Path(runtime_cfg["paths"]["output_dir"]).resolve()
     run_id = args.run_id or f"formal_h2o_open_flow_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    logger = RunLogger(output_dir, run_id=run_id, cfg=runtime_cfg)
+    metadata["run_id"] = run_id
+    metadata["evidence_identity_contract"] = (
+        "immutable_claim_runtime_run_id_and_sha256_bundle"
+    )
+    logger = RunLogger(
+        output_dir,
+        run_id=run_id,
+        cfg=runtime_cfg,
+        immutable_run_dir=True,
+    )
     runtime_snapshot_path = logger.run_dir / "runtime_config_snapshot.json"
     runtime_snapshot_path.write_text(
         json.dumps(runtime_cfg, ensure_ascii=False, indent=2, default=str) + "\n",
@@ -1483,6 +1703,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     runner: Optional[CalibrationRunner] = None
     route_opened = False
     pace_vent_after_valve_opened = False
+    sidecar_metadata_path: Optional[Path] = None
+    formal_sampling_completed = False
+    finalization_failures: List[str] = []
 
     try:
         point = _build_h2o_open_flow_point(
@@ -1492,7 +1715,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             certificate_dewpoint_c=args.certificate_dewpoint_c,
             certificate_h2o_mmol=args.certificate_h2o_mmol,
         )
-        point_tag = runner_tag = f"h2o_{int(round(args.hgen_temp))}c_{int(round(args.hgen_rh))}rh_open_flow"
+        runner_tag = f"h2o_{int(round(args.hgen_temp))}c_{int(round(args.hgen_rh))}rh_open_flow"
         ftd_state = "FTD=01 enabled" if args.allow_ftd_write else "FTD write disabled"
         _log(
             "V1.5 H2O open-flow sidecar: no sealed pressure control, no OUTP control, "
@@ -1613,6 +1836,15 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 "flow/safe-stop commands are skipped; snapshot saved."
             )
         else:
+            if (
+                not args.pressure_diagnostic_only
+                and not _verify_v1_5_point_temperature_truth(
+                    runtime_cfg,
+                    devices,
+                    target_c=float(args.temp),
+                )
+            ):
+                raise RuntimeError("V1_5_POINT_TEMPERATURE_TRUTH_GATE_FAILED")
             runner._prepare_humidity_generator(point)
         if (
             not args.pressure_diagnostic_observe_hgen_only
@@ -1697,6 +1929,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             )
 
         meta_path = logger.run_dir / "formal_h2o_open_flow_sidecar_metadata.json"
+        sidecar_metadata_path = meta_path
         meta_path.write_text(
             json.dumps(
                 {
@@ -1993,30 +2226,154 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         _log(f"Formal H2O open-flow sampling validation saved: {outputs['workbook']}")
         if validation_prefix != "formal_h2o_open_flow_sampling_validation":
             _log(f"Formal H2O validation used compact artifact prefix: {validation_prefix}")
-        return 0
+        formal_sampling_completed = True
     except Exception as exc:
         _log(f"Formal H2O open-flow sampling failed: {exc}")
         return 1
     finally:
+        route_close_status: Dict[str, Any] = {
+            "required": bool(route_opened),
+            "attempted": False,
+            "ok": not route_opened,
+            "status": "not_required" if not route_opened else "pending",
+        }
         if runner is not None and route_opened:
+            route_close_status["attempted"] = True
             try:
                 runner._apply_valve_states([])
+                route_close_status["ok"] = True
+                route_close_status["status"] = "pass"
                 _log("H2O open-flow route closed")
             except Exception as exc:
+                route_close_status["ok"] = False
+                route_close_status["status"] = "fail"
+                route_close_status["error"] = str(exc)
+                finalization_failures.append(f"route_close_failed:{exc}")
                 _log(f"H2O route close failed: {exc}")
-        _stop_continuous_atmosphere(devices.get("pace"))
-        _close_pace_vent_after_valve_if_opened(devices.get("pace"), pace_vent_after_valve_opened)
+        pace_stop_status = _stop_continuous_atmosphere(devices.get("pace"))
+        if formal_sampling_completed and pace_stop_status.get("ok") is not True:
+            finalization_failures.append(
+                "pace_atmosphere_stop_failed:"
+                + ",".join(pace_stop_status.get("errors") or ["unknown"])
+            )
+        pace_vent_status = _close_pace_vent_after_valve_if_opened(
+            devices.get("pace"),
+            pace_vent_after_valve_opened,
+        )
+        if formal_sampling_completed and pace_vent_status.get("ok") is not True:
+            finalization_failures.append(
+                "pace_vent_close_failed:"
+                + str(pace_vent_status.get("error") or "unknown")
+            )
         if args.pressure_diagnostic_observe_hgen_only or args.pressure_diagnostic_route_closed_baseline:
+            hgen_stop_status = {
+                "status": "skipped_observe_only_diagnostic",
+                "ok": True,
+            }
             _log("Humidity generator safe-stop skipped by observe-only pressure diagnostic mode.")
         elif args.keep_hgen_running_after_point:
+            hgen_stop_status = {
+                "status": "delegated_to_queue_final_safe_stop",
+                "ok": True,
+            }
             _log("Humidity generator safe-stop skipped; H2O queue will manage final safe-stop.")
         else:
-            _safe_stop_humidity_generator(devices)
-        _close_devices(devices)
+            hgen_stop_status = _safe_stop_humidity_generator(devices)
+            if formal_sampling_completed and hgen_stop_status.get("ok") is not True:
+                finalization_failures.append(
+                    "humidity_generator_safe_stop_failed:"
+                    + str(hgen_stop_status.get("error") or "unknown")
+                )
+        device_close_status: Dict[str, Any] = {
+            "status": "best_effort_pending",
+            "fully_observable": False,
+            "note": "Shared device closer preserves V1 behavior and does not expose per-device close errors.",
+        }
+        try:
+            _close_devices(devices)
+            device_close_status["status"] = "best_effort_invoked"
+        except Exception as exc:
+            device_close_status["status"] = "call_failed"
+            device_close_status["error"] = str(exc)
+            finalization_failures.append(f"device_close_call_failed:{exc}")
+        physical_failures = [
+            reason
+            for reason in finalization_failures
+            if reason.startswith(
+                (
+                    "route_close_failed:",
+                    "pace_atmosphere_stop_failed:",
+                    "pace_vent_close_failed:",
+                    "humidity_generator_safe_stop_failed:",
+                    "device_close_call_failed:",
+                )
+            )
+        ]
+        physical_shutdown_status = {
+            "schema_version": "v1_5_formal_physical_shutdown_status_v0",
+            "route_kind": "h2o",
+            "route_close": route_close_status,
+            "pace_atmosphere_stop": pace_stop_status,
+            "pace_vent_after_valve_close": pace_vent_status,
+            "humidity_generator_safe_stop": hgen_stop_status,
+            "device_transport_close": device_close_status,
+            "critical_failures": physical_failures,
+            "overall_status": "fail" if physical_failures else "pass",
+        }
+        if sidecar_metadata_path is not None and sidecar_metadata_path.is_file():
+            try:
+                _write_shutdown_status_to_sidecar(
+                    sidecar_metadata_path,
+                    physical_shutdown_status,
+                )
+            except Exception as exc:
+                finalization_failures.append(f"shutdown_status_write_failed:{exc}")
+                _log(f"H2O physical shutdown status write failed: {exc}")
+        try:
+            reference_source_record = _write_h2o_reference_source_record(
+                logger.run_dir,
+                run_id=run_id,
+            )
+            _log(
+                "H2O formal reference-source record saved: "
+                f"{logger.run_dir / 'formal_reference_source_record.json'} "
+                f"status={reference_source_record['reference_source_status']}"
+            )
+            if (
+                formal_sampling_completed
+                and reference_source_record["reference_source_status"] != "pass"
+            ):
+                finalization_failures.append(
+                    "reference_source_failed:"
+                    + ",".join(reference_source_record.get("reasons") or ["unknown"])
+                )
+        except Exception as exc:
+            finalization_failures.append(f"reference_source_record_failed:{exc}")
+            _log(f"H2O formal reference-source record write failed: {exc}")
+        try:
+            bundle_path = _write_formal_evidence_bundle_manifest(
+                logger.run_dir,
+                run_id=run_id,
+                route_kind="h2o",
+                require_complete=formal_sampling_completed,
+            )
+            _log(f"H2O formal evidence bundle saved: {bundle_path}")
+        except Exception as exc:
+            finalization_failures.append(f"evidence_bundle_failed:{exc}")
+            _log(f"H2O formal evidence bundle write failed: {exc}")
         try:
             logger.close()
         except Exception:
             pass
+    if finalization_failures:
+        _log(
+            "H2O formal sampling evidence finalization failed: "
+            + " | ".join(finalization_failures)
+        )
+    return _formal_sampling_completion_code(
+        sampling_completed=formal_sampling_completed,
+        finalization_failures=finalization_failures,
+    )
 
 
 if __name__ == "__main__":

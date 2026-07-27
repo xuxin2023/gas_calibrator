@@ -27,5 +27,6 @@ This is an offline contract and blocked live-handoff review. It does not execute
 - `legacy_45_13_and_new_47_14_point_contract`: `pass`
 - `algorithm_fit_input_and_physics_contract`: `pass`
 - `migration_and_noncanonical_entrypoint_exclusion`: `pass`
+- `controlled_reference_source_binding`: `pass`
 - `mature_0620_0621_runner_binding`: `pass`
 - `route_adapter_has_no_side_effects`: `pass`

@@ -38,6 +38,7 @@ MATURE_ROUTE = (
     / "mature_route_contract"
     / "v1_5_mature_route_contract.json"
 )
+REFERENCE_CATALOG = ROOT / "configs" / "v1_5_reference_source_catalog.json"
 
 
 def _build() -> dict:
@@ -45,6 +46,7 @@ def _build() -> dict:
         repo_root=ROOT,
         profile_path=PROFILE,
         mature_route_contract_json=MATURE_ROUTE,
+        reference_source_catalog_json=REFERENCE_CATALOG,
     )
 
 
@@ -59,6 +61,9 @@ def test_contract_locks_legacy_and_new_algorithm_point_counts() -> None:
     assert model["legacy_default_preserved"] is True
     assert model["queue_contract"]["legacy_counts"] == {"co2": 45, "h2o": 13}
     assert model["queue_contract"]["new_algorithm_counts"] == {"co2": 47, "h2o": 14}
+    assert model["queue_contract"]["reference_source_binding_status"] == "bound"
+    assert model["queue_contract"]["bound_co2_reference_asset_count"] == 11
+    assert len(model["queue_contract"]["reference_source_catalog_sha256"]) == 64
     assert model["live_queue_execution_allowed"] is False
     assert model["opens_com_ports"] is False
     assert model["controls_water_or_gas_routes"] is False
@@ -110,6 +115,12 @@ def test_contract_uses_absorption_fit_semantics_without_forking_routes() -> None
     )
     assert all(row["sha256"] for row in model["runner_source_bindings"])
     assert len(model["runner_source_bindings"]) == 4
+    reference_check = next(
+        row
+        for row in model["checks"]
+        if row["check_id"] == "controlled_reference_source_binding"
+    )
+    assert reference_check["status"] == "pass"
 
 
 def test_contract_keeps_real_live_handoff_blocked() -> None:
@@ -125,7 +136,7 @@ def test_contract_keeps_real_live_handoff_blocked() -> None:
     assert model["formal_release_allowed"] is False
     assert model["database_import_allowed"] is False
     requirements = {row["requirement"] for row in model["authorization_requirements"]}
-    assert "exact_profile_and_queue_hashes" in requirements
+    assert "exact_profile_catalog_and_queue_hashes" in requirements
     assert "exact_mature_runner_hashes" in requirements
     assert "legacy_default_unchanged" in requirements
 
@@ -148,6 +159,23 @@ def test_written_runlists_are_accepted_by_unchanged_mature_queue_loaders(
         "r", encoding="utf-8-sig", newline=""
     ) as handle:
         rows = list(csv.DictReader(handle))
+    assert all(row["reference_asset_id"] for row in rows)
+    assert all(row["certificate_co2_ppm"] for row in rows)
+    assert all(row["reference_gate_mode"] == "strict_pre_device_construction" for row in rows)
+    assert len({row["reference_asset_id"] for row in rows}) == 11
+    with outputs["h2o_queue_csv"].open(
+        "r", encoding="utf-8-sig", newline=""
+    ) as handle:
+        h2o_rows = list(csv.DictReader(handle))
+    assert {
+        row["reference_asset_id"] for row in h2o_rows
+    } == {"dynamic_h2o_dewpoint_pressure_reference"}
+    assert {
+        row["reference_value_source"] for row in h2o_rows
+    } == {"measured_dewpoint_plus_measured_pressure"}
+    assert {
+        row["route_flow_source_policy"] for row in h2o_rows
+    } == {"dewpoint_meter_output_preferred_hgen_state_fallback"}
     text = json.dumps(rows, ensure_ascii=False).lower()
     assert "_handoff" not in text
     assert "0624" not in text
@@ -165,6 +193,7 @@ def test_contract_blocks_tampered_mature_route_attestation(tmp_path: Path) -> No
         repo_root=ROOT,
         profile_path=PROFILE,
         mature_route_contract_json=altered,
+        reference_source_catalog_json=REFERENCE_CATALOG,
     )
     assert model["offline_handoff_contract_ready"] is False
     reasons = {
@@ -189,6 +218,7 @@ def test_contract_blocks_same_count_profile_tampering(tmp_path: Path) -> None:
         repo_root=ROOT,
         profile_path=altered,
         mature_route_contract_json=MATURE_ROUTE,
+        reference_source_catalog_json=REFERENCE_CATALOG,
     )
     assert model["offline_handoff_contract_ready"] is False
     assert any(
@@ -215,6 +245,51 @@ def test_blocked_executor_validates_contract_but_never_executes(tmp_path: Path) 
     assert model["controls_water_or_gas_routes"] is False
     assert model["writes_coefficients"] is False
     assert model["connects_postgresql"] is False
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_reason"),
+    [
+        (
+            lambda payload: payload["queue_contract"].update(
+                {"reference_source_binding_status": "not_requested"}
+            ),
+            "reference_source_catalog_not_bound",
+        ),
+        (
+            lambda payload: payload["source_bindings"].update(
+                {"reference_source_catalog_sha256": "0" * 64}
+            ),
+            "reference_source_catalog_sha256_mismatch",
+        ),
+        (
+            lambda payload: payload["queue_contract"].update(
+                {"h2o_reference_policy": "nominal_hgen_only"}
+            ),
+            "h2o_reference_policy_invalid",
+        ),
+    ],
+)
+def test_blocked_executor_rejects_unbound_or_inconsistent_reference_contract(
+    tmp_path: Path, mutation, expected_reason: str
+) -> None:
+    contract_dir = tmp_path / "contract"
+    outputs = write_v1_5_new_algorithm_mature_queue_live_handoff(
+        _build(), contract_dir, repo_root=ROOT
+    )
+    payload = json.loads(outputs["json"].read_text(encoding="utf-8"))
+    mutation(payload)
+    outputs["json"].write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    model = build_v1_5_new_algorithm_mature_queue_live_handoff_blocked_executor(
+        live_handoff_json=outputs["json"]
+    )
+
+    assert model["blocked_executor_ready"] is False
+    assert expected_reason in model["review_reasons"]
 
 
 @pytest.mark.parametrize(
@@ -264,6 +339,8 @@ def test_export_cli_and_entrypoint_inventory_are_offline(tmp_path: Path) -> None
                 str(PROFILE),
                 "--mature-route-contract-json",
                 str(MATURE_ROUTE),
+                "--reference-source-catalog-json",
+                str(REFERENCE_CATALOG),
                 "--output-dir",
                 str(output),
             ]

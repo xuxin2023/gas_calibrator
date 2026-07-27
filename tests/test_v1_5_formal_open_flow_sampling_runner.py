@@ -1,22 +1,79 @@
 import csv
+import hashlib
 import json
+from datetime import date
+from types import SimpleNamespace
 
+from gas_calibrator.tools import run_v1_5_formal_open_flow_sampling as co2_tool
 from gas_calibrator.tools.run_v1_5_formal_open_flow_sampling import (
     FORMAL_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S,
     _apply_certificate_target_after_valve_selection,
+    _build_co2_reference_source_record,
     _build_open_flow_point,
     _build_nitrogen_purge_open_valves,
     _configured_analyzer_labels,
     _defer_startup_mode2_disabled_analyzers,
     _enter_continuous_atmosphere,
+    _formal_sampling_completion_code,
     _nitrogen_purge_source_valve,
     _parse_args,
     _prepare_runtime_cfg,
+    _stop_continuous_atmosphere,
+    _verify_v1_5_point_temperature_truth,
+    _write_shutdown_status_to_sidecar,
+    _write_formal_evidence_bundle_manifest,
     _wait_open_flow_co2_dewpoint_gate,
     _write_machine_readable_samples,
     _write_purge_trace,
     _write_route_timing,
 )
+from gas_calibrator.validation.v1_5_component_qc_generator_contract import (
+    FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS,
+    FORMAL_EVIDENCE_BUNDLE_SCHEMA,
+)
+
+
+def test_point_temperature_truth_gate_checks_thermometer_and_commanded_chamber_target():
+    cfg = {
+        "workflow": {
+            "stability": {
+                "temperature": {
+                    "tol": 0.2,
+                    "command_offset_c": 0.5,
+                    "thermometer_truth_required": True,
+                    "temperature_chamber_setpoint_substitution_forbidden": True,
+                }
+            }
+        }
+    }
+    logs = []
+
+    assert _verify_v1_5_point_temperature_truth(
+        cfg,
+        {
+            "thermometer": SimpleNamespace(read_temp_c=lambda: 25.0),
+            "temp_chamber": SimpleNamespace(read_temp_c=lambda: 25.5),
+        },
+        target_c=25.0,
+        log=logs.append,
+    )
+    assert not _verify_v1_5_point_temperature_truth(
+        cfg,
+        {
+            "thermometer": SimpleNamespace(read_temp_c=lambda: 30.0),
+            "temp_chamber": SimpleNamespace(read_temp_c=lambda: 25.5),
+        },
+        target_c=25.0,
+        log=logs.append,
+    )
+    assert not _verify_v1_5_point_temperature_truth(
+        cfg,
+        {"temp_chamber": SimpleNamespace(read_temp_c=lambda: 25.5)},
+        target_c=25.0,
+        log=logs.append,
+    )
+    assert any("ok=True" in message for message in logs)
+    assert any("ok=False" in message for message in logs)
 
 
 class _SequencePressure:
@@ -62,6 +119,68 @@ def test_formal_co2_continuous_atmosphere_default_keepalive_is_one_second():
     assert calls[0]["hold_open"] is True
     assert calls[0]["hold_interval_s"] == FORMAL_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S
     assert calls[0]["hold_interval_s"] <= 1.0
+
+
+def test_formal_co2_atmosphere_stop_reports_each_critical_action():
+    class Pace:
+        def __init__(self):
+            self.calls = []
+
+        def stop_atmosphere_hold(self, **kwargs):
+            self.calls.append(("stop", kwargs))
+
+        def enter_atmosphere_mode(self, **kwargs):
+            self.calls.append(("enter", kwargs))
+
+    pace = Pace()
+
+    report = _stop_continuous_atmosphere(pace)
+
+    assert report["ok"] is True
+    assert report["stop_hold"]["ok"] is True
+    assert report["exit_atmosphere"]["ok"] is True
+    assert pace.calls[-1][1]["hold_open"] is False
+
+
+def test_formal_co2_atmosphere_stop_exposes_failure_instead_of_swallowing_it():
+    class Pace:
+        def stop_atmosphere_hold(self, **kwargs):
+            raise RuntimeError("hold stuck")
+
+        def enter_atmosphere_mode(self, **kwargs):
+            raise RuntimeError("vent stuck")
+
+    report = _stop_continuous_atmosphere(Pace())
+
+    assert report["ok"] is False
+    assert report["status"] == "fail"
+    assert any("hold stuck" in error for error in report["errors"])
+    assert any("vent stuck" in error for error in report["errors"])
+
+
+def test_shutdown_status_is_bound_into_existing_sidecar_metadata(tmp_path):
+    sidecar = tmp_path / "formal_open_flow_sidecar_metadata.json"
+    sidecar.write_text(
+        json.dumps({"schema_version": "v1_5_formal_open_flow_sidecar_v0"}),
+        encoding="utf-8",
+    )
+    shutdown = {"overall_status": "pass", "route_close": {"ok": True}}
+
+    _write_shutdown_status_to_sidecar(sidecar, shutdown)
+
+    payload = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert payload["physical_shutdown_status"] == shutdown
+    manifest = json.loads(
+        _write_formal_evidence_bundle_manifest(
+            tmp_path,
+            run_id="run001",
+            route_kind="co2",
+        ).read_text(encoding="utf-8")
+    )
+    sidecar_binding = next(
+        row for row in manifest["artifacts"] if row["role"] == "sidecar"
+    )
+    assert sidecar_binding["sha256"] == hashlib.sha256(sidecar.read_bytes()).hexdigest()
 
 
 def test_formal_co2_open_flow_default_purge_is_360s():
@@ -176,6 +295,228 @@ def test_route_timing_evidence_proves_sampling_before_route_close(tmp_path):
     assert payload["route_opened"] is True
     assert payload["sampling_before_route_close"] is True
     assert "route remains open during the formal sample window" in payload["physical_meaning"]
+
+
+def test_formal_evidence_bundle_is_complete_deterministic_and_content_bound(tmp_path):
+    for role, filename in FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS["co2"].items():
+        (tmp_path / filename).write_text(f"{role}\n", encoding="utf-8")
+
+    manifest_path = _write_formal_evidence_bundle_manifest(
+        tmp_path,
+        run_id="run001",
+        route_kind="co2",
+    )
+    first = json.loads(manifest_path.read_text(encoding="utf-8"))
+    second_path = _write_formal_evidence_bundle_manifest(
+        tmp_path,
+        run_id="run001",
+        route_kind="co2",
+    )
+    second = json.loads(second_path.read_text(encoding="utf-8"))
+
+    assert first["schema_version"] == FORMAL_EVIDENCE_BUNDLE_SCHEMA
+    assert first["bundle_complete"] is True
+    assert first["missing_required_roles"] == []
+    assert first["bundle_sha256"] == second["bundle_sha256"]
+    assert {row["role"] for row in first["artifacts"]} == set(
+        FORMAL_COMPONENT_QC_REQUIRED_ARTIFACTS["co2"]
+    )
+
+    (tmp_path / "samples_machine_readable.csv").write_text(
+        "changed\n",
+        encoding="utf-8",
+    )
+    changed = json.loads(
+        _write_formal_evidence_bundle_manifest(
+            tmp_path,
+            run_id="run001",
+            route_kind="co2",
+        ).read_text(encoding="utf-8")
+    )
+    assert changed["bundle_sha256"] != first["bundle_sha256"]
+
+
+def test_formal_evidence_bundle_strict_mode_preserves_manifest_and_rejects_missing_roles(
+    tmp_path,
+):
+    try:
+        _write_formal_evidence_bundle_manifest(
+            tmp_path,
+            run_id="run001",
+            route_kind="h2o",
+            require_complete=True,
+        )
+    except RuntimeError as exc:
+        assert str(exc).startswith("formal_evidence_bundle_incomplete:")
+    else:
+        raise AssertionError("strict formal bundle must reject missing required roles")
+
+    manifest = json.loads(
+        (tmp_path / "formal_evidence_bundle_manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["bundle_complete"] is False
+    assert manifest["missing_required_roles"]
+
+
+def test_formal_sampling_completion_requires_sampling_and_evidence_closure():
+    assert (
+        _formal_sampling_completion_code(
+            sampling_completed=True,
+            finalization_failures=[],
+        )
+        == 0
+    )
+    assert (
+        _formal_sampling_completion_code(
+            sampling_completed=True,
+            finalization_failures=["evidence_bundle_failed"],
+        )
+        == 1
+    )
+    assert (
+        _formal_sampling_completion_code(
+            sampling_completed=False,
+            finalization_failures=[],
+        )
+        == 1
+    )
+
+
+def _seed_reference_catalog(tmp_path):
+    photo = tmp_path / "certificate.jpg"
+    photo.write_bytes(b"controlled-certificate-photo")
+    catalog = tmp_path / "v1_5_reference_source_catalog.json"
+    catalog.write_text(
+        json.dumps(
+            {
+                "schema_version": "v1_5_reference_source_catalog_v1",
+                "not_real_acceptance_evidence": True,
+                "assets": [
+                    {
+                        "asset_id": "co2-standard-test",
+                        "route_kind": "co2",
+                        "physical_role": "co2_standard_gas",
+                        "nominal_co2_ppm": 900.0,
+                        "certificate_co2_ppm": 897.04,
+                        "reference_value_source": "certificate_photo",
+                        "co2_value_directly_certified": True,
+                        "cylinder_number": "TEST-001",
+                        "issue_date": "2026-01-01",
+                        "valid_through": "2027-01-01",
+                        "document_kind": "full_certificate_photo_pair",
+                        "documentary_use_status": "operator_authorized_for_v1_5_evidence",
+                        "calibration_fit_reference_allowed": True,
+                        "documents": [
+                            {
+                                "source_path_kind": "catalog_relative",
+                                "relative_path": photo.name,
+                                "page_role": "certificate",
+                                "size_bytes": photo.stat().st_size,
+                                "sha256": hashlib.sha256(photo.read_bytes()).hexdigest(),
+                            }
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return catalog, photo
+
+
+def test_co2_reference_source_gate_verifies_asset_photo_and_validity(tmp_path):
+    catalog, _ = _seed_reference_catalog(tmp_path)
+
+    record = _build_co2_reference_source_record(
+        catalog,
+        run_id="run001",
+        co2_source_ppm=900.0,
+        certificate_co2_ppm=897.04,
+        today=date(2026, 7, 26),
+    )
+
+    assert record["reference_source_status"] == "pass"
+    assert record["selected_asset"]["asset_id"] == "co2-standard-test"
+    assert record["documents_verified"][0]["verified"] is True
+    assert record["not_real_acceptance_evidence"] is True
+
+
+def test_co2_reference_source_gate_rejects_changed_photo_and_expired_asset(tmp_path):
+    catalog, photo = _seed_reference_catalog(tmp_path)
+    photo.write_bytes(b"changed")
+
+    changed = _build_co2_reference_source_record(
+        catalog,
+        run_id="run001",
+        co2_source_ppm=900.0,
+        certificate_co2_ppm=897.04,
+        today=date(2026, 7, 26),
+    )
+    expired = _build_co2_reference_source_record(
+        catalog,
+        run_id="run002",
+        co2_source_ppm=900.0,
+        certificate_co2_ppm=897.04,
+        today=date(2027, 1, 2),
+    )
+
+    assert changed["reference_source_status"] == "fail"
+    assert "reference_document_sha256_mismatch:0" in changed["reasons"]
+    assert expired["reference_source_status"] == "fail"
+    assert "reference_asset_expired" in expired["reasons"]
+
+
+def test_co2_reference_source_failure_blocks_before_device_construction(
+    tmp_path,
+    monkeypatch,
+):
+    config = tmp_path / "runtime.json"
+    output = tmp_path / "output"
+    config.write_text(
+        json.dumps(
+            {
+                "paths": {"output_dir": str(output)},
+                "devices": {},
+                "workflow": {"stability": {"sensor": {}}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    device_build_calls = []
+
+    def forbidden_device_build(*args, **kwargs):
+        device_build_calls.append((args, kwargs))
+        raise AssertionError("device construction must not happen")
+
+    monkeypatch.setattr(co2_tool, "_build_devices", forbidden_device_build)
+
+    rc = co2_tool.main(
+        [
+            "--config",
+            str(config),
+            "--output-dir",
+            str(output),
+            "--run-id",
+            "reference_gate_failure",
+            "--co2-source-ppm",
+            "900",
+            "--certificate-co2-ppm",
+            "897.04",
+            "--reference-source-catalog",
+            str(tmp_path / "missing_catalog.json"),
+            "--no-prompt",
+        ]
+    )
+
+    assert rc == 1
+    assert device_build_calls == []
+    record = json.loads(
+        (output / "reference_gate_failure" / "formal_reference_source_record.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert record["reference_source_status"] == "fail"
+    assert "reference_source_catalog_missing" in record["reasons"]
 
 
 def test_n2_purge_route_uses_same_co2_path_without_target_source():
@@ -315,6 +656,13 @@ def test_prepare_runtime_cfg_blocks_writes_and_uses_1hz_active_stream_with_ftd01
     assert out["workflow"]["analyzer_mode2_init"]["post_enable_stream_ack_wait_s"] >= 10.0
     assert out["workflow"]["pressure"]["continuous_atmosphere_hold"] is False
     assert out["workflow"]["stability"]["temperature"]["analyzer_chamber_temp_span_c"] == 0.08
+    assert out["workflow"]["stability"]["temperature"]["thermometer_truth_required"] is True
+    assert (
+        out["workflow"]["stability"]["temperature"][
+            "temperature_chamber_setpoint_substitution_forbidden"
+        ]
+        is True
+    )
     assert out["workflow"]["postrun_corrected_delivery"]["enabled"] is False
     assert out["workflow"]["postrun_corrected_delivery"]["write_devices"] is False
     assert out["workflow"]["startup_pressure_sensor_calibration"]["apply_write"] is False

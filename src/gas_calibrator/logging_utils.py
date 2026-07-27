@@ -774,7 +774,10 @@ def _select_reference_temp(
     chamber_temp: Optional[float],
     *,
     stale_delta_c: float = _THERMOMETER_STALE_DELTA_C,
+    require_thermometer_truth: bool = False,
 ) -> Optional[float]:
+    if require_thermometer_truth:
+        return thermometer_temp
     if thermometer_temp is None:
         return chamber_temp
     if chamber_temp is None:
@@ -784,17 +787,64 @@ def _select_reference_temp(
     return thermometer_temp
 
 
+def _claim_immutable_run_dir(run_dir: Path, *, run_id: str) -> Path:
+    path = Path(run_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.mkdir(parents=False, exist_ok=False)
+    except FileExistsError as exc:
+        if not path.is_dir() or any(path.iterdir()):
+            raise FileExistsError(
+                f"IMMUTABLE_RUN_DIR_COLLISION: run_id={run_id} path={path}"
+            ) from exc
+
+    claim_path = path / "run_directory_claim.json"
+    try:
+        with claim_path.open("x", encoding="utf-8", newline="\n") as handle:
+            json.dump(
+                {
+                    "schema_version": "immutable_run_directory_claim_v1",
+                    "run_id": str(run_id),
+                    "claimed_at": datetime.now().isoformat(timespec="milliseconds"),
+                    "policy": "create_once_no_overwrite",
+                },
+                handle,
+                ensure_ascii=False,
+                indent=2,
+            )
+            handle.write("\n")
+    except FileExistsError as exc:
+        raise FileExistsError(
+            f"IMMUTABLE_RUN_DIR_COLLISION: run_id={run_id} path={path}"
+        ) from exc
+    return claim_path
+
+
 class RunLogger:
     """Runtime logger for samples, point summaries and device I/O traces."""
 
-    def __init__(self, out_dir: Path, run_id: Optional[str] = None, cfg: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        out_dir: Path,
+        run_id: Optional[str] = None,
+        cfg: Optional[Dict[str, Any]] = None,
+        *,
+        immutable_run_dir: bool = False,
+    ):
         base_dir = Path(out_dir)
         base_dir.mkdir(parents=True, exist_ok=True)
 
         self.cfg = cfg or {}
         self.run_id = run_id or datetime.now().strftime("run_%Y%m%d_%H%M%S")
         self.run_dir = base_dir / self.run_id
-        self.run_dir.mkdir(parents=True, exist_ok=True)
+        self.run_directory_claim_path: Optional[Path] = None
+        if immutable_run_dir:
+            self.run_directory_claim_path = _claim_immutable_run_dir(
+                self.run_dir,
+                run_id=self.run_id,
+            )
+        else:
+            self.run_dir.mkdir(parents=True, exist_ok=True)
 
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.samples_path = self.run_dir / f"samples_{stamp}.csv"
@@ -1437,7 +1487,23 @@ class RunLogger:
             ["env_chamber_temp_c", "chamber_temp_c"],
             rows_override=aligned_rows,
         )
-        reference_temp = _select_reference_temp(thermometer_temp, chamber_temp)
+        require_thermometer_truth = bool(
+            cfg_get(
+                self.cfg,
+                "workflow.stability.temperature.thermometer_truth_required",
+                False,
+            )
+            or cfg_get(
+                self.cfg,
+                "workflow.stability.temperature.temperature_chamber_setpoint_substitution_forbidden",
+                False,
+            )
+        )
+        reference_temp = _select_reference_temp(
+            thermometer_temp,
+            chamber_temp,
+            require_thermometer_truth=require_thermometer_truth,
+        )
         dew_context = self._summary_dew_h2o_context(reference_rows)
         total_frames = sum(1 for row in sheet_rows if self._sample_prefixed_has_data(row, prefix))
         valid_frames = sum(1 for row in sheet_rows if self._sample_prefixed_usable(row, prefix))
