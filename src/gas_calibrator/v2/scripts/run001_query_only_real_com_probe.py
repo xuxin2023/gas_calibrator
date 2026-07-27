@@ -22,6 +22,16 @@ from gas_calibrator.v2.core.run001_query_only_real_com_probe import (  # noqa: E
 )
 
 
+def _exit_code_for_summary(summary: dict[str, object]) -> int:
+    successful_decisions = {"ADMISSION_APPROVED", "PASS"}
+    return (
+        0
+        if summary.get("admission_approved") is True
+        and summary.get("final_decision") in successful_decisions
+        else 2
+    )
+
+
 def create_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -61,7 +71,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         execute_query_only=bool(args.execute_query_only),
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2), flush=True)
-    return 0 if summary.get("admission_approved") else 2
+    return _exit_code_for_summary(summary)
 
 
 if __name__ == "__main__":  # pragma: no cover
