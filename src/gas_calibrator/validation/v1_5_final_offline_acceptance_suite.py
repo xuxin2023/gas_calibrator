@@ -11,10 +11,10 @@ import csv
 import hashlib
 import json
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
 
 SCHEMA = "v1_5_final_offline_acceptance_suite_v1"
