@@ -16,8 +16,31 @@ from gas_calibrator.v2.core.run001_query_only_real_com_probe import (
     evaluate_query_only_real_com_gate,
     write_query_only_real_com_probe_artifacts,
 )
+from gas_calibrator.v2.scripts.run001_query_only_real_com_probe import _exit_code_for_summary
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
+
+
+@pytest.mark.parametrize(
+    ("admission_approved", "final_decision", "expected"),
+    [
+        (True, "ADMISSION_APPROVED", 0),
+        (True, "PASS", 0),
+        (True, "FAIL_CLOSED", 2),
+        (False, "FAIL_CLOSED", 2),
+    ],
+)
+def test_query_only_cli_exit_code_requires_successful_final_decision(
+    admission_approved: bool,
+    final_decision: str,
+    expected: int,
+) -> None:
+    summary = {
+        "admission_approved": admission_approved,
+        "final_decision": final_decision,
+    }
+
+    assert _exit_code_for_summary(summary) == expected
 
 
 def _base_config() -> dict:
