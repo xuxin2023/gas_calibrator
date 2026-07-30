@@ -2,7 +2,7 @@ import csv
 import json
 from pathlib import Path
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 from gas_calibrator.storage.v1_5_evidence.bundle import (
     _artifact_role,
@@ -15,6 +15,7 @@ from gas_calibrator.validation.co2_senco_pair_model_scope import (
     build_co2_senco_pair_model_scope_tables,
     write_co2_senco_pair_model_scope_report,
 )
+from gas_calibrator.validation.reporting import _safe_worksheet_title
 
 
 def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
@@ -28,6 +29,18 @@ def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def test_safe_worksheet_title_is_bounded_unique_and_excel_compatible():
+    first = _safe_worksheet_title("A" * 40, [])
+    second = _safe_worksheet_title("a" * 40, [first])
+    sanitized = _safe_worksheet_title("bad/name?with*invalid[chars]:", [])
+
+    assert first == "A" * 31
+    assert second.endswith("_2")
+    assert len(second) == 31
+    assert first.casefold() != second.casefold()
+    assert sanitized == "bad_name_with_invalid_chars__"
 
 
 def _write_points(path: Path) -> None:
@@ -227,6 +240,20 @@ def test_co2_senco_pair_model_scope_writer_and_database_sidecar(tmp_path):
     )
 
     assert outputs["workbook"].exists()
+    workbook = load_workbook(outputs["workbook"], read_only=True)
+    try:
+        sheet_names = workbook.sheetnames
+        assert all(len(name) <= 31 for name in sheet_names)
+        assert len({name.casefold() for name in sheet_names}) == len(sheet_names)
+        execution_sheets = [
+            name
+            for name in sheet_names
+            if name.startswith("co2_senco_pair_v1_execution")
+        ]
+        assert len(execution_sheets) == 2
+        assert any(name.endswith("_2") for name in execution_sheets)
+    finally:
+        workbook.close()
     assert outputs["co2_senco_pair_term_identifiability_csv"].exists()
     sidecar = json.loads(outputs["database_sidecar"].read_text(encoding="utf-8"))
     assert sidecar["no_write"] is True

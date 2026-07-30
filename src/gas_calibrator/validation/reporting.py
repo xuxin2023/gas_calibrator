@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +17,10 @@ from typing import Any, Dict, Iterable, List, Mapping
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font
+
+
+_EXCEL_WORKSHEET_TITLE_LIMIT = 31
+_INVALID_WORKSHEET_TITLE_RE = re.compile(r"[\x00-\x1f\\*?:/\[\]]")
 
 
 @dataclass
@@ -81,6 +86,21 @@ def _autosize_sheet(ws) -> None:
         ws.column_dimensions[column_cells[0].column_letter].width = width
 
 
+def _safe_worksheet_title(value: object, existing_titles: Iterable[str]) -> str:
+    base = _INVALID_WORKSHEET_TITLE_RE.sub("_", str(value)).strip() or "sheet"
+    existing = {str(title).casefold() for title in existing_titles}
+    candidate = base[:_EXCEL_WORKSHEET_TITLE_LIMIT]
+    if candidate.casefold() not in existing:
+        return candidate
+    index = 2
+    while True:
+        suffix = f"_{index}"
+        candidate = f"{base[: _EXCEL_WORKSHEET_TITLE_LIMIT - len(suffix)]}{suffix}"
+        if candidate.casefold() not in existing:
+            return candidate
+        index += 1
+
+
 def write_validation_report(
     output_dir: str | Path,
     *,
@@ -118,7 +138,9 @@ def write_validation_report(
         _write_csv(csv_path, rows)
         outputs[f"{table_name}_csv"] = csv_path
 
-        ws = workbook.create_sheet(title=str(table_name)[:31] or "sheet")
+        ws = workbook.create_sheet(
+            title=_safe_worksheet_title(table_name, workbook.sheetnames)
+        )
         header = _table_header(rows)
         if header:
             ws.append(header)
