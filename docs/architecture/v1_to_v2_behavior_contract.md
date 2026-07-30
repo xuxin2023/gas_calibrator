@@ -1,4 +1,7 @@
-# V1 to V2 Behavior Contract
+# V1 to V2 Behavior Contract（历史文档，已废止）
+
+> 2026-07-28：V1.5 已确定为唯一最终产品，不再推进 V2 替代或 cutover。
+> 本文仅用于历史行为审计；AppFacade、PlanGateway、可编辑计划页和 V2 产品入口均已删除。
 
 ## Purpose
 
@@ -330,12 +333,9 @@ the same execution semantics before `CalibrationService.start(...)` begins:
   configured points file path until profile-driven runs have their own explicit
   validation evidence.
 
-Current V2 UI implementation follows this contract:
-
-- authoring/editing profiles happens through `PlanGateway` + `ProfileStore`
-- profile execution preview happens through `PlanCompiler`
-- default-profile runs materialize a compiled points JSON file under UI runtime
-  cache, then start the same `CalibrationService` path used by points files
+The former V2 editable-profile UI implementation has retired. V1.5 only
+previews the mature fixed 45/13 queues and must not introduce a second editable
+point source or a parallel execution path.
 
 ## Sampling And Summary Alignment Contract
 
@@ -396,7 +396,7 @@ Current V2 status:
 | Sampling | `sampling_service.sample_point()` |
 | Point QC | `qc_service.run_point_qc()` |
 | Summary / manifest / exports | `artifact_service` |
-| Coefficient export | `coefficient_service` |
+| Coefficient export | `artifact_service` |
 
 ## H2O Route Order Contract
 

@@ -1,4 +1,9 @@
-# V2 Cutover Checklist
+# V2 Cutover Checklist（历史文档，已废止）
+
+> **2026-07-28 状态：SUPERSEDED。** V1.5 已确定为唯一最终产品，不再存在
+> V2 cutover 路线。本文只保留历史审计价值，不得作为当前开发、真机、入口
+> 切换或发布计划。当前正式设计见
+> `docs/architecture/V1_5_FINAL_PRODUCT_ARCHITECTURE_20260728.md`。
 
 ## Purpose
 
@@ -275,8 +280,11 @@ justify cutover:
   - `INVALID_PROFILE_INPUT` when points source / temp filtering is invalid
 - H2O-only / no-gas replacement validation now has its own fixed preset and
   explicit early-stop-path reporting.
-- `verify_v1_v2_skip0_replacement.py` is now the fixed reusable wrapper for
-  the narrowed `skip_co2_ppm=[0]` replacement-validation flow.
+- The four historical `verify_v1_v2_*_replacement.py` convenience wrappers
+  were retired in Gate 47 after V1.5 became the only final product. They had
+  no runtime callers, only forwarded fixed arguments, and automatically added
+  `--skip-connect-check`. The underlying offline compare/replay contracts
+  remain available for regression; this does not reopen real compare.
 - Dedicated compare source-of-truth configs now live under
   `src/gas_calibrator/v2/configs/validation/` instead of `output/`.
 - The compare output now leaves stable evidence artifacts per run:
@@ -286,9 +294,9 @@ justify cutover:
 - Standardized skip0 bundles now also include a machine-readable artifact
   inventory, so downstream review can tell whether the fixed evidence set is
   complete without manual directory inspection.
-- The replacement compare wrappers now support dedicated source-of-truth
-  configs under `src/gas_calibrator/v2/configs/validation/`, including the
-  current primary `replacement_skip0_co2_only_real.json`.
+- Historical replacement source-of-truth configs remain under
+  `src/gas_calibrator/v2/configs/validation/` for evidence review and replay.
+  They are not exposed through dedicated runnable wrappers.
 - A fixture-driven offline replay path now exists for compare/report/latest
   regression, so V2 can continue moving while V1 keeps the production bench.
 - Dedicated simulated validation profiles now live under
@@ -524,8 +532,6 @@ Conditions that should be true before recommending cutover:
 - [run_v2.py](/D:/gas_calibrator/src/gas_calibrator/v2/scripts/run_v2.py)
 - [route_trace_diff.py](/D:/gas_calibrator/src/gas_calibrator/v2/scripts/route_trace_diff.py)
 - [compare_v1_v2_control_flow.py](/D:/gas_calibrator/src/gas_calibrator/v2/scripts/compare_v1_v2_control_flow.py)
-- [verify_v1_v2_skip0_co2_only_replacement.py](/D:/gas_calibrator/src/gas_calibrator/v2/scripts/verify_v1_v2_skip0_co2_only_replacement.py)
-- [verify_v1_v2_skip0_replacement.py](/D:/gas_calibrator/src/gas_calibrator/v2/scripts/verify_v1_v2_skip0_replacement.py)
 - [run_v1_route_trace.py](/D:/gas_calibrator/src/gas_calibrator/v2/scripts/run_v1_route_trace.py)
 - [test_v2_safe.py](/D:/gas_calibrator/src/gas_calibrator/v2/scripts/test_v2_safe.py)
 - [test_v2_device.py](/D:/gas_calibrator/src/gas_calibrator/v2/scripts/test_v2_device.py)
@@ -956,11 +962,9 @@ Verification method:
 5. for current H2O-only fallback work, treat the early-stop path as the first
    target behavior to align
 
-Recommended command:
-```powershell
-$env:PYTHONPATH='D:\gas_calibrator\src'
-python -m gas_calibrator.v2.scripts.verify_v1_v2_h2o_only_replacement --temp 20
-```
+The former H2O-only convenience command was retired in Gate 47. This section
+is retained as historical acceptance design only; it is not a current work
+order and must not be used to initiate real compare.
 
 Pass condition for current bench phase:
 - compare report is not misleading
@@ -1015,17 +1019,15 @@ This gate is specifically for narrowed replacement validation, not for proving
 that V2 has already taken over from V1.
 
 Verification method:
-1. run the fixed CO2-only skip0 wrapper
+1. treat the former fixed CO2-only skip0 wrapper flow as historical design
 2. focus review on:
    - CO2 400 ppm points
    - CO2 1000 ppm points
 3. treat `0 ppm` as intentionally skipped for this phase
 
-Recommended command:
-```powershell
-$env:PYTHONPATH='D:\gas_calibrator\src'
-python -m gas_calibrator.v2.scripts.verify_v1_v2_skip0_co2_only_replacement --temp 20
-```
+The former CO2-only convenience command was retired in Gate 47. The checks
+below remain review criteria for persisted historical evidence, not authority
+to run real compare.
 
 Pass condition:
 - control sequence is reviewed and acceptable

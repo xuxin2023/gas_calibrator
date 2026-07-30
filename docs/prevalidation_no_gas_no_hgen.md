@@ -13,7 +13,9 @@
 ## 推荐执行顺序
 1. `offline`
    - 对历史 `run_dir` 做离线重算
-   - 重点看 `frame_quality_summary.csv`、`pressure_source_check.csv`
+   - 重点看 `frame_quality_summary.csv`、`pressure_source_check.csv`、`pressure_source_same_frame_audit.csv`
+   - 压力来源审计只在同一交集行上比较：外部参考 `P` 按 hPa×0.1 转为 kPa，分析仪 `BAR/P_fit` 按 kPa 使用
+   - `diagnostic_comparable` 仅表示样本、单位和模型可比，不表示两压力源等价，也不授权切换正式拟合输入或下载系数
 2. `dry_collect`
    - 在环境空气下只验证采样、summary、落盘
    - 不跑正式校准
@@ -80,6 +82,9 @@ logs/prevalidation_YYYYMMDD_HHMMSS/
 ## 建议人工检查项
 - `frame_quality_summary.csv`
 - `pressure_source_check.csv`
+- `pressure_source_same_frame_audit.csv`
+  - `pressure_audit_status=evidence_insufficient` 时必须保持阻断
+  - 即使为 `diagnostic_comparable`，`pressure_audit_promotion_state` 仍必须是 `blocked`
 - `analyzer_summary.csv` / `分析仪汇总_*.csv`
 - 日志关键字：
   - `sample export failed`

@@ -1,5 +1,8 @@
 # 气体分析仪自动校准系统 - V1 软件维护手册
 
+> V1 现定位为冻结生产 fallback 和历史行为基线。V1.5 是唯一最终产品；
+> 原 V2 只作为待迁移/删除的历史资产区。本文不定义未来产品路线。
+
 ## 文档信息
 
 - **文档名称**: V1 软件维护手册
@@ -50,7 +53,7 @@
 - 审计证据目录：`audit/v1_calibration_audit/`
 - acceptance 摘要：`audit/v1_calibration_acceptance/`
 - 在线工程验证材料：`audit/v1_calibration_acceptance_online/`
-- V1/V2 行为契约：`docs/architecture/v1_to_v2_behavior_contract.md`
+- V1.5 最终产品架构：`docs/architecture/V1_5_FINAL_PRODUCT_ARCHITECTURE_20260728.md`
 
 ---
 
@@ -60,7 +63,7 @@
 
 - `run_app.py` 仍然是 V1 默认入口，不允许擅自切换默认入口。
 - V1 当前是生产基线与历史参考线，不是新增功能的默认承载面。
-- 新功能、平台化能力和 V2 相关体验不要回接到 V1 UI。
+- 新功能只进入 V1.5；不要回接到 V1 UI，也不要继续扩建 V2。
 - V1 运行时路径可能打开真实串口或真实设备，因此默认不能把“可运行”理解成“可直接真机执行”。
 
 ### 2. 真机限制
@@ -88,14 +91,14 @@
 |------|------|------|
 | `python run_app.py` | V1 桌面 UI 默认入口 | 生产基线入口。脚本会把 `src/` 加入 `sys.path` 后启动 `gas_calibrator.ui.app.main()`。 |
 | `$env:PYTHONPATH='src'; python -m gas_calibrator.tools.run_headless --config configs/default_config.json` | V1 无头运行入口 | 直接构建设备并执行 `CalibrationRunner`。属于 V1 runtime boundary，按配置可能打开真实串口。 |
-| `python run_v1_postprocess.py` | V1 离线后处理 GUI | 根入口包装器，实际调用 `gas_calibrator.v2.scripts.v1_postprocess_gui`，用于 run 完成后的离线处理。 |
 | `python run_v1_merged_sidecar.py --run-dir <completed_run_dir>` | V1 合并侧车入口 | 用于已完成 run 的离线工程 sidecar，可传多个 `--run-dir`。 |
 | `$env:PYTHONPATH='src'; python -m gas_calibrator.tools.run_v1_online_acceptance --config configs/default_config.json` | V1 在线工程验证工具 | 默认 dry-run。只有在双门禁满足时才允许触发真机验证。 |
 | `python tools/audit_v1_calibration.py` | V1 只读审计工具 | 汇总主流程、存储链路、trace 检查和 acceptance 摘要，适合离线核对当前 V1 状态。 |
 
 ### 2. 模块命令注意事项
 
-- `run_app.py`、`run_v1_postprocess.py`、`run_v1_merged_sidecar.py` 这类根入口脚本会自行处理 `src/` 路径。
+- `run_app.py`、`run_v1_merged_sidecar.py` 这类根入口脚本会自行处理 `src/` 路径。
+- 旧 `run_v1_postprocess.py` GUI 已退役；不要从历史文档或缓存副本恢复该入口。
 - 直接运行 `python -m gas_calibrator...` 时，当前仓库默认需要先设置 `PYTHONPATH=src`。
 - 如果不先设置 `PYTHONPATH=src`，通常会报错：
 
@@ -112,7 +115,6 @@ ModuleNotFoundError: No module named 'gas_calibrator'
 ```text
 gas_calibrator/
 ├── run_app.py                              # V1 默认入口
-├── run_v1_postprocess.py                   # V1 离线后处理入口
 ├── run_v1_merged_sidecar.py                # V1 合并侧车入口
 ├── configs/
 │   ├── default_config.json                 # 默认配置
@@ -180,9 +182,9 @@ V1 当前更适合被理解为：
 
 而不是：
 
-- V2 的功能承载层
-- 当前阶段的新平台化主战场
-- 可直接替代 V2 的统一产品面
+- 新功能承载层
+- 当前阶段的平台化主战场
+- 最终统一产品面
 
 ### 2. 当前主要能力
 
@@ -671,7 +673,6 @@ python -m pytest -q tests/test_v1_online_acceptance_tool.py
 1. 先对齐文档、测试和审计材料，再改 V1 代码。
 2. 涉及点位口径、导出结构、写回闭环的改动，优先补测试。
 3. 如果只是做离线工程步骤，优先使用：
-   - `run_v1_postprocess.py`
    - `run_v1_merged_sidecar.py`
    - `tools/audit_v1_calibration.py`
 4. 不要为了“更完整”把离线 sidecar 能力重新塞回 `run_app.py`。

@@ -1,15 +1,16 @@
-# V2 Sensor Dimension Plan
+# Shared Storage Sensor Dimension Plan
 
 ## Goal
 
-V2 now needs a stable sensor/device dimension for storage, traceability, and
-per-device reporting, without rewriting the whole database.
+The V1.5 final product and retained offline analytics need one stable
+sensor/device dimension for storage, traceability, and per-device reporting,
+without rewriting deployed databases.
 
 This document defines the minimum production direction for that work.
 
 ## What is implemented now
 
-The current V2 storage layer now supports:
+The shared `gas_calibrator.storage` layer supports:
 
 - a new `sensors` table
 - `sensor_id` on:
@@ -29,7 +30,8 @@ The current V2 storage layer now supports:
   - `co2_group`
   - `cylinder_nominal_ppm`
 
-Importer, query, and exporter paths are backward-compatible with older data.
+Importer and query paths remain backward-compatible with older data. Formal
+user-visible reports are owned by the V1.5 evidence/report chain.
 
 ## Identity strategy
 
@@ -64,7 +66,7 @@ within one imported run when one artifact has serial data and another does not.
 
 ### `sensors`
 
-`sensors` is the stable device/sensor dimension table for V2 traceability.
+`sensors` is the stable device/sensor dimension table for shared traceability.
 
 Current fields:
 
@@ -97,7 +99,7 @@ New `sensor_id` does not replace those fields yet. It adds a stable join path.
 
 ## Query and export contract
 
-The current V2 storage layer now supports:
+The shared storage query layer supports:
 
 - `runs_by_sensor(sensor_id)`
 - `samples_by_sensor(sensor_id)`
@@ -105,12 +107,11 @@ The current V2 storage layer now supports:
 - `fit_results_by_sensor(sensor_id)`
 - `coefficient_versions_by_sensor(sensor_id)`
 
-Exporter support now includes:
-
-- run bundle summary carrying run/profile/report metadata
-- `product_report_manifest.json` with report-family summary and per-device
-  sensor list
-- `export_sensor_bundle(sensor_id, output_dir)` for traceability exports
+The shared query layer remains the authoritative read path for run, sample,
+measurement-frame, fit-result, coefficient-version, and sensor history.
+The unused legacy database re-exporter has been retired; final user-visible reports,
+per-device certificates, artifact hashes, uncertainty, and release gates are
+owned by the V1.5 formal evidence/report chain.
 
 ## Migration scope
 
@@ -122,13 +123,15 @@ The minimum schema migration for this phase is:
 4. add nullable `sensor_id` columns to the main fact tables
 5. add indexes and foreign keys
 
-That migration is captured in:
+The cumulative PostgreSQL migration history is now owned beside the shared
+storage implementation:
 
-- [002_sensor_dimension_and_run_metadata.sql](/D:/gas_calibrator/src/gas_calibrator/v2/storage/migrations/002_sensor_dimension_and_run_metadata.sql)
+- [migration governance](../../src/gas_calibrator/storage/migrations/README.md)
+- [002_sensor_dimension_and_run_metadata.sql](../../src/gas_calibrator/storage/migrations/002_sensor_dimension_and_run_metadata.sql)
 
 ## Compatibility boundary
 
-This phase does not do these things yet:
+This shared schema does not claim these things:
 
 - it does not remove `analyzer_id` / `analyzer_serial`
 - it does not rewrite `CoefficientVersionStore` to be `sensor_id`-first
@@ -143,7 +146,7 @@ Recommended next storage steps:
 1. let coefficient-version writes optionally accept `sensor_id`
 2. let analytics/report services prefer `sensor_id` joins over legacy analyzer
    joins
-3. enrich `sensors.metadata` with stronger device lineage once bench workflows
-   start assigning V2 device IDs formally
+3. enrich `sensors.metadata` and identity aliases with stronger device lineage
+   only from reviewed V1.5 bench evidence
 4. make per-device product reports consume `sensor_id` as the primary device
    handle

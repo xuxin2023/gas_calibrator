@@ -73,6 +73,22 @@ The sidecar index keeps its existing API, record normalization, collection names
 SQLite schema. `gas_calibrator.v2.storage.sidecar_index` is now a compatibility forwarder to
 `gas_calibrator.storage.sidecar_index`, and V2 analytics consumers use the shared implementation
 directly.
+
+> 2026-07-29 convergence update: the paragraph above records the integration-time ownership
+> decision. After the V2 product shell, post-process runner, two analytics stacks and their last
+> live-index injection path were retired, a fresh whole-source call graph found no remaining
+> constructor or runtime consumer. The file/SQLite index implementation and automatic review
+> copilot were therefore retired; `ResultsGateway` now reads only already-persisted historical
+> diagnostic artifacts and does not synthesize a current risk or model-release conclusion.
+>
+> 2026-07-29 Gate 42 supersedes that temporary compatibility decision. A method-level call graph
+> confirmed that `ResultsGateway` had no runtime constructor and that V1.5 results, reports, and
+> review pages already consume `WorkstationSnapshot`, while historical directories are read by
+> `scripts/historical_artifacts.py` through five narrow file gateways. The aggregate gateway,
+> its UI-only artifact-governance wrapper, and three repositories/artifact decorators that it
+> alone kept alive were retired. Persisted historical artifacts remain readable; no calibration,
+> device, route, fitting, database, or coefficient-write path changed.
+
 The history query service also keeps its existing API and serialized result fields.
 `gas_calibrator.v2.storage.queries` is now a compatibility forwarder to
 `gas_calibrator.storage.queries`, and the V2 storage exporter uses the shared query service
@@ -110,6 +126,13 @@ It also adds same-directory temporary files, flush/fsync plus atomic replace for
 rejects index entries that escape the profile directory. The V2 adapter and exporter are explicitly
 classified as `platform_keep`, so repository cleanup will not mistake product policy for generic
 storage.
+
+2026-07-28 supersession: the V2 editable plan page, gateway, shell, and product runtime consumers
+have since been retired. A fresh repository-wide caller audit found that `ProfileStore` was only
+re-exported by the V2 storage package and exercised by its own adapter tests. The product-only
+adapter and exports were therefore removed; the product-neutral `JsonProfileRepository`, its JSON
+schema, atomic writes, lifecycle/default-pointer behavior, import/export support, and safety tests
+remain authoritative.
 
 Atomic replacement prevents torn individual JSON files. It does not make the profile document and
 index a single cross-process transaction; a process loss between those replacements can leave an
