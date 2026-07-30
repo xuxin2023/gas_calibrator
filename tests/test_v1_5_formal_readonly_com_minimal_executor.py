@@ -449,6 +449,62 @@ def test_minimal_executor_holds_authorization_mismatch_before_opening_com(tmp_pa
     )
 
 
+def test_minimal_executor_holds_tampered_active_list_before_opening_com(tmp_path: Path) -> None:
+    ports = _reviewed_ports_json(tmp_path, 1)
+    active = _active_analyzers_json(tmp_path, 1, algorithm="legacy_ratio")
+    packet, plan = _packet_and_plan(tmp_path, count=1, active=active, ports=ports)
+    payload = json.loads(active.read_text(encoding="utf-8"))
+    payload["active_analyzers"][0]["sn_code"] = "01260799"
+    active.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    calls: list[tuple[str, str]] = []
+
+    model = build_v1_5_formal_readonly_com_minimal_executor(
+        execute_read_only_real_com=True,
+        authorization_packet_json=_authorization_json(tmp_path),
+        reviewed_port_inventory_json=ports,
+        active_analyzer_list_json=active,
+        formal_readonly_com_execution_packet_validator_json=packet,
+        formal_readonly_com_execution_plan_preview_json=plan,
+        formal_readonly_com_minimal_executor_stub_json=_stub_json(tmp_path),
+        client_factory=lambda port: _FakeClient(port, calls),
+        sleeper=lambda seconds: None,
+    )
+
+    reasons = {row["reason"] for row in model["hold_events"]}
+    assert model["execution_attempted"] is False
+    assert model["opens_com_ports"] is False
+    assert calls == []
+    assert "active_analyzer_list_sha256_mismatch_with_packet_validator" in reasons
+
+
+def test_minimal_executor_holds_injected_write_command_before_opening_com(tmp_path: Path) -> None:
+    ports = _reviewed_ports_json(tmp_path, 1)
+    active = _active_analyzers_json(tmp_path, 1, algorithm="legacy_ratio")
+    packet, plan = _packet_and_plan(tmp_path, count=1, active=active, ports=ports)
+    payload = json.loads(plan.read_text(encoding="utf-8-sig"))
+    payload["command_plan"][1]["command_or_source"] = "SETCO,YGAS,FFF,9,1"
+    plan.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8-sig")
+    calls: list[tuple[str, str]] = []
+
+    model = build_v1_5_formal_readonly_com_minimal_executor(
+        execute_read_only_real_com=True,
+        authorization_packet_json=_authorization_json(tmp_path),
+        reviewed_port_inventory_json=ports,
+        active_analyzer_list_json=active,
+        formal_readonly_com_execution_packet_validator_json=packet,
+        formal_readonly_com_execution_plan_preview_json=plan,
+        formal_readonly_com_minimal_executor_stub_json=_stub_json(tmp_path),
+        client_factory=lambda port: _FakeClient(port, calls),
+        sleeper=lambda seconds: None,
+    )
+
+    reasons = {row["reason"] for row in model["hold_events"]}
+    assert model["execution_attempted"] is False
+    assert model["opens_com_ports"] is False
+    assert calls == []
+    assert "command_plan_not_canonical_for_active_analyzers" in reasons
+
+
 def test_minimal_executor_revalidates_authorization_shape_before_opening_com(tmp_path: Path) -> None:
     ports = _reviewed_ports_json(tmp_path, 1)
     active = _active_analyzers_json(tmp_path, 1, algorithm="legacy_ratio")

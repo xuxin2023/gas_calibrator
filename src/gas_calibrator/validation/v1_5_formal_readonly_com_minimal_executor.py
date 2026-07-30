@@ -8,6 +8,7 @@ and never writes analyzer state, PostgreSQL, pressure, gas, or water routes.
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import re
 import time
@@ -135,6 +136,12 @@ def _load_json(path: str | Path | None) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _sha256(path: Path | None) -> str:
+    if path is None or not path.is_file():
+        return ""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8-sig")
@@ -190,6 +197,50 @@ def _mapping(row: Mapping[str, Any], *names: str) -> Mapping[str, Any]:
 
 def _resolve(path: str | Path | None) -> str:
     return str(Path(path).resolve()) if path else ""
+
+
+def _canonical_command_plan_signature(active_payload: Mapping[str, Any]) -> list[tuple[Any, ...]]:
+    signature: list[tuple[Any, ...]] = []
+    order = 1
+    for row in _rows(active_payload, "active_analyzers"):
+        label = _field(row, "ga_label", "label")
+        port = _field(row, "port", "com_port")
+        algorithm = _algorithm(row)
+        entries = [
+            ("protocol_device_id_from_mode2_frame", "MODE2_FRAME_DEVICE_ID_FIELD", False, True),
+            ("sn_code_device_code", "SN,YGAS,FFF", True, True),
+            *[
+                (f"getco{index}_epoch0", f"GETCO,YGAS,FFF,{index}", True, True)
+                for index in range(1, 10)
+            ],
+            ("runtime_state_mode2_1hz_average", "MODE2_RUNTIME_FRAME", False, True),
+        ]
+        if _is_new_algorithm(row):
+            entries.append(
+                ("check_monitor_after_all_active_chambers_stable", "CHECK,YGAS,FFF", True, True)
+            )
+        else:
+            entries.append(("check_monitor_skipped_old_algorithm", "", False, False))
+        for read_role, command, serial_command, enabled in entries:
+            signature.append((order, label, port, algorithm, read_role, command, serial_command, enabled))
+            order += 1
+    return signature
+
+
+def _actual_command_plan_signature(command_plan: Sequence[Mapping[str, Any]]) -> list[tuple[Any, ...]]:
+    return [
+        (
+            row.get("order"),
+            _field(row, "ga_label", "label"),
+            _field(row, "port", "com_port"),
+            _algorithm(row),
+            str(row.get("read_role") or ""),
+            str(row.get("command_or_source") or ""),
+            row.get("serial_command") is True,
+            row.get("enabled") is not False,
+        )
+        for row in command_plan
+    ]
 
 
 def _algorithm(row: Mapping[str, Any]) -> str:
@@ -349,6 +400,7 @@ def _authorization_shape_reasons(payload: Mapping[str, Any]) -> list[str]:
 def _source_reasons(
     *,
     authorization_path: Path | None,
+    packet_path: Path | None,
     authorization_payload: Mapping[str, Any],
     packet_payload: Mapping[str, Any],
     plan_payload: Mapping[str, Any],
@@ -370,6 +422,8 @@ def _source_reasons(
         reasons.append("packet_validator_authorization_packet_json_missing")
     elif _resolve(expected_authorization) != _resolve(authorization_path):
         reasons.append("authorization_packet_json_mismatch_with_packet_validator")
+    elif packet_payload.get("authorization_packet_sha256") != _sha256(authorization_path):
+        reasons.append("authorization_packet_sha256_mismatch_with_packet_validator")
     reasons.extend(_authorization_shape_reasons(authorization_payload))
     if plan_payload.get("schema") != PLAN_PREVIEW_SCHEMA:
         reasons.append(f"plan_schema={plan_payload.get('schema') or 'missing'}")
@@ -401,8 +455,18 @@ def _source_reasons(
     expected_active = str(packet_payload.get("active_analyzer_list_json") or "")
     if expected_inventory and _resolve(expected_inventory) != _resolve(inventory_path):
         reasons.append("reviewed_port_inventory_json_mismatch_with_packet_validator")
+    elif expected_inventory and packet_payload.get("reviewed_port_inventory_sha256") != _sha256(inventory_path):
+        reasons.append("reviewed_port_inventory_sha256_mismatch_with_packet_validator")
     if expected_active and _resolve(expected_active) != _resolve(active_path):
         reasons.append("active_analyzer_list_json_mismatch_with_packet_validator")
+    elif expected_active and packet_payload.get("active_analyzer_list_sha256") != _sha256(active_path):
+        reasons.append("active_analyzer_list_sha256_mismatch_with_packet_validator")
+    if plan_payload.get("formal_readonly_com_execution_packet_validator_sha256") != _sha256(packet_path):
+        reasons.append("packet_validator_sha256_mismatch_with_plan_preview")
+    if plan_payload.get("reviewed_port_inventory_sha256") != _sha256(inventory_path):
+        reasons.append("reviewed_port_inventory_sha256_mismatch_with_plan_preview")
+    if plan_payload.get("active_analyzer_list_sha256") != _sha256(active_path):
+        reasons.append("active_analyzer_list_sha256_mismatch_with_plan_preview")
     if str(plan_payload.get("reviewed_port_inventory_json") or "") and (
         _resolve(plan_payload.get("reviewed_port_inventory_json")) != _resolve(inventory_path)
     ):
@@ -415,6 +479,8 @@ def _source_reasons(
     command_plan = plan_payload.get("command_plan") if isinstance(plan_payload.get("command_plan"), list) else []
     if not command_plan:
         reasons.append("command_plan=missing")
+    elif _actual_command_plan_signature(command_plan) != _canonical_command_plan_signature(active_payload):
+        reasons.append("command_plan_not_canonical_for_active_analyzers")
     for row in command_plan:
         if not isinstance(row, Mapping):
             continue
@@ -665,6 +731,7 @@ def build_v1_5_formal_readonly_com_minimal_executor(
 
     preflight_reasons = _source_reasons(
         authorization_path=authorization_path,
+        packet_path=packet_path,
         authorization_payload=authorization_payload,
         packet_payload=packet_payload,
         plan_payload=plan_payload,

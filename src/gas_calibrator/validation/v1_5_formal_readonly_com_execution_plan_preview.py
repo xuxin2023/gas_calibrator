@@ -8,6 +8,7 @@ never reads analyzers, and never treats a plan preview as live authorization.
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -50,6 +51,12 @@ def _load_json(path: str | Path | None) -> dict[str, Any]:
         return {}
     payload = json.loads(source.read_text(encoding="utf-8-sig"))
     return payload if isinstance(payload, dict) else {}
+
+
+def _sha256(path: Path | None) -> str:
+    if path is None or not path.is_file():
+        return ""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
@@ -185,10 +192,14 @@ def _packet_input_path_reasons(
         reasons.append("packet_validator_reviewed_port_inventory_json_missing")
     elif _resolved_path_text(expected_inventory) != _resolved_path_text(inventory_path):
         reasons.append("reviewed_port_inventory_json_mismatch_with_packet_validator")
+    elif packet_payload.get("reviewed_port_inventory_sha256") != _sha256(inventory_path):
+        reasons.append("reviewed_port_inventory_sha256_mismatch_with_packet_validator")
     if not expected_active:
         reasons.append("packet_validator_active_analyzer_list_json_missing")
     elif _resolved_path_text(expected_active) != _resolved_path_text(active_path):
         reasons.append("active_analyzer_list_json_mismatch_with_packet_validator")
+    elif packet_payload.get("active_analyzer_list_sha256") != _sha256(active_path):
+        reasons.append("active_analyzer_list_sha256_mismatch_with_packet_validator")
     return reasons
 
 
@@ -469,8 +480,11 @@ def build_v1_5_formal_readonly_com_execution_plan_preview(
         "packet_validated_offline": not packet_reasons,
         "production_state": "offline_plan_preview_only",
         "formal_readonly_com_execution_packet_validator_json": str(packet_path) if packet_path else "",
+        "formal_readonly_com_execution_packet_validator_sha256": _sha256(packet_path),
         "reviewed_port_inventory_json": str(inventory_path) if inventory_path else "",
+        "reviewed_port_inventory_sha256": _sha256(inventory_path),
         "active_analyzer_list_json": str(active_path) if active_path else "",
+        "active_analyzer_list_sha256": _sha256(active_path),
         "execution_supported": False,
         "execution_requested": False,
         "live_execution_allowed": False,
