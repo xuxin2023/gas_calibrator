@@ -462,7 +462,7 @@ def test_closeout_package_source_fallback() -> None:
 
 def test_closeout_package_persisted_source() -> None:
     """When a persisted package has closeout_package_source = 'persisted',
-    it should be preserved (simulating app_facade / results_gateway behavior)."""
+    it should be preserved when loaded from historical artifacts."""
     result = build_step2_closeout_package(run_id="test-run")
     result["closeout_package_source"] = "persisted"
     assert result["closeout_package_source"] == "persisted"

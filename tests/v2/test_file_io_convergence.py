@@ -9,8 +9,8 @@ from gas_calibrator.utils.file_io import sha256_file, write_json
 @pytest.mark.parametrize(
     "module_name",
     [
-        "gas_calibrator.v2.core.certificate_evidence_census",
-        "gas_calibrator.v2.core.certificate_operational_admission",
+        "gas_calibrator.validation.certificate_evidence_census",
+        "gas_calibrator.validation.certificate_operational_admission",
         "gas_calibrator.v2.scripts.compare_v1_v2_control_flow",
         "gas_calibrator.v2.sim.protocol",
         "gas_calibrator.v2.sim.ec_dynamic",

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from statistics import mean
 from typing import Any, Optional
 
-from ..config import QCConfig
+from gas_calibrator.validation.simulation.config import QCConfig
 from ..core.models import CalibrationPoint
 from .outlier_detector import OutlierResult
 from .sample_checker import SampleQCResult

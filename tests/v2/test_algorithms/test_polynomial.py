@@ -1,5 +1,5 @@
 from gas_calibrator.v2.algorithms.polynomial import PolynomialAlgorithm
-from gas_calibrator.v2.domain.result_models import PointResult
+from gas_calibrator.validation.simulation.domain import PointResult
 
 
 def test_polynomial_fit_quadratic_curve() -> None:

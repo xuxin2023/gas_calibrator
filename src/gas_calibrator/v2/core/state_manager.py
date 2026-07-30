@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import replace
 import threading
 import time
+from dataclasses import replace
 from typing import Callable, Optional
 
-from .event_bus import EventBus, EventType
+from . import EventBus, EventType
 from .models import CalibrationPhase, CalibrationPoint, CalibrationStatus
 
 

@@ -5,9 +5,9 @@ import json
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
-from ..config import AIConfig
+from gas_calibrator.validation.simulation.config import AIConfig
 from .llm_client import LLMClient, LLMConfig, MockLLMClient, complete_with_fallback
 
 

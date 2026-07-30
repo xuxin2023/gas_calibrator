@@ -1,4 +1,7 @@
-# V2 工件与证据治理
+# V2 工件与证据治理（历史兼容说明）
+
+> 2026-07-28：V2 产品 UI、AppFacade、设备工作台和审阅面板已退役。
+> 本文只约束存量离线工件的只读兼容，不得据此恢复 V2 产品或平行校准流程。
 
 ## 1. 目标
 
@@ -108,15 +111,14 @@ V2 对外治理时必须把工件分到以下四类：
 | --- | --- |
 | Results | `execution_rows` + `execution_summary` |
 | Reports | `diagnostic_analysis` + `formal_analysis` |
-| Review Center | role、boundary、phase、fragment、artifact availability |
-| Device Workbench | simulation-only 行为记录 + workbench evidence summary |
+| Historical review indexes | role、boundary、phase、fragment、artifact availability |
+| Retired workbench artifacts | 仅保留 simulation-only 历史文件读取兼容 |
 
 因此，改工件合同往往不只是改导出逻辑，也会影响：
 
-- `adapters/results_gateway.py`
-- `ui_v2/controllers/app_facade.py`
-- `ui_v2/pages/reports_page.py`
-- review center 相关扫描合同与渲染逻辑
+- `adapters/*_gateway.py`（仅分域只读）
+- `scripts/historical_artifacts.py`
+- review-scope 导出索引和纯工件范围合同
 
 ## 8. 历史工件治理
 

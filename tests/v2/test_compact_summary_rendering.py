@@ -131,7 +131,7 @@ class TestBuildVisibleSections:
 
 
 # ===========================================================================
-# 2. Convenience wrappers (app_facade compat)
+# 2. Shared convenience wrappers
 # ===========================================================================
 
 class TestConvenienceWrappers:
@@ -174,33 +174,21 @@ class TestBuildPackFields:
     def test_with_packs(self):
         from gas_calibrator.v2.core.compact_summary_rendering import build_compact_summary_pack_fields
         packs = _make_mock_packs()
-        result = build_compact_summary_pack_fields(packs, surface="review_center")
+        result = build_compact_summary_pack_fields(packs, surface="historical")
         assert len(result["compact_summary_packs"]) == 6
         assert len(result["compact_summary_order"]) == 6
         assert "compact_summary_budget" in result
 
     def test_empty_packs(self):
         from gas_calibrator.v2.core.compact_summary_rendering import build_compact_summary_pack_fields
-        result = build_compact_summary_pack_fields([], surface="review_center")
+        result = build_compact_summary_pack_fields([], surface="historical")
         assert result["compact_summary_packs"] == []
         assert result["compact_summary_order"] == []
 
     def test_none_packs(self):
         from gas_calibrator.v2.core.compact_summary_rendering import build_compact_summary_pack_fields
-        result = build_compact_summary_pack_fields(None, surface="review_center")
+        result = build_compact_summary_pack_fields(None, surface="historical")
         assert result["compact_summary_packs"] == []
-
-    def test_different_surfaces(self):
-        from gas_calibrator.v2.core.compact_summary_rendering import build_compact_summary_pack_fields
-        packs = _make_mock_packs()
-        rc = build_compact_summary_pack_fields(packs, surface="review_center")
-        hist = build_compact_summary_pack_fields(packs, surface="historical")
-        rg = build_compact_summary_pack_fields(packs, surface="results_gateway")
-        # Same packs, different budgets
-        assert rc["compact_summary_budget"]["budget"] == 40
-        assert hist["compact_summary_budget"]["budget"] == 32
-        assert rg["compact_summary_budget"]["budget"] == 24
-
 
 # ===========================================================================
 # 4. build_full_compact_summary_view
@@ -210,7 +198,7 @@ class TestBuildFullView:
     def test_combines_fields_and_visible(self):
         from gas_calibrator.v2.core.compact_summary_rendering import build_full_compact_summary_view
         packs = _make_mock_packs()
-        result = build_full_compact_summary_view(packs, surface="review_center")
+        result = build_full_compact_summary_view(packs, surface="historical")
         assert "compact_summary_packs" in result
         assert "compact_summary_order" in result
         assert "compact_summary_budget" in result
@@ -220,7 +208,7 @@ class TestBuildFullView:
 
     def test_empty_packs(self):
         from gas_calibrator.v2.core.compact_summary_rendering import build_full_compact_summary_view
-        result = build_full_compact_summary_view([], surface="review_center")
+        result = build_full_compact_summary_view([], surface="historical")
         assert result["compact_summary_packs"] == []
         assert result["rendered_summary_sections"] == []
 
@@ -260,88 +248,50 @@ class TestOldRunFallback:
 
 
 # ===========================================================================
-# 6. Cross-surface consistency
+# 6. Historical-surface consistency
 # ===========================================================================
 
-class TestCrossSurfaceConsistency:
-    def test_rendered_sections_consistent_across_surfaces(self):
-        """Same packs produce consistent rendered section structure across surfaces."""
+class TestHistoricalSurfaceConsistency:
+    def test_rendered_sections_have_stable_structure(self):
         from gas_calibrator.v2.core.compact_summary_rendering import (
             build_visible_sections, build_compact_summary_pack_fields,
         )
         packs = _make_mock_packs()
-        for surface in ["review_center", "historical", "results_gateway"]:
-            fields = build_compact_summary_pack_fields(packs, surface=surface)
-            result = build_visible_sections(
-                fields["compact_summary_packs"],
-                budget=fields["compact_summary_budget"],
-            )
-            # All surfaces produce the same field structure
-            assert "rendered_summary_sections" in result
-            assert "omitted_summary_sections" in result
-            assert "compact_summary_budget_display" in result
-            for section in result["rendered_summary_sections"]:
-                assert "summary_key" in section
-                assert "display_label" in section
-                assert "summary_lines" in section
+        fields = build_compact_summary_pack_fields(packs, surface="historical")
+        result = build_visible_sections(
+            fields["compact_summary_packs"],
+            budget=fields["compact_summary_budget"],
+        )
+        assert "rendered_summary_sections" in result
+        assert "omitted_summary_sections" in result
+        assert "compact_summary_budget_display" in result
+        for section in result["rendered_summary_sections"]:
+            assert "summary_key" in section
+            assert "display_label" in section
+            assert "summary_lines" in section
 
     def test_budget_display_consistent_structure(self):
         from gas_calibrator.v2.core.compact_summary_rendering import (
             build_visible_sections, build_compact_summary_pack_fields,
         )
         packs = _make_mock_packs()
-        for surface in ["review_center", "historical", "results_gateway"]:
-            fields = build_compact_summary_pack_fields(packs, surface=surface)
-            result = build_visible_sections(
-                fields["compact_summary_packs"],
-                budget=fields["compact_summary_budget"],
-            )
-            bd = result["compact_summary_budget_display"]
-            assert set(bd.keys()) == {"used", "budget", "total_lines", "truncated_count", "pack_count"}
-
-
-# ===========================================================================
-# 7. App facade and review_center_artifact_scope share same helper
-# ===========================================================================
-
-class TestSharedHelperConsumption:
-    def test_app_facade_uses_shared_helper(self):
-        """app_facade._build_rendered_sections delegates to shared helper."""
-        from gas_calibrator.v2.ui_v2.controllers.app_facade import (
-            _build_rendered_sections, _build_omitted_sections, _build_budget_display,
-        )
-        from gas_calibrator.v2.core.compact_summary_rendering import (
-            build_rendered_sections, build_omitted_sections, build_budget_display,
-        )
-        packs = _make_mock_packs()
-        budget = {"used": 12, "budget": 40, "total_lines": 12, "truncated_count": 0, "pack_count": 6}
-        # app_facade wrappers should produce same result as shared helpers
-        assert _build_rendered_sections(packs, budget) == build_rendered_sections(packs, budget)
-        assert _build_omitted_sections(packs, budget) == build_omitted_sections(packs, budget)
-        assert _build_budget_display(budget) == build_budget_display(budget)
-
-    def test_review_center_uses_shared_helper(self):
-        """review_center_artifact_scope._build_compact_summary_pack_visible_sections
-        delegates to shared helper."""
-        from gas_calibrator.v2.ui_v2.review_center_artifact_scope import (
-            _build_compact_summary_pack_visible_sections,
-            _build_compact_summary_pack_fields,
-        )
-        from gas_calibrator.v2.core.compact_summary_rendering import build_visible_sections
-        packs = _make_mock_packs()
-        fields = _build_compact_summary_pack_fields(packs)
-        local_result = _build_compact_summary_pack_visible_sections(fields)
-        shared_result = build_visible_sections(
+        fields = build_compact_summary_pack_fields(packs, surface="historical")
+        result = build_visible_sections(
             fields["compact_summary_packs"],
             budget=fields["compact_summary_budget"],
         )
-        assert local_result["rendered_summary_sections"] == shared_result["rendered_summary_sections"]
-        assert local_result["omitted_summary_sections"] == shared_result["omitted_summary_sections"]
-        assert local_result["compact_summary_budget_display"] == shared_result["compact_summary_budget_display"]
+        bd = result["compact_summary_budget_display"]
+        assert set(bd.keys()) == {
+            "used",
+            "budget",
+            "total_lines",
+            "truncated_count",
+            "pack_count",
+        }
 
 
 # ===========================================================================
-# 8. Step 2 boundary assertions
+# 7. Step 2 boundary assertions
 # ===========================================================================
 
 class TestStep2Boundary:

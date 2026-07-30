@@ -4,14 +4,8 @@ import json
 from pathlib import Path
 import sys
 
-from gas_calibrator.v2.core.phase_transition_bridge_presenter import (
-    build_phase_transition_bridge_panel_payload,
-)
 from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact import (
     build_phase_transition_bridge_reviewer_artifact,
-)
-from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact_entry import (
-    build_phase_transition_bridge_reviewer_artifact_entry,
 )
 from gas_calibrator.v2.core.stage_admission_review_pack import (
     STAGE_ADMISSION_REVIEW_PACK_FILENAME,
@@ -45,7 +39,7 @@ SUPPORT_DIR = Path(__file__).resolve().parent
 if str(SUPPORT_DIR) not in sys.path:
     sys.path.insert(0, str(SUPPORT_DIR))
 
-from ui_v2_support import build_fake_facade
+from ui_v2_support import build_fake_service
 
 
 def _write_offline_diagnostic_bundles(run_dir: Path) -> None:
@@ -388,13 +382,8 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert analytics_summary["stage3_real_validation_plan"]["artifact_type"] == "stage3_real_validation_plan"
     assert analytics_summary["stage3_real_validation_plan"]["overall_status"] == "step2_tail_in_progress"
     assert analytics_summary["stage3_real_validation_plan"]["real_acceptance_ready"] is False
-    expected_bridge_section = build_phase_transition_bridge_panel_payload(phase_transition_bridge)
     expected_bridge_reviewer_artifact = build_phase_transition_bridge_reviewer_artifact(phase_transition_bridge)
-    expected_bridge_reviewer_entry = build_phase_transition_bridge_reviewer_artifact_entry(
-        artifact_path=run_dir / "phase_transition_bridge_reviewer.md",
-        manifest_section=payload["manifest_sections"].get("phase_transition_bridge_reviewer_artifact"),
-        reviewer_section=payload["manifest_sections"].get("phase_transition_bridge_reviewer_section"),
-    )
+    expected_bridge_section = expected_bridge_reviewer_artifact["section"]
     expected_stage_admission_review_pack = build_stage_admission_review_pack(
         run_id="run_001",
         step2_readiness_summary=readiness_summary,
@@ -675,15 +664,6 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert payload["manifest_sections"]["stage3_real_validation_plan_reviewer_artifact"]["plan_boundary_text"] == (
         expected_stage3_real_validation_plan["display"]["plan_boundary_text"]
     )
-    assert expected_bridge_reviewer_entry["summary_text"] == expected_bridge_reviewer_artifact["display"]["summary_text"]
-    assert expected_bridge_reviewer_entry["status_line"] == expected_bridge_reviewer_artifact["display"]["status_line"]
-    assert expected_bridge_reviewer_entry["stage_marker_text"] == expected_bridge_reviewer_artifact["display"]["current_stage_text"]
-    assert "Step 2 tail / Stage 3 bridge" in expected_bridge_reviewer_entry["entry_text"]
-    assert "engineering-isolation" in expected_bridge_reviewer_entry["entry_text"]
-    assert "不是 real acceptance" in expected_bridge_reviewer_entry["entry_text"]
-    assert "不能替代真实计量验证" in expected_bridge_reviewer_entry["entry_text"]
-    assert "ready_for_engineering_isolation" not in expected_bridge_reviewer_entry["entry_text"]
-    assert "real_acceptance_ready" not in expected_bridge_reviewer_entry["entry_text"]
     section_text = payload["manifest_sections"]["phase_transition_bridge_reviewer_section"]["display"]["section_text"]
     assert "Step 2 tail / Stage 3 bridge" in phase_transition_bridge_reviewer_markdown
     assert "engineering-isolation" in phase_transition_bridge_reviewer_markdown
@@ -872,8 +852,8 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
 
 
 def test_rebuild_run_generates_stage3_standards_alignment_matrix_artifacts(tmp_path: Path) -> None:
-    facade = build_fake_facade(tmp_path)
-    run_dir = Path(facade.result_store.run_dir)
+    service = build_fake_service(tmp_path)
+    run_dir = Path(service.result_store.run_dir)
 
     payload = rebuild_run(run_dir)
     summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
@@ -946,6 +926,8 @@ def test_rebuild_run_generates_stage3_standards_alignment_matrix_artifacts(tmp_p
     assert "not real acceptance" in matrix_markdown
     assert "cannot replace real metrology validation" in matrix_markdown
     assert "simulation / offline / headless only" in matrix_markdown
+    assert "真实参考表 / 参考仪器强制执行" in matrix_json["required_evidence_categories"]
+    assert "真机系数写入 / 回读 / acceptance" in matrix_json["required_evidence_categories"]
     assert "stage3_real_validation_plan.json" in matrix_markdown
     assert "scope_definition_pack.json" in matrix_markdown
     assert "decision_rule_profile.json" in matrix_markdown
@@ -967,8 +949,8 @@ def test_rebuild_run_generates_stage3_standards_alignment_matrix_artifacts(tmp_p
 
 
 def test_rebuild_run_generates_engineering_isolation_gate_artifacts(tmp_path: Path) -> None:
-    facade = build_fake_facade(tmp_path)
-    run_dir = Path(facade.result_store.run_dir)
+    service = build_fake_service(tmp_path)
+    run_dir = Path(service.result_store.run_dir)
 
     payload = rebuild_run(run_dir)
     summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
@@ -1034,8 +1016,8 @@ def test_rebuild_run_generates_engineering_isolation_gate_artifacts(tmp_path: Pa
 
 
 def test_rebuild_run_generates_scope_package_and_decision_rule_contracts(tmp_path: Path) -> None:
-    facade = build_fake_facade(tmp_path)
-    run_dir = Path(facade.result_store.run_dir)
+    service = build_fake_service(tmp_path)
+    run_dir = Path(service.result_store.run_dir)
 
     rebuild_run(run_dir)
 
@@ -1154,8 +1136,8 @@ def test_main_reports_clear_error_for_non_run_directory(tmp_path: Path, capsys) 
 
 
 def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -> None:
-    facade = build_fake_facade(tmp_path)
-    run_dir = Path(facade.result_store.run_dir)
+    service = build_fake_service(tmp_path)
+    run_dir = Path(service.result_store.run_dir)
 
     payload = rebuild_run(run_dir)
 

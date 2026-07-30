@@ -12,9 +12,6 @@ Verifies:
 
 from __future__ import annotations
 
-import pytest
-
-from gas_calibrator.v2.adapters.results_gateway import ResultsGateway
 from gas_calibrator.v2.core.step3_admission_dossier_contracts import (
     ADMISSION_DOSSIER_CONTRACTS_VERSION,
     ADMISSION_DOSSIER_I18N_KEYS,
@@ -35,10 +32,7 @@ from gas_calibrator.v2.core.step3_admission_dossier_contracts import (
     ADMISSION_DOSSIER_TITLE_ZH,
     ADMISSION_DOSSIER_TITLE_EN,
     resolve_admission_dossier_title,
-    resolve_admission_dossier_section_label,
-    resolve_admission_dossier_status_label,
     resolve_admission_candidate_notice,
-    resolve_admission_dossier_simulation_only_boundary,
 )
 from gas_calibrator.v2.core.step3_admission_dossier_builder import (
     build_step3_admission_dossier,
@@ -264,40 +258,6 @@ def test_dossier_fallback_output_fields() -> None:
     assert fb["admission_candidate"] is False
 
 
-def test_results_gateway_exposes_final_closure_matrix_surface_guardrails(tmp_path) -> None:
-    payload = ResultsGateway(tmp_path).read_results_payload()
-
-    matrix = dict(payload.get("step2_final_closure_matrix") or {})
-    assert matrix["artifact_type"] == "step2_final_closure_matrix"
-    assert "results" in matrix["audited_surfaces"]
-    assert "reports" in matrix["audited_surfaces"]
-    assert "historical" in matrix["audited_surfaces"]
-    assert "review_index" not in matrix["audited_surfaces"]
-    assert matrix["missing_surfaces"] == []
-    assert matrix["not_real_acceptance_evidence"] is True
-    assert matrix["not_ready_for_formal_claim"] is True
-    assert matrix["real_acceptance_ready"] is False
-
-
-def test_results_gateway_does_not_swallow_non_compat_closeout_verification_errors(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    import gas_calibrator.v2.adapters.results_gateway as gateway_module
-
-    def _boom(**kwargs):
-        raise RuntimeError("closeout verification exploded")
-
-    monkeypatch.setattr(
-        gateway_module,
-        "build_step2_closeout_verification_surface_payload",
-        _boom,
-    )
-
-    with pytest.raises(RuntimeError, match="closeout verification exploded"):
-        ResultsGateway(tmp_path).read_results_payload()
-
-
 def test_dossier_fallback_step2_boundary() -> None:
     fb = build_admission_dossier_fallback()
     assert fb["evidence_source"] == "simulated"
@@ -377,8 +337,7 @@ def test_dossier_fallback_admission_dossier_source() -> None:
 
 
 def test_dossier_persisted_source_can_be_overridden() -> None:
-    """When results_gateway sets admission_dossier_source = 'persisted',
-    the field should be overridable."""
+    """A persisted historical dossier may preserve its source marker."""
     result = build_step3_admission_dossier(run_id="test-run")
     result["admission_dossier_source"] = "persisted"
     assert result["admission_dossier_source"] == "persisted"
@@ -403,31 +362,3 @@ def test_dossier_consumable_fields_present() -> None:
         if field == "step3_admission_dossier":
             continue  # this is the key in the outer payload, not in the dossier
         assert field in result, f"Missing consumable field: {field}"
-
-
-def test_dossier_results_gateway_includes_dossier() -> None:
-    """results_gateway read_results_payload should include step3_admission_dossier."""
-    from gas_calibrator.v2.adapters.results_gateway import ResultsGateway
-    from pathlib import Path
-    # Use a minimal temp dir to verify the key exists in the output
-    import tempfile
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmpdir_path = Path(tmpdir)
-        gw = ResultsGateway(tmpdir_path)
-        payload = gw.read_results_payload()
-        assert "step3_admission_dossier" in payload
-        dossier = dict(payload["step3_admission_dossier"] or {})
-        assert dossier.get("artifact_type") in ("step3_admission_dossier", "step3_admission_dossier_fallback")
-        assert dossier.get("admission_dossier_source") in ("persisted", "rebuilt", "fallback")
-
-
-def test_dossier_results_gateway_reports_payload_includes_dossier() -> None:
-    """results_gateway read_reports_payload should include step3_admission_dossier."""
-    from gas_calibrator.v2.adapters.results_gateway import ResultsGateway
-    from pathlib import Path
-    import tempfile
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmpdir_path = Path(tmpdir)
-        gw = ResultsGateway(tmpdir_path)
-        payload = gw.read_reports_payload()
-        assert "step3_admission_dossier" in payload

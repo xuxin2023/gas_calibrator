@@ -104,8 +104,9 @@ python run_app.py
 
 | 步骤 | 操作 | 系统响应 |
 |------|------|---------|
-| 1 | 执行 `python run_v1_postprocess.py` | 启动离线后处理GUI |
-| 2 | 执行 `python run_v1_merged_sidecar.py --run-dir <dir>` | 启动合并侧车 |
+| 1 | 执行 `python run_v1_merged_sidecar.py --run-dir <dir>` | 启动保留的合并侧车 |
+
+旧 `run_v1_postprocess.py` GUI 已退役；正式操作界面统一使用V1.5工作站。
 
 ---
 

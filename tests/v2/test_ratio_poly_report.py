@@ -6,13 +6,15 @@ from pathlib import Path
 import pandas as pd
 from openpyxl import load_workbook
 
-from gas_calibrator.v2.config import CoefficientsConfig
+from gas_calibrator.validation.simulation.config import CoefficientsConfig
 from gas_calibrator.v2.core.models import CalibrationPoint, SamplingResult
 from gas_calibrator.v2.export.ratio_poly_report import (
     _format_senco_float,
+    _point_integrity_text,
     build_analyzer_summary_frame,
     build_quality_analysis_bundle,
     export_ratio_poly_report,
+    load_ratio_poly_report_config,
     select_corrected_fit_rows,
 )
 
@@ -82,6 +84,27 @@ def _fit_cfg() -> CoefficientsConfig:
     )
 
 
+def test_load_ratio_poly_report_config_preserves_report_defaults() -> None:
+    config = load_ratio_poly_report_config(
+        None,
+        default_payload={
+            "enabled": False,
+            "auto_fit": False,
+            "model": "ratio_poly_rt_p",
+        },
+    )
+
+    assert config.enabled is True
+    assert config.auto_fit is True
+    assert config.model == "ratio_poly_rt_p"
+    assert config.report_temperature_key == "Temp"
+    assert config.report_pressure_key == "P_fit"
+    assert config.summary_columns["co2"].target == "ppm_CO2_Tank"
+    assert config.summary_columns["h2o"].target == "ppm_H2O_Dew"
+    assert not hasattr(config.summary_columns["co2"], "temperature")
+    assert not hasattr(config.summary_columns["co2"], "pressure")
+
+
 def test_build_analyzer_summary_frame_groups_results() -> None:
     samples = [
         _sample(
@@ -119,6 +142,13 @@ def test_build_analyzer_summary_frame_groups_results() -> None:
     assert abs(float(row["R_CO2"]) - 1.3) < 1e-9
     assert row["ppm_H2O_Dew"] is not None
     assert abs(float(row["BAR"]) - 100.0) < 1e-9
+    assert row["PointIntegrity"] == _point_integrity_text(
+        expected_count=1,
+        present={"GA01"},
+        usable={"GA01"},
+    )
+    columns = list(frame.columns)
+    assert columns.index("PointIntegrity") < columns.index("MissingAnalyzers")
 
 
 def test_build_analyzer_summary_frame_uses_aligned_reference_rows_and_fleet_fields() -> None:
@@ -207,10 +237,22 @@ def test_select_corrected_fit_rows_keeps_only_configured_dry_gas_points() -> Non
                 pressure_hpa=1000.0,
                 co2_ratio=1.1,
                 h2o_ratio=0.1,
-                dew_point_c=-10.0,
+                dew_point_c=-90.0,
             ),
             _sample(
                 point_index=3,
+                route="co2",
+                analyzer_id="ga01",
+                temperature_c=-20.0,
+                co2_target=0.0,
+                humidity_pct=None,
+                pressure_hpa=1000.0,
+                co2_ratio=1.15,
+                h2o_ratio=0.1,
+                dew_point_c=-10.0,
+            ),
+            _sample(
+                point_index=4,
                 route="co2",
                 analyzer_id="ga01",
                 temperature_c=10.0,
@@ -222,7 +264,7 @@ def test_select_corrected_fit_rows_keeps_only_configured_dry_gas_points() -> Non
                 dew_point_c=-9.0,
             ),
             _sample(
-                point_index=4,
+                point_index=5,
                 route="co2",
                 analyzer_id="ga01",
                 temperature_c=10.0,
@@ -236,14 +278,25 @@ def test_select_corrected_fit_rows_keeps_only_configured_dry_gas_points() -> Non
         ]
     )
 
+    selection = CoefficientsConfig().h2o_summary_selection
     selected = select_corrected_fit_rows(
         frame,
         gas="h2o",
-        selection=CoefficientsConfig().h2o_summary_selection,
+        selection=selection,
         temperature_key="Temp",
     )
 
     assert set(selected["PointRow"]) == {1, 2}
+
+    selection.co2_zero_ppm_anchor_quality_gate_enabled = False
+    selected_without_anchor_gate = select_corrected_fit_rows(
+        frame,
+        gas="h2o",
+        selection=selection,
+        temperature_key="Temp",
+    )
+
+    assert set(selected_without_anchor_gate["PointRow"]) == {1, 2, 3}
 
 
 def test_build_quality_analysis_bundle_falls_back_to_bar_when_p_is_blank() -> None:

@@ -177,7 +177,7 @@ def build_human_governance_artifacts(
             f"environment_scope: {', '.join(environment_scope) or '--'}",
             f"required_training_modules: {', '.join(sorted(operator_required_modules)) or '--'}",
             f"missing_training_modules: {', '.join(missing_training_modules) or 'none'}",
-            f"placeholder_mode: reviewer_note_only",
+            "placeholder_mode: reviewer_note_only",
         ],
         digest={
             "summary": run_binding_summary,

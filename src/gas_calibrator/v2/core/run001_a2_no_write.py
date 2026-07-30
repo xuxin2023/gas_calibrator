@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 from typing import Any, Mapping, Optional
 
-from ..config import AppConfig
+from ..config.models import AppConfig
 from .no_write_guard import NoWriteGuard
 from .run001_a1_dry_run import (
     RUN001_FAIL,
@@ -3923,8 +3923,6 @@ def _build_positive_preseal_pressurization_evidence(
         "abort_reason": abort_reason,
         "decision": decision,
         "max_measured_pressure_hpa": max_pressure,
-        "pressure_max_hpa": latest.get("pressure_max_hpa", max_pressure),
-        "pressure_min_hpa": latest.get("pressure_min_hpa"),
         "sample_count": len(samples),
         "samples": samples,
         **{field: latest.get(field) for field in POSITIVE_PRESEAL_STATE_MACHINE_FIELDS},
@@ -4477,7 +4475,6 @@ def _build_positive_preseal_timing_diagnostics(
             if action in {"positive_preseal_pressure_check", "positive_preseal_ready", "positive_preseal_abort"}:
                 positive_samples.append(sample)
 
-    route_open_start_event = _first_timing_event(timing_events, "co2_route_open_start")
     route_open_end_event = _first_timing_event(timing_events, "co2_route_open_end")
     positive_start_event = _first_timing_event(timing_events, "positive_preseal_pressurization_start")
     positive_ready_event = _first_timing_event(timing_events, "positive_preseal_ready")
@@ -4499,7 +4496,6 @@ def _build_positive_preseal_timing_diagnostics(
         pressure_at_route_open_hpa = pressure_samples[0]["pressure_hpa"]
 
     first_pressure_sample = pressure_samples[0] if pressure_samples else {}
-    first_pressure_sample_ts = first_pressure_sample.get("parsed_ts") if first_pressure_sample else None
     baseline_pressure = pressure_at_route_open_hpa
     rise_sample: dict[str, Any] = {}
     if baseline_pressure is not None:
@@ -5848,7 +5844,6 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             ),
             "critical_window_uses_latest_frame": pressure_latency_payload.get("critical_window_uses_latest_frame"),
             "critical_window_uses_query": pressure_latency_payload.get("critical_window_uses_query"),
-            "co2_route_conditioning_evidence_artifact": str(co2_route_conditioning_path),
             "co2_route_conditioning_decision": co2_route_conditioning_payload.get("conditioning_decision"),
             "co2_route_conditioning_vent_tick_count": co2_route_conditioning_payload.get("vent_tick_count"),
             "co2_route_conditioning_vent_tick_avg_gap_s": co2_route_conditioning_payload.get("vent_tick_avg_gap_s"),

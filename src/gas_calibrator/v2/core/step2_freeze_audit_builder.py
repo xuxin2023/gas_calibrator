@@ -32,14 +32,9 @@ from .step2_freeze_audit_contracts import (
     FREEZE_AUDIT_SECTION_ORDER,
     FREEZE_AUDIT_TITLE_ZH,
     FREEZE_AUDIT_TITLE_EN,
-    FREEZE_AUDIT_SUMMARY_ZH,
-    FREEZE_AUDIT_SUMMARY_EN,
     FREEZE_AUDIT_STEP2_BOUNDARY,
     FREEZE_AUDIT_SIMULATION_ONLY_BOUNDARY_ZH,
     FREEZE_AUDIT_SIMULATION_ONLY_BOUNDARY_EN,
-    resolve_freeze_audit_title,
-    resolve_freeze_audit_summary,
-    resolve_freeze_audit_section_label,
     resolve_freeze_audit_status_label,
     resolve_freeze_audit_blocker_label,
     resolve_freeze_audit_next_step_label,
@@ -52,7 +47,6 @@ from .step2_closeout_readiness_contracts import (
     CLOSEOUT_STATUS_OK,
     CLOSEOUT_STATUS_ATTENTION,
     CLOSEOUT_STATUS_BLOCKER,
-    CLOSEOUT_STATUS_REVIEWER_ONLY,
 )
 
 # ---------------------------------------------------------------------------
@@ -289,9 +283,6 @@ def build_step2_freeze_audit(
 
     # --- Build simulation-only boundary ---
     simulation_only_boundary = _build_simulation_only_boundary()
-
-    # --- Freeze candidate notice ---
-    freeze_candidate_notice = resolve_freeze_candidate_notice(lang=lang)
 
     return {
         "schema_version": "1.0",

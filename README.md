@@ -2,123 +2,54 @@
 
 This repository contains the gas analyzer auto-calibration codebase.
 
-## Current Phase
+## Current Product Direction
 
 The authoritative project scope is:
 
 1. `AGENTS.md`
-2. `.ai-context/PROJECT_STATUS.md`
-3. `.ai-context/TODO.md`
+2. `docs/architecture/V1_5_FINAL_PRODUCT_ARCHITECTURE_20260728.md`
+3. `docs/architecture/V1_5_OPERATOR_WORKSTATION_DECISION_20260727.md`
 
-The project is currently in `Step 2: production-grade platformization`.
-`Step 3` work is out of scope for the current default workflow.
+V1.5 is the only final product line and the only target for future product work.
+V1 remains the frozen production fallback and historical behavior baseline.
+V2 is a migration/deletion pool, not a product version or launch target.
 
-## Step 2 Defaults
-
-- V2 is the active development line.
-- V1 stays frozen as the production baseline and historical reference.
-- `run_app.py` remains the V1 default entry and must not be changed as part of Step 2 work.
-- V2 validation is limited to:
-  - `simulation`
-  - `replay`
-  - `suite regression`
-  - `parity`
-  - `resilience`
-  - `offline review`
-  - `UI contract`
-
-## Step 2 Prohibited Paths
-
-The following are not part of the current default workflow:
-
-- real device bring-up
-- hardware trial runs
-- opening real serial or COM ports
-- `real compare` or `real verify`
-- refreshing `real_primary_latest`
-- claiming V2 can replace V1
-- switching the default entrypoint to V2
-
-Any simulated, replay, suite, parity, resilience, workbench, or offline-review result is not real acceptance evidence.
-
-## Step 3A Controlled Real-COM Engineering Probe Exception
-
-Step 3A does not open V2 real-machine validation by default. It only defines a narrow, double-unlocked, no-write engineering probe exception while preserving V1 as the production fallback.
-
-The default workflow still prohibits V2 from opening real COM ports. Step 3A probes are not real acceptance, must not refresh `real_primary_latest`, must not claim V2 can replace V1, and must not switch the default entrypoint or modify `run_app.py`.
-
-Allowed Step 3A ladder:
-
-- R0: query-only real-COM device inventory probe
-- R1: conditioning-only real-COM probe
-- R2: A1R CO2-only + skip0 + single route + single temperature + one non-zero point + no-write minimal sampling closure
-- R3: A2 CO2-only + skip0 + single route + single temperature + 7 pressure points + no-write
-- R4: V1/V2 real comparison audit
-
-Still prohibited in Step 3A:
-
-- H2O full route
-- 0 ppm formal acceptance
-- full group
-- multi-temperature
-- ID write, SENCO write, or calibration coefficient write
-- `real_primary_latest` refresh
-- default entry switch
-- disabling V1 fallback
-
-Any Step 3A real-COM engineering probe must be locked behind an explicit CLI flag, an explicit environment variable, a valid operator confirmation record, no-write evidence, and evidence markers `acceptance_level=engineering_probe_only`, `promotion_state=blocked`, and `not_real_acceptance_evidence=true`.
+The default workflow remains no-write and does not open real COM ports, control
+gas routes, write analyzer coefficients/IDs, update the formal database, or
+refresh `real_primary_latest`. Simulation, replay, parity, resilience, and
+dry-run evidence are never real acceptance evidence.
 
 ## Recommended Entrypoints
 
-### V2 safe simulation
+### V1.5 product candidate
 
 ```powershell
-PYTHONPATH=src python -m gas_calibrator.v2.scripts.test_v2_safe
+python run_v1_5_workstation.py
 ```
 
-```powershell
-PYTHONPATH=src python -m gas_calibrator.v2.scripts.run_v2 --config src/gas_calibrator/v2/configs/smoke_v2_minimal.json --simulation --headless
-```
+The V1.5 workstation currently exposes a governed dry-run path. Real queue
+execution remains blocked until its separate acceptance and release gates are
+closed.
 
-### V2 device helper
-
-`test_v2_device` is now a simulation-only helper by default. Its default path must not import or open real device drivers.
-
-```powershell
-PYTHONPATH=src python -m gas_calibrator.v2.scripts.test_v2_device connection
-PYTHONPATH=src python -m gas_calibrator.v2.scripts.test_v2_device single
-PYTHONPATH=src python -m gas_calibrator.v2.scripts.test_v2_device full
-```
-
-Any future bench-oriented real path is non-default and must stay explicitly locked behind:
-
-- an explicit CLI unlock flag
-- an explicit environment variable unlock
-- a Step 2 warning in documentation
-
-That future path is not part of the current recommended workflow.
-
-### V1 historical reference
+### V1 production fallback
 
 ```powershell
 python run_app.py
 ```
 
-Use V1 only as the frozen baseline, historical reference, or emergency fallback. Do not route new V2 capabilities back into the V1 UI.
+Use V1 only as the frozen baseline, historical reference, or emergency
+fallback. Do not route V1.5 capabilities back into the V1 UI.
 
-### V1 safe sidecars
-
-```powershell
-python run_v1_postprocess.py
-```
+### Legacy V1 offline audit sidecar
 
 ```powershell
 python run_v1_merged_sidecar.py --run-dir <completed_run_dir>
 ```
 
-These entrypoints keep V1-adjacent postprocess/sidecar flows easy to reach
-without changing `run_app.py`, without modifying the frozen V1 UI, and without
-promoting Step 2 sidecar capabilities into the V1 production path.
+This entrypoint keeps the retained V1 merged-run audit sidecar reachable
+without changing `run_app.py` or the frozen V1 UI. The obsolete
+`run_v1_postprocess.py` GUI was retired because it depended on a removed V2
+interface and exposed coefficient download as its default action.
 
 ### GitHub sync
 

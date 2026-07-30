@@ -12,12 +12,8 @@
       "ready": "Ready"
     }
   },
-  "app_info": {
-    "product_name": "Gas Calibrator V2 Cockpit"
-  },
   "common": {
     "ready": "Ready",
-    "working": "Working...",
     "none": "None",
     "present": "present",
     "missing": "missing",
@@ -45,7 +41,9 @@
       "devices": "Devices",
       "algorithms": "Algorithms",
       "reports": "Reports",
-      "plans": "Plans"
+      "plans": "Plans",
+      "certificates": "Certificate Metrics",
+      "visitor": "Visitor Showcase"
     },
     "metric": {
       "run_id": "Run ID",
@@ -58,30 +56,13 @@
     "menu": {
       "file": "File",
       "capture_screenshot": "Capture Screenshot",
-      "recent_runs": "Recent Runs",
-      "no_recent_runs": "No recent runs",
       "exit": "Exit",
       "edit": "Edit",
-      "preferences": "Preferences...",
       "view": "View",
-      "help": "Help",
-      "about": "About",
-      "release_notes": "Release Notes",
-      "licenses": "Licenses",
-      "export_diagnostics": "Export Diagnostics"
-    },
-    "recovery": {
-      "title": "Recover Previous Session",
-      "previous_run": "a previous run",
-      "prompt": "Detected an unfinished UI session from {when}.\n\nRun: {run_id}\nPhase: {phase}\nPage: {page}\n\nRestore the last UI page context?"
+      "help": "Help"
     },
     "log": {
-      "diagnostic_bundle_exported": "Diagnostic bundle exported: {path}",
-      "diagnostic_bundle_export_failed": "Diagnostic bundle export failed: {message}",
-      "recent_run_selected": "Recent run: {path}",
-      "screenshot_exported": "Screenshot exported: {path}",
-      "previous_session_restored": "Previous UI session restored",
-      "previous_session_recovery_skipped": "Previous UI session recovery skipped"
+      "screenshot_exported": "Screenshot exported: {path}"
     }
   },
   "run_control": {
@@ -195,15 +176,6 @@
     }
   },
   "widgets": {
-    "notification": {
-      "title": "Notifications",
-      "empty_title": "No notifications",
-      "empty_message": "System reminders and export notices will show up here."
-    },
-    "empty_state": {
-      "title": "No data yet",
-      "message": "This panel will populate once data is available."
-    },
     "qc_overview": {
       "title": "QC Overview",
       "score": "QC Score",
@@ -222,26 +194,10 @@
       "starting": "Starting...",
       "loading": "Loading..."
     },
-    "log_panel": {
-      "title": "Event / Log"
-    },
-    "route_progress": {
-      "title": "Route Progress",
-      "no_active": "No active route.",
-      "detail": "Route={route} Phase={phase} Progress={completed}/{total}",
-      "no_steps": "No route steps",
-      "step_h2o": "H2O",
-      "step_co2": "CO2",
-      "step_finalize": "Finalize"
-    },
     "winner": {
       "title": "Winner",
       "pending": "pending",
       "no_recommendation": "No recommendation yet."
-    },
-    "timeseries": {
-      "title": "Time Series",
-      "no_data": "No live data"
     },
     "ai_summary": {
       "title": "AI Summary"
@@ -277,7 +233,6 @@
     "export_bar": {
       "title": "Current-Run Artifact Export",
       "export_all": "Export All",
-      "review_manifest": "Review Manifest",
       "formats": "Current-run export formats: {formats}",
       "ready": "Ready",
       "unavailable": "Export unavailable",
@@ -1209,47 +1164,6 @@
         "taxonomy_stale_gauge": "Pressure gauge stale metrics: {summary}",
         "workbench_evidence": "Workbench diagnostic evidence: {summary}"
       },
-      "artifact_scope": {
-        "summary_all": "All artifacts | current scope {visible} | present on disk {present}/{total} | external {external} | missing {missing} | current-run baseline {catalog_present}/{catalog_total}",
-        "summary_source": "Source artifacts | {source} | current scope {visible} | present on disk {present}/{total} | external {external} | missing {missing} | current-run baseline {catalog_present}/{catalog_total}",
-        "summary_evidence": "Evidence artifacts | {source} / {evidence} | current scope {visible} | present on disk {present}/{total} | external {external} | missing {missing} | current-run baseline {catalog_present}/{catalog_total}",
-        "label_all": "All Artifacts",
-        "label_source": "Source Artifacts",
-        "label_evidence": "Evidence Artifacts",
-        "clear": "Back To All Artifacts",
-        "empty": "No related artifacts under {scope}; offline/simulated/diagnostic review only, not real acceptance.",
-        "disclaimer": "Artifact views below are for offline/simulated/replay/diagnostic review only and do not represent real acceptance.",
-        "run_dir_note": "Current review scope: {scope} | current-run baseline {catalog_present}/{catalog_total}",
-        "catalog_note": "Current-run catalog baseline {present}/{total}",
-        "scope_note": "{scope} | scope total {visible} | external {external} | missing {missing} | current-run baseline {catalog_total}",
-        "present_note": "{scope} | present on disk {present}/{total} | missing {missing} | current-run baseline {catalog_present}/{catalog_total}",
-        "export_scope_warning": "The export bar still exports current-run artifacts and does not follow the {scope} review scope."
-      },
-      "review_scope_manifest": {
-        "title": "Review Manifest",
-        "generated_at": "Generated At",
-        "scope": "Review Scope",
-        "selection": "Selection",
-        "counts": "Counts",
-        "rows": "Artifact Rows",
-        "note": "Note",
-        "disclaimer_label": "Disclaimer",
-        "disclaimer": "This manifest is for offline/simulated/replay/diagnostic review handoff only and is not real acceptance evidence.",
-        "selection_line": "scope={scope} | source={source} | evidence={evidence}",
-        "counts_line": "scope visible {visible} | scope present {present} | external {external} | missing {missing} | current-run baseline {catalog_present}/{catalog_total}",
-        "note_current_run_status": "Current-run artifact with export status {status}",
-        "note_current_run_unregistered": "Current-run artifact; exportable now, but governance status is unregistered",
-        "note_current_run_missing": "Current-run catalog artifact missing on disk; cannot be handed off by the current-run exporter",
-        "note_review_reference": "External review reference; not part of the current-run exporter set",
-        "note_source_scan": "Limited source_dir scan supplement; review context only, not part of the current-run exporter",
-        "note_missing_reference": "Selected review reference is missing on disk",
-        "external_comparison_label": "External Comparison",
-        "external_comparison_overview": "External comparison rows {rows}; types {types}; scope {scope}; decision rule {decision_rule}; local-file-only; reviewer-only",
-        "external_comparison_import_trace": "Source files {source_files}; import modes {import_modes}; evidence source {evidence_source}",
-        "external_comparison_coverage": "Uncertainty {uncertainty}; method {method}; software {software}; assets {assets}; certificates {certificates}",
-        "external_comparison_boundary": "Local-file-only; reviewer-only; not ready for a formal claim",
-        "external_comparison_detail": "External comparison review information recorded"
-      },
       "ai_report_summary": "AI Report Summary",
       "no_ai_report_summary": "No AI report summary yet.",
       "review_digest": "Offline Review Digest",
@@ -1510,40 +1424,6 @@
       }
     }
   },
-  "dialogs": {
-    "common": {
-      "close": "Close",
-      "save": "Save",
-      "cancel": "Cancel"
-    },
-    "about": {
-      "title": "About",
-      "product": "Product",
-      "version": "Version",
-      "build": "Build",
-      "vendor": "Vendor",
-      "product_id": "Product ID"
-    },
-    "preferences": {
-      "title": "Preferences",
-      "last_config": "Last Config",
-      "simulation_default": "Simulation Default",
-      "auto_start_feed": "Auto Start Feed",
-      "screenshot_format": "Screenshot Format",
-      "status": {
-        "ready": "Ready",
-        "saved": "Saved"
-      }
-    },
-    "release_notes": {
-      "title": "Release Notes",
-      "empty": "No release notes available."
-    },
-    "licenses": {
-      "title": "Licenses",
-      "empty": "No bundled license text available."
-    }
-  },
   "facade": {
     "ui_attached": "UI facade attached",
     "start_failed": "start failed: {error}",
@@ -1564,11 +1444,8 @@
     "winner_configured_reason": "Configured default algorithm is highlighted.",
     "unsupported_export_format": "Unsupported export format: {format}",
     "exporting": "Exporting {format} artifacts...",
-    "export_review_manifesting": "Generating review manifest...",
     "export_failed": "export failed: {error}",
     "exported": "Exported {count} file(s) to {destination}",
-    "review_scope_manifest_export_failed": "Review manifest export failed: {error}",
-    "review_scope_manifest_exported": "Exported {scope} review manifest batch {batch_id}: {destination}",
     "preferences_saved": "Preferences saved",
     "run_in_progress": "Run in progress...",
     "validation_primary_missing_reason": "primary latest index is missing for the current acceptance profile",
@@ -1608,7 +1485,6 @@
         "artifact_roles": "Artifact roles: {value}",
         "lineage_config_version": "Lineage config version: {value}",
         "suite_summary": "Suite summary: {value}",
-        "spectral_quality": "Spectral quality: {value}",
         "offline_diagnostic": "Offline diagnostic adapter: {value}",
         "offline_diagnostic_coverage": "Offline diagnostic coverage: {value}",
         "offline_diagnostic_scope": "Offline diagnostic artifact scope: {value}",
@@ -1650,6 +1526,13 @@
         "validation_top_gaps": "Top gaps: {value}",
         "validation_reviewer_actions": "Reviewer actions: {value}",
         "method_confirmation_non_claim": "Method confirmation non-claim: {value}",
+        "method_confirmation_coverage_items": "Coverage items: {value}",
+        "method_confirmation_validated_items": "Validated items: {value}",
+        "method_confirmation_unverified_items": "Unverified items: {value}",
+        "method_confirmation_validation_run_bindings": "Validation run bindings: {value}",
+        "method_confirmation_source_artifacts": "Source artifact refs: {value}",
+        "method_confirmation_linked_uncertainty_cases": "Linked uncertainty cases: {value}",
+        "method_confirmation_linked_scope_decision": "Linked scope / decision rule: {value}",
         "verification_readiness_status": "Verification readiness status: {value}",
         "verification_rollup": "Verification rollup: {value}",
         "software_validation_overview": "Software validation overview: {value}",
@@ -1803,12 +1686,6 @@
       "h2o_measurement": "H2O Measurement",
       "experiment_measurement": "Experiment Measurement"
     },
-    "notification_level": {
-      "info": "INFO",
-      "warning": "WARNING",
-      "error": "ERROR",
-      "success": "SUCCESS"
-    },
     "risk_level": {
       "low": "Low",
       "medium": "Medium",
@@ -1941,36 +1818,6 @@
       "resilience_summary_line": "{matched}/{total} checks passed",
       "none": "None yet",
       "unreadable": "Found but unreadable"
-    },
-    "spectral_quality": {
-      "title": "Spectral Quality",
-      "none": "None yet",
-      "summary_line": "{status} | channels {ok}/{total} | score {score} | flags {flags}",
-      "channel_line": "{name} | {status} | stability {score} | low-frequency {low_freq} | dominant {dominant} Hz | flags {flags}",
-      "detail": {
-        "status_line": "Status: {status}",
-        "channel_count_line": "Channel coverage: {ok}/{total}",
-        "score_line": "Overall stability score: {score}",
-        "flags_line": "Flags: {flags}",
-        "skipped_line": "Skipped: {error}"
-      },
-      "status": {
-        "ok": "OK",
-        "insufficient_data": "Insufficient data",
-        "invalid_series": "Invalid series",
-        "skipped": "Skipped"
-      },
-      "flag": {
-        "missing_values_dropped": "Missing values dropped",
-        "invalid_timestamps": "Invalid timestamps",
-        "irregular_sampling": "Irregular sampling",
-        "low_sample_count": "Low sample count",
-        "insufficient_duration": "Insufficient duration",
-        "constant_series": "Constant series",
-        "low_frequency_drift": "Low-frequency drift",
-        "oscillatory_peak": "Oscillatory peak",
-        "insufficient_frequency_bins": "Insufficient spectral resolution"
-      }
     },
     "review_center": {
       "title": "Review Center",
@@ -2237,7 +2084,6 @@
         "acceptance": "Acceptance Hint",
         "qc": "QC Summary",
         "analytics": "Analytics Summary",
-        "spectral_quality": "Spectral Quality",
         "lineage": "Lineage Summary"
       },
       "detail_hint": "Select evidence to inspect details",
@@ -2270,8 +2116,6 @@
         "coverage_summary": "Coverage | complete {complete} | gapped {gapped} | {gaps}",
         "diagnostics_summary": "Diagnostics | cache {cache_hit} | roots {roots} | candidates {candidates} | elapsed {elapsed_ms} ms | budget {budget}",
         "coverage_line": "{count}/{total} | {types}",
-        "source_scope_count": "{coverage} | filtered {visible}/{total}",
-        "source_disambiguation": "{source} ({hint})",
         "gaps_none": "No gaps",
         "gaps_line": "Missing {missing}",
         "missing_type_count": "{type} missing {count}",

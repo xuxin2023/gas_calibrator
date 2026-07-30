@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from ..config import QCConfig
+from gas_calibrator.validation.simulation.config import QCConfig
 
 from .point_validator import PointValidationResult
 

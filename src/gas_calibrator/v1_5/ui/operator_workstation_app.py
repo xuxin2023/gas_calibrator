@@ -1,0 +1,1041 @@
+"""Final-product V1.5 desktop operator workstation.
+
+The window is intentionally dry-run-only.  It delegates every calibration
+point to the mature V1.5 45/13 queue runners through ``operator_workstation``
+and never changes ``run_app.py`` or the V1 fallback.
+"""
+
+from __future__ import annotations
+
+import os
+import queue
+import threading
+import tkinter as tk
+from datetime import datetime
+from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
+from typing import Any, Callable, Mapping
+
+from ..certificate_metrics_registry import CertificateMetricsRegistry
+from ..orchestration.operator_workstation import (
+    build_v1_5_operator_workstation_plan,
+    execute_v1_5_operator_workstation_dry_run,
+    run_v1_5_operator_workstation_application,
+)
+from ..workstation_snapshot import build_workstation_snapshot
+from .pages import (
+    CertificateMetricsPage,
+    ReadOnlySummaryPage,
+    VisitorShowcasePage,
+)
+
+
+_TEXT = {
+    "zh_CN": {
+        "title": "V1.5 气体分析仪校准工作站",
+        "kernel": "生产校准内核：0613 / 0620 / 0621",
+        "coverage": "成熟流程 45 CO₂ 点 + 13 H₂O 点",
+        "mode": "当前模式：仿真演练",
+        "offline": "未连接真实设备",
+        "nav.run": "运行",
+        "nav.qc": "质控",
+        "nav.results": "结果",
+        "nav.devices": "设备",
+        "nav.algorithm": "算法",
+        "nav.report": "报告",
+        "nav.review": "审核摘要",
+        "nav.plan": "计划",
+        "nav.certificate": "证书指标",
+        "nav.visitor": "参观展示",
+        "nav.auxiliary": "分析、报告与证据",
+        "route.title": "校准路径与进度",
+        "route.co2": "CO₂ 路径",
+        "route.h2o": "H₂O 路径",
+        "route.zero": "CO₂ 零气锚点",
+        "route.dry": "H₂O 干气锚点（独立证据）",
+        "route.low": "低量程段",
+        "route.mid": "中量程段",
+        "route.high": "高量程段",
+        "route.finish": "结束",
+        "measure.title": "当前点测量",
+        "measure.route": "当前路径",
+        "measure.point": "当前点",
+        "measure.target": "目标值",
+        "measure.mean": "多通道均值",
+        "measure.tolerance": "允许偏差",
+        "measure.judgement": "当前判定",
+        "measure.dwell": "驻留状态",
+        "value.waiting": "等待演练",
+        "value.not_started": "尚未启动",
+        "value.dry_run": "仅 dry-run",
+        "value.not_applicable": "--",
+        "channels.title": "六通道分析仪",
+        "channels.waiting": "等待仿真演练",
+        "channels.co2": "CO₂ 读数（仿真）",
+        "channels.h2o": "H₂O 读数（仿真）",
+        "channels.status": "状态",
+        "channels.trend": "趋势",
+        "channels.note": "备注",
+        "evidence.temperature": "温度稳定",
+        "evidence.reference": "压力与露点证据",
+        "evidence.source": "气体源状态（仿真）",
+        "evidence.certificate": "证书资料不阻断启动",
+        "evidence.release": "正式签发另行审核",
+        "aside.next": "下一步操作",
+        "aside.heading": "成熟 V1.5 路径演练",
+        "aside.step1": "1. 校验 45/13 canonical 队列",
+        "aside.step2": "2. 调用 0620/0621 成熟运行器",
+        "aside.step3": "3. 生成无 COM、无写入证据",
+        "aside.start": "开始演练",
+        "aside.running": "正在演练…",
+        "aside.settings": "运行设置",
+        "aside.open": "打开证据目录",
+        "boundary.title": "安全边界（仿真模式）",
+        "boundary.com": "真实 COM",
+        "boundary.route": "气路 / 水路控制",
+        "boundary.write": "SENCO / 设备 ID 写入",
+        "boundary.acceptance": "真实验收证据",
+        "boundary.disabled": "禁用",
+        "boundary.no": "否",
+        "boundary.note": "V1 fallback 与 run_app.py 保持不变",
+        "note.title": "运行说明",
+        "note.simulation": "当前为仿真演练，不导入任何真实串口。",
+        "note.kernel": "45/13 点均由成熟 V1.5 运行器解释。",
+        "note.certificate": "证书缺口只提醒；正式签发时单独审核。",
+        "note.auxiliary": "分析、报告与证据均属于 V1.5，只读取统一运行状态。",
+        "status.ready": "系统状态：等待演练",
+        "status.running": "系统状态：V1.5 dry-run 执行中",
+        "status.pass": "系统状态：45/13 dry-run 已通过",
+        "status.failed": "系统状态：演练未通过",
+        "footer.role": "角色：操作员",
+        "dialog.title": "V1.5 工作站运行设置",
+        "dialog.config": "运行配置",
+        "dialog.co2": "CO₂ 45 点队列",
+        "dialog.h2o": "H₂O 13 点队列",
+        "dialog.output": "证据输出目录",
+        "dialog.certificate": "证书资料（可选，不阻断）",
+        "dialog.browse": "浏览",
+        "dialog.save": "保存",
+        "dialog.cancel": "取消",
+        "error.blocked": "V1.5 演练入口被阻断：\n{reasons}",
+        "error.failed": "V1.5 dry-run 未通过：\n{reasons}",
+        "info.pass": "成熟 V1.5 路径演练通过：CO₂ 45 点，H₂O 13 点。",
+    },
+    "en_US": {
+        "title": "V1.5 Gas Analyzer Calibration Workstation",
+        "kernel": "Production kernel: 0613 / 0620 / 0621",
+        "coverage": "Mature route: 45 CO₂ + 13 H₂O points",
+        "mode": "Mode: simulation rehearsal",
+        "offline": "No real devices connected",
+    },
+}
+
+_COLORS = {
+    "bg": "#07111d",
+    "nav": "#0a1623",
+    "surface": "#0c1927",
+    "card": "#102131",
+    "card_alt": "#0e1d2b",
+    "border": "#21384b",
+    "text": "#f2f6fa",
+    "muted": "#90a4b7",
+    "blue": "#2f8fff",
+    "blue_dark": "#153b63",
+    "green": "#2bd9a8",
+    "green_dark": "#123d37",
+    "amber": "#f2af3a",
+    "amber_dark": "#49351b",
+}
+
+
+def _t(key: str, *, locale: str = "zh_CN", **kwargs: Any) -> str:
+    text = _TEXT.get(locale, {}).get(key) or _TEXT["zh_CN"].get(key) or key
+    try:
+        return text.format_map(kwargs)
+    except (KeyError, ValueError):
+        return text
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[4]
+
+
+def _default_paths() -> dict[str, str]:
+    root = _repo_root()
+    queue_root = Path(
+        "D:/gas_calibrator/_handoff/v1_5_formal_queue_migration_20260624/"
+        "canonical_open_flow_points"
+    )
+    return {
+        "config": str(root / "configs" / "default_config.json"),
+        "co2": str(queue_root / "co2_runner_queue.csv"),
+        "h2o": str(queue_root / "h2o_runner_queue.csv"),
+        "output": str(root / "output" / "v1_5_operator_workstation_ui"),
+        "certificate": "",
+    }
+
+
+class OperatorWorkstationApp:
+    """Single-screen V1.5 operator shell backed by the verified dry-run seam."""
+
+    def __init__(
+        self,
+        root: tk.Tk,
+        *,
+        locale: str = "zh_CN",
+        executor: Callable[[Mapping[str, Any]], dict[str, Any]] = (
+            execute_v1_5_operator_workstation_dry_run
+        ),
+    ) -> None:
+        self.root = root
+        self.locale = locale
+        self.executor = executor
+        self.settings = {
+            key: tk.StringVar(master=root, value=value)
+            for key, value in _default_paths().items()
+        }
+        self.last_result: dict[str, Any] | None = None
+        self._result_queue: queue.Queue[dict[str, Any]] = queue.Queue()
+        self._settings_dialog: tk.Toplevel | None = None
+        self.pages: dict[str, tk.Widget] = {}
+        self.nav_buttons: dict[str, ttk.Button] = {}
+        self._presentation_active = False
+        self.current_snapshot = build_workstation_snapshot(
+            output_dir=self.settings["output"].get()
+        )
+        self.status_var = tk.StringVar(master=root, value=_t("status.ready", locale=locale))
+        self.route_var = tk.StringVar(master=root, value=_t("value.not_started", locale=locale))
+        self.point_var = tk.StringVar(master=root, value=_t("value.waiting", locale=locale))
+        self.judgement_var = tk.StringVar(master=root, value=_t("value.dry_run", locale=locale))
+        self.dwell_var = tk.StringVar(master=root, value="0 / 58")
+        self._configure_root()
+        self._configure_styles()
+        self._build()
+
+    def _configure_root(self) -> None:
+        self.root.title(_t("title", locale=self.locale))
+        self.root.geometry("1920x1080+0+0")
+        self.root.minsize(1440, 860)
+        self.root.configure(bg=_COLORS["bg"])
+        try:
+            self.root.tk.call("tk", "scaling", 1.25)
+        except tk.TclError:
+            pass
+
+    def _configure_styles(self) -> None:
+        style = ttk.Style(self.root)
+        style.theme_use("clam")
+        style.configure(
+            "Primary.TButton",
+            background=_COLORS["blue"],
+            foreground="white",
+            borderwidth=0,
+            padding=(16, 12),
+            font=("Microsoft YaHei UI", 11, "bold"),
+        )
+        style.map("Primary.TButton", background=[("active", "#55a5ff"), ("disabled", "#29445f")])
+        style.configure(
+            "Secondary.TButton",
+            background=_COLORS["card"],
+            foreground=_COLORS["text"],
+            bordercolor=_COLORS["border"],
+            padding=(12, 9),
+            font=("Microsoft YaHei UI", 9),
+        )
+        style.map("Secondary.TButton", background=[("active", _COLORS["blue_dark"])])
+        style.configure(
+            "Nav.TButton",
+            background=_COLORS["nav"],
+            foreground=_COLORS["muted"],
+            borderwidth=0,
+            anchor="w",
+            padding=(18, 12),
+            font=("Microsoft YaHei UI", 10),
+        )
+        style.map(
+            "Nav.TButton",
+            background=[("active", _COLORS["card"]), ("selected", _COLORS["blue_dark"])],
+            foreground=[("active", _COLORS["text"]), ("selected", _COLORS["text"])],
+        )
+        style.configure("Card.TFrame", background=_COLORS["surface"])
+        style.configure(
+            "Title.TLabel",
+            background=_COLORS["surface"],
+            foreground=_COLORS["text"],
+            font=("Microsoft YaHei UI", 18, "bold"),
+        )
+        style.configure(
+            "Muted.TLabel",
+            background=_COLORS["surface"],
+            foreground=_COLORS["muted"],
+            font=("Microsoft YaHei UI", 9),
+        )
+        style.configure(
+            "Accent.TButton",
+            background=_COLORS["blue"],
+            foreground="white",
+            borderwidth=0,
+            padding=(12, 9),
+            font=("Microsoft YaHei UI", 9, "bold"),
+        )
+        style.map(
+            "Accent.TButton",
+            background=[("active", "#55a5ff"), ("disabled", "#29445f")],
+        )
+        style.configure(
+            "Treeview",
+            background=_COLORS["card"],
+            fieldbackground=_COLORS["card"],
+            foreground=_COLORS["text"],
+            rowheight=28,
+        )
+        style.configure(
+            "Treeview.Heading",
+            background=_COLORS["card_alt"],
+            foreground=_COLORS["text"],
+        )
+
+    def _label(
+        self,
+        parent: tk.Misc,
+        text: str = "",
+        *,
+        textvariable: tk.StringVar | None = None,
+        size: int = 10,
+        color: str = "text",
+        weight: str = "normal",
+        bg: str = "surface",
+        anchor: str = "w",
+    ) -> tk.Label:
+        return tk.Label(
+            parent,
+            text=text,
+            textvariable=textvariable,
+            bg=_COLORS[bg],
+            fg=_COLORS[color],
+            font=("Microsoft YaHei UI", size, weight),
+            anchor=anchor,
+        )
+
+    def _panel(self, parent: tk.Misc, *, bg: str = "surface") -> tk.Frame:
+        return tk.Frame(
+            parent,
+            bg=_COLORS[bg],
+            highlightbackground=_COLORS["border"],
+            highlightthickness=1,
+            bd=0,
+        )
+
+    def _build(self) -> None:
+        self.root.grid_rowconfigure(1, weight=1)
+        self.root.grid_columnconfigure(0, weight=1)
+        self._build_header()
+        body = tk.Frame(self.root, bg=_COLORS["bg"])
+        body.grid(row=1, column=0, sticky="nsew")
+        body.grid_rowconfigure(0, weight=1)
+        body.grid_columnconfigure(1, weight=1)
+        self._build_navigation(body)
+        self._build_page_host(body)
+        self._build_footer()
+
+    def _build_header(self) -> None:
+        header = tk.Frame(self.root, bg=_COLORS["nav"], height=62)
+        header.grid(row=0, column=0, sticky="ew")
+        header.grid_propagate(False)
+        for column, weight in ((0, 0), (1, 0), (2, 1), (3, 0), (4, 0)):
+            header.grid_columnconfigure(column, weight=weight)
+        self._label(header, _t("title", locale=self.locale), size=17, weight="bold", bg="nav").grid(
+            row=0, column=0, padx=(24, 24), pady=16
+        )
+        self._label(header, _t("kernel", locale=self.locale), color="muted", bg="nav").grid(
+            row=0, column=1, padx=(0, 28)
+        )
+        self._label(header, _t("coverage", locale=self.locale), color="muted", bg="nav").grid(
+            row=0, column=2, sticky="w"
+        )
+        self._status_badge(header, _t("mode", locale=self.locale), "blue_dark", "blue").grid(
+            row=0, column=3, padx=8
+        )
+        self._status_badge(header, _t("offline", locale=self.locale), "amber_dark", "amber").grid(
+            row=0, column=4, padx=(8, 24)
+        )
+
+    def _status_badge(self, parent: tk.Misc, text: str, bg: str, fg: str) -> tk.Label:
+        return tk.Label(
+            parent,
+            text=text,
+            bg=_COLORS[bg],
+            fg=_COLORS[fg],
+            font=("Microsoft YaHei UI", 9, "bold"),
+            padx=12,
+            pady=7,
+        )
+
+    def _build_navigation(self, body: tk.Frame) -> None:
+        nav = tk.Frame(body, bg=_COLORS["nav"], width=176)
+        self.navigation = nav
+        nav.grid(row=0, column=0, sticky="nsw")
+        nav.grid_propagate(False)
+        for index, key in enumerate(
+            (
+                "run",
+                "qc",
+                "results",
+                "devices",
+                "algorithm",
+                "report",
+                "review",
+                "plan",
+                "certificate",
+                "visitor",
+            )
+        ):
+            button = ttk.Button(
+                nav,
+                text=_t(f"nav.{key}", locale=self.locale),
+                style="Nav.TButton",
+                command=(
+                    (lambda page=key: self.show_page(page))
+                    if key
+                    in {
+                        "run",
+                        "qc",
+                        "results",
+                        "devices",
+                        "algorithm",
+                        "report",
+                        "review",
+                        "plan",
+                        "certificate",
+                        "visitor",
+                    }
+                    else None
+                ),
+            )
+            button.pack(fill="x", padx=8, pady=(8 if index == 0 else 1, 1))
+            self.nav_buttons[key] = button
+            if index == 0:
+                button.state(["selected"])
+        tk.Frame(nav, bg=_COLORS["border"], height=1).pack(fill="x", padx=14, pady=16)
+        secondary = self._panel(nav, bg="card_alt")
+        secondary.pack(side="bottom", fill="x", padx=10, pady=12)
+        self._label(
+            secondary,
+            _t("nav.auxiliary", locale=self.locale),
+            size=9,
+            color="muted",
+            bg="card_alt",
+        ).pack(anchor="w", padx=12, pady=12)
+
+    def _build_page_host(self, body: tk.Frame) -> None:
+        host = tk.Frame(body, bg=_COLORS["bg"])
+        host.grid(row=0, column=1, sticky="nsew")
+        host.grid_rowconfigure(0, weight=1)
+        host.grid_columnconfigure(0, weight=1)
+        self.page_host = host
+
+        run_page = tk.Frame(host, bg=_COLORS["bg"])
+        run_page.grid(row=0, column=0, sticky="nsew")
+        run_page.grid_rowconfigure(0, weight=1)
+        run_page.grid_columnconfigure(1, weight=1)
+        self._build_main(run_page)
+        self._build_aside(run_page)
+
+        registry_path = (
+            Path(self.settings["output"].get())
+            / "certificate_metrics_registry.json"
+        )
+        certificate_page = CertificateMetricsPage(
+            host,
+            registry=CertificateMetricsRegistry(registry_path),
+            locale=self.locale,
+        )
+        certificate_page.grid(row=0, column=0, sticky="nsew")
+
+        results_page = ReadOnlySummaryPage(
+            host,
+            page_kind="results",
+            locale=self.locale,
+        )
+        results_page.grid(row=0, column=0, sticky="nsew")
+
+        reports_page = ReadOnlySummaryPage(
+            host,
+            page_kind="reports",
+            locale=self.locale,
+        )
+        reports_page.grid(row=0, column=0, sticky="nsew")
+
+        review_page = ReadOnlySummaryPage(
+            host,
+            page_kind="review",
+            locale=self.locale,
+        )
+        review_page.grid(row=0, column=0, sticky="nsew")
+
+        plan_page = ReadOnlySummaryPage(
+            host,
+            page_kind="plan",
+            locale=self.locale,
+        )
+        plan_page.grid(row=0, column=0, sticky="nsew")
+
+        qc_page = ReadOnlySummaryPage(
+            host,
+            page_kind="qc",
+            locale=self.locale,
+        )
+        qc_page.grid(row=0, column=0, sticky="nsew")
+
+        devices_page = ReadOnlySummaryPage(
+            host,
+            page_kind="devices",
+            locale=self.locale,
+        )
+        devices_page.grid(row=0, column=0, sticky="nsew")
+
+        algorithm_page = ReadOnlySummaryPage(
+            host,
+            page_kind="algorithm",
+            locale=self.locale,
+        )
+        algorithm_page.grid(row=0, column=0, sticky="nsew")
+
+        visitor_page = VisitorShowcasePage(
+            host,
+            on_enter_presentation=self.enter_visitor_presentation,
+            on_exit_presentation=self.exit_visitor_presentation,
+            locale=self.locale,
+        )
+        visitor_page.grid(row=0, column=0, sticky="nsew")
+
+        self.pages = {
+            "run": run_page,
+            "qc": qc_page,
+            "results": results_page,
+            "devices": devices_page,
+            "algorithm": algorithm_page,
+            "report": reports_page,
+            "review": review_page,
+            "plan": plan_page,
+            "certificate": certificate_page,
+            "visitor": visitor_page,
+        }
+        self.results_page = results_page
+        self.reports_page = reports_page
+        self.review_page = review_page
+        self.plan_page = plan_page
+        self.qc_page = qc_page
+        self.devices_page = devices_page
+        self.algorithm_page = algorithm_page
+        self.certificate_page = certificate_page
+        self.visitor_page = visitor_page
+        self.refresh_workstation_snapshot()
+        self.show_page("run")
+
+    def show_page(self, page_name: str) -> None:
+        """Raise one V1.5-owned page without changing the calibration runner."""
+
+        page = self.pages.get(page_name)
+        if page is None:
+            return
+        if page_name in {
+            "qc",
+            "results",
+            "devices",
+            "algorithm",
+            "report",
+            "review",
+            "plan",
+            "visitor",
+        }:
+            self.refresh_workstation_snapshot()
+        page.tkraise()
+        for key, button in self.nav_buttons.items():
+            if key == page_name:
+                button.state(["selected"])
+            else:
+                button.state(["!selected"])
+
+    def _visitor_snapshot(self) -> dict[str, Any]:
+        return self.current_snapshot
+
+    def refresh_workstation_snapshot(self) -> dict[str, Any]:
+        """Rebuild once, then render every read-only V1.5 view from it."""
+
+        certificate_error = ""
+        try:
+            certificate_records = self.certificate_page.registry.list_records()
+        except Exception as exc:
+            certificate_records = []
+            certificate_error = f"{type(exc).__name__}: {exc}"
+        snapshot = build_workstation_snapshot(
+            execution=self.last_result,
+            output_dir=self.settings["output"].get(),
+            certificate_records=certificate_records,
+            certificate_error=certificate_error,
+        )
+        self.current_snapshot = snapshot
+        self.results_page.render(snapshot)
+        self.reports_page.render(snapshot)
+        self.review_page.render(snapshot)
+        self.plan_page.render(snapshot)
+        self.qc_page.render(snapshot)
+        self.devices_page.render(snapshot)
+        self.algorithm_page.render(snapshot)
+        self.visitor_page.render(snapshot)
+        return snapshot
+
+    def enter_visitor_presentation(self) -> None:
+        """Enter a reversible display-only full-screen mode."""
+
+        self._presentation_active = True
+        self.navigation.grid_remove()
+        try:
+            self.root.attributes("-fullscreen", True)
+        except tk.TclError:
+            pass
+        self.root.bind("<Escape>", self._on_escape_presentation, add="+")
+        self.visitor_page.set_presentation_active(True)
+
+    def exit_visitor_presentation(self) -> None:
+        self._presentation_active = False
+        try:
+            self.root.attributes("-fullscreen", False)
+        except tk.TclError:
+            pass
+        self.navigation.grid()
+        self.visitor_page.set_presentation_active(False)
+
+    def _on_escape_presentation(self, _event: tk.Event[tk.Misc]) -> None:
+        if self._presentation_active:
+            self.exit_visitor_presentation()
+
+    def _build_main(self, body: tk.Frame) -> None:
+        main = tk.Frame(body, bg=_COLORS["bg"])
+        main.grid(row=0, column=1, sticky="nsew", padx=14, pady=14)
+        main.grid_columnconfigure(0, weight=1)
+        main.grid_rowconfigure(2, weight=1)
+        self._build_routes(main)
+        self._build_measurements(main)
+        self._build_channels(main)
+        self._build_evidence(main)
+
+    def _section_title(self, parent: tk.Misc, key: str) -> None:
+        self._label(parent, _t(key, locale=self.locale), size=12, weight="bold").pack(
+            anchor="w", padx=16, pady=(12, 8)
+        )
+
+    def _build_routes(self, main: tk.Frame) -> None:
+        panel = self._panel(main)
+        panel.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+        self._section_title(panel, "route.title")
+        route_grid = tk.Frame(panel, bg=_COLORS["surface"])
+        route_grid.pack(fill="x", padx=12, pady=(0, 12))
+        route_grid.grid_columnconfigure(1, weight=1)
+        self._route_row(
+            route_grid,
+            0,
+            "route.co2",
+            ("route.zero", "route.low", "route.mid", "route.high", "route.finish"),
+        )
+        self._route_row(
+            route_grid,
+            1,
+            "route.h2o",
+            ("route.dry", "route.low", "route.mid", "route.high", "route.finish"),
+        )
+
+    def _route_row(
+        self,
+        parent: tk.Frame,
+        row: int,
+        title_key: str,
+        stage_keys: tuple[str, ...],
+    ) -> None:
+        self._label(parent, _t(title_key, locale=self.locale), weight="bold").grid(
+            row=row, column=0, sticky="w", padx=(4, 16), pady=8
+        )
+        stages = tk.Frame(parent, bg=_COLORS["card_alt"])
+        stages.grid(row=row, column=1, sticky="ew", pady=5)
+        for index, key in enumerate(stage_keys):
+            stages.grid_columnconfigure(index, weight=1)
+            active = index == 0
+            tk.Label(
+                stages,
+                text=_t(key, locale=self.locale),
+                bg=_COLORS["blue_dark"] if active else _COLORS["card_alt"],
+                fg=_COLORS["text"] if active else _COLORS["muted"],
+                font=("Microsoft YaHei UI", 9, "bold" if active else "normal"),
+                padx=8,
+                pady=10,
+            ).grid(row=0, column=index, sticky="ew", padx=2)
+
+    def _build_measurements(self, main: tk.Frame) -> None:
+        panel = self._panel(main)
+        panel.grid(row=1, column=0, sticky="ew", pady=(0, 12))
+        self._section_title(panel, "measure.title")
+        grid = tk.Frame(panel, bg=_COLORS["surface"])
+        grid.pack(fill="x", padx=12, pady=(0, 12))
+        cards = (
+            ("measure.route", self.route_var),
+            ("measure.point", self.point_var),
+            ("measure.target", None),
+            ("measure.mean", None),
+            ("measure.tolerance", None),
+            ("measure.judgement", self.judgement_var),
+            ("measure.dwell", self.dwell_var),
+        )
+        for index, (key, variable) in enumerate(cards):
+            grid.grid_columnconfigure(index, weight=1, uniform="measurement")
+            card = self._panel(grid, bg="card")
+            card.grid(row=0, column=index, sticky="nsew", padx=3)
+            self._label(card, _t(key, locale=self.locale), size=8, color="muted", bg="card").pack(
+                anchor="w", padx=12, pady=(10, 4)
+            )
+            self._label(
+                card,
+                _t("value.not_applicable", locale=self.locale),
+                textvariable=variable,
+                size=12,
+                weight="bold",
+                bg="card",
+            ).pack(anchor="w", padx=12, pady=(0, 12))
+
+    def _build_channels(self, main: tk.Frame) -> None:
+        panel = self._panel(main)
+        panel.grid(row=2, column=0, sticky="nsew", pady=(0, 12))
+        self._section_title(panel, "channels.title")
+        grid = tk.Frame(panel, bg=_COLORS["surface"])
+        grid.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        grid.grid_rowconfigure(0, weight=1)
+        for index in range(6):
+            grid.grid_columnconfigure(index, weight=1, uniform="channel")
+            card = self._panel(grid, bg="card")
+            card.grid(row=0, column=index, sticky="nsew", padx=3)
+            self._label(card, f"通道 {index + 1:02d}", size=11, weight="bold", bg="card").pack(
+                anchor="w", padx=14, pady=(14, 12)
+            )
+            for key in ("channels.co2", "channels.h2o"):
+                self._label(card, _t(key, locale=self.locale), size=9, color="muted", bg="card").pack(
+                    anchor="w", padx=14
+                )
+                self._label(card, "--", size=12, bg="card").pack(anchor="w", padx=14, pady=(0, 10))
+            tk.Frame(card, bg=_COLORS["border"], height=1).pack(fill="x", padx=14, pady=5)
+            for key, value in (
+                ("channels.status", _t("channels.waiting", locale=self.locale)),
+                ("channels.trend", "— — —"),
+                ("channels.note", "—"),
+            ):
+                row = tk.Frame(card, bg=_COLORS["card"])
+                row.pack(fill="x", padx=14, pady=4)
+                self._label(
+                    row,
+                    _t(key, locale=self.locale),
+                    size=8,
+                    color="muted",
+                    bg="card",
+                ).pack(side="left")
+                self._label(
+                    row,
+                    value,
+                    size=8,
+                    color="green" if key == "channels.status" else "muted",
+                    bg="card",
+                ).pack(side="right")
+            self._label(
+                card,
+                "SIMULATION / NO COM",
+                size=8,
+                color="blue",
+                bg="card",
+            ).pack(side="bottom", anchor="w", padx=14, pady=14)
+
+    def _build_evidence(self, main: tk.Frame) -> None:
+        grid = tk.Frame(main, bg=_COLORS["bg"])
+        grid.grid(row=3, column=0, sticky="ew")
+        for index, (key, value) in enumerate(
+            (
+                ("evidence.temperature", "24.9 °C / 等待"),
+                ("evidence.reference", "1000 hPa / -45 °C"),
+                ("evidence.source", "零气 / 干气 / 标气"),
+                ("evidence.certificate", _t("evidence.release", locale=self.locale)),
+            )
+        ):
+            grid.grid_columnconfigure(index, weight=1, uniform="evidence")
+            card = self._panel(grid, bg="card_alt")
+            card.grid(row=0, column=index, sticky="nsew", padx=(0 if index == 0 else 4, 0))
+            self._label(card, _t(key, locale=self.locale), size=9, weight="bold", bg="card_alt").pack(
+                anchor="w", padx=12, pady=(10, 4)
+            )
+            self._label(card, value, size=8, color="muted", bg="card_alt").pack(
+                anchor="w", padx=12, pady=(0, 10)
+            )
+
+    def _build_aside(self, body: tk.Frame) -> None:
+        aside = tk.Frame(body, bg=_COLORS["bg"], width=294)
+        aside.grid(row=0, column=2, sticky="nse", padx=(0, 14), pady=14)
+        aside.grid_propagate(False)
+        action = self._panel(aside)
+        action.pack(fill="x", pady=(0, 12))
+        self._section_title(action, "aside.next")
+        self._label(action, _t("aside.heading", locale=self.locale), size=13, weight="bold").pack(
+            anchor="w", padx=16, pady=(0, 10)
+        )
+        for key in ("aside.step1", "aside.step2", "aside.step3"):
+            self._label(action, _t(key, locale=self.locale), size=9, color="muted").pack(
+                anchor="w", padx=16, pady=3
+            )
+        self.start_button = ttk.Button(
+            action,
+            text=_t("aside.start", locale=self.locale),
+            style="Primary.TButton",
+            command=self.start_dry_run,
+        )
+        self.start_button.pack(fill="x", padx=16, pady=(16, 8))
+        ttk.Button(
+            action,
+            text=_t("aside.settings", locale=self.locale),
+            style="Secondary.TButton",
+            command=self.open_settings,
+        ).pack(fill="x", padx=16, pady=(0, 8))
+        ttk.Button(
+            action,
+            text=_t("aside.open", locale=self.locale),
+            style="Secondary.TButton",
+            command=self.open_output_directory,
+        ).pack(fill="x", padx=16, pady=(0, 16))
+
+        boundary = self._panel(aside)
+        boundary.pack(fill="x")
+        self._section_title(boundary, "boundary.title")
+        for key, value_key in (
+            ("boundary.com", "boundary.disabled"),
+            ("boundary.route", "boundary.disabled"),
+            ("boundary.write", "boundary.disabled"),
+            ("boundary.acceptance", "boundary.no"),
+        ):
+            row = tk.Frame(boundary, bg=_COLORS["surface"])
+            row.pack(fill="x", padx=16, pady=5)
+            self._label(row, _t(key, locale=self.locale), size=9).pack(side="left")
+            self._status_badge(
+                row,
+                _t(value_key, locale=self.locale),
+                "green_dark",
+                "green",
+            ).pack(side="right")
+        self._label(
+            boundary,
+            _t("boundary.note", locale=self.locale),
+            size=8,
+            color="muted",
+        ).pack(anchor="w", padx=16, pady=(10, 16))
+
+        note = self._panel(aside)
+        note.pack(fill="x", pady=(12, 0))
+        self._section_title(note, "note.title")
+        for key in (
+            "note.simulation",
+            "note.kernel",
+            "note.certificate",
+            "note.auxiliary",
+        ):
+            self._label(
+                note,
+                f"• {_t(key, locale=self.locale)}",
+                size=8,
+                color="muted",
+            ).pack(anchor="w", padx=16, pady=5)
+        tk.Frame(note, bg=_COLORS["surface"], height=7).pack()
+
+    def _build_footer(self) -> None:
+        footer = tk.Frame(self.root, bg=_COLORS["nav"], height=38)
+        footer.grid(row=2, column=0, sticky="ew")
+        footer.grid_propagate(False)
+        self._label(
+            footer,
+            textvariable=self.status_var,
+            size=9,
+            color="green",
+            bg="nav",
+        ).pack(side="left", padx=20, pady=9)
+        self._label(
+            footer,
+            _t("footer.role", locale=self.locale),
+            size=9,
+            color="muted",
+            bg="nav",
+        ).pack(side="right", padx=20, pady=9)
+
+    def open_settings(self) -> None:
+        if self._settings_dialog is not None and self._settings_dialog.winfo_exists():
+            self._settings_dialog.lift()
+            return
+        dialog = tk.Toplevel(self.root)
+        self._settings_dialog = dialog
+        dialog.title(_t("dialog.title", locale=self.locale))
+        dialog.geometry("860x330")
+        dialog.configure(bg=_COLORS["surface"])
+        dialog.transient(self.root)
+        dialog.grab_set()
+        rows = (
+            ("config", "dialog.config", False),
+            ("co2", "dialog.co2", False),
+            ("h2o", "dialog.h2o", False),
+            ("output", "dialog.output", True),
+            ("certificate", "dialog.certificate", False),
+        )
+        dialog.grid_columnconfigure(1, weight=1)
+        for index, (setting, label_key, directory) in enumerate(rows):
+            self._label(dialog, _t(label_key, locale=self.locale), size=9).grid(
+                row=index, column=0, sticky="w", padx=(18, 10), pady=10
+            )
+            ttk.Entry(dialog, textvariable=self.settings[setting]).grid(
+                row=index, column=1, sticky="ew", pady=10
+            )
+            ttk.Button(
+                dialog,
+                text=_t("dialog.browse", locale=self.locale),
+                style="Secondary.TButton",
+                command=lambda key=setting, is_directory=directory: self._browse(key, is_directory),
+            ).grid(row=index, column=2, padx=12, pady=8)
+        actions = tk.Frame(dialog, bg=_COLORS["surface"])
+        actions.grid(row=len(rows), column=0, columnspan=3, sticky="e", padx=18, pady=14)
+        ttk.Button(
+            actions,
+            text=_t("dialog.cancel", locale=self.locale),
+            style="Secondary.TButton",
+            command=dialog.destroy,
+        ).pack(side="right", padx=(8, 0))
+        ttk.Button(
+            actions,
+            text=_t("dialog.save", locale=self.locale),
+            style="Primary.TButton",
+            command=dialog.destroy,
+        ).pack(side="right")
+
+    def _browse(self, key: str, directory: bool) -> None:
+        selected = (
+            filedialog.askdirectory(parent=self._settings_dialog)
+            if directory
+            else filedialog.askopenfilename(parent=self._settings_dialog)
+        )
+        if selected:
+            self.settings[key].set(selected)
+
+    def _plan(self) -> dict[str, Any]:
+        run_id = f"operator_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        certificate = self.settings["certificate"].get().strip() or None
+        return build_v1_5_operator_workstation_plan(
+            config_path=self.settings["config"].get(),
+            co2_queue_csv=self.settings["co2"].get(),
+            h2o_queue_csv=self.settings["h2o"].get(),
+            output_dir=self.settings["output"].get(),
+            run_id=run_id,
+            certificate_registry_json=certificate,
+        )
+
+    def start_dry_run(self) -> None:
+        plan = self._plan()
+        if plan.get("blockers"):
+            messagebox.showerror(
+                _t("title", locale=self.locale),
+                _t(
+                    "error.blocked",
+                    locale=self.locale,
+                    reasons="\n".join(plan["blockers"]),
+                ),
+                parent=self.root,
+            )
+            return
+        self.start_button.state(["disabled"])
+        self.start_button.configure(text=_t("aside.running", locale=self.locale))
+        self.status_var.set(_t("status.running", locale=self.locale))
+        self.route_var.set("CO₂ → H₂O")
+        self.point_var.set(_t("value.dry_run", locale=self.locale))
+        self.judgement_var.set(_t("value.waiting", locale=self.locale))
+        self.dwell_var.set("0 / 58")
+        output_dir = self.settings["output"].get()
+
+        def worker() -> None:
+            try:
+                result, _outputs = run_v1_5_operator_workstation_application(
+                    plan,
+                    output_dir=output_dir,
+                    executor=self.executor,
+                )
+            except Exception as exc:  # pragma: no cover - UI safety net
+                result = {
+                    **plan,
+                    "overall_status": "failed",
+                    "execution_blockers": [f"{type(exc).__name__}: {exc}"],
+                }
+            self._result_queue.put(result)
+
+        self.root.after(30, self._poll_dry_run_result)
+        threading.Thread(target=worker, name="v1_5_operator_dry_run", daemon=True).start()
+
+    def _poll_dry_run_result(self) -> None:
+        try:
+            result = self._result_queue.get_nowait()
+        except queue.Empty:
+            self.root.after(30, self._poll_dry_run_result)
+            return
+        self._finish_dry_run(result)
+
+    def _finish_dry_run(self, result: dict[str, Any]) -> None:
+        self.last_result = result
+        self.refresh_workstation_snapshot()
+        self.start_button.state(["!disabled"])
+        self.start_button.configure(text=_t("aside.start", locale=self.locale))
+        passed = result.get("overall_status") == "pass"
+        self.status_var.set(
+            _t("status.pass" if passed else "status.failed", locale=self.locale)
+        )
+        self.judgement_var.set("PASS" if passed else "FAILED")
+        self.dwell_var.set("58 / 58" if passed else "-- / 58")
+        if passed:
+            messagebox.showinfo(
+                _t("title", locale=self.locale),
+                _t("info.pass", locale=self.locale),
+                parent=self.root,
+            )
+        else:
+            reasons = result.get("execution_blockers") or result.get("blockers") or ["unknown"]
+            messagebox.showerror(
+                _t("title", locale=self.locale),
+                _t(
+                    "error.failed",
+                    locale=self.locale,
+                    reasons="\n".join(str(item) for item in reasons),
+                ),
+                parent=self.root,
+            )
+
+    def open_output_directory(self) -> None:
+        path = Path(self.settings["output"].get()).resolve()
+        path.mkdir(parents=True, exist_ok=True)
+        if hasattr(os, "startfile"):
+            os.startfile(str(path))  # type: ignore[attr-defined]  # pragma: no cover
+
+
+def build_application(
+    *,
+    root: tk.Tk | None = None,
+    locale: str = "zh_CN",
+) -> tuple[tk.Tk, OperatorWorkstationApp]:
+    active_root = root or tk.Tk()
+    return active_root, OperatorWorkstationApp(active_root, locale=locale)
+
+
+def main() -> int:
+    root, _ = build_application()
+    root.mainloop()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
+__all__ = ["OperatorWorkstationApp", "build_application", "main"]

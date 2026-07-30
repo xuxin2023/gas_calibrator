@@ -1,6 +1,13 @@
 from __future__ import annotations
 
 from gas_calibrator.v2.sim import get_simulated_scenario, list_simulated_profiles, list_simulated_scenarios
+from gas_calibrator.v2.sim.devices import FakeAnalyzerSpec, SimulatedDeviceMatrix
+
+
+def test_simulated_device_specs_have_one_package_owner() -> None:
+    expected_module = "gas_calibrator.v2.sim.devices"
+    assert FakeAnalyzerSpec.__module__ == expected_module
+    assert SimulatedDeviceMatrix.__module__ == expected_module
 
 
 def test_simulated_scenario_catalog_contains_required_profiles_and_scenarios() -> None:

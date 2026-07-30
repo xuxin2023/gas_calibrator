@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from .metrology_calibration_contract import METROLOGY_CALIBRATION_CONTRACT_FILENAME
@@ -13,12 +12,7 @@ from .phase_transition_bridge_reviewer_artifact import (
 from .step2_readiness import STEP2_READINESS_SUMMARY_FILENAME
 from .governance_handoff_contracts import (
     GOVERNANCE_HANDOFF_FILENAMES as _GOV_FILENAMES,
-    GOVERNANCE_HANDOFF_DISPLAY_LABELS as _GOV_LABELS,
-    GOVERNANCE_HANDOFF_DISPLAY_LABELS_EN as _GOV_LABELS_EN,
-    GOVERNANCE_HANDOFF_I18N_KEYS as _GOV_I18N_KEYS,
-    GOVERNANCE_HANDOFF_ROLES as _GOV_ROLES,
     GOVERNANCE_HANDOFF_TITLE_TEXTS as _GOV_TITLE_TEXTS,
-    GOVERNANCE_HANDOFF_SUMMARY_TEXTS as _GOV_SUMMARY_TEXTS,
     GOVERNANCE_HANDOFF_PHASES as _GOV_PHASES,
 )
 

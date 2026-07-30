@@ -4,7 +4,7 @@ import csv
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, Sequence, Tuple
 
 
 def merge_csv_headers(*groups: Iterable[Any]) -> list[str]:

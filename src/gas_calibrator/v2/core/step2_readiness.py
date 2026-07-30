@@ -12,18 +12,16 @@ from .governance_handoff_contracts import GOVERNANCE_HANDOFF_FILENAMES as _GOV_F
 STEP2_READINESS_SUMMARY_FILENAME = _GOV_FILENAMES["step2_readiness_summary"]
 REAL_BENCH_UNLOCK_FLAG = "--allow-real-bench"
 REAL_BENCH_UNLOCK_ENV = "GAS_CALIBRATOR_V2_ALLOW_REAL_BENCH"
-HEADLESS_SMOKE_COMMAND = (
-    "PYTHONPATH=src python -m gas_calibrator.v2.scripts.run_v2 "
-    "--config src/gas_calibrator/v2/configs/smoke_v2_minimal.json --simulation --headless"
-)
+HEADLESS_SMOKE_COMMAND = ""
+V2_SIMULATION_LAUNCHER_STATE = "retired"
 _OFFLINE_ONLY_ADAPTER_IDS = [
     "room_temp_pressure_diagnostic",
     "analyzer_chain_isolation",
 ]
 _REVIEWER_HYDRATION_CONSUMERS = [
-    "review_scope_manifest",
-    "review_scope_export_index",
-    "artifact_scope_view",
+    "results_payload",
+    "reports",
+    "historical_artifacts",
 ]
 _GATE_LABELS = {
     "simulation_only_boundary": "仿真边界",
@@ -80,7 +78,7 @@ def build_step2_readiness_summary(
     real_bench_locked = True
     offline_adapters_isolated = True
     reviewer_hydration_ready = True
-    headless_smoke_ready = smoke_config.exists() and smoke_points.exists()
+    smoke_fixture_inventory_complete = smoke_config.exists() and smoke_points.exists()
 
     gates = [
         _gate(
@@ -144,14 +142,17 @@ def build_step2_readiness_summary(
         ),
         _gate(
             "headless_smoke_path_available",
-            "pass" if headless_smoke_ready else "blocked",
-            "headless_smoke_path_available" if headless_smoke_ready else "headless_smoke_path_missing",
+            "retired",
+            "v2_simulation_launcher_retired",
             {
                 "smoke_config_path": str(smoke_config),
                 "smoke_config_exists": smoke_config.exists(),
                 "smoke_points_path": str(smoke_points),
                 "smoke_points_exists": smoke_points.exists(),
+                "smoke_fixture_inventory_complete": smoke_fixture_inventory_complete,
                 "headless_command": HEADLESS_SMOKE_COMMAND,
+                "launcher_state": V2_SIMULATION_LAUNCHER_STATE,
+                "replacement_product_entry": "run_v1_5_workstation.py",
             },
         ),
         _gate(
@@ -170,7 +171,6 @@ def build_step2_readiness_summary(
         and experiment_flags_default_off
         and offline_adapters_isolated
         and reviewer_hydration_ready
-        and headless_smoke_ready
         and evidence_complete
         and step2_default_workflow_allowed
         and execution_gate_status == "open"
@@ -203,6 +203,7 @@ def build_step2_readiness_summary(
                 *(["requires_explicit_unlock"] if requires_explicit_unlock else []),
                 *(["config_governance_handoff_incomplete"] if not evidence_complete else []),
                 "simulation_offline_headless_only",
+                "v2_simulation_launcher_retired",
                 "not_real_acceptance_evidence",
             ]
         )
@@ -211,6 +212,7 @@ def build_step2_readiness_summary(
         "step2_readiness_artifact",
         "phase2_closeout_step3_engineering_isolation_bridge",
         "simulation_offline_headless_only",
+        "v2_simulation_launcher_retired",
         "not_real_acceptance_evidence",
         "default_path_unchanged",
     ]

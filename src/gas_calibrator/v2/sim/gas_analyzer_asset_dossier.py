@@ -10,11 +10,11 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from gas_calibrator.utils.file_io import write_json as _write_json
-
-from ..domain.services.gas_analyzer_asset_dossier import (
+from gas_calibrator.validation.metrology.gas_analyzer_asset_dossier import (
     analyze_gas_analyzer_asset_dossier,
     build_gas_analyzer_asset_dossier_acceptance,
 )
+
 
 
 DEFAULT_GAS_ANALYZER_ASSET_DOSSIER_CONTRACT_PATH = (

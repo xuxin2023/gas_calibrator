@@ -11,7 +11,7 @@ RECOGNITION_SCOPE_REPOSITORY_SCHEMA_VERSION = "step2-recognition-scope-repositor
 RECOGNITION_SCOPE_REPOSITORY_MODE = "file_artifact_first"
 RECOGNITION_SCOPE_GATEWAY_MODE = "file_backed_default"
 RECOGNITION_SCOPE_DB_READY_MODE = "db_ready_stub"
-RECOGNITION_SCOPE_REPOSITORY_TOOL = "recognition_scope_gateway"
+RECOGNITION_SCOPE_REPOSITORY_TOOL = "gas_calibrator.v2.adapters"
 
 _LINKED_SURFACES = ["results", "review_center", "workbench", "historical_artifacts"]
 

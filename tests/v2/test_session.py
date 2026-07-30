@@ -1,8 +1,7 @@
 from pathlib import Path
 
-from gas_calibrator.v2.config import AppConfig
-from gas_calibrator.v2.core.models import CalibrationPhase, CalibrationPoint
-from gas_calibrator.v2.core.session import RunSession
+from gas_calibrator.v2.config.models import AppConfig
+from gas_calibrator.v2.core.models import CalibrationPhase, CalibrationPoint, RunSession
 
 
 def _config() -> AppConfig:
@@ -25,6 +24,10 @@ def test_session_initializes_run_context() -> None:
     assert session.phase is CalibrationPhase.IDLE
     assert session.output_dir == Path("logs") / session.run_id
     assert session.enabled_devices == {"pressure_controller", "gas_analyzer_0"}
+
+
+def test_session_has_one_runtime_model_owner() -> None:
+    assert RunSession.__module__ == "gas_calibrator.v2.core.models"
 
 
 def test_session_start_end_and_to_dict() -> None:

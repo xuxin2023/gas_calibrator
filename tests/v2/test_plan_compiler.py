@@ -1,11 +1,7 @@
 import json
 from pathlib import Path
 
-from gas_calibrator.v2.config import AppConfig
-from gas_calibrator.v2.core.controlled_state_machine_profile import compile_controlled_state_machine_profile
-from gas_calibrator.v2.core.plan_compiler import PlanCompiler
-from gas_calibrator.v2.core.point_parser import PointParser
-from gas_calibrator.v2.domain.plan_models import (
+from gas_calibrator.validation.simulation.plan_models import (
     AnalyzerSetupSpec,
     CalibrationPlanProfile,
     GasPointSpec,
@@ -14,14 +10,30 @@ from gas_calibrator.v2.domain.plan_models import (
     PressureSpec,
     TemperatureSpec,
 )
-from gas_calibrator.v2.domain.mode_models import ModeProfile, RunMode
-from gas_calibrator.v2.domain.pressure_selection import (
+from gas_calibrator.v2.config.models import AppConfig
+from gas_calibrator.v2.core.controlled_state_machine_profile import compile_controlled_state_machine_profile
+from gas_calibrator.v2.core.plan_compiler import PlanCompiler
+from gas_calibrator.validation.simulation.point_parser import PointParser
+from gas_calibrator.validation.simulation.domain import ModeProfile, RunMode
+from gas_calibrator.validation.simulation.pressure_selection import (
     AMBIENT_PRESSURE_LABEL,
     AMBIENT_PRESSURE_TOKEN,
+    pressure_target_label,
 )
 
 
 def test_plan_compiler_builds_runtime_rows_that_point_parser_can_consume(tmp_path: Path) -> None:
+    old_owner = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "gas_calibrator"
+        / "v2"
+        / "domain"
+        / "pressure_selection.py"
+    )
+    assert pressure_target_label.__module__ == "gas_calibrator.validation.simulation.pressure_selection"
+    assert not old_owner.exists()
+
     compiler = PlanCompiler()
     profile = CalibrationPlanProfile(
         name="ui_profile",

@@ -2,7 +2,7 @@ import time
 
 import pytest
 
-from gas_calibrator.v2.config import DeviceConfig
+from gas_calibrator.v2.config.models import DeviceConfig
 from gas_calibrator.v2.core.device_factory import (
     DeviceDriverImportError,
     DeviceFactory,

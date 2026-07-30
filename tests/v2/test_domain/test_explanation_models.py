@@ -1,4 +1,4 @@
-from gas_calibrator.v2.domain.explanation_models import (
+from gas_calibrator.validation.simulation.domain import (
     AlgorithmRecommendation,
     PointRejection,
     Recommendation,
@@ -53,3 +53,12 @@ def test_point_rejection_and_run_explanation_report() -> None:
     assert "Point 3 rejected" in rejection.explain()
     assert "Run run_003" in report
     assert "enough valid points remain" in report
+
+
+def test_explanation_models_have_one_package_owner() -> None:
+    assert {
+        Recommendation.__module__,
+        AlgorithmRecommendation.__module__,
+        PointRejection.__module__,
+        RunExplanation.__module__,
+    } == {"gas_calibrator.validation.simulation.domain"}

@@ -1,28 +1,22 @@
 import csv
 import hashlib
 import json
-from pathlib import Path
 import shutil
+from pathlib import Path
 
 import pytest
 
 pytest.importorskip("sqlalchemy")
 from sqlalchemy import func, inspect, select
 
-from gas_calibrator.v2.config import AppConfig
-from gas_calibrator.v2.core.calibration_service import CalibrationService
-from gas_calibrator.v2.core.device_manager import DeviceManager
-from gas_calibrator.v2.core.stability_checker import StabilityResult
-from gas_calibrator.v2.storage import (
-    ArtifactImporter,
-    CoefficientVersionStore,
+from gas_calibrator.storage.coefficient_store import CoefficientVersionStore
+from gas_calibrator.storage.database import (
     DatabaseManager,
-    HistoryQueryService,
-    StorageExporter,
     StorageSettings,
+    resolve_run_uuid,
 )
-from gas_calibrator.v2.storage.database import resolve_run_uuid
-from gas_calibrator.v2.storage.models import (
+from gas_calibrator.storage.importer import ArtifactImporter
+from gas_calibrator.storage.models import (
     AlarmIncidentRecord,
     DeviceEventRecord,
     FitResultRecord,
@@ -33,6 +27,11 @@ from gas_calibrator.v2.storage.models import (
     SampleRecord,
     SensorRecord,
 )
+from gas_calibrator.storage.queries import HistoryQueryService
+from gas_calibrator.v2.config.models import AppConfig
+from gas_calibrator.v2.core.calibration_service import CalibrationService
+from gas_calibrator.v2.core.device_manager import DeviceManager
+from gas_calibrator.validation.simulation.stability_checker import StabilityResult
 
 
 def _storage_settings(tmp_path: Path) -> StorageSettings:
@@ -331,7 +330,7 @@ def test_storage_schema_creation_and_health_check(tmp_path: Path) -> None:
     assert database.health_check()["ok"] is True
 
 
-def test_artifact_import_queries_and_export(tmp_path: Path) -> None:
+def test_artifact_import_and_queries(tmp_path: Path) -> None:
     database = DatabaseManager(_storage_settings(tmp_path))
     database.initialize()
     run_dir = _write_run_artifacts(tmp_path)
@@ -392,37 +391,6 @@ def test_artifact_import_queries_and_export(tmp_path: Path) -> None:
     assert stats["run_count"] == 1
     assert stats["point_count"] == 2
     assert stats["point_success_rate"] == 0.5
-
-    exporter = StorageExporter(database)
-    run_bundle = exporter.export_run_bundle("run_20260320_001000", tmp_path / "exported")
-    assert run_bundle["summary"].exists()
-    assert run_bundle["samples"].exists()
-    assert run_bundle["product_report_manifest"].exists()
-    exported_summary = json.loads(run_bundle["summary"].read_text(encoding="utf-8"))
-    product_manifest = json.loads(run_bundle["product_report_manifest"].read_text(encoding="utf-8"))
-    assert exported_summary["run_id"] == "run_20260320_001000"
-    assert exported_summary["report_family"] == "v2_product_report_family"
-    assert exported_summary["evidence_source"] == "diagnostic"
-    assert exported_summary["not_real_acceptance_evidence"] is True
-    assert exported_summary["acceptance_level"] == "diagnostic"
-    assert exported_summary["promotion_state"] == "dry_run_only"
-    assert len(product_manifest["generated_reports"]) == 1
-    generated_report = product_manifest["generated_reports"][0]
-    assert generated_report["template_key"] == "h2o_calibration_report"
-    generated_path = Path(generated_report["path"])
-    assert generated_path.exists()
-    report_payload = json.loads(generated_path.read_text(encoding="utf-8"))
-    assert report_payload["report_key"] == "h2o_calibration_report"
-    assert report_payload["run_id"] == "run_20260320_001000"
-    assert report_payload["point_count"] == 1
-
-    sensor_bundle = exporter.export_sensor_bundle(ga01_sensor["sensor_id"], tmp_path / "sensor_export")
-    assert sensor_bundle["sensor"].exists()
-    assert sensor_bundle["samples"].exists()
-
-    runs_csv = exporter.export_runs_csv(tmp_path / "exported" / "runs.csv")
-    assert runs_csv.exists()
-
 
 def test_artifact_import_supports_raw_and_enrich_stages(tmp_path: Path) -> None:
     database = DatabaseManager(_storage_settings(tmp_path))

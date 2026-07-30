@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
-from ..event_bus import EventType
+from .. import EventType
 from ..models import CalibrationPhase
 
 

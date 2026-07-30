@@ -1,8 +1,7 @@
 from datetime import datetime
 
 from gas_calibrator.v2.algorithms.linear import LinearAlgorithm
-from gas_calibrator.v2.domain.result_models import PointResult
-from gas_calibrator.v2.domain.sample_models import RawSample
+from gas_calibrator.validation.simulation.domain import PointResult, RawSample
 
 
 def test_linear_fit_and_predict() -> None:

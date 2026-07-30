@@ -7,22 +7,27 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional
 
-from ..config import AppConfig
+from ..config.models import AppConfig
+from ..core import EventBus, OrchestrationContext
 from ..core.csv_resilience import load_csv_rows
 from ..core.data_writer import DataWriter
 from ..core.device_factory import DeviceFactory
 from ..core.device_manager import DeviceManager
-from ..core.event_bus import EventBus
 from ..core.models import CalibrationPoint, SamplingResult
-from ..core.orchestration_context import OrchestrationContext
 from ..core.result_store import ResultStore
 from ..core.run_logger import RunLogger
 from ..core.run_state import RunState
 from ..core.services import ArtifactService
-from ..core.session import RunSession
-from ..core.stability_checker import StabilityChecker
+from ..core.models import RunSession
+from gas_calibrator.validation.simulation.stability_checker import StabilityChecker
 from ..core.state_manager import StateManager
-from ..ui_v2.i18n import display_acceptance_value, display_compare_status, display_evidence_source, display_risk_level, t
+from ..ui_v2.i18n import (
+    display_acceptance_value,
+    display_compare_status,
+    display_evidence_source,
+    display_risk_level,
+    t,
+)
 
 
 def build_export_resilience_report(*, report_root: Path, run_name: Optional[str] = None) -> dict[str, Any]:
@@ -280,7 +285,6 @@ def _build_artifact_service(
         get_results=result_store.get_samples,
         get_output_files=lambda: remembered,
         _remember_output_file=remembered.append,
-        _export_coefficient_report=lambda: calls.append("coeff"),
         _export_qc_report=lambda: (_ for _ in ()).throw(RuntimeError("qc export exploded")),
         _export_temperature_snapshots=lambda: calls.append("temperature"),
         _log=logs.append,

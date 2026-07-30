@@ -9,7 +9,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import create_engine, text
 
-from gas_calibrator.v2.storage.database import stable_uuid
+from gas_calibrator.storage.database import stable_uuid
 from gas_calibrator.storage.v1_5_evidence.bundle import TABLE_NAMES
 from gas_calibrator.storage.v1_5_evidence.staging_import import (
     StagingImportError,
@@ -18,8 +18,12 @@ from gas_calibrator.storage.v1_5_evidence.staging_import import (
     validate_staging_package,
     validate_staging_schemas,
 )
-from gas_calibrator.tools.query_v1_5_formal_database_import_staging import main as query_cli_main
-from gas_calibrator.tools.run_v1_5_formal_database_import_staging_executor import main as cli_main
+from gas_calibrator.tools.query_v1_5_formal_database_import_staging import (
+    main as query_cli_main,
+)
+from gas_calibrator.tools.run_v1_5_formal_database_import_staging_executor import (
+    main as cli_main,
+)
 from gas_calibrator.validation.v1_5_entrypoint_inventory import classify_v1_5_entrypoint
 from gas_calibrator.validation.v1_5_formal_database_import_staging_executor import (
     CONFIRMATION_TEXT,

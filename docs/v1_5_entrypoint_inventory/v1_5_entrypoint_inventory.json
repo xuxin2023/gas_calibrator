@@ -1,7 +1,7 @@
 {
   "schema": "v1_5_entrypoint_inventory_v1",
-  "repo_root": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean",
-  "entrypoint_count": 336,
+  "repo_root": "D:\\gas_calibrator\\_worktrees\\ga_d7_v15_production_candidate_freeze_20260725",
+  "entrypoint_count": 570,
   "canonical_formal_path": [
     {
       "stage": "00_full_flow_guard",
@@ -241,6 +241,15 @@
       "allowed_use": "Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan."
     },
     {
+      "path": "src/gas_calibrator/tools/run_v1_5_operator_workstation_dry_run.py",
+      "name": "run_v1_5_operator_workstation_dry_run",
+      "category": "unclassified_v1_5_tool",
+      "stage": "general",
+      "risk_level": "unknown",
+      "guardrail": "classification_required",
+      "allowed_use": "Do not use until the inventory assigns an explicit category, status, and risk boundary."
+    },
+    {
       "path": "src/gas_calibrator/tools/probe_v1_5_getco9_protocol.py",
       "name": "probe_v1_5_getco9_protocol",
       "category": "diagnostic_only",
@@ -358,15 +367,6 @@
       "allowed_use": "Keep only as historical algorithm/audit reference; do not use to start V1.5 formal calibration."
     },
     {
-      "path": "src/gas_calibrator/tools/run_v1_no500_postprocess.py",
-      "name": "run_v1_no500_postprocess",
-      "category": "legacy_v1_reference",
-      "stage": "general",
-      "risk_level": "legacy_write_or_acceptance_risk",
-      "guardrail": "legacy_v1_reference_only",
-      "allowed_use": "Keep only as historical algorithm/audit reference; do not use to start V1.5 formal calibration."
-    },
-    {
       "path": "src/gas_calibrator/tools/run_v1_online_acceptance.py",
       "name": "run_v1_online_acceptance",
       "category": "legacy_v1_reference",
@@ -409,16 +409,16 @@
       "path": "src/gas_calibrator/v2",
       "status": "legacy_reference_only",
       "action": "exclude_from_v1_5_active_surface",
-      "file_count": 337,
+      "file_count": 1096,
       "examples": [
-        "src/gas_calibrator/v2/__init__.py",
         "src/gas_calibrator/v2/adapters/__init__.py",
         "src/gas_calibrator/v2/adapters/analyzer_coefficient_downloader.py",
         "src/gas_calibrator/v2/adapters/legacy_runner.py",
-        "src/gas_calibrator/v2/adapters/method_confirmation_gateway.py",
-        "src/gas_calibrator/v2/adapters/offline_refit_runner.py",
-        "src/gas_calibrator/v2/adapters/recognition_scope_gateway.py",
-        "src/gas_calibrator/v2/adapters/results_gateway.py"
+        "src/gas_calibrator/v2/adapters/v1_route_trace.py",
+        "src/gas_calibrator/v2/algorithms/__init__.py",
+        "src/gas_calibrator/v2/algorithms/amt.py",
+        "src/gas_calibrator/v2/algorithms/base.py",
+        "src/gas_calibrator/v2/algorithms/engine.py"
       ],
       "reason": "V1.5 is the final production direction; V2 source stays as archived reference unless explicitly revived."
     },
@@ -427,16 +427,16 @@
       "path": "tests/v2",
       "status": "legacy_reference_only",
       "action": "exclude_from_v1_5_active_surface",
-      "file_count": 240,
+      "file_count": 173,
       "examples": [
+        "tests/v2/fixtures/real_measurement_frames/run_20260320_043540/fixture_manifest.json",
+        "tests/v2/fixtures/real_measurement_frames/run_20260320_043540/points.csv",
+        "tests/v2/fixtures/real_measurement_frames/run_20260320_043540/samples_runtime.csv",
         "tests/v2/fixtures/replay/co2_only_skip0_success_single_temp.json",
         "tests/v2/fixtures/replay/co2_route_entered_but_sample_count_mismatch.json",
         "tests/v2/fixtures/replay/co2_route_entered_sample_mismatch.json",
         "tests/v2/fixtures/replay/compare_generates_partial_artifacts_on_failure.json",
-        "tests/v2/fixtures/replay/full_route_success_all_temps_all_sources.json",
-        "tests/v2/fixtures/replay/gauge_no_response.json",
-        "tests/v2/fixtures/replay/h2o_route_success_single_temp.json",
-        "tests/v2/fixtures/replay/humidity_generator_timeout.json"
+        "tests/v2/fixtures/replay/full_route_success_all_temps_all_sources.json"
       ],
       "reason": "V2 tests protect old simulation/replay work only; they are not V1.5 formal-flow gates."
     },
@@ -445,10 +445,12 @@
       "path": "docs/architecture/*v2*",
       "status": "legacy_reference_only",
       "action": "exclude_from_v1_5_active_surface",
-      "file_count": 2,
+      "file_count": 4,
       "examples": [
+        "docs/architecture/ADR_V1_5_NATIVE_CORE_V2_PLATFORM_20260723.md",
         "docs/architecture/v1_to_v2_behavior_contract.md",
-        "docs/architecture/v2_cutover_checklist.md"
+        "docs/architecture/v2_cutover_checklist.md",
+        "docs/architecture/V2_EXPERT_CALIBRATION_AND_PRODUCT_AUDIT_20260727.md"
       ],
       "reason": "V2 cutover/replay documents are historical context and must not steer V1.5 formal operations."
     },
@@ -457,11 +459,10 @@
       "path": "src/gas_calibrator/tools/run_v1_*",
       "status": "legacy_reference_only",
       "action": "do_not_start_v1_5_here",
-      "file_count": 4,
+      "file_count": 3,
       "examples": [
         "src/gas_calibrator/tools/run_v1_corrected_autodelivery.py",
         "src/gas_calibrator/tools/run_v1_merged_calibration_sidecar.py",
-        "src/gas_calibrator/tools/run_v1_no500_postprocess.py",
         "src/gas_calibrator/tools/run_v1_online_acceptance.py"
       ],
       "reason": "Old V1 write/acceptance tools may preserve algorithm history but must not launch V1.5."
@@ -489,35 +490,12 @@
       "path": "configs/site_v1_5_*current* / *observed* / *generated*",
       "status": "review_before_use",
       "action": "do_not_use_as_default_config",
-      "file_count": 11,
+      "file_count": 2,
       "examples": [
         "configs/default_config_corrected_autodelivery.json",
-        "configs/default_config_corrected_autodelivery_real_smoke_no500_20260407.json",
-        "configs/points_v1_5_co2_20c_100ppm_limited_ambient_2sealed_nowait.xlsx",
-        "configs/site_v1_5_no_write_current_hardware_co2_20c.json",
-        "configs/site_v1_5_no_write_current_hardware_co2_20c_1000ppm_full_pressure_controlled_outp_skip_tempwait.json",
-        "configs/site_v1_5_no_write_current_hardware_co2_20c_1000ppm_full_pressure_no_outp_skip_tempwait.json",
-        "configs/site_v1_5_no_write_current_hardware_co2_20c_1000ppm_full_pressure_no_tempwait.json",
-        "configs/site_v1_5_no_write_current_hardware_co2_20c_1000ppm_full_pressure_no_tempwait_no_outp.json"
+        "configs/default_config_corrected_autodelivery_real_smoke_no500_20260407.json"
       ],
       "reason": "Observed/generated/current configs may reflect a bench snapshot; formal runs should use an explicit reviewed site config."
-    },
-    {
-      "surface": "root_temporary_run_artifacts",
-      "path": "repo-root logs/csv/md",
-      "status": "archive_candidate",
-      "action": "move_to_logs_or_archive_after_review",
-      "file_count": 7,
-      "examples": [
-        "post_route_close_delay_root_cause.md",
-        "post_route_close_fast_control_replay.csv",
-        "post_route_close_to_outp1_timeline.csv",
-        "v1_5_7ea_no_write_limited_0ppm_ambient_2sealed_20260520_093150.stderr.log",
-        "v1_5_7ea_no_write_limited_0ppm_ambient_2sealed_20260520_093150.stdout.log",
-        "v1_5_f2fa_no_write_limited_0ppm_ambient_2sealed_20260520_103644.stdout.log",
-        "v1_5_vs_v2_post_route_close_control_diff.csv"
-      ],
-      "reason": "Root-level run artifacts slow navigation and can look like active inputs; keep evidence, but outside the code entrypoint surface."
     }
   ],
   "active_surface_policy": {
@@ -576,21 +554,23 @@
   },
   "category_summary": {
     "advanced_qc": 10,
+    "controlled_state_writer": 2,
     "controlled_write": 14,
     "diagnostic_only": 11,
-    "evidence_database": 5,
+    "evidence_database": 12,
     "formal_pressure_no_write_runner": 1,
-    "formal_review_evidence": 110,
+    "formal_review_evidence": 206,
     "formal_runner": 2,
     "formal_sampling_worker": 2,
-    "full_flow_orchestration": 5,
+    "full_flow_orchestration": 10,
     "housekeeping_archive": 1,
     "identity_and_serial_binding": 4,
-    "legacy_v1_reference": 4,
+    "legacy_v1_reference": 3,
     "parameter_governance": 2,
-    "test_gate": 157,
-    "ui_review": 3,
-    "v1_5_library": 5
+    "test_gate": 269,
+    "ui_review": 11,
+    "unclassified_v1_5_tool": 1,
+    "v1_5_library": 9
   },
   "entries": [
     {
@@ -633,6 +613,32 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/storage/v1_5_evidence/production_import.py",
+      "name": "production_import",
+      "artifact_type": "storage",
+      "category": "evidence_database",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/storage/v1_5_evidence/production_migration.py",
+      "name": "production_migration",
+      "artifact_type": "storage",
+      "category": "evidence_database",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "src/gas_calibrator/storage/v1_5_evidence/repository.py",
       "name": "repository",
       "artifact_type": "storage",
@@ -648,6 +654,19 @@
     {
       "path": "src/gas_calibrator/storage/v1_5_evidence/schema.py",
       "name": "schema",
+      "artifact_type": "storage",
+      "category": "evidence_database",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/storage/v1_5_evidence/staging_import.py",
+      "name": "staging_import",
       "artifact_type": "storage",
       "category": "evidence_database",
       "stage": "general",
@@ -726,6 +745,126 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/tools/export_v1_5_algorithm_formal_point_plan_guard.py",
+      "name": "export_v1_5_algorithm_formal_point_plan_guard",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline algorithm formal point-plan guard; validates legacy 45/13 and new algorithm 47/14 without opening COM or changing runners"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_algorithm_formal_runlist_preview.py",
+      "name": "export_v1_5_algorithm_formal_runlist_preview",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline algorithm formal runlist preview; emits queue-compatible 47/14 CSV artifacts without opening COM or changing runners"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_algorithm_mature_queue_inputs.py",
+      "name": "export_v1_5_algorithm_mature_queue_inputs",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline profile queue materializer; emits immutable 45/13 or 47/14 inputs for the mature V1.5 CO2/H2O queues without executing them"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_algorithm_profile_lineage_gate.py",
+      "name": "export_v1_5_algorithm_profile_lineage_gate",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline algorithm-profile lineage gate; binds bootstrap and queue hashes to legacy R or absorption A/R0(T) fit semantics without executing hardware"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_algorithm_profile_runner_dry_run.py",
+      "name": "export_v1_5_algorithm_profile_runner_dry_run",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline algorithm profile runner dry-run; bundles runlist, readiness, and runner dry-run evidence without executing formal runners"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_algorithm_queue_handoff_preflight.py",
+      "name": "export_v1_5_algorithm_queue_handoff_preflight",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline algorithm queue handoff preflight; requires dry-run/no-prompt evidence before any future live queue wiring"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_algorithm_runlist_readiness.py",
+      "name": "export_v1_5_algorithm_runlist_readiness",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline algorithm runlist readiness gate; blocks incomplete 47/14 previews before any runner integration"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_algorithm_runner_integration_dry_run.py",
+      "name": "export_v1_5_algorithm_runner_integration_dry_run",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline algorithm runner integration dry-run; plans queue invocations without executing formal runners"
+      ]
+    },
+    {
       "path": "src/gas_calibrator/tools/export_v1_5_algorithm_write_contract_review.py",
       "name": "export_v1_5_algorithm_write_contract_review",
       "artifact_type": "tool",
@@ -737,6 +876,321 @@
       "controls_routes": false,
       "writes_coefficients": false,
       "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_authoritative_resume_execution_preflight.py",
+      "name": "export_v1_5_authoritative_resume_execution_preflight",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline last-moment resume execution preflight; revalidates authorization, state, plan, next-step, command hash, expiry, and least-privilege envelope while keeping execution locked"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_authoritative_resume_executor_authorization_validator.py",
+      "name": "export_v1_5_authoritative_resume_executor_authorization_validator",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline resume executor authorization validator; recomputes the design and validates identity, expiry, evidence hashes, canonical next-step, command hash, and least-privilege capabilities without executing"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_authoritative_resume_executor_controlled_design.py",
+      "name": "export_v1_5_authoritative_resume_executor_controlled_design",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline controlled resume executor design; binds future authorization to exact plan, state, next-step, command hash, expiry, and least-privilege capabilities without executing"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_authoritative_resume_executor_plan_preview.py",
+      "name": "export_v1_5_authoritative_resume_executor_plan_preview",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline plan-only resume executor preview; independently recomputes the consumer contract and displays the next command and authorization requirements without executing it"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_candidate_gate.py",
+      "name": "export_v1_5_authoritative_resume_offline_candidate_gate",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "coefficient_review",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline resume candidate classifier; admits only fresh canonical steps with offline mode and no COM, pressure, route, device, coefficient, or database side effects without executing"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_post_execution_verifier.py",
+      "name": "export_v1_5_authoritative_resume_offline_post_execution_verifier",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline resume post-execution verifier; binds the executor, gate, plan, output SHA256 values, authorization packet, and unchanged authoritative state without executing or advancing state"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_state_advance_authorization.py",
+      "name": "export_v1_5_authoritative_resume_offline_state_advance_authorization",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline resume state-advance authorization validator; binds a short-lived distinct-reviewer packet to the exact preflight, current-state SHA, candidate SHA, run, attempt, and verified step without writing state"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_state_advance_consumer_readiness.py",
+      "name": "export_v1_5_authoritative_resume_offline_state_advance_consumer_readiness",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline advanced resume-state consumer readiness gate; independently recomputes post-write verification and checks the locked contiguous state prefix without executing the next step"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_state_advance_next_step_authorization_preflight.py",
+      "name": "export_v1_5_authoritative_resume_offline_state_advance_next_step_authorization_preflight",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline next-step review authorization preflight; binds a short-lived three-party packet to the exact plan, consumer, run, attempt, next step, and mature module while keeping execution locked"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_state_advance_next_step_controlled_executor_design.py",
+      "name": "export_v1_5_authoritative_resume_offline_state_advance_next_step_controlled_executor_design",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline next-step controlled executor design; freezes exact-command authorization, least privilege, failure holds, and output evidence while keeping execution unavailable"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_state_advance_next_step_execution_authorization.py",
+      "name": "export_v1_5_authoritative_resume_offline_state_advance_next_step_execution_authorization",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline next-step execution authorization validator; binds a short-lived three-party packet to the exact plan, command hash, evidence chain, and least-privilege capabilities"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_state_advance_next_step_execution_preflight.py",
+      "name": "export_v1_5_authoritative_resume_offline_state_advance_next_step_execution_preflight",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "last-moment next-step execution preflight; freshly rehashes authorization, state, plan, exact mature command, and output boundaries without starting a process"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_state_advance_next_step_plan.py",
+      "name": "export_v1_5_authoritative_resume_offline_state_advance_next_step_plan",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline advanced resume-state next-step preview; recomputes consumer readiness and binds the exact canonical next command plus authorization envelope without executing it"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_state_advance_post_write_verification.py",
+      "name": "export_v1_5_authoritative_resume_offline_state_advance_post_write_verification",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline one-step resume state-advance post-write verifier; binds writer, authorization, preflight, candidate, final state, rollback snapshot, invocation, and released lock without writing state"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_state_advance_preflight.py",
+      "name": "export_v1_5_authoritative_resume_offline_state_advance_preflight",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline resume state-advance preflight; recomputes post-execution evidence and generates one deterministic compare-and-swap candidate state without writing or replacing authoritative state"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_authoritative_resume_state_consumer_contract.py",
+      "name": "export_v1_5_authoritative_resume_state_consumer_contract",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline default-locked resume-state consumer contract; validates plan, run identity, contiguous prefix, next step, state hash, and authorization locks without executing the resumed step"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_authoritative_resume_state_controlled_write_preflight.py",
+      "name": "export_v1_5_authoritative_resume_state_controlled_write_preflight",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline authoritative resume-state controlled-write preflight; generates a deterministic candidate state preview and validates target SHA256 plus distinct authorization without writing state"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_authoritative_resume_state_post_write_verification.py",
+      "name": "export_v1_5_authoritative_resume_state_post_write_verification",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline authoritative resume-state post-write verification; hash-checks writer evidence, authorization, preflight, candidate, target, snapshot, and released lock without writing state or opening COM"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_authoritative_resume_state_writer_design.py",
+      "name": "export_v1_5_authoritative_resume_state_writer_design",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline authoritative resume-state writer design; defines atomic replace, compare-and-swap, snapshot, readback, and rollback requirements without writing state"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_automation_control_contract.py",
+      "name": "export_v1_5_automation_control_contract",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline V1.5 automation control contract; keeps automation as a shell around the 0613/0620/0621 mature core"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_batch_initialization_closeout_index.py",
+      "name": "export_v1_5_batch_initialization_closeout_index",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline V1.5 batch initialization closeout index; binds SN/device_code, GETCO, S5-S8, S9, and route evidence without opening COM"
+      ]
     },
     {
       "path": "src/gas_calibrator/tools/export_v1_5_calibration_capability.py",
@@ -1365,6 +1819,51 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/tools/export_v1_5_component_qc_authority_audit.py",
+      "name": "export_v1_5_component_qc_authority_audit",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "qc_review",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline component-QC authority audit; separates mature pre-sample stability gates from the untracked 0624/migration writer and keeps QC backfill blocked"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_component_qc_generator_contract.py",
+      "name": "export_v1_5_component_qc_generator_contract",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "qc_review",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline component-QC generator contract review; fixes per-analyzer physical grading semantics while keeping implementation and backfill disabled"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_component_qc_reference_evaluator.py",
+      "name": "export_v1_5_component_qc_reference_evaluator",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "qc_review",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline synthetic-only component-QC reference evaluator; exercises the reviewed per-analyzer contract without historical writes, fitting, COM, or production promotion"
+      ]
+    },
+    {
       "path": "src/gas_calibrator/tools/export_v1_5_component_snapshot_after_events.py",
       "name": "export_v1_5_component_snapshot_after_events",
       "artifact_type": "tool",
@@ -1417,6 +1916,36 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/tools/export_v1_5_final_production_external_gate_freeze.py",
+      "name": "export_v1_5_final_production_external_gate_freeze",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline V1.5 final production external-gate freeze; separates completed program capabilities from real hardware, authorization, production migration, import, and release gates"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_final_production_gap_freeze.py",
+      "name": "export_v1_5_final_production_gap_freeze",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline V1.5 final production-gap freeze; supersedes stale gap snapshots and fixes the remaining production scope without executing hardware, writes, routes, or database imports"
+      ]
+    },
+    {
       "path": "src/gas_calibrator/tools/export_v1_5_fit_input_quality.py",
       "name": "export_v1_5_fit_input_quality",
       "artifact_type": "tool",
@@ -1456,6 +1985,126 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/tools/export_v1_5_formal_database_dry_run.py",
+      "name": "export_v1_5_formal_database_dry_run",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "evidence_database",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline PostgreSQL 18 database dry-run contract; previews schema and insert roles without connecting or importing data"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_formal_database_import_authorization.py",
+      "name": "export_v1_5_formal_database_import_authorization",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "evidence_database",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline PostgreSQL 18 database import authorization guard; reviews archive release and manual authorization without connecting or importing data"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_formal_database_import_command_contract.py",
+      "name": "export_v1_5_formal_database_import_command_contract",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "evidence_database",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline PostgreSQL 18 database import command contract; reviews required real-import inputs without connecting or importing data"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_formal_database_import_controlled_executor_design.py",
+      "name": "export_v1_5_formal_database_import_controlled_executor_design",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "evidence_database",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline PostgreSQL 18 controlled import executor design; defines future authorization, transaction, readback, and rollback contract without connecting"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_formal_database_import_preflight.py",
+      "name": "export_v1_5_formal_database_import_preflight",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "evidence_database",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline PostgreSQL 18 database import preflight; reviews DSN presence and import locks without connecting or importing data"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_formal_database_import_production_promotion_preflight.py",
+      "name": "export_v1_5_formal_database_import_production_promotion_preflight",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "evidence_database",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline PostgreSQL 18 production-promotion preflight; revalidates staging readback and immutable authorization/archive/evidence bindings without connecting or importing production data"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_formal_database_import_transaction_plan.py",
+      "name": "export_v1_5_formal_database_import_transaction_plan",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "evidence_database",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline PostgreSQL 18 deterministic transaction plan; freezes stages, natural keys, readback, and rollback without SQL or connection"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_formal_database_migration_dba_readiness.py",
+      "name": "export_v1_5_formal_database_migration_dba_readiness",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "evidence_database",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline PostgreSQL 18 DBA migration packet; freezes migration order, checksums, precheck/apply/postcheck SQL, rollback boundaries, and manual review without reading a DSN or connecting"
+      ]
+    },
+    {
       "path": "src/gas_calibrator/tools/export_v1_5_formal_flow_contract.py",
       "name": "export_v1_5_formal_flow_contract",
       "artifact_type": "tool",
@@ -1467,6 +2116,66 @@
       "controls_routes": false,
       "writes_coefficients": false,
       "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_formal_initialization_controlled_executor_design.py",
+      "name": "export_v1_5_formal_initialization_controlled_executor_design",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline initialization controlled executor design; defines future authorization, real-COM, write/readback, CHECK, and hold contract without opening COM"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_formal_initialization_executor_dry_run.py",
+      "name": "export_v1_5_formal_initialization_executor_dry_run",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline initialization executor dry-run review; classifies plan steps without executing COM or write commands"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_formal_initialization_readonly_com_preflight_controlled_executor_design.py",
+      "name": "export_v1_5_formal_initialization_readonly_com_preflight_controlled_executor_design",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline initialization read-only real-COM preflight controlled executor design; defines future authorization, port inventory, read sequence, evidence, and hold contract without opening COM"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_formal_initialization_readonly_com_preflight_design.py",
+      "name": "export_v1_5_formal_initialization_readonly_com_preflight_design",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline initialization read-only real-COM preflight design; defines future port, pacing, identity, GETCO, CHECK, and hold contract without opening COM"
+      ]
     },
     {
       "path": "src/gas_calibrator/tools/export_v1_5_formal_open_flow_report.py",
@@ -1508,6 +2217,79 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/tools/export_v1_5_formal_readonly_com_execution_contract.py",
+      "name": "export_v1_5_formal_readonly_com_execution_contract",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline read-only COM execution packet contract; defines future authorization, port inventory, active analyzer, pacing, CHECK-skip, and denied-action rules without opening COM"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_formal_readonly_com_execution_packet_validator.py",
+      "name": "export_v1_5_formal_readonly_com_execution_packet_validator",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline read-only COM execution packet validator; validates future authorization, port inventory, active analyzer list, pacing, and CHECK-skip rules without opening COM"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_formal_readonly_com_execution_plan_preview.py",
+      "name": "export_v1_5_formal_readonly_com_execution_plan_preview",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline read-only COM execution plan preview; renders future identity, SN, GETCO, runtime, and CHECK read order without opening COM"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_formal_readonly_com_minimal_executor_review.py",
+      "name": "export_v1_5_formal_readonly_com_minimal_executor_review",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline read-only COM minimal executor review; defines future output evidence and failure hold matrix without opening COM"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_formal_run_continuity_gate.py",
+      "name": "export_v1_5_formal_run_continuity_gate",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "src/gas_calibrator/tools/export_v1_5_formal_run_status.py",
       "name": "export_v1_5_formal_run_status",
       "artifact_type": "tool",
@@ -1536,6 +2318,21 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/tools/export_v1_5_full_flow_automation_closure.py",
+      "name": "export_v1_5_full_flow_automation_closure",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "full_flow_orchestration",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline V1.5 full-flow automation closure map; records mature baseline, remaining automation gaps, and forbidden formal surfaces without executing hardware"
+      ]
+    },
+    {
       "path": "src/gas_calibrator/tools/export_v1_5_full_flow_closure_readiness.py",
       "name": "export_v1_5_full_flow_closure_readiness",
       "artifact_type": "tool",
@@ -1547,6 +2344,21 @@
       "controls_routes": false,
       "writes_coefficients": false,
       "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_full_flow_next_action_plan.py",
+      "name": "export_v1_5_full_flow_next_action_plan",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "full_flow_orchestration",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline V1.5 full-flow next-action plan; ranks remaining automation handoffs without executing hardware, writes, routes, or database imports"
+      ]
     },
     {
       "path": "src/gas_calibrator/tools/export_v1_5_getco_identity_readiness.py",
@@ -1685,6 +2497,172 @@
       ]
     },
     {
+      "path": "src/gas_calibrator/tools/export_v1_5_historical_component_qc_blocked_generator_plan.py",
+      "name": "export_v1_5_historical_component_qc_blocked_generator_plan",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "qc_review",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline historical component-QC blocked generator plan; revalidates the exact preflight and emits only a no-evaluation, no-write, no-overwrite preview"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_historical_component_qc_controlled_writer_design.py",
+      "name": "export_v1_5_historical_component_qc_controlled_writer_design",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "qc_review",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline historical component-QC controlled-writer design; records future authorization, exclusive-create, readback, and compensating-rollback contracts while keeping evaluator and writer absent",
+        "requires explicit coefficient-write authorization and readback evidence"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_historical_component_qc_generator_preflight.py",
+      "name": "export_v1_5_historical_component_qc_generator_preflight",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "qc_review",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline historical component-QC generator preflight; revalidates P2 source hashes and overwrite boundaries while keeping generation, backfill, fitting, COM, and production promotion locked"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_historical_fit_evidence_normalizer.py",
+      "name": "export_v1_5_historical_fit_evidence_normalizer",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "evidence_database",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline historical fit evidence normalizer; extracts ratio, chamber T1, pressure, dewpoint, and component-matched QC without opening COM or fitting coefficients"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_historical_fit_profile_parity.py",
+      "name": "export_v1_5_historical_fit_profile_parity",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "coefficient_review",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline historical fitting parity replay; enforces 0613 fitting plus 0620/0621 route baselines and legacy R versus absorption A/R0(T) without executing hardware"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_historical_mature_root_discovery.py",
+      "name": "export_v1_5_historical_mature_root_discovery",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline historical mature-root discovery; ranks exact queue candidates without promoting them to fitting or acceptance evidence"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_historical_replay_contract.py",
+      "name": "export_v1_5_historical_replay_contract",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline historical replay contract; validates replay interpretation without opening COM or releasing archive/database evidence"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_historical_replay_evidence.py",
+      "name": "export_v1_5_historical_replay_evidence",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "evidence_database",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline historical replay evidence binder; reads historical CSV/JSON point evidence without opening COM or changing release state"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_historical_replay_missing_point_audit.py",
+      "name": "export_v1_5_historical_replay_missing_point_audit",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline historical replay missing-point audit; searches segmented/retry evidence without opening COM or changing fit eligibility"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_historical_replay_qc_gap_audit.py",
+      "name": "export_v1_5_historical_replay_qc_gap_audit",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "qc_review",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline historical replay QC gap audit; searches substitute QC/retry evidence without opening COM or changing fit eligibility"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_historical_route_attestation_binder.py",
+      "name": "export_v1_5_historical_route_attestation_binder",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline historical mature-root attestation binder; binds exact queue, sidecar, sample, QC, and 0613/0620/0621 contract hashes without opening COM"
+      ]
+    },
+    {
       "path": "src/gas_calibrator/tools/export_v1_5_initialization_readiness.py",
       "name": "export_v1_5_initialization_readiness",
       "artifact_type": "tool",
@@ -1696,6 +2674,51 @@
       "controls_routes": false,
       "writes_coefficients": false,
       "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_legacy_evidence_gap_task_plan.py",
+      "name": "export_v1_5_legacy_evidence_gap_task_plan",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "evidence_database",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline legacy evidence-gap task plan; revalidates cataloged artifact hashes and schedules manual QC/traceability review without repairing or promoting evidence"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_legacy_full_flow_offline_replay.py",
+      "name": "export_v1_5_legacy_full_flow_offline_replay",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "full_flow_orchestration",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline V1.5 legacy full-flow offline replay; walks initialization through archive from historical evidence without promoting segmented data or executing hardware"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_legacy_historical_evidence_catalog.py",
+      "name": "export_v1_5_legacy_historical_evidence_catalog",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "evidence_database",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline legacy historical evidence catalog; hashes segmented, retry, recovery, and accepted-composite point evidence without promoting it"
+      ]
     },
     {
       "path": "src/gas_calibrator/tools/export_v1_5_main_senco_write_precheck_pack.py",
@@ -1711,6 +2734,21 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/tools/export_v1_5_mature_route_continuity_gate.py",
+      "name": "export_v1_5_mature_route_continuity_gate",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline V1.5 mature route continuity gate; blocks segmented, retry, direct-recovery, 0624/migration, diagnostic, worker, and empty manifest route evidence from formal fitting"
+      ]
+    },
+    {
       "path": "src/gas_calibrator/tools/export_v1_5_mature_route_contract.py",
       "name": "export_v1_5_mature_route_contract",
       "artifact_type": "tool",
@@ -1722,6 +2760,21 @@
       "controls_routes": false,
       "writes_coefficients": false,
       "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_new_algorithm_mature_queue_live_handoff.py",
+      "name": "export_v1_5_new_algorithm_mature_queue_live_handoff",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline new-algorithm 47/14 live-handoff contract; binds profile, queue, mature-runner hashes, fit semantics, and future authorization while live execution stays blocked"
+      ]
     },
     {
       "path": "src/gas_calibrator/tools/export_v1_5_new_algorithm_test_point_plan.py",
@@ -1761,6 +2814,51 @@
       "controls_routes": false,
       "writes_coefficients": false,
       "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_p1_evidence_lineage_audit.py",
+      "name": "export_v1_5_p1_evidence_lineage_audit",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "evidence_database",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline P1 evidence lineage audit; searches only bounded same-run siblings for retry evidence without copying files, deriving QC, or binding cross-run data"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_p2_qc_derivation_design.py",
+      "name": "export_v1_5_p2_qc_derivation_design",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "qc_review",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline P2 component-QC derivation design; validates same-point input structure while keeping QC generation and fit promotion blocked until a reviewed mature generator exists"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_post_closeout_resume_gate.py",
+      "name": "export_v1_5_post_closeout_resume_gate",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline V1.5 post-closeout resume gate; binds a reviewed completed-step prefix to exact plan and closeout hashes without applying or executing it"
+      ]
     },
     {
       "path": "src/gas_calibrator/tools/export_v1_5_post_run_coefficient_executor.py",
@@ -1830,6 +2928,21 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/tools/export_v1_5_pressure_s9_readiness_index.py",
+      "name": "export_v1_5_pressure_s9_readiness_index",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "pressure_channel",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline V1.5 pressure/SENCO9 readiness index; separates offset-only S9 and linear controlled exceptions without opening COM or writing coefficients"
+      ]
+    },
+    {
       "path": "src/gas_calibrator/tools/export_v1_5_pressure_senco9_evaluation.py",
       "name": "export_v1_5_pressure_senco9_evaluation",
       "artifact_type": "tool",
@@ -1869,6 +2982,51 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/tools/export_v1_5_production_component_qc_fit_matrix.py",
+      "name": "export_v1_5_production_component_qc_fit_matrix",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "qc_review",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline production-semantics component-QC evaluator and canonical 0613 no-write strategy matrix; reads immutable point evidence without backfilling history or executing fits"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_production_entrypoint_gate.py",
+      "name": "export_v1_5_production_entrypoint_gate",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline V1.5 production entrypoint gate; blocks _handoff, root migration, 0624, diagnostic, worker, V1, and V2 references in formal plans"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_production_entrypoint_map.py",
+      "name": "export_v1_5_production_entrypoint_map",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline V1.5 production entrypoint map; separates formal launchers, workers, diagnostics, controlled writes, and forbidden surfaces"
+      ]
+    },
+    {
       "path": "src/gas_calibrator/tools/export_v1_5_recommendation_closure.py",
       "name": "export_v1_5_recommendation_closure",
       "artifact_type": "tool",
@@ -1882,11 +3040,97 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/tools/export_v1_5_resume_prefix_application_review.py",
+      "name": "export_v1_5_resume_prefix_application_review",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline resume-prefix application review; validates the hash-bound completed prefix without writing state or executing the next stage"
+      ]
+    },
+    {
       "path": "src/gas_calibrator/tools/export_v1_5_review_surface.py",
       "name": "export_v1_5_review_surface",
       "artifact_type": "tool",
       "category": "formal_review_evidence",
       "stage": "ui_review",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_route_physical_recovery_evidence_binder.py",
+      "name": "export_v1_5_route_physical_recovery_evidence_binder",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "evidence_database",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline V1.5 route physical recovery evidence binder; converts reviewed trace files into a recovery packet without collecting live data"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_route_physical_recovery_evidence_packet.py",
+      "name": "export_v1_5_route_physical_recovery_evidence_packet",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "evidence_database",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline V1.5 route physical recovery evidence packet validator; checks dry-gas, PACE vent, pressure INL, fresh queue, and no-write boundaries before recovery readiness"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_route_physical_recovery_evidence_packet_template.py",
+      "name": "export_v1_5_route_physical_recovery_evidence_packet_template",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "temperature_channel",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline V1.5 route physical recovery evidence packet template; prepares dry-gas, PACE vent, pressure INL, and fresh queue evidence fields without collecting live data"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_route_physical_recovery_readiness.py",
+      "name": "export_v1_5_route_physical_recovery_readiness",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_route_run_failure_root_cause.py",
+      "name": "export_v1_5_route_run_failure_root_cause",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
       "formal_status": "formal_support",
       "risk_level": "offline",
       "opens_com_ports": false,
@@ -1975,6 +3219,22 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/tools/export_v1_5_unified_controlled_write_reverify.py",
+      "name": "export_v1_5_unified_controlled_write_reverify",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline unified S1-S9/SENCOA-B write, GETCO readback, rollback, and independent short-reverify contract; never executes a writer or route",
+        "requires explicit coefficient-write authorization and readback evidence"
+      ]
+    },
+    {
       "path": "src/gas_calibrator/tools/export_v1_5_v1_ratio_poly_algorithm_audit.py",
       "name": "export_v1_5_v1_ratio_poly_algorithm_audit",
       "artifact_type": "tool",
@@ -1998,7 +3258,9 @@
       "opens_com_ports": false,
       "controls_routes": false,
       "writes_coefficients": false,
-      "notes": []
+      "notes": [
+        "offline PostgreSQL 18 blocked import executor stub; legacy bundle dry-run only, no connection, no migration, no row import"
+      ]
     },
     {
       "path": "src/gas_calibrator/tools/import_v1_5_pressure_channel_completion_package.py",
@@ -2137,6 +3399,21 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/tools/query_v1_5_formal_database_import_staging.py",
+      "name": "query_v1_5_formal_database_import_staging",
+      "artifact_type": "tool",
+      "category": "evidence_database",
+      "stage": "evidence_database",
+      "formal_status": "explicit_staging_database_query_only",
+      "risk_level": "staging_database_read_risk",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "explicit read-only PostgreSQL 18 staging query; looks up SN, device_code, protocol ID, or run without production import/release authority"
+      ]
+    },
+    {
       "path": "src/gas_calibrator/tools/run_room_temp_co2_pressure_diagnostic.py",
       "name": "run_room_temp_co2_pressure_diagnostic",
       "artifact_type": "tool",
@@ -2164,6 +3441,141 @@
       "writes_coefficients": false,
       "notes": [
         "formal initialization support; use only through the initialization owner or explicit preflight"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_authoritative_resume_executor_blocked.py",
+      "name": "run_v1_5_authoritative_resume_executor_blocked",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline blocked resume executor; independently recomputes the plan preview and rejects execute, resume, COM, pressure, route, write, and database unlocks"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_authoritative_resume_offline_executor.py",
+      "name": "run_v1_5_authoritative_resume_offline_executor",
+      "artifact_type": "tool",
+      "category": "full_flow_orchestration",
+      "stage": "general",
+      "formal_status": "manual_authorized_offline_resume_only",
+      "risk_level": "offline_subprocess_risk",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "manual-authorized offline-only resume executor; revalidates a fresh candidate, runs one exact Python module with shell disabled, verifies fresh outputs, and never advances authoritative state"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_authoritative_resume_offline_state_advance_atomic_writer.py",
+      "name": "run_v1_5_authoritative_resume_offline_state_advance_atomic_writer",
+      "artifact_type": "tool",
+      "category": "controlled_state_writer",
+      "stage": "general",
+      "formal_status": "manual_authorized_only",
+      "risk_level": "state_file_write_risk",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "manual-authorized one-step offline resume state-advance writer; freshly revalidates authorization under the shared lock, checks current and candidate SHA256 values, snapshots, atomically replaces, reads back, and rolls back without opening COM"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_authoritative_resume_offline_state_advance_blocked_executor.py",
+      "name": "run_v1_5_authoritative_resume_offline_state_advance_blocked_executor",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline resume state-advance blocked executor; freshly revalidates authorization but exposes no execute or state-write path"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_authoritative_resume_offline_state_advance_next_step_blocked_executor.py",
+      "name": "run_v1_5_authoritative_resume_offline_state_advance_next_step_blocked_executor",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline next-step blocked executor; freshly revalidates the review authorization but exposes no execute, COM, route, write, or database path"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_authoritative_resume_offline_state_advance_next_step_controlled_executor.py",
+      "name": "run_v1_5_authoritative_resume_offline_state_advance_next_step_controlled_executor",
+      "artifact_type": "tool",
+      "category": "full_flow_orchestration",
+      "stage": "general",
+      "formal_status": "manual_authorized_single_step_resume_only",
+      "risk_level": "real_com_or_route_or_write_risk",
+      "opens_com_ports": true,
+      "controls_routes": true,
+      "writes_coefficients": true,
+      "notes": [
+        "manual-authorized single-step V1.5 executor; permits one exact shell-free process only after fresh authorization, never retries, substitutes, imports PostgreSQL, or advances authoritative state"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_authoritative_resume_offline_state_advance_next_step_operator_bundle.py",
+      "name": "run_v1_5_authoritative_resume_offline_state_advance_next_step_operator_bundle",
+      "artifact_type": "tool",
+      "category": "full_flow_orchestration",
+      "stage": "general",
+      "formal_status": "manual_authorized_single_step_resume_only",
+      "risk_level": "real_com_or_route_or_write_risk",
+      "opens_com_ports": true,
+      "controls_routes": true,
+      "writes_coefficients": true,
+      "notes": [
+        "manual-authorized operator bundle launcher; derives least-privilege authorization from the exact plan, revalidates immediately, and defaults to locked evidence unless one explicit next-step execution is requested"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_authoritative_resume_state_atomic_writer.py",
+      "name": "run_v1_5_authoritative_resume_state_atomic_writer",
+      "artifact_type": "tool",
+      "category": "controlled_state_writer",
+      "stage": "general",
+      "formal_status": "manual_authorized_only",
+      "risk_level": "state_file_write_risk",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "manual-authorized atomic authoritative resume-state writer; consumes only the exact ready preflight and performs lock, current-SHA check, snapshot, fsync, atomic replace, readback, and rollback without opening COM"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_authoritative_resume_state_writer_blocked_executor.py",
+      "name": "run_v1_5_authoritative_resume_state_writer_blocked_executor",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline authoritative resume-state writer blocked executor; refuses state target, expected-state hash, authorization, execute, and replace inputs without creating or replacing state"
       ]
     },
     {
@@ -2255,6 +3667,21 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/tools/run_v1_5_final_offline_acceptance_suite.py",
+      "name": "run_v1_5_final_offline_acceptance_suite",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline_subprocess_risk",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "final offline acceptance suite; runs an exact pytest allowlist for V1.5 replay, mature-route, fit, writer, database locks, simulation, parity, and resilience without hardware or database access"
+      ]
+    },
+    {
       "path": "src/gas_calibrator/tools/run_v1_5_formal_archive_closure.py",
       "name": "run_v1_5_formal_archive_closure",
       "artifact_type": "tool",
@@ -2282,6 +3709,66 @@
       "writes_coefficients": false,
       "notes": [
         "formal V1.5 entrypoint candidate; still requires operator authorization for real COM"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_formal_database_import_production_controlled_executor.py",
+      "name": "run_v1_5_formal_database_import_production_controlled_executor",
+      "artifact_type": "tool",
+      "category": "evidence_database",
+      "stage": "evidence_database",
+      "formal_status": "manual_authorized_production_database_only",
+      "risk_level": "production_database_write_risk",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "manual-authorized PostgreSQL 18 production import executor; fixed gas_calibrator/public/v1_5_evidence target with immutable promotion hashes, three-party authorization, precommit readback, idempotency ledger, and rollback hold"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_formal_database_import_staging_executor.py",
+      "name": "run_v1_5_formal_database_import_staging_executor",
+      "artifact_type": "tool",
+      "category": "evidence_database",
+      "stage": "evidence_database",
+      "formal_status": "manual_authorized_staging_database_only",
+      "risk_level": "staging_database_write_risk",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "manual-authorized PostgreSQL 18 staging-only transaction executor; writes isolated staging schemas with atomic rollback and keeps production import/release locked"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_formal_database_import_transaction_blocked_executor.py",
+      "name": "run_v1_5_formal_database_import_transaction_blocked_executor",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "evidence_database",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline PostgreSQL 18 transaction blocked executor; refuses execute, DSN, authorization, migration, archive, and evidence inputs"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_formal_database_migration_production_controlled_executor.py",
+      "name": "run_v1_5_formal_database_migration_production_controlled_executor",
+      "artifact_type": "tool",
+      "category": "evidence_database",
+      "stage": "evidence_database",
+      "formal_status": "manual_authorized_production_database_migration_only",
+      "risk_level": "production_database_migration_risk",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "manual-authorized PostgreSQL 18 migration 002 executor; fixed gas_calibrator/v1_5_evidence target with immutable DBA packet hashes, three-party authorization, transactional apply, postcheck, and conservative commit-uncertain hold"
       ]
     },
     {
@@ -2330,6 +3817,51 @@
       ]
     },
     {
+      "path": "src/gas_calibrator/tools/run_v1_5_formal_initialization_blocked_executor.py",
+      "name": "run_v1_5_formal_initialization_blocked_executor",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline initialization blocked executor stub; refuses live COM, SN/device-code writes, SENCO writes, PostgreSQL, pressure, and route actions"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_formal_initialization_readonly_com_preflight_blocked_executor.py",
+      "name": "run_v1_5_formal_initialization_readonly_com_preflight_blocked_executor",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline initialization read-only real-COM preflight blocked executor stub; refuses analyzer COM, SN/device-code writes, SENCO writes, PostgreSQL, pressure, and route actions"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_formal_initialization_readonly_com_preflight_controlled_blocked_executor.py",
+      "name": "run_v1_5_formal_initialization_readonly_com_preflight_controlled_blocked_executor",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline initialization read-only real-COM preflight controlled blocked executor stub; refuses analyzer COM, authorization unlocks, SN/device-code writes, SENCO writes, PostgreSQL, pressure, and route actions"
+      ]
+    },
+    {
       "path": "src/gas_calibrator/tools/run_v1_5_formal_initialization_runner.py",
       "name": "run_v1_5_formal_initialization_runner",
       "artifact_type": "tool",
@@ -2372,6 +3904,51 @@
       "writes_coefficients": false,
       "notes": [
         "canonical per-point sampling worker; invoked by the formal CO2/H2O queue runners"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_formal_readonly_com_execution_blocked_executor.py",
+      "name": "run_v1_5_formal_readonly_com_execution_blocked_executor",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline read-only COM execution blocked executor stub; refuses analyzer COM, authorization unlocks, SN/device-code writes, SENCO writes, PostgreSQL, pressure, and route actions"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_formal_readonly_com_minimal_executor.py",
+      "name": "run_v1_5_formal_readonly_com_minimal_executor",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "manual_authorized_read_only_com_support",
+      "risk_level": "real_com_read_only_no_write_risk",
+      "opens_com_ports": true,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "manual-authorized minimal read-only COM executor; reads SN/GETCO/runtime/CHECK evidence only, never writes analyzer state, database, pressure, or routes"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_formal_readonly_com_minimal_executor_stub.py",
+      "name": "run_v1_5_formal_readonly_com_minimal_executor_stub",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline read-only COM minimal executor stub; records would-execute evidence without opening COM or using authorization context as unlock"
       ]
     },
     {
@@ -2463,6 +4040,36 @@
       ]
     },
     {
+      "path": "src/gas_calibrator/tools/run_v1_5_new_algorithm_mature_queue_live_handoff_blocked_executor.py",
+      "name": "run_v1_5_new_algorithm_mature_queue_live_handoff_blocked_executor",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline new-algorithm mature-queue blocked executor; refuses live queue, COM, route, authorization, device, write, and database inputs"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_new_run_bootstrap.py",
+      "name": "run_v1_5_new_run_bootstrap",
+      "artifact_type": "tool",
+      "category": "full_flow_orchestration",
+      "stage": "general",
+      "formal_status": "manual_new_batch_bootstrap_no_com",
+      "risk_level": "state_file_write_risk",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline atomic new-run bootstrap; snapshots one reviewed config and creates a zero-authority plan/state at the first canonical stage without opening COM or marking any step complete"
+      ]
+    },
+    {
       "path": "src/gas_calibrator/tools/run_v1_5_no_outp_preseal_probe.py",
       "name": "run_v1_5_no_outp_preseal_probe",
       "artifact_type": "tool",
@@ -2493,6 +4100,19 @@
         "diagnostic evidence only; not formal acceptance by default",
         "pressure/route engineering probe; keep outside formal CO2/H2O fit"
       ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_operator_workstation_dry_run.py",
+      "name": "run_v1_5_operator_workstation_dry_run",
+      "artifact_type": "tool",
+      "category": "unclassified_v1_5_tool",
+      "stage": "general",
+      "formal_status": "needs_review",
+      "risk_level": "unknown",
+      "opens_com_ports": true,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
     },
     {
       "path": "src/gas_calibrator/tools/run_v1_5_pace_mode_ingress_diagnostic.py",
@@ -2644,21 +4264,6 @@
       ]
     },
     {
-      "path": "src/gas_calibrator/tools/run_v1_no500_postprocess.py",
-      "name": "run_v1_no500_postprocess",
-      "artifact_type": "tool",
-      "category": "legacy_v1_reference",
-      "stage": "general",
-      "formal_status": "legacy_v1_reference_only",
-      "risk_level": "legacy_write_or_acceptance_risk",
-      "opens_com_ports": true,
-      "controls_routes": false,
-      "writes_coefficients": false,
-      "notes": [
-        "legacy V1 reference only; do not use as a V1.5 formal entrypoint"
-      ]
-    },
-    {
       "path": "src/gas_calibrator/tools/run_v1_online_acceptance.py",
       "name": "run_v1_online_acceptance",
       "artifact_type": "tool",
@@ -2728,11 +4333,37 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/v1_5/certificate_metrics_registry.py",
+      "name": "certificate_metrics_registry",
+      "artifact_type": "library",
+      "category": "v1_5_library",
+      "stage": "evidence_database",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "src/gas_calibrator/v1_5/import_initialization_database.py",
       "name": "import_initialization_database",
       "artifact_type": "library",
       "category": "v1_5_library",
       "stage": "evidence_database",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/v1_5/import_readiness_events.py",
+      "name": "import_readiness_events",
+      "artifact_type": "library",
+      "category": "v1_5_library",
+      "stage": "general",
       "formal_status": "formal_support",
       "risk_level": "offline",
       "opens_com_ports": false,
@@ -2785,6 +4416,19 @@
       "artifact_type": "library",
       "category": "full_flow_orchestration",
       "stage": "full_flow_orchestration",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/v1_5/orchestration/operator_workstation.py",
+      "name": "operator_workstation",
+      "artifact_type": "library",
+      "category": "full_flow_orchestration",
+      "stage": "general",
       "formal_status": "formal_support",
       "risk_level": "offline",
       "opens_com_ports": false,
@@ -2966,6 +4610,19 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/v1_5/readiness_event_database.py",
+      "name": "readiness_event_database",
+      "artifact_type": "library",
+      "category": "v1_5_library",
+      "stage": "evidence_database",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "src/gas_calibrator/v1_5/review_surface.py",
       "name": "review_surface",
       "artifact_type": "library",
@@ -3018,6 +4675,123 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/v1_5/ui/operator_workstation_app.py",
+      "name": "operator_workstation_app",
+      "artifact_type": "library",
+      "category": "ui_review",
+      "stage": "general",
+      "formal_status": "prototype_or_review_surface",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/v1_5/ui/page_i18n.py",
+      "name": "page_i18n",
+      "artifact_type": "library",
+      "category": "ui_review",
+      "stage": "general",
+      "formal_status": "prototype_or_review_surface",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/v1_5/ui/pages/__init__.py",
+      "name": "__init__",
+      "artifact_type": "library",
+      "category": "ui_review",
+      "stage": "general",
+      "formal_status": "prototype_or_review_surface",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/v1_5/ui/pages/certificate_metrics_page.py",
+      "name": "certificate_metrics_page",
+      "artifact_type": "library",
+      "category": "ui_review",
+      "stage": "general",
+      "formal_status": "prototype_or_review_surface",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/v1_5/ui/pages/readonly_summary_page.py",
+      "name": "readonly_summary_page",
+      "artifact_type": "library",
+      "category": "ui_review",
+      "stage": "general",
+      "formal_status": "prototype_or_review_surface",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/v1_5/ui/pages/visitor_showcase_page.py",
+      "name": "visitor_showcase_page",
+      "artifact_type": "library",
+      "category": "ui_review",
+      "stage": "general",
+      "formal_status": "prototype_or_review_surface",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/v1_5/ui/screenshot.py",
+      "name": "screenshot",
+      "artifact_type": "library",
+      "category": "ui_review",
+      "stage": "general",
+      "formal_status": "prototype_or_review_surface",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/v1_5/ui/scrollable_page_frame.py",
+      "name": "scrollable_page_frame",
+      "artifact_type": "library",
+      "category": "ui_review",
+      "stage": "general",
+      "formal_status": "prototype_or_review_surface",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/v1_5/workstation_snapshot.py",
+      "name": "workstation_snapshot",
+      "artifact_type": "library",
+      "category": "v1_5_library",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_advanced_qc_exporter.py",
       "name": "test_v1_5_advanced_qc_exporter",
       "artifact_type": "test",
@@ -3031,8 +4805,112 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_algorithm_formal_point_plan_guard.py",
+      "name": "test_v1_5_algorithm_formal_point_plan_guard",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_algorithm_formal_runlist_preview.py",
+      "name": "test_v1_5_algorithm_formal_runlist_preview",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_algorithm_mature_queue_inputs.py",
+      "name": "test_v1_5_algorithm_mature_queue_inputs",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_algorithm_profile_lineage_gate.py",
+      "name": "test_v1_5_algorithm_profile_lineage_gate",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_algorithm_profile_runner_dry_run.py",
+      "name": "test_v1_5_algorithm_profile_runner_dry_run",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_algorithm_queue_handoff_preflight.py",
+      "name": "test_v1_5_algorithm_queue_handoff_preflight",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_algorithm_route_profiles.py",
       "name": "test_v1_5_algorithm_route_profiles",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_algorithm_runlist_readiness.py",
+      "name": "test_v1_5_algorithm_runlist_readiness",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_algorithm_runner_integration_dry_run.py",
+      "name": "test_v1_5_algorithm_runner_integration_dry_run",
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "general",
@@ -3059,6 +4937,359 @@
     {
       "path": "tests/test_v1_5_analyzer_runtime_setup.py",
       "name": "test_v1_5_analyzer_runtime_setup",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_artifact_hash_binding.py",
+      "name": "test_v1_5_artifact_hash_binding",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_authoritative_resume_execution_preflight.py",
+      "name": "test_v1_5_authoritative_resume_execution_preflight",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_authoritative_resume_executor_authorization_validator.py",
+      "name": "test_v1_5_authoritative_resume_executor_authorization_validator",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_authoritative_resume_executor_blocked.py",
+      "name": "test_v1_5_authoritative_resume_executor_blocked",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_authoritative_resume_executor_controlled_design.py",
+      "name": "test_v1_5_authoritative_resume_executor_controlled_design",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_authoritative_resume_executor_plan_preview.py",
+      "name": "test_v1_5_authoritative_resume_executor_plan_preview",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_authoritative_resume_offline_candidate_gate.py",
+      "name": "test_v1_5_authoritative_resume_offline_candidate_gate",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "coefficient_review",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_authoritative_resume_offline_executor.py",
+      "name": "test_v1_5_authoritative_resume_offline_executor",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_authoritative_resume_offline_post_execution_verifier.py",
+      "name": "test_v1_5_authoritative_resume_offline_post_execution_verifier",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_authoritative_resume_offline_state_advance_atomic_writer.py",
+      "name": "test_v1_5_authoritative_resume_offline_state_advance_atomic_writer",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_authoritative_resume_offline_state_advance_authorization.py",
+      "name": "test_v1_5_authoritative_resume_offline_state_advance_authorization",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_authoritative_resume_offline_state_advance_next_step_authorization_preflight.py",
+      "name": "test_v1_5_authoritative_resume_offline_state_advance_next_step_authorization_preflight",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_authoritative_resume_offline_state_advance_next_step_blocked_executor.py",
+      "name": "test_v1_5_authoritative_resume_offline_state_advance_next_step_blocked_executor",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_authoritative_resume_offline_state_advance_next_step_controlled_executor_design.py",
+      "name": "test_v1_5_authoritative_resume_offline_state_advance_next_step_controlled_executor_design",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_authoritative_resume_offline_state_advance_next_step_execution.py",
+      "name": "test_v1_5_authoritative_resume_offline_state_advance_next_step_execution",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_authoritative_resume_offline_state_advance_next_step_operator_bundle.py",
+      "name": "test_v1_5_authoritative_resume_offline_state_advance_next_step_operator_bundle",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_authoritative_resume_offline_state_advance_next_step_plan.py",
+      "name": "test_v1_5_authoritative_resume_offline_state_advance_next_step_plan",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_authoritative_resume_offline_state_advance_post_write_verification.py",
+      "name": "test_v1_5_authoritative_resume_offline_state_advance_post_write_verification",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_authoritative_resume_offline_state_advance_preflight.py",
+      "name": "test_v1_5_authoritative_resume_offline_state_advance_preflight",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_authoritative_resume_state_atomic_writer.py",
+      "name": "test_v1_5_authoritative_resume_state_atomic_writer",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_authoritative_resume_state_consumer_contract.py",
+      "name": "test_v1_5_authoritative_resume_state_consumer_contract",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_authoritative_resume_state_controlled_write_preflight.py",
+      "name": "test_v1_5_authoritative_resume_state_controlled_write_preflight",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "requires explicit coefficient-write authorization and readback evidence"
+      ]
+    },
+    {
+      "path": "tests/test_v1_5_authoritative_resume_state_post_write_verification.py",
+      "name": "test_v1_5_authoritative_resume_state_post_write_verification",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_authoritative_resume_state_writer_blocked_executor.py",
+      "name": "test_v1_5_authoritative_resume_state_writer_blocked_executor",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_authoritative_resume_state_writer_design.py",
+      "name": "test_v1_5_authoritative_resume_state_writer_design",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_automation_control_contract.py",
+      "name": "test_v1_5_automation_control_contract",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_batch_initialization_closeout_index.py",
+      "name": "test_v1_5_batch_initialization_closeout_index",
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "general",
@@ -3150,6 +5381,19 @@
     {
       "path": "tests/test_v1_5_canonical_evidence_package.py",
       "name": "test_v1_5_canonical_evidence_package",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_certificate_metrics_registry.py",
+      "name": "test_v1_5_certificate_metrics_registry",
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "evidence_database",
@@ -3795,11 +6039,11 @@
       "notes": []
     },
     {
-      "path": "tests/test_v1_5_component_snapshot_after_events.py",
-      "name": "test_v1_5_component_snapshot_after_events",
+      "path": "tests/test_v1_5_component_qc_authority_audit.py",
+      "name": "test_v1_5_component_qc_authority_audit",
       "artifact_type": "test",
       "category": "test_gate",
-      "stage": "general",
+      "stage": "qc_review",
       "formal_status": "verification_only",
       "risk_level": "none",
       "opens_com_ports": false,
@@ -3808,8 +6052,34 @@
       "notes": []
     },
     {
-      "path": "tests/test_v1_5_controlled_outp_seal_transition.py",
-      "name": "test_v1_5_controlled_outp_seal_transition",
+      "path": "tests/test_v1_5_component_qc_generator_contract.py",
+      "name": "test_v1_5_component_qc_generator_contract",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "qc_review",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_component_qc_reference_evaluator.py",
+      "name": "test_v1_5_component_qc_reference_evaluator",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "qc_review",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_component_snapshot_after_events.py",
+      "name": "test_v1_5_component_snapshot_after_events",
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "general",
@@ -3901,6 +6171,71 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_final_offline_acceptance_suite.py",
+      "name": "test_v1_5_final_offline_acceptance_suite",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_final_product_boundary.py",
+      "name": "test_v1_5_final_product_boundary",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_final_production_external_gate_freeze.py",
+      "name": "test_v1_5_final_production_external_gate_freeze",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_final_production_gap_freeze.py",
+      "name": "test_v1_5_final_production_gap_freeze",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_final_senco_prewrite_gate.py",
+      "name": "test_v1_5_final_senco_prewrite_gate",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_fit_input_quality.py",
       "name": "test_v1_5_fit_input_quality",
       "artifact_type": "test",
@@ -3981,6 +6316,214 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_formal_database_dry_run.py",
+      "name": "test_v1_5_formal_database_dry_run",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_database_import_archive_binding.py",
+      "name": "test_v1_5_formal_database_import_archive_binding",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_database_import_authorization.py",
+      "name": "test_v1_5_formal_database_import_authorization",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_database_import_blocked_executor.py",
+      "name": "test_v1_5_formal_database_import_blocked_executor",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_database_import_command_contract.py",
+      "name": "test_v1_5_formal_database_import_command_contract",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_database_import_controlled_executor_design.py",
+      "name": "test_v1_5_formal_database_import_controlled_executor_design",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_database_import_evidence_bundle.py",
+      "name": "test_v1_5_formal_database_import_evidence_bundle",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_database_import_preflight.py",
+      "name": "test_v1_5_formal_database_import_preflight",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_database_import_production_controlled_executor.py",
+      "name": "test_v1_5_formal_database_import_production_controlled_executor",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_database_import_production_promotion_preflight.py",
+      "name": "test_v1_5_formal_database_import_production_promotion_preflight",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_database_import_staging_executor.py",
+      "name": "test_v1_5_formal_database_import_staging_executor",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_database_import_transaction_blocked_executor.py",
+      "name": "test_v1_5_formal_database_import_transaction_blocked_executor",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_database_import_transaction_integration.py",
+      "name": "test_v1_5_formal_database_import_transaction_integration",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_database_import_transaction_plan.py",
+      "name": "test_v1_5_formal_database_import_transaction_plan",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_database_migration_dba_readiness.py",
+      "name": "test_v1_5_formal_database_migration_dba_readiness",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_database_migration_production_controlled_executor.py",
+      "name": "test_v1_5_formal_database_migration_production_controlled_executor",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_formal_evidence_run.py",
       "name": "test_v1_5_formal_evidence_run",
       "artifact_type": "test",
@@ -4025,6 +6568,97 @@
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "h2o_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_initialization_blocked_executor.py",
+      "name": "test_v1_5_formal_initialization_blocked_executor",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_initialization_controlled_executor_design.py",
+      "name": "test_v1_5_formal_initialization_controlled_executor_design",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_initialization_executor_dry_run.py",
+      "name": "test_v1_5_formal_initialization_executor_dry_run",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_initialization_readonly_com_preflight_blocked_executor.py",
+      "name": "test_v1_5_formal_initialization_readonly_com_preflight_blocked_executor",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_initialization_readonly_com_preflight_controlled_blocked_executor.py",
+      "name": "test_v1_5_formal_initialization_readonly_com_preflight_controlled_blocked_executor",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_initialization_readonly_com_preflight_controlled_executor_design.py",
+      "name": "test_v1_5_formal_initialization_readonly_com_preflight_controlled_executor_design",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_initialization_readonly_com_preflight_design.py",
+      "name": "test_v1_5_formal_initialization_readonly_com_preflight_design",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
       "formal_status": "verification_only",
       "risk_level": "none",
       "opens_com_ports": false,
@@ -4113,8 +6747,112 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_formal_readonly_com_execution_blocked_executor.py",
+      "name": "test_v1_5_formal_readonly_com_execution_blocked_executor",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_readonly_com_execution_contract.py",
+      "name": "test_v1_5_formal_readonly_com_execution_contract",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_readonly_com_execution_packet_validator.py",
+      "name": "test_v1_5_formal_readonly_com_execution_packet_validator",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_readonly_com_execution_plan_preview.py",
+      "name": "test_v1_5_formal_readonly_com_execution_plan_preview",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_readonly_com_minimal_executor.py",
+      "name": "test_v1_5_formal_readonly_com_minimal_executor",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_readonly_com_minimal_executor_review.py",
+      "name": "test_v1_5_formal_readonly_com_minimal_executor_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_readonly_com_minimal_executor_stub.py",
+      "name": "test_v1_5_formal_readonly_com_minimal_executor_stub",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_formal_route_readiness.py",
       "name": "test_v1_5_formal_route_readiness",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_run_continuity_gate.py",
+      "name": "test_v1_5_formal_run_continuity_gate",
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "general",
@@ -4165,8 +6903,34 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_full_flow_automation_closure.py",
+      "name": "test_v1_5_full_flow_automation_closure",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "full_flow_orchestration",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_full_flow_closure_readiness.py",
       "name": "test_v1_5_full_flow_closure_readiness",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "full_flow_orchestration",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_full_flow_next_action_plan.py",
+      "name": "test_v1_5_full_flow_next_action_plan",
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "full_flow_orchestration",
@@ -4411,6 +7175,164 @@
       ]
     },
     {
+      "path": "tests/test_v1_5_historical_component_qc_blocked_generator_plan.py",
+      "name": "test_v1_5_historical_component_qc_blocked_generator_plan",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "qc_review",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_historical_component_qc_controlled_writer_design.py",
+      "name": "test_v1_5_historical_component_qc_controlled_writer_design",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "qc_review",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "requires explicit coefficient-write authorization and readback evidence"
+      ]
+    },
+    {
+      "path": "tests/test_v1_5_historical_component_qc_generator_preflight.py",
+      "name": "test_v1_5_historical_component_qc_generator_preflight",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "qc_review",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_historical_fit_evidence_normalizer.py",
+      "name": "test_v1_5_historical_fit_evidence_normalizer",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_historical_fit_profile_parity.py",
+      "name": "test_v1_5_historical_fit_profile_parity",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "coefficient_review",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_historical_frame_parity_audit.py",
+      "name": "test_v1_5_historical_frame_parity_audit",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_historical_mature_root_discovery.py",
+      "name": "test_v1_5_historical_mature_root_discovery",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_historical_replay_contract.py",
+      "name": "test_v1_5_historical_replay_contract",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_historical_replay_evidence.py",
+      "name": "test_v1_5_historical_replay_evidence",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_historical_replay_missing_point_audit.py",
+      "name": "test_v1_5_historical_replay_missing_point_audit",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_historical_replay_qc_gap_audit.py",
+      "name": "test_v1_5_historical_replay_qc_gap_audit",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "qc_review",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_historical_route_attestation_binder.py",
+      "name": "test_v1_5_historical_route_attestation_binder",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_identity_layer_ownership.py",
       "name": "test_v1_5_identity_layer_ownership",
       "artifact_type": "test",
@@ -4450,8 +7372,60 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_legacy_evidence_gap_task_plan.py",
+      "name": "test_v1_5_legacy_evidence_gap_task_plan",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_legacy_full_flow_offline_replay.py",
+      "name": "test_v1_5_legacy_full_flow_offline_replay",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "full_flow_orchestration",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_legacy_historical_evidence_catalog.py",
+      "name": "test_v1_5_legacy_historical_evidence_catalog",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_main_senco_write_precheck_pack.py",
       "name": "test_v1_5_main_senco_write_precheck_pack",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_mature_route_continuity_gate.py",
+      "name": "test_v1_5_mature_route_continuity_gate",
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "general",
@@ -4489,6 +7463,19 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_new_algorithm_mature_queue_live_handoff.py",
+      "name": "test_v1_5_new_algorithm_mature_queue_live_handoff",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_new_algorithm_test_point_plan.py",
       "name": "test_v1_5_new_algorithm_test_point_plan",
       "artifact_type": "test",
@@ -4502,8 +7489,8 @@
       "notes": []
     },
     {
-      "path": "tests/test_v1_5_no_outp_engineering_config.py",
-      "name": "test_v1_5_no_outp_engineering_config",
+      "path": "tests/test_v1_5_new_run_bootstrap.py",
+      "name": "test_v1_5_new_run_bootstrap",
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "general",
@@ -4512,13 +7499,11 @@
       "opens_com_ports": false,
       "controls_routes": false,
       "writes_coefficients": false,
-      "notes": [
-        "pressure/route engineering probe; keep outside formal CO2/H2O fit"
-      ]
+      "notes": []
     },
     {
-      "path": "tests/test_v1_5_no_outp_plus_sealed_sweep.py",
-      "name": "test_v1_5_no_outp_plus_sealed_sweep",
+      "path": "tests/test_v1_5_no_outp_engineering_config.py",
+      "name": "test_v1_5_no_outp_engineering_config",
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "general",
@@ -4553,21 +7538,6 @@
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "temperature_channel",
-      "formal_status": "verification_only",
-      "risk_level": "none",
-      "opens_com_ports": false,
-      "controls_routes": false,
-      "writes_coefficients": false,
-      "notes": [
-        "pressure/route engineering probe; keep outside formal CO2/H2O fit"
-      ]
-    },
-    {
-      "path": "tests/test_v1_5_no_outp_transition.py",
-      "name": "test_v1_5_no_outp_transition",
-      "artifact_type": "test",
-      "category": "test_gate",
-      "stage": "general",
       "formal_status": "verification_only",
       "risk_level": "none",
       "opens_com_ports": false,
@@ -4633,6 +7603,58 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_operator_workstation.py",
+      "name": "test_v1_5_operator_workstation",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_operator_workstation_ui.py",
+      "name": "test_v1_5_operator_workstation_ui",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_p1_evidence_lineage_audit.py",
+      "name": "test_v1_5_p1_evidence_lineage_audit",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_p2_qc_derivation_design.py",
+      "name": "test_v1_5_p2_qc_derivation_design",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "qc_review",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_pace_audit_guards.py",
       "name": "test_v1_5_pace_audit_guards",
       "artifact_type": "test",
@@ -4676,6 +7698,19 @@
     {
       "path": "tests/test_v1_5_parameter_governance.py",
       "name": "test_v1_5_parameter_governance",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_post_closeout_resume_gate.py",
+      "name": "test_v1_5_post_closeout_resume_gate",
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "general",
@@ -4791,6 +7826,19 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_pressure_s9_readiness_index.py",
+      "name": "test_v1_5_pressure_s9_readiness_index",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "pressure_channel",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_pressure_senco9_clear_controlled_write.py",
       "name": "test_v1_5_pressure_senco9_clear_controlled_write",
       "artifact_type": "test",
@@ -4847,6 +7895,45 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_production_component_qc_fit_matrix.py",
+      "name": "test_v1_5_production_component_qc_fit_matrix",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "qc_review",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_production_entrypoint_gate.py",
+      "name": "test_v1_5_production_entrypoint_gate",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_production_entrypoint_map.py",
+      "name": "test_v1_5_production_entrypoint_map",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_qc_advanced.py",
       "name": "test_v1_5_qc_advanced",
       "artifact_type": "test",
@@ -4873,11 +7960,102 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_resume_offline_state_advance_status_integration.py",
+      "name": "test_v1_5_resume_offline_state_advance_status_integration",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_resume_prefix_application_review.py",
+      "name": "test_v1_5_resume_prefix_application_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_review_surface.py",
       "name": "test_v1_5_review_surface",
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "ui_review",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_route_physical_recovery_evidence_binder.py",
+      "name": "test_v1_5_route_physical_recovery_evidence_binder",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_route_physical_recovery_evidence_packet.py",
+      "name": "test_v1_5_route_physical_recovery_evidence_packet",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_route_physical_recovery_evidence_packet_template.py",
+      "name": "test_v1_5_route_physical_recovery_evidence_packet_template",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "temperature_channel",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_route_physical_recovery_readiness.py",
+      "name": "test_v1_5_route_physical_recovery_readiness",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_route_run_failure_root_cause.py",
+      "name": "test_v1_5_route_run_failure_root_cause",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
       "formal_status": "verification_only",
       "risk_level": "none",
       "opens_com_ports": false,
@@ -4916,6 +8094,32 @@
     {
       "path": "tests/test_v1_5_sample_reuse_review.py",
       "name": "test_v1_5_sample_reuse_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_senco_artifact_authorization.py",
+      "name": "test_v1_5_senco_artifact_authorization",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_senco_authorization_archive_binding.py",
+      "name": "test_v1_5_senco_authorization_archive_binding",
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "general",
@@ -4981,8 +8185,8 @@
       "notes": []
     },
     {
-      "path": "tests/test_v1_5_stage_detail_route_optimization_doc.py",
-      "name": "test_v1_5_stage_detail_route_optimization_doc",
+      "path": "tests/test_v1_5_status_register.py",
+      "name": "test_v1_5_status_register",
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "general",
@@ -4994,11 +8198,11 @@
       "notes": []
     },
     {
-      "path": "tests/test_v1_5_status_register.py",
-      "name": "test_v1_5_status_register",
+      "path": "tests/test_v1_5_storage_namespace_isolation.py",
+      "name": "test_v1_5_storage_namespace_isolation",
       "artifact_type": "test",
       "category": "test_gate",
-      "stage": "general",
+      "stage": "pressure_channel",
       "formal_status": "verification_only",
       "risk_level": "none",
       "opens_com_ports": false,
@@ -5063,8 +8267,36 @@
       ]
     },
     {
+      "path": "tests/test_v1_5_unified_controlled_write_reverify.py",
+      "name": "test_v1_5_unified_controlled_write_reverify",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "requires explicit coefficient-write authorization and readback evidence"
+      ]
+    },
+    {
       "path": "tests/test_v1_5_v1_ratio_poly_algorithm_audit.py",
       "name": "test_v1_5_v1_ratio_poly_algorithm_audit",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_workstation_snapshot.py",
+      "name": "test_v1_5_workstation_snapshot",
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "general",

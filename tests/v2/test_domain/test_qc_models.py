@@ -1,5 +1,4 @@
-from gas_calibrator.v2.domain.enums import QCLevel
-from gas_calibrator.v2.domain.qc_models import QCDecision
+from gas_calibrator.validation.simulation.domain import QCDecision, QCLevel
 
 
 def test_qc_decision_defaults() -> None:

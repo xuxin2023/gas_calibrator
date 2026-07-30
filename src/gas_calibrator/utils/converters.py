@@ -5,7 +5,7 @@
 所有函数都提供安全的默认值处理，避免因类型转换失败导致程序崩溃。
 
 使用示例：
-    from gas_calibrator.v2.utils import as_float, as_int
+    from gas_calibrator.utils import as_float, as_int
 
     # 安全转换为浮点数
     value = as_float(device_response, default=0.0)

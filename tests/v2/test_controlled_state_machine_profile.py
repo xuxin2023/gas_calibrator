@@ -2,6 +2,14 @@ from datetime import datetime, timezone
 
 import pytest
 
+from gas_calibrator.validation.simulation.plan_models import (
+    CalibrationPlanProfile,
+    GasPointSpec,
+    HumiditySpec,
+    PlanOrderingOptions,
+    PressureSpec,
+    TemperatureSpec,
+)
 from gas_calibrator.v2.core.controlled_state_machine_profile import (
     ALLOWED_TRANSITIONS,
     CANONICAL_STATES,
@@ -13,15 +21,7 @@ from gas_calibrator.v2.core.controlled_state_machine_profile import (
 )
 from gas_calibrator.v2.core.models import CalibrationPoint, SamplingResult
 from gas_calibrator.v2.core.plan_compiler import PlanCompiler
-from gas_calibrator.v2.domain.plan_models import (
-    CalibrationPlanProfile,
-    GasPointSpec,
-    HumiditySpec,
-    PlanOrderingOptions,
-    PressureSpec,
-    TemperatureSpec,
-)
-from gas_calibrator.v2.domain.pressure_selection import AMBIENT_PRESSURE_TOKEN
+from gas_calibrator.validation.simulation.pressure_selection import AMBIENT_PRESSURE_TOKEN
 
 
 def _sample(point: CalibrationPoint, *, point_phase: str, sample_index: int = 1) -> SamplingResult:

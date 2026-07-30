@@ -26,9 +26,13 @@ from gas_calibrator.devices.temperature_chamber import TemperatureChamber  # noq
 
 
 def create_argument_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="A2.21 query-only COM sanity probe entry")
+    parser = argparse.ArgumentParser(
+        description="A2.21 query-only COM sanity probe entry"
+    )
     parser.add_argument("--config", type=Path, help="Query-only config JSON")
-    parser.add_argument("--operator-confirmation", type=Path, help="Operator confirmation JSON")
+    parser.add_argument(
+        "--operator-confirmation", type=Path, help="Operator confirmation JSON"
+    )
     parser.add_argument("--output-dir", type=Path, help="Output directory")
     parser.add_argument("--branch", default="", help="Expected git branch")
     parser.add_argument("--head", default="", help="Expected git HEAD")
@@ -54,6 +58,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                     "temperature_chamber_port_identity_confirmed": False,
                     "real_com_opened": False,
                     "query_only_probe_executed": False,
+                    "query_only_state_neutral": False,
+                    "pressure_p3_may_cancel_continuous_output": True,
+                    "pressure_p3_is_persistent_write": False,
                 },
                 ensure_ascii=False,
                 indent=2,

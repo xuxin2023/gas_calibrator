@@ -33,12 +33,8 @@ from .step3_admission_dossier_contracts import (
     ADMISSION_DOSSIER_SECTION_ORDER,
     ADMISSION_DOSSIER_TITLE_ZH,
     ADMISSION_DOSSIER_TITLE_EN,
-    ADMISSION_DOSSIER_STEP2_BOUNDARY,
     ADMISSION_DOSSIER_SIMULATION_ONLY_BOUNDARY_ZH,
     ADMISSION_DOSSIER_SIMULATION_ONLY_BOUNDARY_EN,
-    resolve_admission_dossier_title,
-    resolve_admission_dossier_summary,
-    resolve_admission_dossier_section_label,
     resolve_admission_dossier_status_label,
     resolve_admission_dossier_blocker_label,
     resolve_admission_dossier_next_step_label,
@@ -48,7 +44,6 @@ from .step3_admission_dossier_contracts import (
     resolve_admission_candidate_notice,
 )
 from .step2_closeout_readiness_contracts import (
-    CLOSEOUT_STATUS_OK,
     CLOSEOUT_STATUS_ATTENTION,
     CLOSEOUT_STATUS_BLOCKER,
 )

@@ -1,9 +1,44 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
 from gas_calibrator.tools import run_v1_merged_calibration_sidecar as sidecar
+
+
+def test_load_coefficients_config_uses_only_report_subtree(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "coefficients": {
+                    "enabled": False,
+                    "auto_fit": False,
+                    "ratio_degree": 4,
+                    "report_output_name": "custom_coefficients.xlsx",
+                },
+                "workflow": {"unrelated": "ignored"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = sidecar._load_coefficients_config_lazy(config_path)
+
+    assert config.enabled is True
+    assert config.auto_fit is True
+    assert config.ratio_degree == 4
+    assert config.report_output_name == "custom_coefficients.xlsx"
+
+
+def test_default_coefficients_payload_uses_only_active_v2_report_temperature_and_pressure_keys() -> None:
+    payload = sidecar._default_coefficients_payload()
+
+    assert payload["report_temperature_key"] == "Temp"
+    assert payload["report_pressure_key"] == "P_fit"
+    assert set(payload["summary_columns"]["co2"]) == {"target", "ratio"}
+    assert set(payload["summary_columns"]["h2o"]) == {"target", "ratio"}
 
 
 def _temperature_rows() -> list[dict[str, object]]:

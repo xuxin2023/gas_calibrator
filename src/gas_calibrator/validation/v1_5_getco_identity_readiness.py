@@ -173,14 +173,29 @@ def _check_missing_artifacts(paths: Mapping[str, Path]) -> GetcoIdentityReadines
 def _check_identity_rows(identity_rows: Sequence[Mapping[str, Any]]) -> GetcoIdentityReadinessCheck:
     reasons: list[str] = []
     device_ids: list[str] = []
+    device_id_ports: dict[str, str] = {}
+    port_device_ids: dict[str, str] = {}
     for index, row in enumerate(identity_rows, start=1):
         device_id = _device_id(row)
+        port = str(row.get("port") or "").strip()
         if not device_id:
             reasons.append(f"row{index}_missing_analyzer_device_id")
-        elif device_id not in device_ids:
-            device_ids.append(device_id)
-        if not str(row.get("port") or "").strip():
+        else:
+            if device_id not in device_ids:
+                device_ids.append(device_id)
+            previous_port = device_id_ports.get(device_id)
+            if previous_port is not None:
+                reasons.append(f"{device_id}_duplicate_analyzer_device_id_across_identity_rows")
+            else:
+                device_id_ports[device_id] = port
+        if not port:
             reasons.append(f"row{index}_missing_port")
+        else:
+            previous_device_id = port_device_ids.get(port)
+            if previous_device_id is not None:
+                reasons.append(f"{port}_duplicate_port_across_identity_rows")
+            else:
+                port_device_ids[port] = device_id
         if not _truthy(row.get("identity_verified")):
             reasons.append(f"row{index}_identity_not_verified")
         if not _truthy(row.get("all_groups_found")):
@@ -204,10 +219,15 @@ def _check_identity_rows(identity_rows: Sequence[Mapping[str, Any]]) -> GetcoIde
         reasons=tuple(reasons),
         physical_meaning=(
             "COM and GA labels are transport only; the runtime analyzer device ID from MODE2/stream evidence "
-            "must be bound before pressure, CO2, H2O, or coefficient-write stages."
+            "must be bound one-to-one with a serial port before pressure, CO2, H2O, or coefficient-write stages."
         ),
         next_action="Fix missing identity rows or rerun the read-only snapshot; do not proceed with guessed COM aliases.",
-        details={"active_analyzer_count": len(identity_rows), "analyzer_device_ids": device_ids},
+        details={
+            "active_analyzer_count": len(identity_rows),
+            "analyzer_device_ids": device_ids,
+            "device_id_ports": device_id_ports,
+            "port_device_ids": port_device_ids,
+        },
     )
 
 

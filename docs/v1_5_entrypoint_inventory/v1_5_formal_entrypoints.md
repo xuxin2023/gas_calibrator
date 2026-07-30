@@ -50,21 +50,23 @@ Use this section as the first navigation layer when the repository feels noisy. 
 | Category | Count |
 |---|---:|
 | `advanced_qc` | 10 |
+| `controlled_state_writer` | 2 |
 | `controlled_write` | 14 |
 | `diagnostic_only` | 11 |
-| `evidence_database` | 5 |
+| `evidence_database` | 12 |
 | `formal_pressure_no_write_runner` | 1 |
-| `formal_review_evidence` | 110 |
+| `formal_review_evidence` | 206 |
 | `formal_runner` | 2 |
 | `formal_sampling_worker` | 2 |
-| `full_flow_orchestration` | 5 |
+| `full_flow_orchestration` | 10 |
 | `housekeeping_archive` | 1 |
 | `identity_and_serial_binding` | 4 |
-| `legacy_v1_reference` | 4 |
+| `legacy_v1_reference` | 3 |
 | `parameter_governance` | 2 |
-| `test_gate` | 157 |
-| `ui_review` | 3 |
-| `v1_5_library` | 5 |
+| `test_gate` | 269 |
+| `ui_review` | 11 |
+| `unclassified_v1_5_tool` | 1 |
+| `v1_5_library` | 9 |
 
 ## Formal-Use Categories
 
@@ -96,6 +98,7 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `authorized_write_only` | `controlled_write` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_temperature_current_point_review.py` | Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan. |
 | `authorized_write_only` | `controlled_write` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_temperature_senco78_candidate_controlled_write.py` | Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan. |
 | `authorized_write_only` | `controlled_write` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_temperature_senco78_neutral_controlled_write.py` | Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan. |
+| `classification_required` | `unclassified_v1_5_tool` | `unknown` | `src/gas_calibrator/tools/run_v1_5_operator_workstation_dry_run.py` | Do not use until the inventory assigns an explicit category, status, and risk boundary. |
 | `diagnostic_not_acceptance` | `diagnostic_only` | `real_com_or_route_risk` | `src/gas_calibrator/tools/probe_v1_5_getco9_protocol.py` | Use for engineering investigation or replay evidence; exclude from formal CO2/H2O fitting by default. |
 | `diagnostic_not_acceptance` | `diagnostic_only` | `real_com_or_route_risk` | `src/gas_calibrator/tools/run_v1_5_no_outp_preseal_probe.py` | Use for engineering investigation or replay evidence; exclude from formal CO2/H2O fitting by default. |
 | `diagnostic_not_acceptance` | `diagnostic_only` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_post_h2o_diagnostic.py` | Use for engineering investigation or replay evidence; exclude from formal CO2/H2O fitting by default. |
@@ -109,7 +112,6 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `diagnostic_not_acceptance` | `diagnostic_only` | `real_com_or_route_risk` | `src/gas_calibrator/tools/run_v1_5_sealed_pressure_tune_900.py` | Use for engineering investigation or replay evidence; exclude from formal CO2/H2O fitting by default. |
 | `legacy_v1_reference_only` | `legacy_v1_reference` | `legacy_write_or_acceptance_risk` | `src/gas_calibrator/tools/run_v1_corrected_autodelivery.py` | Keep only as historical algorithm/audit reference; do not use to start V1.5 formal calibration. |
 | `legacy_v1_reference_only` | `legacy_v1_reference` | `legacy_write_or_acceptance_risk` | `src/gas_calibrator/tools/run_v1_merged_calibration_sidecar.py` | Keep only as historical algorithm/audit reference; do not use to start V1.5 formal calibration. |
-| `legacy_v1_reference_only` | `legacy_v1_reference` | `legacy_write_or_acceptance_risk` | `src/gas_calibrator/tools/run_v1_no500_postprocess.py` | Keep only as historical algorithm/audit reference; do not use to start V1.5 formal calibration. |
 | `legacy_v1_reference_only` | `legacy_v1_reference` | `legacy_write_or_acceptance_risk` | `src/gas_calibrator/tools/run_v1_online_acceptance.py` | Keep only as historical algorithm/audit reference; do not use to start V1.5 formal calibration. |
 | `pressure_no_write_only` | `formal_pressure_no_write_runner` | `real_com_or_route_risk` | `src/gas_calibrator/tools/validate_pressure_only.py` | Use only for pressure-channel validation/calibration evidence; do not feed CO2/H2O fitting directly. |
 | `use_via_canonical_queue_only` | `formal_sampling_worker` | `real_com_or_route_risk` | `src/gas_calibrator/tools/run_v1_5_formal_open_flow_sampling.py` | Per-point open-flow worker called by the canonical CO2/H2O queue runners; do not delete, but do not treat as a top-level formal start point. |
@@ -129,6 +131,8 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `advanced_qc` | `general` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/qc_advanced/uncertainty_budget.py` |  |
 | `advanced_qc` | `h2o_component` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/qc_advanced/humidity_diagnostics.py` | diagnostic evidence only; not formal acceptance by default |
 | `advanced_qc` | `pressure_channel` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/qc_advanced/pressure_trend.py` |  |
+| `controlled_state_writer` | `general` | `manual_authorized_only` | `state_file_write_risk` | `src/gas_calibrator/tools/run_v1_5_authoritative_resume_offline_state_advance_atomic_writer.py` | manual-authorized one-step offline resume state-advance writer; freshly revalidates authorization under the shared lock, checks current and candidate SHA256 values, snapshots, atomically replaces, reads back, and rolls back without opening COM |
+| `controlled_state_writer` | `general` | `manual_authorized_only` | `state_file_write_risk` | `src/gas_calibrator/tools/run_v1_5_authoritative_resume_state_atomic_writer.py` | manual-authorized atomic authoritative resume-state writer; consumes only the exact ready preflight and performs lock, current-SHA check, snapshot, fsync, atomic replace, readback, and rollback without opening COM |
 | `controlled_write` | `co2_component` | `formal_but_manual_authorized` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_co2_senco13_controlled_rollback.py` | requires explicit coefficient-write authorization and readback evidence |
 | `controlled_write` | `co2_component` | `formal_but_manual_authorized` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_co2_senco13_controlled_write.py` | requires explicit coefficient-write authorization and readback evidence |
 | `controlled_write` | `co2_component` | `formal_but_manual_authorized` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_co2_senco1_controlled_write.py` | requires explicit coefficient-write authorization and readback evidence |
@@ -154,10 +158,17 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `diagnostic_only` | `pressure_channel` | `diagnostic_only` | `real_com_or_route_risk` | `src/gas_calibrator/tools/run_v1_5_open_flow_dynamic_pressure_diagnostic.py` | diagnostic evidence only; not formal acceptance by default; pressure/route engineering probe; keep outside formal CO2/H2O fit |
 | `diagnostic_only` | `pressure_channel` | `diagnostic_only` | `real_com_or_route_risk` | `src/gas_calibrator/tools/run_v1_5_pace_mode_ingress_diagnostic.py` | diagnostic evidence only; not formal acceptance by default |
 | `diagnostic_only` | `pressure_channel` | `diagnostic_only` | `real_com_or_route_risk` | `src/gas_calibrator/tools/run_v1_5_sealed_pressure_tune_900.py` | diagnostic evidence only; not formal acceptance by default; pressure/route engineering probe; keep outside formal CO2/H2O fit |
+| `evidence_database` | `evidence_database` | `explicit_staging_database_query_only` | `staging_database_read_risk` | `src/gas_calibrator/tools/query_v1_5_formal_database_import_staging.py` | explicit read-only PostgreSQL 18 staging query; looks up SN, device_code, protocol ID, or run without production import/release authority |
+| `evidence_database` | `evidence_database` | `manual_authorized_production_database_only` | `production_database_write_risk` | `src/gas_calibrator/tools/run_v1_5_formal_database_import_production_controlled_executor.py` | manual-authorized PostgreSQL 18 production import executor; fixed gas_calibrator/public/v1_5_evidence target with immutable promotion hashes, three-party authorization, precommit readback, idempotency ledger, and rollback hold |
+| `evidence_database` | `evidence_database` | `manual_authorized_staging_database_only` | `staging_database_write_risk` | `src/gas_calibrator/tools/run_v1_5_formal_database_import_staging_executor.py` | manual-authorized PostgreSQL 18 staging-only transaction executor; writes isolated staging schemas with atomic rollback and keeps production import/release locked |
+| `evidence_database` | `evidence_database` | `manual_authorized_production_database_migration_only` | `production_database_migration_risk` | `src/gas_calibrator/tools/run_v1_5_formal_database_migration_production_controlled_executor.py` | manual-authorized PostgreSQL 18 migration 002 executor; fixed gas_calibrator/v1_5_evidence target with immutable DBA packet hashes, three-party authorization, transactional apply, postcheck, and conservative commit-uncertain hold |
 | `evidence_database` | `general` | `formal_support` | `offline` | `src/gas_calibrator/storage/v1_5_evidence/__init__.py` |  |
 | `evidence_database` | `general` | `formal_support` | `offline` | `src/gas_calibrator/storage/v1_5_evidence/bundle.py` |  |
+| `evidence_database` | `general` | `formal_support` | `offline` | `src/gas_calibrator/storage/v1_5_evidence/production_import.py` |  |
+| `evidence_database` | `general` | `formal_support` | `offline` | `src/gas_calibrator/storage/v1_5_evidence/production_migration.py` |  |
 | `evidence_database` | `general` | `formal_support` | `offline` | `src/gas_calibrator/storage/v1_5_evidence/repository.py` |  |
 | `evidence_database` | `general` | `formal_support` | `offline` | `src/gas_calibrator/storage/v1_5_evidence/schema.py` |  |
+| `evidence_database` | `general` | `formal_support` | `offline` | `src/gas_calibrator/storage/v1_5_evidence/staging_import.py` |  |
 | `evidence_database` | `pressure_channel` | `formal_support` | `offline` | `src/gas_calibrator/storage/v1_5_evidence/pressure_completion_bundle.py` |  |
 | `formal_pressure_no_write_runner` | `pressure_channel` | `formal_pressure_no_write_when_authorized` | `real_com_or_route_risk` | `src/gas_calibrator/tools/validate_pressure_only.py` | pressure-channel no-write validation/calibration runner; separate from CO2/H2O fitting |
 | `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_anchor_ratio_repair.py` |  |
@@ -200,47 +211,132 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_three_point_state_bridge.py` |  |
 | `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_training_scope_review.py` |  |
 | `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_zero_s5_sensitivity_review.py` |  |
+| `formal_review_evidence` | `coefficient_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_candidate_gate.py` | offline resume candidate classifier; admits only fresh canonical steps with offline mode and no COM, pressure, route, device, coefficient, or database side effects without executing |
 | `formal_review_evidence` | `coefficient_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_candidate_coefficients.py` |  |
 | `formal_review_evidence` | `coefficient_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_candidate_model_selection_review.py` |  |
 | `formal_review_evidence` | `coefficient_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_candidate_write_review.py` |  |
+| `formal_review_evidence` | `coefficient_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_historical_fit_profile_parity.py` | offline historical fitting parity replay; enforces 0613 fitting plus 0620/0621 route baselines and legacy R versus absorption A/R0(T) without executing hardware |
 | `formal_review_evidence` | `coefficient_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_post_run_coefficient_executor.py` |  |
 | `formal_review_evidence` | `coefficient_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/prepare_v1_5_multipoint_candidate_run.py` |  |
+| `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_database_dry_run.py` | offline PostgreSQL 18 database dry-run contract; previews schema and insert roles without connecting or importing data |
+| `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_database_import_authorization.py` | offline PostgreSQL 18 database import authorization guard; reviews archive release and manual authorization without connecting or importing data |
+| `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_database_import_command_contract.py` | offline PostgreSQL 18 database import command contract; reviews required real-import inputs without connecting or importing data |
+| `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_database_import_controlled_executor_design.py` | offline PostgreSQL 18 controlled import executor design; defines future authorization, transaction, readback, and rollback contract without connecting |
+| `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_database_import_preflight.py` | offline PostgreSQL 18 database import preflight; reviews DSN presence and import locks without connecting or importing data |
+| `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_database_import_production_promotion_preflight.py` | offline PostgreSQL 18 production-promotion preflight; revalidates staging readback and immutable authorization/archive/evidence bindings without connecting or importing production data |
+| `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_database_import_transaction_plan.py` | offline PostgreSQL 18 deterministic transaction plan; freezes stages, natural keys, readback, and rollback without SQL or connection |
+| `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_database_migration_dba_readiness.py` | offline PostgreSQL 18 DBA migration packet; freezes migration order, checksums, precheck/apply/postcheck SQL, rollback boundaries, and manual review without reading a DSN or connecting |
+| `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_historical_fit_evidence_normalizer.py` | offline historical fit evidence normalizer; extracts ratio, chamber T1, pressure, dewpoint, and component-matched QC without opening COM or fitting coefficients |
+| `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_historical_replay_evidence.py` | offline historical replay evidence binder; reads historical CSV/JSON point evidence without opening COM or changing release state |
+| `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_legacy_evidence_gap_task_plan.py` | offline legacy evidence-gap task plan; revalidates cataloged artifact hashes and schedules manual QC/traceability review without repairing or promoting evidence |
+| `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_legacy_historical_evidence_catalog.py` | offline legacy historical evidence catalog; hashes segmented, retry, recovery, and accepted-composite point evidence without promoting it |
+| `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_p1_evidence_lineage_audit.py` | offline P1 evidence lineage audit; searches only bounded same-run siblings for retry evidence without copying files, deriving QC, or binding cross-run data |
+| `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_route_physical_recovery_evidence_binder.py` | offline V1.5 route physical recovery evidence binder; converts reviewed trace files into a recovery packet without collecting live data |
+| `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_route_physical_recovery_evidence_packet.py` | offline V1.5 route physical recovery evidence packet validator; checks dry-gas, PACE vent, pressure INL, fresh queue, and no-write boundaries before recovery readiness |
 | `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_run_evidence_status.py` |  |
-| `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/import_v1_5_evidence_package.py` |  |
+| `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/import_v1_5_evidence_package.py` | offline PostgreSQL 18 blocked import executor stub; legacy bundle dry-run only, no connection, no migration, no row import |
 | `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/migrate_v1_5_evidence_db.py` |  |
 | `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/prepare_v1_5_canonical_evidence_package.py` |  |
 | `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/prepare_v1_5_formal_evidence_run.py` |  |
 | `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/query_v1_5_evidence_run.py` |  |
+| `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/run_v1_5_formal_database_import_transaction_blocked_executor.py` | offline PostgreSQL 18 transaction blocked executor; refuses execute, DSN, authorization, migration, archive, and evidence inputs |
 | `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/run_v1_5_formal_evidence_sidecar.py` | offline review/evidence sidecar; no COM or route control |
 | `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/verify_v1_5_evidence_bundle.py` |  |
+| `formal_review_evidence` | `full_flow_orchestration` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_full_flow_automation_closure.py` | offline V1.5 full-flow automation closure map; records mature baseline, remaining automation gaps, and forbidden formal surfaces without executing hardware |
 | `formal_review_evidence` | `full_flow_orchestration` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_full_flow_closure_readiness.py` |  |
+| `formal_review_evidence` | `full_flow_orchestration` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_full_flow_next_action_plan.py` | offline V1.5 full-flow next-action plan; ranks remaining automation handoffs without executing hardware, writes, routes, or database imports |
+| `formal_review_evidence` | `full_flow_orchestration` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_legacy_full_flow_offline_replay.py` | offline V1.5 legacy full-flow offline replay; walks initialization through archive from historical evidence without promoting segmented data or executing hardware |
 | `formal_review_evidence` | `full_flow_orchestration` | `formal_support` | `offline` | `src/gas_calibrator/tools/prepare_v1_5_formal_run_package.py` |  |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_algorithm_formal_point_plan_guard.py` | offline algorithm formal point-plan guard; validates legacy 45/13 and new algorithm 47/14 without opening COM or changing runners |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_algorithm_formal_runlist_preview.py` | offline algorithm formal runlist preview; emits queue-compatible 47/14 CSV artifacts without opening COM or changing runners |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_algorithm_mature_queue_inputs.py` | offline profile queue materializer; emits immutable 45/13 or 47/14 inputs for the mature V1.5 CO2/H2O queues without executing them |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_algorithm_profile_lineage_gate.py` | offline algorithm-profile lineage gate; binds bootstrap and queue hashes to legacy R or absorption A/R0(T) fit semantics without executing hardware |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_algorithm_profile_runner_dry_run.py` | offline algorithm profile runner dry-run; bundles runlist, readiness, and runner dry-run evidence without executing formal runners |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_algorithm_queue_handoff_preflight.py` | offline algorithm queue handoff preflight; requires dry-run/no-prompt evidence before any future live queue wiring |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_algorithm_runlist_readiness.py` | offline algorithm runlist readiness gate; blocks incomplete 47/14 previews before any runner integration |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_algorithm_runner_integration_dry_run.py` | offline algorithm runner integration dry-run; plans queue invocations without executing formal runners |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_algorithm_write_contract_review.py` |  |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_authoritative_resume_execution_preflight.py` | offline last-moment resume execution preflight; revalidates authorization, state, plan, next-step, command hash, expiry, and least-privilege envelope while keeping execution locked |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_authoritative_resume_executor_authorization_validator.py` | offline resume executor authorization validator; recomputes the design and validates identity, expiry, evidence hashes, canonical next-step, command hash, and least-privilege capabilities without executing |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_authoritative_resume_executor_controlled_design.py` | offline controlled resume executor design; binds future authorization to exact plan, state, next-step, command hash, expiry, and least-privilege capabilities without executing |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_authoritative_resume_executor_plan_preview.py` | offline plan-only resume executor preview; independently recomputes the consumer contract and displays the next command and authorization requirements without executing it |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_post_execution_verifier.py` | offline resume post-execution verifier; binds the executor, gate, plan, output SHA256 values, authorization packet, and unchanged authoritative state without executing or advancing state |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_state_advance_authorization.py` | offline resume state-advance authorization validator; binds a short-lived distinct-reviewer packet to the exact preflight, current-state SHA, candidate SHA, run, attempt, and verified step without writing state |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_state_advance_consumer_readiness.py` | offline advanced resume-state consumer readiness gate; independently recomputes post-write verification and checks the locked contiguous state prefix without executing the next step |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_state_advance_next_step_authorization_preflight.py` | offline next-step review authorization preflight; binds a short-lived three-party packet to the exact plan, consumer, run, attempt, next step, and mature module while keeping execution locked |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_state_advance_next_step_controlled_executor_design.py` | offline next-step controlled executor design; freezes exact-command authorization, least privilege, failure holds, and output evidence while keeping execution unavailable |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_state_advance_next_step_execution_authorization.py` | offline next-step execution authorization validator; binds a short-lived three-party packet to the exact plan, command hash, evidence chain, and least-privilege capabilities |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_state_advance_next_step_execution_preflight.py` | last-moment next-step execution preflight; freshly rehashes authorization, state, plan, exact mature command, and output boundaries without starting a process |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_state_advance_next_step_plan.py` | offline advanced resume-state next-step preview; recomputes consumer readiness and binds the exact canonical next command plus authorization envelope without executing it |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_state_advance_post_write_verification.py` | offline one-step resume state-advance post-write verifier; binds writer, authorization, preflight, candidate, final state, rollback snapshot, invocation, and released lock without writing state |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_authoritative_resume_offline_state_advance_preflight.py` | offline resume state-advance preflight; recomputes post-execution evidence and generates one deterministic compare-and-swap candidate state without writing or replacing authoritative state |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_authoritative_resume_state_consumer_contract.py` | offline default-locked resume-state consumer contract; validates plan, run identity, contiguous prefix, next step, state hash, and authorization locks without executing the resumed step |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_authoritative_resume_state_controlled_write_preflight.py` | offline authoritative resume-state controlled-write preflight; generates a deterministic candidate state preview and validates target SHA256 plus distinct authorization without writing state |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_authoritative_resume_state_post_write_verification.py` | offline authoritative resume-state post-write verification; hash-checks writer evidence, authorization, preflight, candidate, target, snapshot, and released lock without writing state or opening COM |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_authoritative_resume_state_writer_design.py` | offline authoritative resume-state writer design; defines atomic replace, compare-and-swap, snapshot, readback, and rollback requirements without writing state |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_automation_control_contract.py` | offline V1.5 automation control contract; keeps automation as a shell around the 0613/0620/0621 mature core |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_batch_initialization_closeout_index.py` | offline V1.5 batch initialization closeout index; binds SN/device_code, GETCO, S5-S8, S9, and route evidence without opening COM |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_calibration_capability.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_component_snapshot_after_events.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_dirty_zone_audit.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_entrypoint_inventory.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_factory_signal_health_review.py` |  |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_final_production_external_gate_freeze.py` | offline V1.5 final production external-gate freeze; separates completed program capabilities from real hardware, authorization, production migration, import, and release gates |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_final_production_gap_freeze.py` | offline V1.5 final production-gap freeze; supersedes stale gap snapshots and fixes the remaining production scope without executing hardware, writes, routes, or database imports |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_flow_contract.py` |  |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_initialization_controlled_executor_design.py` | offline initialization controlled executor design; defines future authorization, real-COM, write/readback, CHECK, and hold contract without opening COM |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_initialization_executor_dry_run.py` | offline initialization executor dry-run review; classifies plan steps without executing COM or write commands |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_initialization_readonly_com_preflight_controlled_executor_design.py` | offline initialization read-only real-COM preflight controlled executor design; defines future authorization, port inventory, read sequence, evidence, and hold contract without opening COM |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_initialization_readonly_com_preflight_design.py` | offline initialization read-only real-COM preflight design; defines future port, pacing, identity, GETCO, CHECK, and hold contract without opening COM |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_preflight.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_readiness.py` |  |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_readonly_com_execution_contract.py` | offline read-only COM execution packet contract; defines future authorization, port inventory, active analyzer, pacing, CHECK-skip, and denied-action rules without opening COM |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_readonly_com_execution_packet_validator.py` | offline read-only COM execution packet validator; validates future authorization, port inventory, active analyzer list, pacing, and CHECK-skip rules without opening COM |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_readonly_com_execution_plan_preview.py` | offline read-only COM execution plan preview; renders future identity, SN, GETCO, runtime, and CHECK read order without opening COM |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_readonly_com_minimal_executor_review.py` | offline read-only COM minimal executor review; defines future output evidence and failure hold matrix without opening COM |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_run_continuity_gate.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_run_status.py` | offline formal run status rollup; reads readiness/archive sidecars and does not open COM |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_getco_identity_readiness.py` | offline identity/GETCO readiness sidecar; consumes read-only GETCO artifacts and does not open COM |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_historical_mature_root_discovery.py` | offline historical mature-root discovery; ranks exact queue candidates without promoting them to fitting or acceptance evidence |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_historical_replay_contract.py` | offline historical replay contract; validates replay interpretation without opening COM or releasing archive/database evidence |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_historical_replay_missing_point_audit.py` | offline historical replay missing-point audit; searches segmented/retry evidence without opening COM or changing fit eligibility |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_historical_route_attestation_binder.py` | offline historical mature-root attestation binder; binds exact queue, sidecar, sample, QC, and 0613/0620/0621 contract hashes without opening COM |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_initialization_readiness.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_main_senco_write_precheck_pack.py` |  |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_mature_route_continuity_gate.py` | offline V1.5 mature route continuity gate; blocks segmented, retry, direct-recovery, 0624/migration, diagnostic, worker, and empty manifest route evidence from formal fitting |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_mature_route_contract.py` |  |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_new_algorithm_mature_queue_live_handoff.py` | offline new-algorithm 47/14 live-handoff contract; binds profile, queue, mature-runner hashes, fit semantics, and future authorization while live execution stays blocked |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_new_algorithm_test_point_plan.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_open_flow_canonical_points.py` |  |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_post_closeout_resume_gate.py` | offline V1.5 post-closeout resume gate; binds a reviewed completed-step prefix to exact plan and closeout hashes without applying or executing it |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_post_write_reverification.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_pre_gas_readiness.py` | offline pre-gas readiness sidecar; summarizes identity, DB, GETCO, S7/S8, S9, route, and CHECK gates before live identity |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_production_entrypoint_gate.py` | offline V1.5 production entrypoint gate; blocks _handoff, root migration, 0624, diagnostic, worker, V1, and V2 references in formal plans |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_production_entrypoint_map.py` | offline V1.5 production entrypoint map; separates formal launchers, workers, diagnostics, controlled writes, and forbidden surfaces |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_recommendation_closure.py` |  |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_resume_prefix_application_review.py` | offline resume-prefix application review; validates the hash-bound completed prefix without writing state or executing the next stage |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_route_physical_recovery_readiness.py` |  |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_route_run_failure_root_cause.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_sample_reuse_review.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_sencoa_sencob_writer_design_review.py` |  |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_unified_controlled_write_reverify.py` | offline unified S1-S9/SENCOA-B write, GETCO readback, rollback, and independent short-reverify contract; never executes a writer or route; requires explicit coefficient-write authorization and readback evidence |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_v1_ratio_poly_algorithm_audit.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `real_com_or_route_risk` | `src/gas_calibrator/tools/probe_v1_5_getco_component_snapshot.py` | subordinate initialization evidence tool; read-only GETCO1-9 and device-ID snapshot |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/run_v1_5_authoritative_resume_executor_blocked.py` | offline blocked resume executor; independently recomputes the plan preview and rejects execute, resume, COM, pressure, route, write, and database unlocks |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/run_v1_5_authoritative_resume_offline_state_advance_blocked_executor.py` | offline resume state-advance blocked executor; freshly revalidates authorization but exposes no execute or state-write path |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/run_v1_5_authoritative_resume_offline_state_advance_next_step_blocked_executor.py` | offline next-step blocked executor; freshly revalidates the review authorization but exposes no execute, COM, route, write, or database path |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/run_v1_5_authoritative_resume_state_writer_blocked_executor.py` | offline authoritative resume-state writer blocked executor; refuses state target, expected-state hash, authorization, execute, and replace inputs without creating or replacing state |
+| `formal_review_evidence` | `general` | `formal_support` | `offline_subprocess_risk` | `src/gas_calibrator/tools/run_v1_5_final_offline_acceptance_suite.py` | final offline acceptance suite; runs an exact pytest allowlist for V1.5 replay, mature-route, fit, writer, database locks, simulation, parity, and resilience without hardware or database access |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/run_v1_5_formal_archive_closure.py` | offline archive closure; does not open COM ports or control routes |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/run_v1_5_formal_initialization_blocked_executor.py` | offline initialization blocked executor stub; refuses live COM, SN/device-code writes, SENCO writes, PostgreSQL, pressure, and route actions |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/run_v1_5_formal_initialization_readonly_com_preflight_blocked_executor.py` | offline initialization read-only real-COM preflight blocked executor stub; refuses analyzer COM, SN/device-code writes, SENCO writes, PostgreSQL, pressure, and route actions |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/run_v1_5_formal_initialization_readonly_com_preflight_controlled_blocked_executor.py` | offline initialization read-only real-COM preflight controlled blocked executor stub; refuses analyzer COM, authorization unlocks, SN/device-code writes, SENCO writes, PostgreSQL, pressure, and route actions |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/run_v1_5_formal_offline_review_chain.py` | offline review/evidence sidecar; no COM or route control |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/run_v1_5_formal_readonly_com_execution_blocked_executor.py` | offline read-only COM execution blocked executor stub; refuses analyzer COM, authorization unlocks, SN/device-code writes, SENCO writes, PostgreSQL, pressure, and route actions |
+| `formal_review_evidence` | `general` | `manual_authorized_read_only_com_support` | `real_com_read_only_no_write_risk` | `src/gas_calibrator/tools/run_v1_5_formal_readonly_com_minimal_executor.py` | manual-authorized minimal read-only COM executor; reads SN/GETCO/runtime/CHECK evidence only, never writes analyzer state, database, pressure, or routes |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/run_v1_5_formal_readonly_com_minimal_executor_stub.py` | offline read-only COM minimal executor stub; records would-execute evidence without opening COM or using authorization context as unlock |
 | `formal_review_evidence` | `general` | `formal_preflight_support` | `real_com_or_route_risk` | `src/gas_calibrator/tools/run_v1_5_formal_route_readiness_probe.py` | formal route-readiness preflight support; records readiness evidence before mature route runners |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/run_v1_5_new_algorithm_mature_queue_live_handoff_blocked_executor.py` | offline new-algorithm mature-queue blocked executor; refuses live queue, COM, route, authorization, device, write, and database inputs |
 | `formal_review_evidence` | `h2o_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/build_v1_5_h2o_archive_inputs.py` |  |
 | `formal_review_evidence` | `h2o_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_h2o_cross_effect_review.py` |  |
 | `formal_review_evidence` | `h2o_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_h2o_dry_anchor_bridge_review.py` |  |
@@ -254,18 +350,29 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `formal_review_evidence` | `identity_and_serial_binding` | `formal_support` | `offline` | `src/gas_calibrator/tools/prepare_v1_5_runtime_serial_port_binding.py` | COM port is transport only; analyzer identity remains MODE2 device ID |
 | `formal_review_evidence` | `pressure_channel` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_pressure_channel_completion.py` |  |
 | `formal_review_evidence` | `pressure_channel` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_pressure_channel_validation.py` |  |
+| `formal_review_evidence` | `pressure_channel` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_pressure_s9_readiness_index.py` | offline V1.5 pressure/SENCO9 readiness index; separates offset-only S9 and linear controlled exceptions without opening COM or writing coefficients |
 | `formal_review_evidence` | `pressure_channel` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_pressure_senco9_evaluation.py` |  |
 | `formal_review_evidence` | `pressure_channel` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_pressure_senco9_no_write_preflight.py` |  |
 | `formal_review_evidence` | `pressure_channel` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_pressure_senco9_write_review.py` |  |
 | `formal_review_evidence` | `pressure_channel` | `formal_support` | `offline` | `src/gas_calibrator/tools/import_v1_5_pressure_channel_completion_package.py` |  |
 | `formal_review_evidence` | `qc_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_advanced_qc.py` |  |
+| `formal_review_evidence` | `qc_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_component_qc_authority_audit.py` | offline component-QC authority audit; separates mature pre-sample stability gates from the untracked 0624/migration writer and keeps QC backfill blocked |
+| `formal_review_evidence` | `qc_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_component_qc_generator_contract.py` | offline component-QC generator contract review; fixes per-analyzer physical grading semantics while keeping implementation and backfill disabled |
+| `formal_review_evidence` | `qc_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_component_qc_reference_evaluator.py` | offline synthetic-only component-QC reference evaluator; exercises the reviewed per-analyzer contract without historical writes, fitting, COM, or production promotion |
 | `formal_review_evidence` | `qc_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_fit_input_quality.py` |  |
+| `formal_review_evidence` | `qc_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_historical_component_qc_blocked_generator_plan.py` | offline historical component-QC blocked generator plan; revalidates the exact preflight and emits only a no-evaluation, no-write, no-overwrite preview |
+| `formal_review_evidence` | `qc_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_historical_component_qc_controlled_writer_design.py` | offline historical component-QC controlled-writer design; records future authorization, exclusive-create, readback, and compensating-rollback contracts while keeping evaluator and writer absent; requires explicit coefficient-write authorization and readback evidence |
+| `formal_review_evidence` | `qc_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_historical_component_qc_generator_preflight.py` | offline historical component-QC generator preflight; revalidates P2 source hashes and overwrite boundaries while keeping generation, backfill, fitting, COM, and production promotion locked |
+| `formal_review_evidence` | `qc_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_historical_replay_qc_gap_audit.py` | offline historical replay QC gap audit; searches substitute QC/retry evidence without opening COM or changing fit eligibility |
+| `formal_review_evidence` | `qc_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_p2_qc_derivation_design.py` | offline P2 component-QC derivation design; validates same-point input structure while keeping QC generation and fit promotion blocked until a reviewed mature generator exists |
+| `formal_review_evidence` | `qc_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_production_component_qc_fit_matrix.py` | offline production-semantics component-QC evaluator and canonical 0613 no-write strategy matrix; reads immutable point evidence without backfilling history or executing fits |
 | `formal_review_evidence` | `reporting` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_calibration_reports.py` |  |
 | `formal_review_evidence` | `reporting` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_calibration_package.py` |  |
 | `formal_review_evidence` | `reporting` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_coefficient_report_zh.py` |  |
 | `formal_review_evidence` | `reporting` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_open_flow_report.py` |  |
 | `formal_review_evidence` | `reporting` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_single_device_coefficient_report_zh.py` |  |
 | `formal_review_evidence` | `temperature_channel` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_s13_low_end_temperature_boundary_decision.py` |  |
+| `formal_review_evidence` | `temperature_channel` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_route_physical_recovery_evidence_packet_template.py` | offline V1.5 route physical recovery evidence packet template; prepares dry-gas, PACE vent, pressure INL, and fresh queue evidence fields without collecting live data |
 | `formal_review_evidence` | `temperature_channel` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_temperature_channel_review.py` |  |
 | `formal_review_evidence` | `ui_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_workbench.py` |  |
 | `formal_review_evidence` | `ui_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_operation_console.py` |  |
@@ -275,9 +382,14 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `formal_sampling_worker` | `general` | `canonical_queue_worker` | `real_com_or_route_risk` | `src/gas_calibrator/tools/run_v1_5_formal_open_flow_sampling.py` | canonical per-point sampling worker; invoked by the formal CO2/H2O queue runners |
 | `formal_sampling_worker` | `h2o_component` | `canonical_queue_worker` | `real_com_or_route_risk` | `src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_sampling.py` | canonical per-point sampling worker; invoked by the formal CO2/H2O queue runners |
 | `full_flow_orchestration` | `full_flow_orchestration` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/orchestration/full_flow.py` |  |
+| `full_flow_orchestration` | `general` | `manual_authorized_offline_resume_only` | `offline_subprocess_risk` | `src/gas_calibrator/tools/run_v1_5_authoritative_resume_offline_executor.py` | manual-authorized offline-only resume executor; revalidates a fresh candidate, runs one exact Python module with shell disabled, verifies fresh outputs, and never advances authoritative state |
+| `full_flow_orchestration` | `general` | `manual_authorized_single_step_resume_only` | `real_com_or_route_or_write_risk` | `src/gas_calibrator/tools/run_v1_5_authoritative_resume_offline_state_advance_next_step_controlled_executor.py` | manual-authorized single-step V1.5 executor; permits one exact shell-free process only after fresh authorization, never retries, substitutes, imports PostgreSQL, or advances authoritative state |
+| `full_flow_orchestration` | `general` | `manual_authorized_single_step_resume_only` | `real_com_or_route_or_write_risk` | `src/gas_calibrator/tools/run_v1_5_authoritative_resume_offline_state_advance_next_step_operator_bundle.py` | manual-authorized operator bundle launcher; derives least-privilege authorization from the exact plan, revalidates immediately, and defaults to locked evidence unless one explicit next-step execution is requested |
 | `full_flow_orchestration` | `general` | `canonical_initialization_planner` | `offline` | `src/gas_calibrator/tools/run_v1_5_formal_initialization_runner.py` | canonical initialization owner; offline planner, evidence indexer, and readiness gate |
 | `full_flow_orchestration` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/run_v1_5_full_calibration_chain.py` |  |
+| `full_flow_orchestration` | `general` | `manual_new_batch_bootstrap_no_com` | `state_file_write_risk` | `src/gas_calibrator/tools/run_v1_5_new_run_bootstrap.py` | offline atomic new-run bootstrap; snapshots one reviewed config and creates a zero-authority plan/state at the first canonical stage without opening COM or marking any step complete |
 | `full_flow_orchestration` | `general` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/orchestration/__init__.py` |  |
+| `full_flow_orchestration` | `general` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/orchestration/operator_workstation.py` |  |
 | `full_flow_orchestration` | `identity_and_serial_binding` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/orchestration/serial_port_binding.py` | COM port is transport only; analyzer identity remains MODE2 device ID |
 | `housekeeping_archive` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/archive_v1_5_current_stage.py` |  |
 | `identity_and_serial_binding` | `evidence_database` | `formal_initialization_support` | `offline` | `src/gas_calibrator/tools/run_v1_5_initialization_db_preflight.py` | formal initialization support; use only through the initialization owner or explicit preflight |
@@ -286,7 +398,6 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `identity_and_serial_binding` | `identity_and_serial_binding` | `formal_support` | `offline` | `src/gas_calibrator/tools/collect_v1_5_serial_port_inventory.py` | COM port is transport only; analyzer identity remains MODE2 device ID |
 | `legacy_v1_reference` | `general` | `legacy_v1_reference_only` | `legacy_write_or_acceptance_risk` | `src/gas_calibrator/tools/run_v1_corrected_autodelivery.py` | legacy V1 reference only; do not use as a V1.5 formal entrypoint |
 | `legacy_v1_reference` | `general` | `legacy_v1_reference_only` | `legacy_write_or_acceptance_risk` | `src/gas_calibrator/tools/run_v1_merged_calibration_sidecar.py` | legacy V1 reference only; do not use as a V1.5 formal entrypoint |
-| `legacy_v1_reference` | `general` | `legacy_v1_reference_only` | `legacy_write_or_acceptance_risk` | `src/gas_calibrator/tools/run_v1_no500_postprocess.py` | legacy V1 reference only; do not use as a V1.5 formal entrypoint |
 | `legacy_v1_reference` | `general` | `legacy_v1_reference_only` | `legacy_write_or_acceptance_risk` | `src/gas_calibrator/tools/run_v1_online_acceptance.py` | legacy V1 reference only; do not use as a V1.5 formal entrypoint |
 | `parameter_governance` | `general` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/parameters/__init__.py` |  |
 | `parameter_governance` | `general` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/parameters/governance.py` |  |
@@ -336,68 +447,168 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_training_scope_review.py` |  |
 | `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_zero_s5_sensitivity_review.py` |  |
 | `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_formal_co2_open_flow_queue.py` |  |
+| `test_gate` | `coefficient_review` | `verification_only` | `none` | `tests/test_v1_5_authoritative_resume_offline_candidate_gate.py` |  |
 | `test_gate` | `coefficient_review` | `verification_only` | `none` | `tests/test_v1_5_candidate_coefficients.py` |  |
 | `test_gate` | `coefficient_review` | `verification_only` | `none` | `tests/test_v1_5_candidate_model_selection_review.py` |  |
 | `test_gate` | `coefficient_review` | `verification_only` | `none` | `tests/test_v1_5_candidate_write_review.py` |  |
+| `test_gate` | `coefficient_review` | `verification_only` | `none` | `tests/test_v1_5_historical_fit_profile_parity.py` |  |
 | `test_gate` | `coefficient_review` | `verification_only` | `none` | `tests/test_v1_5_multipoint_candidate_run.py` |  |
 | `test_gate` | `coefficient_review` | `verification_only` | `none` | `tests/test_v1_5_post_run_coefficient_executor.py` |  |
 | `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_canonical_evidence_package.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_certificate_metrics_registry.py` |  |
 | `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_evidence_registry.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_formal_database_dry_run.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_formal_database_import_archive_binding.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_formal_database_import_authorization.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_formal_database_import_blocked_executor.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_formal_database_import_command_contract.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_formal_database_import_controlled_executor_design.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_formal_database_import_evidence_bundle.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_formal_database_import_preflight.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_formal_database_import_production_controlled_executor.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_formal_database_import_production_promotion_preflight.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_formal_database_import_staging_executor.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_formal_database_import_transaction_blocked_executor.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_formal_database_import_transaction_integration.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_formal_database_import_transaction_plan.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_formal_database_migration_dba_readiness.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_formal_database_migration_production_controlled_executor.py` |  |
 | `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_formal_evidence_run.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_historical_fit_evidence_normalizer.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_historical_replay_evidence.py` |  |
 | `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_initialization_db_preflight.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_legacy_evidence_gap_task_plan.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_legacy_historical_evidence_catalog.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_p1_evidence_lineage_audit.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_route_physical_recovery_evidence_binder.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_route_physical_recovery_evidence_packet.py` |  |
 | `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_run_evidence_status.py` |  |
 | `test_gate` | `full_flow_orchestration` | `verification_only` | `none` | `tests/test_v1_5_formal_run_package.py` |  |
+| `test_gate` | `full_flow_orchestration` | `verification_only` | `none` | `tests/test_v1_5_full_flow_automation_closure.py` |  |
 | `test_gate` | `full_flow_orchestration` | `verification_only` | `none` | `tests/test_v1_5_full_flow_closure_readiness.py` |  |
+| `test_gate` | `full_flow_orchestration` | `verification_only` | `none` | `tests/test_v1_5_full_flow_next_action_plan.py` |  |
 | `test_gate` | `full_flow_orchestration` | `verification_only` | `none` | `tests/test_v1_5_full_flow_orchestration.py` |  |
+| `test_gate` | `full_flow_orchestration` | `verification_only` | `none` | `tests/test_v1_5_legacy_full_flow_offline_replay.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_algorithm_formal_point_plan_guard.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_algorithm_formal_runlist_preview.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_algorithm_mature_queue_inputs.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_algorithm_profile_lineage_gate.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_algorithm_profile_runner_dry_run.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_algorithm_queue_handoff_preflight.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_algorithm_route_profiles.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_algorithm_runlist_readiness.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_algorithm_runner_integration_dry_run.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_algorithm_write_contract_review.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_analyzer_runtime_setup.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_artifact_hash_binding.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_authoritative_resume_execution_preflight.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_authoritative_resume_executor_authorization_validator.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_authoritative_resume_executor_blocked.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_authoritative_resume_executor_controlled_design.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_authoritative_resume_executor_plan_preview.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_authoritative_resume_offline_executor.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_authoritative_resume_offline_post_execution_verifier.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_authoritative_resume_offline_state_advance_atomic_writer.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_authoritative_resume_offline_state_advance_authorization.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_authoritative_resume_offline_state_advance_next_step_authorization_preflight.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_authoritative_resume_offline_state_advance_next_step_blocked_executor.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_authoritative_resume_offline_state_advance_next_step_controlled_executor_design.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_authoritative_resume_offline_state_advance_next_step_execution.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_authoritative_resume_offline_state_advance_next_step_operator_bundle.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_authoritative_resume_offline_state_advance_next_step_plan.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_authoritative_resume_offline_state_advance_post_write_verification.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_authoritative_resume_offline_state_advance_preflight.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_authoritative_resume_state_atomic_writer.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_authoritative_resume_state_consumer_contract.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_authoritative_resume_state_controlled_write_preflight.py` | requires explicit coefficient-write authorization and readback evidence |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_authoritative_resume_state_post_write_verification.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_authoritative_resume_state_writer_blocked_executor.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_authoritative_resume_state_writer_design.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_automation_control_contract.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_batch_initialization_closeout_index.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_calibratable_point_policy.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_calibration_capability.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_component_snapshot_after_events.py` |  |
-| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_controlled_outp_seal_transition.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_dirty_zone_audit.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_entrypoint_guards.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_entrypoint_inventory.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_factory_signal_health_review.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_final_offline_acceptance_suite.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_final_product_boundary.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_final_production_external_gate_freeze.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_final_production_gap_freeze.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_final_senco_prewrite_gate.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_900ppm_config.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_archive_closure.py` | offline archive closure; does not open COM ports or control routes |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_contracts_preflight.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_flow_contract.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_initialization_blocked_executor.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_initialization_controlled_executor_design.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_initialization_executor_dry_run.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_initialization_readonly_com_preflight_blocked_executor.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_initialization_readonly_com_preflight_controlled_blocked_executor.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_initialization_readonly_com_preflight_controlled_executor_design.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_initialization_readonly_com_preflight_design.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_initialization_runner.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_offline_review_chain.py` | offline review/evidence sidecar; no COM or route control |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_open_flow.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_open_flow_artifacts.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_open_flow_sampling_runner.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_readiness.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_readonly_com_execution_blocked_executor.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_readonly_com_execution_contract.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_readonly_com_execution_packet_validator.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_readonly_com_execution_plan_preview.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_readonly_com_minimal_executor.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_readonly_com_minimal_executor_review.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_readonly_com_minimal_executor_stub.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_route_readiness.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_run_continuity_gate.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_run_status.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_getco9_protocol_probe.py` | diagnostic evidence only; not formal acceptance by default |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_getco_component_snapshot.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_getco_identity_readiness.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_historical_frame_parity_audit.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_historical_mature_root_discovery.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_historical_replay_contract.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_historical_replay_missing_point_audit.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_historical_route_attestation_binder.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_identity_layer_ownership.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_initialization_readiness.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_main_senco_write_precheck_pack.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_mature_route_continuity_gate.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_mature_route_contract.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_new_algorithm_mature_queue_live_handoff.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_new_algorithm_test_point_plan.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_new_run_bootstrap.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_no_outp_engineering_config.py` | pressure/route engineering probe; keep outside formal CO2/H2O fit |
-| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_no_outp_plus_sealed_sweep.py` | pressure/route engineering probe; keep outside formal CO2/H2O fit |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_no_outp_preseal_probe.py` | diagnostic evidence only; not formal acceptance by default; pressure/route engineering probe; keep outside formal CO2/H2O fit |
-| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_no_outp_transition.py` | pressure/route engineering probe; keep outside formal CO2/H2O fit |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_no_write_guard.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_open_flow_canonical_points.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_operator_workstation.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_operator_workstation_ui.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_parameter_governance.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_post_closeout_resume_gate.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_post_write_reverification.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_pre_gas_readiness.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_production_entrypoint_gate.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_production_entrypoint_map.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_recommendation_closure.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_resume_offline_state_advance_status_integration.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_resume_prefix_application_review.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_route_physical_recovery_readiness.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_route_run_failure_root_cause.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_sample_reuse_review.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_senco_artifact_authorization.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_senco_authorization_archive_binding.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_sencoa_sencob_controlled_writer_preflight.py` | requires explicit coefficient-write authorization and readback evidence |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_sencoa_sencob_writer_design_review.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_serial_safety.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_sn_identity_initialization.py` |  |
-| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_stage_detail_route_optimization_doc.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_status_register.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_unified_controlled_write_reverify.py` | requires explicit coefficient-write authorization and readback evidence |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_v1_ratio_poly_algorithm_audit.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_workstation_snapshot.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/v2/test_v1_5_initialization_import.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/v2/test_v1_5_readiness_event_import.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/v2/test_v1_5_runtime_setup_import.py` |  |
@@ -429,17 +640,29 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `test_gate` | `pressure_channel` | `verification_only` | `none` | `tests/test_v1_5_pressure_channel_completion_db.py` |  |
 | `test_gate` | `pressure_channel` | `verification_only` | `none` | `tests/test_v1_5_pressure_channel_validation.py` |  |
 | `test_gate` | `pressure_channel` | `verification_only` | `none` | `tests/test_v1_5_pressure_only_tuning_harness.py` |  |
+| `test_gate` | `pressure_channel` | `verification_only` | `none` | `tests/test_v1_5_pressure_s9_readiness_index.py` |  |
 | `test_gate` | `pressure_channel` | `verification_only` | `none` | `tests/test_v1_5_pressure_senco9_clear_controlled_write.py` | requires explicit coefficient-write authorization and readback evidence |
 | `test_gate` | `pressure_channel` | `verification_only` | `none` | `tests/test_v1_5_pressure_senco9_controlled_write.py` | requires explicit coefficient-write authorization and readback evidence |
 | `test_gate` | `pressure_channel` | `verification_only` | `none` | `tests/test_v1_5_pressure_senco9_no_write_preflight.py` |  |
 | `test_gate` | `pressure_channel` | `verification_only` | `none` | `tests/test_v1_5_pressure_senco9_write_review.py` |  |
+| `test_gate` | `pressure_channel` | `verification_only` | `none` | `tests/test_v1_5_storage_namespace_isolation.py` |  |
 | `test_gate` | `qc_review` | `verification_only` | `none` | `tests/test_v1_5_advanced_qc_exporter.py` |  |
+| `test_gate` | `qc_review` | `verification_only` | `none` | `tests/test_v1_5_component_qc_authority_audit.py` |  |
+| `test_gate` | `qc_review` | `verification_only` | `none` | `tests/test_v1_5_component_qc_generator_contract.py` |  |
+| `test_gate` | `qc_review` | `verification_only` | `none` | `tests/test_v1_5_component_qc_reference_evaluator.py` |  |
 | `test_gate` | `qc_review` | `verification_only` | `none` | `tests/test_v1_5_fit_input_quality.py` |  |
+| `test_gate` | `qc_review` | `verification_only` | `none` | `tests/test_v1_5_historical_component_qc_blocked_generator_plan.py` |  |
+| `test_gate` | `qc_review` | `verification_only` | `none` | `tests/test_v1_5_historical_component_qc_controlled_writer_design.py` | requires explicit coefficient-write authorization and readback evidence |
+| `test_gate` | `qc_review` | `verification_only` | `none` | `tests/test_v1_5_historical_component_qc_generator_preflight.py` |  |
+| `test_gate` | `qc_review` | `verification_only` | `none` | `tests/test_v1_5_historical_replay_qc_gap_audit.py` |  |
+| `test_gate` | `qc_review` | `verification_only` | `none` | `tests/test_v1_5_p2_qc_derivation_design.py` |  |
+| `test_gate` | `qc_review` | `verification_only` | `none` | `tests/test_v1_5_production_component_qc_fit_matrix.py` |  |
 | `test_gate` | `qc_review` | `verification_only` | `none` | `tests/test_v1_5_qc_advanced.py` |  |
 | `test_gate` | `reporting` | `verification_only` | `none` | `tests/test_v1_5_calibration_reports.py` |  |
 | `test_gate` | `reporting` | `verification_only` | `none` | `tests/test_v1_5_formal_calibration_package.py` |  |
 | `test_gate` | `temperature_channel` | `verification_only` | `none` | `tests/test_v1_5_co2_s13_low_end_temperature_boundary_decision.py` |  |
 | `test_gate` | `temperature_channel` | `verification_only` | `none` | `tests/test_v1_5_no_outp_skip_tempwait_engineering_config.py` | pressure/route engineering probe; keep outside formal CO2/H2O fit |
+| `test_gate` | `temperature_channel` | `verification_only` | `none` | `tests/test_v1_5_route_physical_recovery_evidence_packet_template.py` |  |
 | `test_gate` | `temperature_channel` | `verification_only` | `none` | `tests/test_v1_5_temperature_channel_review.py` |  |
 | `test_gate` | `temperature_channel` | `verification_only` | `none` | `tests/test_v1_5_temperature_current_point_review.py` |  |
 | `test_gate` | `temperature_channel` | `verification_only` | `none` | `tests/test_v1_5_temperature_senco78_candidate_controlled_write.py` | requires explicit coefficient-write authorization and readback evidence |
@@ -448,10 +671,23 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `test_gate` | `ui_review` | `verification_only` | `none` | `tests/test_v1_5_operation_console.py` |  |
 | `test_gate` | `ui_review` | `verification_only` | `none` | `tests/test_v1_5_review_surface.py` |  |
 | `ui_review` | `general` | `prototype_or_review_surface` | `offline` | `src/gas_calibrator/v1_5/ui/__init__.py` |  |
+| `ui_review` | `general` | `prototype_or_review_surface` | `offline` | `src/gas_calibrator/v1_5/ui/operator_workstation_app.py` |  |
+| `ui_review` | `general` | `prototype_or_review_surface` | `offline` | `src/gas_calibrator/v1_5/ui/page_i18n.py` |  |
+| `ui_review` | `general` | `prototype_or_review_surface` | `offline` | `src/gas_calibrator/v1_5/ui/pages/__init__.py` |  |
+| `ui_review` | `general` | `prototype_or_review_surface` | `offline` | `src/gas_calibrator/v1_5/ui/pages/certificate_metrics_page.py` |  |
+| `ui_review` | `general` | `prototype_or_review_surface` | `offline` | `src/gas_calibrator/v1_5/ui/pages/readonly_summary_page.py` |  |
+| `ui_review` | `general` | `prototype_or_review_surface` | `offline` | `src/gas_calibrator/v1_5/ui/pages/visitor_showcase_page.py` |  |
+| `ui_review` | `general` | `prototype_or_review_surface` | `offline` | `src/gas_calibrator/v1_5/ui/screenshot.py` |  |
+| `ui_review` | `general` | `prototype_or_review_surface` | `offline` | `src/gas_calibrator/v1_5/ui/scrollable_page_frame.py` |  |
 | `ui_review` | `ui_review` | `prototype_or_review_surface` | `offline` | `src/gas_calibrator/v1_5/review_surface.py` |  |
 | `ui_review` | `ui_review` | `prototype_or_review_surface` | `offline` | `src/gas_calibrator/v1_5/ui/operation_console.py` |  |
+| `unclassified_v1_5_tool` | `general` | `needs_review` | `unknown` | `src/gas_calibrator/tools/run_v1_5_operator_workstation_dry_run.py` |  |
+| `v1_5_library` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/certificate_metrics_registry.py` |  |
 | `v1_5_library` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/import_initialization_database.py` |  |
 | `v1_5_library` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/initialization_database.py` |  |
 | `v1_5_library` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/initialization_db_preflight.py` |  |
+| `v1_5_library` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/readiness_event_database.py` |  |
 | `v1_5_library` | `general` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/__init__.py` |  |
+| `v1_5_library` | `general` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/import_readiness_events.py` |  |
 | `v1_5_library` | `general` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/sn_identity_initialization.py` |  |
+| `v1_5_library` | `general` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/workstation_snapshot.py` |  |

@@ -24,23 +24,11 @@ from typing import Any
 
 from .phase_evidence_display_contracts import (
     MEASUREMENT_DIGEST_LABELS as _MEASUREMENT_DIGEST,
-    MEASUREMENT_DIGEST_LABELS_EN as _MEASUREMENT_DIGEST_EN,
     READINESS_DIGEST_LABELS as _READINESS_DIGEST,
-    READINESS_DIGEST_LABELS_EN as _READINESS_DIGEST_EN,
     PHASE_EVIDENCE_STEP2_BOUNDARY,
-    PHASE_EVIDENCE_ARTIFACT_KEYS,
     PHASE_EVIDENCE_SUMMARY_TEXTS,
-    PHASE_EVIDENCE_SUMMARY_TEXTS_EN,
-    PHASE_TERMS,
-    PHASE_TERMS_EN,
     BRIDGE_REVIEWER_TEXTS,
-    BRIDGE_REVIEWER_TEXTS_EN,
-    RESULTS_SUMMARY_LABELS as _RESULTS_SUMMARY_LABELS,
-    RESULTS_SUMMARY_LABELS_EN as _RESULTS_SUMMARY_LABELS_EN,
-    resolve_measurement_digest_label,
-    resolve_readiness_digest_label,
     resolve_phase_term,
-    resolve_bridge_reviewer_text,
 )
 from ..ui_v2.i18n import (
     display_compare_status,

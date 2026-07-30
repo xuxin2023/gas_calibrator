@@ -8,9 +8,10 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from gas_calibrator.utils.file_io import write_json as _write_json
-
-from ..domain.services.ec_system_identification import identify_empirical_transfer
-from ..domain.services.gas_analyzer_dynamic_uncertainty import (
+from gas_calibrator.validation.metrology.ec_system_identification import (
+    identify_empirical_transfer,
+)
+from gas_calibrator.validation.metrology.gas_analyzer_dynamic_uncertainty import (
     analyze_gas_analyzer_dynamic_performance,
     build_gas_analyzer_dynamic_uncertainty_acceptance,
 )

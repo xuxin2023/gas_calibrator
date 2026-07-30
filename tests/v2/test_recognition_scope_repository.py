@@ -1,7 +1,7 @@
 from pathlib import Path
 import sys
 
-from gas_calibrator.v2.adapters.recognition_scope_gateway import RecognitionScopeGateway
+from gas_calibrator.v2.adapters import RecognitionScopeGateway
 from gas_calibrator.v2.core.recognition_scope_repository import (
     DatabaseReadyRecognitionScopeRepositoryStub,
     FileBackedRecognitionScopeRepository,
@@ -15,12 +15,12 @@ SUPPORT_DIR = Path(__file__).resolve().parent
 if str(SUPPORT_DIR) not in sys.path:
     sys.path.insert(0, str(SUPPORT_DIR))
 
-from ui_v2_support import build_fake_facade
+from ui_v2_support import build_fake_service
 
 
 def test_recognition_scope_repository_keeps_file_backed_default_path(tmp_path: Path) -> None:
-    facade = build_fake_facade(tmp_path)
-    run_dir = Path(facade.result_store.run_dir)
+    service = build_fake_service(tmp_path)
+    run_dir = Path(service.result_store.run_dir)
 
     rebuild_run(run_dir)
 

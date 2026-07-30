@@ -1,5 +1,7 @@
+from pathlib import Path
 from types import SimpleNamespace
 
+from gas_calibrator.v2.intelligence import AIRuntime, explainers as explainers_module
 from gas_calibrator.v2.intelligence.advisors import AlgorithmAdvisor, AnomalyAdvisor
 from gas_calibrator.v2.intelligence.explainers import FitExplainer, RunExplainer
 from gas_calibrator.v2.intelligence.llm_client import LLMConfig, MockLLMClient
@@ -63,3 +65,27 @@ def test_fit_and_run_explainers_use_mock_llm() -> None:
 
     assert fit_text.startswith("[Mock Response]")
     assert run_text.startswith("[Mock Response]")
+
+
+def test_advisors_have_one_package_owner() -> None:
+    expected_module = "gas_calibrator.v2.intelligence.advisors"
+    assert AlgorithmAdvisor.__module__ == expected_module
+    assert AnomalyAdvisor.__module__ == expected_module
+
+
+def test_ai_runtime_has_one_package_owner() -> None:
+    assert AIRuntime.__module__ == "gas_calibrator.v2.intelligence"
+
+
+def test_explainers_have_one_package_owner() -> None:
+    expected_module = "gas_calibrator.v2.intelligence.explainers"
+    assert FitExplainer.__module__ == expected_module
+    assert RunExplainer.__module__ == expected_module
+
+
+def test_explainer_prompt_assets_have_one_explicit_inventory() -> None:
+    prompt_dir = Path(explainers_module.__file__).resolve().parent.parent / "prompts"
+    assert sorted(path.name for path in prompt_dir.glob("*.txt")) == [
+        "algorithm_recommend.txt",
+        "report_summary.txt",
+    ]

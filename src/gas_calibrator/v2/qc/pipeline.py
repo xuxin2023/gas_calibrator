@@ -3,9 +3,10 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any, Optional
 
-from ..config import AIConfig, QCConfig
+from gas_calibrator.validation.simulation.config import AIConfig, QCConfig
+from gas_calibrator.validation.simulation.domain import CleanedData
+
 from ..core.models import CalibrationPoint
-from ..domain.qc_models import CleanedData
 from ..intelligence.explainers import QCExplainer
 from .point_validator import PointValidationResult, PointValidator
 from .qc_report import QCReport, QCReporter

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from gas_calibrator.v2.domain.sample_models import RawSample, SampleWindow
+from gas_calibrator.validation.simulation.domain import RawSample, SampleWindow
 
 
 def test_raw_sample_defaults() -> None:

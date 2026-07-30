@@ -1,14 +1,22 @@
 import threading
+from importlib.util import find_spec
 
 import pytest
 
-from gas_calibrator.v2.config import StabilityConfig
-from gas_calibrator.v2.core.stability_checker import (
+from gas_calibrator.validation.simulation.config import StabilityConfig
+from gas_calibrator.validation.exceptions import (
+    CalibrationError,
+    StabilityError,
+    StabilityNotReachedError,
+    StabilityTimeoutError,
+)
+from gas_calibrator.validation.simulation.stability_checker import (
     StabilityChecker,
     StabilityResult,
     StabilityType,
 )
-from gas_calibrator.v2.exceptions import StabilityTimeoutError
+from gas_calibrator.v2 import core as v2_core
+from gas_calibrator.v2 import exceptions as v2_exceptions
 
 
 class FakeClock:
@@ -90,11 +98,11 @@ def test_wait_for_stability_returns_when_temperature_becomes_stable(monkeypatch:
     values = iter([20.0, 20.6, 20.1, 20.12, 20.09, 20.11, 20.1])
 
     monkeypatch.setattr(
-        "gas_calibrator.v2.core.stability_checker.time.monotonic",
+        "gas_calibrator.validation.simulation.stability_checker.time.monotonic",
         clock.monotonic,
     )
     monkeypatch.setattr(
-        "gas_calibrator.v2.core.stability_checker.time.sleep",
+        "gas_calibrator.validation.simulation.stability_checker.time.sleep",
         clock.sleep,
     )
 
@@ -115,11 +123,11 @@ def test_wait_for_stability_raises_timeout(monkeypatch: pytest.MonkeyPatch) -> N
     clock = FakeClock()
 
     monkeypatch.setattr(
-        "gas_calibrator.v2.core.stability_checker.time.monotonic",
+        "gas_calibrator.validation.simulation.stability_checker.time.monotonic",
         clock.monotonic,
     )
     monkeypatch.setattr(
-        "gas_calibrator.v2.core.stability_checker.time.sleep",
+        "gas_calibrator.validation.simulation.stability_checker.time.sleep",
         clock.sleep,
     )
 
@@ -144,11 +152,11 @@ def test_wait_for_stability_returns_stopped_result(monkeypatch: pytest.MonkeyPat
         return 20.0
 
     monkeypatch.setattr(
-        "gas_calibrator.v2.core.stability_checker.time.monotonic",
+        "gas_calibrator.validation.simulation.stability_checker.time.monotonic",
         clock.monotonic,
     )
     monkeypatch.setattr(
-        "gas_calibrator.v2.core.stability_checker.time.sleep",
+        "gas_calibrator.validation.simulation.stability_checker.time.sleep",
         clock.sleep,
     )
 
@@ -161,3 +169,22 @@ def test_wait_for_stability_returns_stopped_result(monkeypatch: pytest.MonkeyPat
     assert result.stable is False
     assert result.stopped is True
     assert result.timed_out is False
+
+
+def test_v2_exception_surface_reexports_shared_stability_identity() -> None:
+    assert (
+        StabilityChecker.__module__
+        == "gas_calibrator.validation.simulation.stability_checker"
+    )
+    assert (
+        StabilityTimeoutError.__module__
+        == "gas_calibrator.validation.exceptions"
+    )
+    assert v2_core.StabilityChecker is StabilityChecker
+    assert v2_core.StabilityResult is StabilityResult
+    assert v2_core.StabilityType is StabilityType
+    assert find_spec("gas_calibrator.v2.core.stability_checker") is None
+    assert v2_exceptions.StabilityTimeoutError is StabilityTimeoutError
+    assert v2_exceptions.StabilityNotReachedError is StabilityNotReachedError
+    assert v2_exceptions.StabilityError is StabilityError
+    assert v2_exceptions.CalibrationError is CalibrationError

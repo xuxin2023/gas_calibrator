@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from gas_calibrator.v2.core.offline_artifacts import build_suite_case_metadata
-from gas_calibrator.v2.domain.services.gas_analyzer_operating_envelope import (
+from gas_calibrator.validation.metrology.gas_analyzer_operating_envelope import (
     analyze_gas_analyzer_operating_envelope,
     build_gas_analyzer_operating_envelope_acceptance,
 )
+from gas_calibrator.v2.core.offline_artifacts import build_suite_case_metadata
 from gas_calibrator.v2.sim.gas_analyzer_operating_envelope import (
     build_gas_analyzer_operating_envelope_offline_report,
     generate_gas_analyzer_static_envelope_fixture,
@@ -72,6 +72,16 @@ def _evaluate(
 
 
 def test_clean_integrated_envelope_qualifies_all_environment_cells() -> None:
+    assert (
+        analyze_gas_analyzer_operating_envelope.__module__
+        == "gas_calibrator.validation.metrology.gas_analyzer_operating_envelope"
+    )
+    old_owner = (
+        Path(__file__).resolve().parents[2]
+        / "src/gas_calibrator/v2/domain/services/gas_analyzer_operating_envelope.py"
+    )
+    assert not old_owner.exists()
+
     contract, measurements, interference = _clean_inputs()
     envelope, acceptance = _evaluate(contract, measurements, interference)
 

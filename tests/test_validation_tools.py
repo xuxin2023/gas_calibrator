@@ -291,7 +291,13 @@ def test_validate_offline_run_generates_expected_tables(tmp_path: Path) -> None:
     out_dir = tmp_path / "out"
     assert (out_dir / "frame_quality_summary.csv").exists()
     assert (out_dir / "pressure_source_check.csv").exists()
+    assert (out_dir / "pressure_source_same_frame_audit.csv").exists()
     assert (out_dir / "fit_input_overview.csv").exists()
+    with (out_dir / "pressure_source_same_frame_audit.csv").open(encoding="utf-8-sig", newline="") as handle:
+        audit_rows = list(csv.DictReader(handle))
+    assert audit_rows
+    assert {row["pressure_audit_status"] for row in audit_rows} == {"evidence_insufficient"}
+    assert {row["pressure_audit_promotion_state"] for row in audit_rows} == {"blocked"}
 
 
 def test_merged_sidecar_merge_keeps_gas_and_water_separate() -> None:
@@ -452,88 +458,6 @@ try:
     assert rc == 0
     assert (tmp / "out" / "merge_manifest.json").exists()
     assert list((tmp / "out").glob("校准汇总与验证结论_*.xlsx"))
-finally:
-    builtins.__import__ = real_import
-"""
-    env = os.environ.copy()
-    existing_pythonpath = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = str(src_root) if not existing_pythonpath else os.pathsep.join([str(src_root), existing_pythonpath])
-    result = subprocess.run(
-        [sys.executable, "-c", script],
-        cwd=repo_root,
-        env=env,
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stderr or result.stdout
-
-
-def test_merged_sidecar_postprocess_runtime_skips_sqlalchemy_backed_steps_when_dependency_missing() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    src_root = repo_root / "src"
-    script = """
-import builtins
-import tempfile
-from pathlib import Path
-
-real_import = builtins.__import__
-
-def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
-    if name == "sqlalchemy" or name.startswith("sqlalchemy."):
-        raise ModuleNotFoundError("No module named 'sqlalchemy'")
-    return real_import(name, globals, locals, fromlist, level)
-
-builtins.__import__ = fake_import
-
-try:
-    import gas_calibrator.v2.adapters.v1_postprocess_runner as runner
-
-    tmp = Path(tempfile.mkdtemp(prefix="postprocess_no_sqlalchemy_"))
-    run_dir = tmp / "run_demo"
-    run_dir.mkdir()
-
-    database_step = runner._database_import_step(
-        run_dir=run_dir,
-        artifact_dir=tmp,
-        config_path=None,
-        dsn=None,
-        stage="raw",
-    )
-    assert database_step["status"] == "skipped"
-    assert database_step["dependency"] == "sqlalchemy"
-    assert "sqlalchemy" in database_step["reason"].lower()
-
-    analytics_step = runner._analytics_step(
-        run_dir=run_dir,
-        target_dir=tmp,
-        run_id="demo",
-        config_path=None,
-        dsn=None,
-        import_db=False,
-        raw_database_step={"status": "skipped"},
-        enrich_database_step={"status": "skipped"},
-        run_analytics=True,
-        skip_analytics=False,
-    )
-    assert analytics_step["status"] == "skipped"
-    assert analytics_step["dependency"] == "sqlalchemy"
-    assert "sqlalchemy" in analytics_step["reason"].lower()
-
-    measurement_step = runner._measurement_analytics_step(
-        run_dir=run_dir,
-        target_dir=tmp,
-        run_id="demo",
-        config_path=None,
-        dsn=None,
-        import_db=False,
-        raw_database_step={"status": "skipped"},
-        enrich_database_step={"status": "skipped"},
-        run_measurement_analytics=True,
-        skip_measurement_analytics=False,
-    )
-    assert measurement_step["status"] == "skipped"
-    assert measurement_step["dependency"] == "sqlalchemy"
-    assert "sqlalchemy" in measurement_step["reason"].lower()
 finally:
     builtins.__import__ = real_import
 """

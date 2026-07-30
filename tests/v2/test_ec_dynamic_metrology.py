@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from gas_calibrator.v2.domain.services.ec_dynamic_metrology import (
+from gas_calibrator.validation.metrology.ec_dynamic_metrology import (
     DynamicPathMetadata,
     analyze_dynamic_channel,
     build_dynamic_acceptance,
@@ -83,6 +83,16 @@ def _analysis(
 
 
 def test_dynamic_path_metadata_rejects_nonphysical_values() -> None:
+    assert (
+        DynamicPathMetadata.__module__
+        == "gas_calibrator.validation.metrology.ec_dynamic_metrology"
+    )
+    old_owner = (
+        Path(__file__).resolve().parents[2]
+        / "src/gas_calibrator/v2/domain/services/ec_dynamic_metrology.py"
+    )
+    assert not old_owner.exists()
+
     with pytest.raises(ValueError, match="flow_slpm"):
         DynamicPathMetadata(
             **{

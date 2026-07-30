@@ -1,186 +1,198 @@
-# 气体分析仪自动校准 V2 项目长期总控规则
+# 气体分析仪自动校准系统长期总控规则
 
-## Step 3A: V2 受控真实 COM 工程探针例外
-Step 3A 只是在默认禁止真实 COM 的规则上增加一个极窄、双重解锁、no-write 的工程探针例外；它不放开 V2 全部真机测试。
+## 一、唯一产品结论
 
-1. V1 仍是生产 fallback，不能禁用 V1 fallback。
-2. `run_app.py` 仍不得修改，默认入口不得切换到 V2。
-3. 默认仍禁止 V2 打开真实 COM。
-4. 仅允许在 Step 3A 工程探针例外下，V2 打开真实 COM。
-5. Step 3A 不是 real acceptance，不得刷新 `real_primary_latest`，不得宣称 V2 替代 V1，不得切默认入口。
+1. **V1.5 是本仓库唯一最终产品版本，也是所有未来规划、界面、校准、分析、报告和发布工作的唯一产品主线。**
+2. V1 是冻结的生产 fallback、历史行为基线和紧急恢复入口，不再承载新功能。
+3. V2 不再是未来产品版本，也不再存在“V2 替代 V1/V1.5”的路线。
+4. `gas_calibrator.v2` 仅视为待处置的历史资产池：
+   - 有价值能力迁入 `gas_calibrator.v1_5`、`gas_calibrator.storage`、`gas_calibrator.validation`、`gas_calibrator.modeling` 等正式命名空间；
+   - 临时兼容导入只能做薄包装；
+   - 平行校准内核、V2 真机探针、V2 产品入口、V2 大屏和重复治理代码按依赖证明分批删除；
+   - 最终目标是产品运行时不再依赖 `gas_calibrator.v2`。
 
-Step 3A 允许的逐级范围：
-- R0: query-only real-COM device inventory probe
-- R1: conditioning-only real-COM probe
-- R2: A1R CO2-only + skip0 + single route + single temperature + one non-zero point + no-write minimal sampling closure
-- R3: A2 CO2-only + skip0 + single route + single temperature + 7 pressure points + no-write
-- R4: V1/V2 real comparison audit
+## 二、项目最终目标
 
-Step 3A 继续禁止：
-- H2O full route
-- 0 ppm formal acceptance
-- full group
-- multi-temperature
-- ID write
-- SENCO write
-- calibration coefficient write
-- `real_primary_latest` refresh
-- default entry switch
-- disabling V1 fallback
+在不破坏已验证成熟校准物理流程的前提下，把 V1.5 收口为一套可长期维护的气体分析仪自动校准系统，具备：
 
-任何 Step 3A 真实 COM 工程探针都必须具备双重解锁、operator confirmation record、no-write 证据，并标记为 `engineering_probe_only` / `promotion_state=blocked` / `not_real_acceptance_evidence=true`。
+1. 六台气体分析仪并行校准能力。
+2. 成熟 CO2 45 点、H2O 13 个湿点校准流程。
+3. CO2 零气与 H2O 干气点两个独立物理锚点。
+4. 初始化、SENCO7/SENCO8 中性化、压力优先 SENCO9、开放流通采样、拟合、受控写入、读回、复验、归档和证书闭环。
+5. 操作员、工程师、审核者和参观展示四种信息视图，但只保留一套产品壳和一套状态源。
+6. 可追溯的数据、证书、算法版本、配置、设备身份、运行证据和审计记录。
+7. simulation、replay、parity、resilience 与真实 acceptance 分层清晰。
+8. 软件规模可控：禁止为同一功能新增第二套 runner、第二套状态机、第二套大屏或第二套证据模型。
 
-## 一、项目总目标
-本项目目标是：在**绝不破坏 V1 已经可用的生产校准流程**前提下，稳步推进 V2，最终建设为**全球行业领先的气体分析仪自动校准与数据分析系统**。
+## 三、版本与入口边界
 
-## 二、最高硬约束
-1. 绝不能破坏 V1 已经可以正常跑的生产校准流程。
-2. 不要修改 V1 生产代码，除非用户明确要求只改 V1。
-3. 不要修改 `run_app.py` 默认入口。
-4. 不要把任何新功能接回 V1 UI。
-5. 在真实 acceptance 未明确允许前：
-   - 默认不允许打开任何真实串口/COM
-   - 仅当用户明确授权时，允许对 V1 执行最小范围的 real smoke / short run，用于工程验证流程与数据存储
-   - V2 仍不允许打开真实串口/COM 或进行任何真机测试
-   - 不允许运行 real compare / real verify
-   - 不允许进行真实设备手动操作
-   - 不允许刷新 real primary latest
-6. 当前阶段所有验证优先通过：
-   - simulation
-   - replay
-   - suite regression
-   - parity
-   - resilience
-7. 任何 simulated / replay / parity / resilience / suite 结果，都**不能**被解释为 real acceptance 证据。
+### V1
 
-## 三、分阶段推进规则
-1. 必须按阶段推进，不允许为了“看起来更完整”跨阶段插入大需求。
-2. 即使用户提出更超前的目标，也先判断是否会打乱当前阶段节奏；若会增加风险，先提醒并收口到当前阶段内的可执行版本。
-3. 第一层采用“双完成制”：
-   - **仿真完成**：允许继续推进第二层平台化建设。
-   - **真机完成**：才允许讨论替代 V1、真实 acceptance、默认入口切换。
-4. 在 real acceptance 未闭环前，禁止：
-   - 宣称 V2 已可替代 V1
-   - 默认入口切换
-   - 真实放行结论
-   - 刷新 real primary latest 作为正式主证据
+1. `run_app.py` 与 `gas_calibrator.ui.app` 保持冻结，作为生产 fallback。
+2. `src/gas_calibrator/workflow/runner.py` 是历史成熟行为基线；除用户明确要求修复 V1 缺陷外，不新增功能。
+3. 不把 V1.5 新界面、分析页、证书页或治理页接回 V1 UI。
 
-## 四、当前默认主线
-当前默认主线不是大改 V2 主流程，而是：
-1. 仿真矩阵常态化运行
-2. 工件治理与导出韧性守稳
-3. parity 持续门禁
-4. 中文默认产品体验
-5. 设备工作台 simulation-only 产品化
-6. 为未来真实 acceptance 做治理框架准备
+### V1.5
 
-## 五、当前产品边界
-1. UI 默认中文，英文只作 fallback。
-2. 设备工作台当前仅允许 simulation-only，不得连接真实设备。
-3. 所有用户可见状态尽量中文化，不暴露内部英文 key。
-4. 工件角色必须保持清晰：
+1. `run_v1_5_workstation.py` 是 V1.5 产品候选入口。
+2. V1.5 调用既有成熟 CO2/H2O queue runner，不复制阀路、压力、温度、露点、稳定性、采样、写入或安全停机逻辑。
+3. 在真实 acceptance 闭环和用户明确批准前，不切换 `run_app.py` 默认入口。
+4. 未来所有产品能力必须首先判断应归属：
+   - `gas_calibrator.v1_5`：V1.5 产品编排、UI、复核、证书、产品专属 QC。
+   - `gas_calibrator.devices`：设备驱动和协议。
+   - `gas_calibrator.storage`：共享持久化、证据和导入导出。
+   - `gas_calibrator.validation`：仿真、回放、parity、韧性和只读计量合同。
+   - `gas_calibrator.modeling`：离线拟合、候选算法和模型分析。
+
+### V2
+
+1. 禁止新增 V2 产品功能、V2 页面、V2 runner、V2 真机探针和 V2 cutover 计划。
+2. 禁止 V2 打开真实 COM、控制设备、写入系数或刷新正式证据。
+3. 现有 V2 UI 不再是产品入口；可复用的布局、图表和证书编辑能力迁入 V1.5 后删除原实现。
+4. V2 兼容包装不得包含业务逻辑，只能从新正式命名空间重新导出，并必须有身份测试和删除计划。
+5. 历史 V2 文档必须标记为 superseded，不得继续作为开发路线依据。
+6. V2 仿真产品启动器和旧桌面 shell 已退役，不得恢复；仍有通用价值的 simulation、replay、parity、resilience 只能迁入 `gas_calibrator.validation`，不能再形成第二套产品入口。
+
+## 四、成熟物理流程硬约束
+
+1. 生产默认算法档案保持 `legacy_ratio_production`，除非候选算法完成单独真实 acceptance。
+2. 成熟点数保持：
+   - CO2：45 点；
+   - H2O：13 个湿点；
+   - H2O 干气点是独立证据锚点，不偷偷并入13个湿点。
+3. CO2 零气不能替代 H2O 干气点；H2O 湿点也不能替代干气/露点低端证据。
+4. 压力流程保持 pressure-first SENCO9。
+5. 初始化阶段必须把 SENCO7/SENCO8 设置为中性，并保留写前快照、写后读回和异常回滚证据。
+6. 温箱准确温度以放置在温箱内的铂电阻数字测温仪为准；温箱自身设定值只作为控制命令和辅助证据。
+7. 流量可从露点仪输出获取，但必须保存量纲、时间戳、通道映射和新鲜度。
+8. 气瓶证书照片和操作者填写值可以进入证书资料注册表；从上一轮流程恢复的数值必须标明来源，不得伪装成原始证书 OCR 结果。
+9. 证书缺失不阻断软件启动、仿真或 dry-run；它可以阻断正式证书签发、正式 release 或要求可追溯性的运行阶段。
+10. 任何拟合或写入前必须绑定设备身份、算法档案、点表版本、证书/气体批次、温度与压力证据以及候选系数哈希。
+
+## 五、真实设备与写入边界
+
+1. 默认不打开真实 COM，不控制气路/水路，不写 SN、设备 ID、SENCO 或数据库。
+2. 用户明确授权后，只允许在 V1.5 正式受控入口执行与授权范围完全一致的操作。
+3. 所有真实执行必须具备：
+   - 明确设备和端口范围；
+   - 操作者确认记录；
+   - 写前快照；
+   - 安全停止路径；
+   - 写后读回；
+   - rollback 或 hold 策略；
+   - 证据来源与 acceptance 等级。
+4. 工程探针、real smoke、short run 和正式 acceptance 必须分开标记，不能相互替代。
+5. `real_primary_latest`、正式数据库、设备系数和正式证书签发均属于独立发布门禁，不能由仿真或单次真机读取自动提升。
+
+## 六、软件架构规则
+
+1. UI 只负责配置、状态、确认、导航和证据呈现，不承载校准物理算法。
+2. 只有一套运行状态源；操作员页、工程师抽屉、审核页和参观模式读取同一快照。
+3. 只有一套校准命令编排；GUI、CLI 和自动化入口必须调用同一 application service。
+4. 只有一套证据模型，至少区分：
    - `execution_rows`
    - `execution_summary`
    - `diagnostic_analysis`
    - `formal_analysis`
-5. 统一导出状态必须保持：
+5. 统一导出状态保持：
    - `ok`
    - `skipped`
    - `missing`
    - `error`
-6. 所有 simulated 证据都必须明确标注：
+6. 所有模拟证据必须标记：
    - `evidence_source = simulated`
    - `not_real_acceptance_evidence = true`
+7. 新模块必须说明为什么不能放入现有模块；若与现有能力等价，必须合并或删除旧实现。
+8. 不允许以“治理”“未来扩展”或“展示”名义无限增加互相引用的大型 builder、repository、gateway 和 dashboard。
 
-## 六、当前阶段重点
-当前阶段重点不是再大改流程，而是持续补强这些方面：
-1. simulation / replay / suite 体系
-2. 中文默认 UI 与 1920×1080 可视布局
-3. 设备工作台的 simulation-only 体验
-4. acceptance / analytics / lineage / artifact registry 骨架
-5. V1/V2 采样、存储、导出口径的 parity 守稳
+## 七、界面规则
 
-## 七、任务执行规则
-每次任务必须先给出一个简短计划，再开始改代码。计划至少包含：
-1. 当前目标
-2. 影响范围
-3. 风险边界
-4. 验证方式
-5. 完成标准
+1. 产品名称统一为“V1.5 气体分析仪校准工作站”，用户界面不再展示“V2 产品”或“V2 驾驶舱”。
+2. 默认语言为中文，英文仅作 fallback；所有新增可见文案走统一 i18n。
+3. 1920×1080 下操作员主流程尽量一屏完成，内容过多必须有明确滚动入口。
+4. 操作员视图只呈现当前步骤、六通道、关键参考量、门禁、下一动作和停止按钮。
+5. 工程师信息通过可展开区域呈现原始帧、稳定性、协议和诊断，不挤占主操作路径。
+6. 审核者视图以证据、差异、签名、哈希和 release 门禁为中心。
+7. 参观展示模式只读取脱敏只读快照，不能出现设备控制、写入、授权或虚假实时数据。
+8. 所有真实/模拟、可写/只读、已连接/未连接状态必须同时使用文字和颜色表达，不能只靠颜色。
 
-如果任务超过当前阶段：
-- 先明确指出为什么超阶段
-- 再给出当前阶段可执行的收口方案
-- 不要直接跨阶段开工
+## 八、V2 处置规则
 
-## 八、优先级
-优先级从高到低：
-1. 不影响 V1
-2. 不打乱当前阶段节奏
-3. 守住数据口径与证据治理
-4. 提升仿真覆盖和产品体验
-5. 最后才是扩新功能
+每个 V2 模块必须被归入以下一种状态：
 
-## 九、允许做的事
-1. simulation / replay / suite / parity / resilience 改进
-2. UI 中文化与 1920×1080 布局优化
-3. 设备工作台 simulation-only 增强
-4. 工件治理、acceptance 治理、analytics、lineage、registry
-5. V1/V2 小字段 diff 对齐（仅在确认有差异时）
-6. 增加测试、报告、摘要、文档
-7. 增强 operator / engineer / reviewer / approver 的信息视图，但当前不做真实权限系统
-8. 在用户明确授权下，对 V1 执行最小范围 real smoke / short run，用于工程验证流程与数据存储
+1. `migrate_to_v1_5`：产品专属证书、复核、报告、UI 或 QC。
+2. `migrate_to_shared`：设备无关的存储、转换、文件、证据基础设施。
+3. `migrate_to_validation`：simulation、replay、parity、resilience、只读计量审计。
+4. `migrate_to_modeling`：候选算法、离线拟合和模型比较。
+5. `compatibility_wrapper`：已迁移后的临时重新导出；不得保留逻辑。
+6. `delete_after_extraction`：平行校准内核、V2 真机探针、V2 UI 壳、cutover 代码；先提取唯一安全合同，再删除。
+7. `delete_now`：无引用、无入口、无独特测试/证据价值的文件。
+8. `historical_doc`：仅供审计追溯，必须明确 superseded。
 
-## 十、禁止做的事
-1. 擅自改 V1 生产逻辑
-2. 擅自接入真实设备，或在没有用户明确授权时对 V1 执行 real smoke / short run
-3. 擅自刷新 real primary latest
-4. 擅自宣称 V2 已可替代 V1
-5. 擅自把功能接回 V1 UI
-6. 擅自为了“更完整”引入跨阶段大功能
-7. 在没有明确授权的情况下，运行任何 real compare / real verify / real manual operation
-8. 对 V2 运行任何真机测试
+删除前必须同时检查源码引用、测试引用、CLI/GUI 入口、配置、文档和历史证据路径。静态零引用只是候选条件，不是单独的删除授权。
 
-## 十一、UI 规则
-1. 默认语言必须是中文。
-2. 英文只作为 fallback，不是默认展示语言。
-3. 所有新增用户可见文案必须走统一 i18n key。
-4. 页面在 1920×1080 下应尽量一屏看全；若内容较多，必须有滚动，不允许内容超出可见区域却无滚动入口。
-5. 设备工作台要优先保证：
-   - operator 视图清晰
-   - engineer 视图可展开
-   - simulated 状态清晰
-   - 不误导为真实设备控制
+## 九、任务执行规则
 
-## 十二、验证规则
-每次任务完成后，至少要说明：
-1. 修改文件列表
-2. 新增/修改测试
-3. 验证命令
-4. 剩余风险（P0 / P1）
+每次任务必须先给出简短计划，至少包含：
 
-能用 suite 验证时，优先使用：
+1. 当前目标；
+2. 影响范围；
+3. 风险边界；
+4. 验证方式；
+5. 完成标准。
+
+实施顺序固定为：
+
+1. 读事实和引用；
+2. 判断归属；
+3. 先迁移或建立兼容包装；
+4. 跑测试；
+5. 再删除旧实现；
+6. 更新处置清单和文档。
+
+不允许同时重写校准内核、重做 UI 和大规模删 V2。每批必须可独立验证和回退。
+
+## 十、验证规则
+
+每次任务完成后至少说明：
+
+1. 修改文件；
+2. 新增/修改测试；
+3. 验证命令；
+4. P0/P1 剩余风险；
+5. V2 模块数和 V1.5 反向依赖是否下降。
+
+优先验证：
+
 - `smoke`
 - `regression`
 - `nightly`
 - `parity`
+- `resilience`
 
-涉及口径变动时，必须跑 parity。
-涉及导出/工件变动时，必须跑 resilience/导出韧性测试。
-涉及 UI 改动时，必须跑 UI 相关测试和中文化测试。
+涉及校准口径必须跑 parity；涉及导出/工件必须跑 resilience；涉及 UI 必须跑 UI、中文化、键盘与1920×1080布局测试；涉及迁移必须跑新旧导入身份测试和 V1.5 禁止导入 V2 的边界测试。
 
-## 十三、完成标准（Done when）
-一个任务只有在以下条件满足时才算完成：
-1. 目标清晰落地
-2. 相关 tests / suite 通过
-3. 没有破坏当前：
-   - simulation-only 边界
-   - 中文默认体验
-   - artifact role 清晰度
-   - parity / resilience / suite 门禁
-4. 没有触碰真实设备；若任务经用户明确授权并执行 V1 real smoke / short run，需明确标注其仅为工程验证，不是 real acceptance 结论
-5. 没有影响 V1
-6. 输出了变更摘要、测试命令、剩余风险
+## 十一、完成标准
 
-## 十四、当前阶段一句话原则
-先把当前阶段的仿真、口径、工件、体验做稳；在 real acceptance 未闭环前，不允许把 V2 往替代 V1 的结论上推进。
+### 单批任务完成
+
+1. 目标能力归属明确；
+2. 相关测试通过；
+3. 不破坏成熟 45/13 流程；
+4. 不改变真实设备/写入授权；
+5. V1.5 不新增对 V2 的依赖；
+6. 删除量、迁移量和剩余风险有证据。
+
+### 项目最终完成
+
+1. V1.5 是唯一用户可见产品和唯一未来开发主线。
+2. V1 仅作为冻结 fallback。
+3. 产品运行路径不再依赖 `gas_calibrator.v2`。
+4. V2 有价值能力完成迁移，重复运行内核、入口和 UI 完成删除。
+5. V1.5 GUI、CLI 和正式 runner 共用同一执行服务。
+6. 六通道完整校准、写入、读回、复验、证据、归档和证书流程完成真实 acceptance。
+7. 冻结提交上的全量 suite、parity、resilience、UI 和发布包验证通过。
+
+## 十二、当前一句话原则
+
+**未来永远规划和完善 V1.5；V1 只保底，V2 只迁移或删除，不再成长。**

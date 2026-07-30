@@ -8,17 +8,17 @@ import json
 
 import pytest
 
-from gas_calibrator.v2.config import AppConfig
+from gas_calibrator.v2.config.models import AppConfig
 from gas_calibrator.v2.core.device_manager import DeviceManager
-from gas_calibrator.v2.core.event_bus import EventBus, EventType
+from gas_calibrator.v2.core import EventBus, EventType
 from gas_calibrator.v2.core.models import CalibrationPhase, CalibrationPoint
-from gas_calibrator.v2.core.orchestration_context import OrchestrationContext
+from gas_calibrator.v2.core import OrchestrationContext
 from gas_calibrator.v2.core.result_store import ResultStore
 from gas_calibrator.v2.core.run_logger import RunLogger
 from gas_calibrator.v2.core.run_state import RunState
 from gas_calibrator.v2.core.services import StatusService
-from gas_calibrator.v2.core.session import RunSession
-from gas_calibrator.v2.core.stability_checker import StabilityChecker
+from gas_calibrator.v2.core.models import RunSession
+from gas_calibrator.validation.simulation.stability_checker import StabilityChecker
 from gas_calibrator.v2.core.state_manager import StateManager
 from gas_calibrator.v2.exceptions import WorkflowInterruptedError
 
@@ -150,5 +150,26 @@ def test_status_service_record_route_trace_writes_jsonl_and_tracks_artifact(tmp_
     assert payload["relay_state"]["relay_a"]["3"] is True
     assert payload["result"] == "ok"
     assert str(trace_path) in run_state.artifacts.output_files
+
+    context.run_logger.finalize()
+
+
+def test_status_service_route_trace_stringifies_unknown_evidence_values(tmp_path: Path) -> None:
+    class EvidenceValue:
+        def __str__(self) -> str:
+            return "evidence-value"
+
+    service, context, _, _ = _build_service(tmp_path)
+    point = CalibrationPoint(index=4, temperature_c=25.0, route="co2")
+
+    service.record_route_trace(
+        action="evidence_snapshot",
+        point=point,
+        target={"custom_value": EvidenceValue()},
+    )
+
+    trace_path = context.result_store.run_dir / "route_trace.jsonl"
+    payload = json.loads(trace_path.read_text(encoding="utf-8").strip())
+    assert payload["target"]["custom_value"] == "evidence-value"
 
     context.run_logger.finalize()

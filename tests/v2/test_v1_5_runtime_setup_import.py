@@ -8,9 +8,18 @@ import pytest
 pytest.importorskip("sqlalchemy")
 from sqlalchemy import func, select
 
-from gas_calibrator.v2.storage.database import DatabaseManager, StorageSettings, stable_uuid
-from gas_calibrator.v2.storage.models import DeviceEventRecord, RunRecord, SensorIdentityAliasRecord, SensorRecord
-from gas_calibrator.v2.storage.v1_5_initialization import (
+from gas_calibrator.storage.database import (
+    DatabaseManager,
+    StorageSettings,
+    stable_uuid,
+)
+from gas_calibrator.storage.models import (
+    DeviceEventRecord,
+    RunRecord,
+    SensorIdentityAliasRecord,
+    SensorRecord,
+)
+from gas_calibrator.v1_5.initialization_database import (
     build_v1_5_runtime_setup_storage_preview,
     import_v1_5_runtime_setup_result,
     load_v1_5_runtime_setup_result,

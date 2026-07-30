@@ -1,16 +1,29 @@
 from __future__ import annotations
 
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
 from datetime import datetime, timezone
 from statistics import mean, stdev
-import time
 from typing import Any, Callable, Dict, Optional
 
-from ...utils import as_float, safe_get
+from gas_calibrator.utils import as_float, safe_get
+from gas_calibrator.validation.simulation.sampling_contracts import (
+    evaluate_sample_quality as evaluate_sampling_quality,
+    filter_samples_for_point,
+    normalize_snapshot as normalize_sampling_snapshot,
+    pick_humidity_value as pick_sampling_humidity_value,
+    pick_numeric as pick_sampling_numeric,
+    pick_text as pick_sampling_text,
+    sanitize_humidity_value as sanitize_sampling_humidity_value,
+    snapshot_retry_reason as sampling_snapshot_retry_reason,
+    standard_analyzer_row_values as shape_standard_analyzer_row_values,
+    summarize_analyzer_integrity as summarize_sampling_integrity,
+)
+
 from ..device_manager import DeviceStatus
 from ..models import CalibrationPoint, SamplingResult
-from ..orchestration_context import OrchestrationContext
+from .. import OrchestrationContext
 from ..run_state import RunState
 
 
@@ -82,19 +95,17 @@ def read_device_snapshot_with_retry(
     attempts = 1 + max(0, retries)
     context_text = str(context or getattr(device, "__class__", type(device)).__name__).strip()
     last_snapshot: Any = {}
-    last_reason = ""
     for attempt in range(attempts):
         try:
             snapshot = method()
             last_snapshot = snapshot
-            retry_reason = SamplingService.snapshot_retry_reason(
+            retry_reason = sampling_snapshot_retry_reason(
                 snapshot,
                 required_keys=required_keys,
                 retry_on_empty=retry_on_empty,
             )
         except Exception as exc:
             retry_reason = f"error={exc}"
-            last_reason = retry_reason
             if attempt + 1 < attempts:
                 if log_failures:
                     host._log(f"Sensor read retry ({context_text}) {attempt + 1}/{retries}: {retry_reason}")
@@ -107,7 +118,6 @@ def read_device_snapshot_with_retry(
 
         if retry_reason is None:
             return snapshot
-        last_reason = retry_reason
         if attempt + 1 < attempts:
             if log_failures:
                 host._log(f"Sensor read retry ({context_text}) {attempt + 1}/{retries}: {retry_reason}")
@@ -131,18 +141,6 @@ class SamplingService:
         "co2_signal",
         "h2o_signal",
     )
-    STANDARD_ANALYZER_ROW_FIELDS = (
-        ("co2_ppm", "co2_ppm"),
-        ("h2o_mmol", "h2o_mmol"),
-        ("co2_ratio_f", "co2_ratio_f"),
-        ("h2o_ratio_f", "h2o_ratio_f"),
-        ("co2_signal", "co2_signal"),
-        ("h2o_signal", "h2o_signal"),
-        ("ref_signal", "ref_signal"),
-        ("analyzer_chamber_temp_c", "analyzer_chamber_temp_c"),
-        ("case_temp_c", "case_temp_c"),
-    )
-
     def __init__(self, context: OrchestrationContext, run_state: RunState, *, host: Any) -> None:
         self.context = context
         self.run_state = run_state
@@ -164,31 +162,31 @@ class SamplingService:
             label=analyzer_id,
             context=f"analyzer {analyzer_id} sampling result",
         )
-        snapshot = self.normalize_snapshot(raw_snapshot)
+        snapshot = normalize_sampling_snapshot(raw_snapshot)
         timing = self.host._point_timing(point, phase=phase, point_tag=point_tag)
         return SamplingResult(
             point=point,
             analyzer_id=analyzer_id,
             timestamp=datetime.now(timezone.utc),
-            co2_ppm=self.pick_numeric(snapshot, "co2_ppm", "co2"),
-            h2o_mmol=self.pick_numeric(snapshot, "h2o_mmol", "h2o"),
-            h2o_signal=self.pick_numeric(snapshot, "h2o_signal", "h2o_sig"),
-            co2_signal=self.pick_numeric(snapshot, "co2_signal", "co2_sig"),
-            co2_ratio_f=self.pick_numeric(snapshot, "co2_ratio_f"),
-            co2_ratio_raw=self.pick_numeric(snapshot, "co2_ratio_raw"),
-            h2o_ratio_f=self.pick_numeric(snapshot, "h2o_ratio_f"),
-            h2o_ratio_raw=self.pick_numeric(snapshot, "h2o_ratio_raw"),
-            ref_signal=self.pick_numeric(snapshot, "ref_signal"),
+            co2_ppm=pick_sampling_numeric(snapshot, "co2_ppm", "co2"),
+            h2o_mmol=pick_sampling_numeric(snapshot, "h2o_mmol", "h2o"),
+            h2o_signal=pick_sampling_numeric(snapshot, "h2o_signal", "h2o_sig"),
+            co2_signal=pick_sampling_numeric(snapshot, "co2_signal", "co2_sig"),
+            co2_ratio_f=pick_sampling_numeric(snapshot, "co2_ratio_f"),
+            co2_ratio_raw=pick_sampling_numeric(snapshot, "co2_ratio_raw"),
+            h2o_ratio_f=pick_sampling_numeric(snapshot, "h2o_ratio_f"),
+            h2o_ratio_raw=pick_sampling_numeric(snapshot, "h2o_ratio_raw"),
+            ref_signal=pick_sampling_numeric(snapshot, "ref_signal"),
             temperature_c=self.read_temperature_for_sampling(snapshot),
             pressure_hpa=self.read_pressure_for_sampling(snapshot),
-            pressure_gauge_hpa=self.pick_numeric(snapshot, "pressure_gauge_hpa"),
-            pressure_reference_status=self.pick_text(snapshot, "pressure_reference_status"),
-            thermometer_temp_c=self.pick_numeric(snapshot, "thermometer_temp_c"),
-            thermometer_reference_status=self.pick_text(snapshot, "thermometer_reference_status"),
+            pressure_gauge_hpa=pick_sampling_numeric(snapshot, "pressure_gauge_hpa"),
+            pressure_reference_status=pick_sampling_text(snapshot, "pressure_reference_status"),
+            thermometer_temp_c=pick_sampling_numeric(snapshot, "thermometer_temp_c"),
+            thermometer_reference_status=pick_sampling_text(snapshot, "thermometer_reference_status"),
             dew_point_c=self.read_dew_point_for_sampling(snapshot),
-            analyzer_pressure_kpa=self.pick_numeric(snapshot, "pressure_kpa"),
-            analyzer_chamber_temp_c=self.pick_numeric(snapshot, "chamber_temp_c", "temp_c"),
-            case_temp_c=self.pick_numeric(snapshot, "case_temp_c"),
+            analyzer_pressure_kpa=pick_sampling_numeric(snapshot, "pressure_kpa"),
+            analyzer_chamber_temp_c=pick_sampling_numeric(snapshot, "chamber_temp_c", "temp_c"),
+            case_temp_c=pick_sampling_numeric(snapshot, "case_temp_c"),
             frame_has_data=True,
             frame_usable=True,
             frame_status="ok",
@@ -199,7 +197,7 @@ class SamplingService:
         )
 
     def read_temperature_for_sampling(self, snapshot: Dict[str, Any]) -> Optional[float]:
-        value = self.pick_numeric(snapshot, "temperature_c", "temp_c", "chamber_temp_c")
+        value = pick_sampling_numeric(snapshot, "temperature_c", "temp_c", "chamber_temp_c")
         if value is not None:
             return value
         chamber = self.context.device_manager.get_device("temperature_chamber")
@@ -207,14 +205,14 @@ class SamplingService:
         return None if reader is None else as_float(reader())
 
     def read_pressure_for_sampling(self, snapshot: Dict[str, Any]) -> Optional[float]:
-        value = self.pick_numeric(snapshot, "pressure_hpa", "pressure", "target_pressure_hpa")
+        value = pick_sampling_numeric(snapshot, "pressure_hpa", "pressure", "target_pressure_hpa")
         if value is not None:
             return value
         reader = self.make_pressure_reader()
         return None if reader is None else as_float(reader())
 
     def read_dew_point_for_sampling(self, snapshot: Dict[str, Any]) -> Optional[float]:
-        value = self.pick_numeric(snapshot, "dew_point_c", "dewpoint_c", "dew_point", "Td")
+        value = pick_sampling_numeric(snapshot, "dew_point_c", "dewpoint_c", "dew_point", "Td")
         if value is not None:
             return value
         dewpoint_meter = self.context.device_manager.get_device("dewpoint_meter")
@@ -222,7 +220,7 @@ class SamplingService:
             return None
         if self.context.device_manager.get_status("dewpoint_meter") is DeviceStatus.DISABLED:
             return None
-        current = self.normalize_snapshot(
+        current = normalize_sampling_snapshot(
             self.read_device_snapshot(
                 dewpoint_meter,
                 context="dewpoint sampling snapshot",
@@ -230,7 +228,7 @@ class SamplingService:
                 retry_on_empty=True,
             )
         )
-        return self.pick_numeric(current, "dew_point_c", "dewpoint_c", "dew_point", "Td")
+        return pick_sampling_numeric(current, "dew_point_c", "dewpoint_c", "dew_point", "Td")
 
     def make_temperature_reader(self, chamber: Any) -> Optional[Callable[[], Optional[float]]]:
         if chamber is None:
@@ -245,8 +243,8 @@ class SamplingService:
             )
         if self.host._first_method(chamber, ("fetch_all", "status", "read")) is None:
             return None
-        return lambda chamber=chamber: self.pick_numeric(
-            self.normalize_snapshot(
+        return lambda chamber=chamber: pick_sampling_numeric(
+            normalize_sampling_snapshot(
                 read_device_snapshot_with_retry(
                     chamber,
                     host=self.host,
@@ -266,7 +264,7 @@ class SamplingService:
             dewpoint_meter = self.context.device_manager.get_device("dewpoint_meter")
             if dewpoint_meter is None:
                 return None
-            snapshot = self.normalize_snapshot(
+            snapshot = normalize_sampling_snapshot(
                 read_device_snapshot_with_retry(
                     dewpoint_meter,
                     host=self.host,
@@ -276,7 +274,7 @@ class SamplingService:
                     log_failures=False,
                 )
             )
-            return self.pick_humidity_value(snapshot)
+            return pick_sampling_humidity_value(snapshot)
 
         def with_fallback(value: Optional[float]) -> Optional[float]:
             return value if value is not None else read_dewpoint_meter_rh()
@@ -289,14 +287,14 @@ class SamplingService:
                         method,
                         host=self.host,
                         context="humidity generator humidity read",
-                        transform=lambda raw: self.sanitize_humidity_value(as_float(raw)),
+                        transform=lambda raw: sanitize_sampling_humidity_value(as_float(raw)),
                         log_failures=False,
                     )
                 )
             if self.host._first_method(humidity_generator, ("fetch_all", "status", "read")) is not None:
                 return lambda humidity_generator=humidity_generator: with_fallback(
-                    self.pick_humidity_value(
-                        self.normalize_snapshot(
+                    pick_sampling_humidity_value(
+                        normalize_sampling_snapshot(
                             read_device_snapshot_with_retry(
                                 humidity_generator,
                                 host=self.host,
@@ -317,7 +315,7 @@ class SamplingService:
                         method,
                         host=self.host,
                         context="temperature chamber humidity read",
-                        transform=lambda raw: self.sanitize_humidity_value(as_float(raw)),
+                        transform=lambda raw: sanitize_sampling_humidity_value(as_float(raw)),
                         log_failures=False,
                     )
                 )
@@ -339,8 +337,8 @@ class SamplingService:
                 )
             fetch_method = self.host._first_method(device, ("status",))
             if fetch_method is not None:
-                return lambda device=device, name=name: self.pick_numeric(
-                    self.normalize_snapshot(
+                return lambda device=device, name=name: pick_sampling_numeric(
+                    normalize_sampling_snapshot(
                         read_device_snapshot_with_retry(
                             device,
                             host=self.host,
@@ -368,8 +366,8 @@ class SamplingService:
                 log_failures=False,
             )
         if self.host._first_method(device, ("status",)) is not None:
-            return lambda device=device: self.pick_numeric(
-                self.normalize_snapshot(
+            return lambda device=device: pick_sampling_numeric(
+                normalize_sampling_snapshot(
                     read_device_snapshot_with_retry(
                         device,
                         host=self.host,
@@ -407,8 +405,8 @@ class SamplingService:
                 log_failures=False,
             )
         if self.host._first_method(device, ("read_current", "status", "read")) is not None:
-            return lambda device=device: self.pick_numeric(
-                self.normalize_snapshot(
+            return lambda device=device: pick_sampling_numeric(
+                normalize_sampling_snapshot(
                     read_device_snapshot_with_retry(
                         device,
                         host=self.host,
@@ -466,8 +464,8 @@ class SamplingService:
                 "h2o_mmol",
             )
 
-        return lambda: self.pick_numeric(
-            self.normalize_snapshot(
+        return lambda: pick_sampling_numeric(
+            normalize_sampling_snapshot(
                 self.read_device_snapshot(
                     analyzer,
                     context="analyzer signal read",
@@ -486,8 +484,8 @@ class SamplingService:
             required_keys=self.ANALYZER_FRAME_KEYS,
             retry_on_empty=True,
         )
-        snapshot = self.normalize_snapshot(raw_snapshot)
-        if self.pick_numeric(snapshot, *self.ANALYZER_FRAME_KEYS) is None:
+        snapshot = normalize_sampling_snapshot(raw_snapshot)
+        if pick_sampling_numeric(snapshot, *self.ANALYZER_FRAME_KEYS) is None:
             raise RuntimeError(f"Analyzer read failed ({label}): no usable frame after retry")
         return raw_snapshot
 
@@ -509,129 +507,11 @@ class SamplingService:
             log_failures=log_failures,
         )
 
-    def sensor_read_retry_settings(self) -> tuple[int, float]:
-        return sensor_read_retry_settings_from_host(self.host)
-
-    @staticmethod
-    def snapshot_retry_reason(
-        snapshot: Any,
-        *,
-        required_keys: tuple[str, ...],
-        retry_on_empty: bool,
-    ) -> Optional[str]:
-        normalized = SamplingService.normalize_snapshot(snapshot)
-        if required_keys and SamplingService.pick_numeric(normalized, *required_keys) is None:
-            return f"missing numeric data for keys={','.join(required_keys)}"
-        if retry_on_empty and not SamplingService._snapshot_has_data(normalized):
-            return "empty snapshot"
-        return None
-
-    @staticmethod
-    def _snapshot_has_data(snapshot: Dict[str, Any]) -> bool:
-        for value in snapshot.values():
-            if value is None:
-                continue
-            if isinstance(value, dict) and not value:
-                continue
-            if isinstance(value, (list, tuple, set)) and not value:
-                continue
-            if isinstance(value, str) and not value.strip():
-                continue
-            return True
-        return False
-
-    @staticmethod
-    def normalize_snapshot(snapshot: Any) -> Dict[str, Any]:
-        if not isinstance(snapshot, dict):
-            return {}
-        normalized: Dict[str, Any] = {}
-        data = safe_get(snapshot, "data", default={})
-        if isinstance(data, dict):
-            normalized.update(data)
-        normalized.update(snapshot)
-        return normalized
-
-    @staticmethod
-    def pick_numeric(snapshot: Dict[str, Any], *keys: str) -> Optional[float]:
-        for key in keys:
-            value = as_float(snapshot.get(key))
-            if value is not None:
-                return float(value)
-        return None
-
     def _safe_snapshot_read(self, method: Callable[[], Any]) -> Dict[str, Any]:
         try:
-            return self.normalize_snapshot(method())
+            return normalize_sampling_snapshot(method())
         except Exception:
             return {}
-
-    @staticmethod
-    def pick_text(snapshot: Dict[str, Any], *keys: str) -> str:
-        for key in keys:
-            value = snapshot.get(key)
-            if value is None:
-                continue
-            text = str(value).strip()
-            if text:
-                return text
-        return ""
-
-    @classmethod
-    def pick_humidity_value(cls, snapshot: Dict[str, Any]) -> Optional[float]:
-        value = cls.pick_numeric(snapshot, "humidity_pct", "rh_pct", "humidity", "Uw", "Ui")
-        return cls.sanitize_humidity_value(value)
-
-    @staticmethod
-    def sanitize_humidity_value(value: Optional[float]) -> Optional[float]:
-        if value is None:
-            return None
-        numeric = float(value)
-        if numeric < 0.0 or numeric > 100.0:
-            return None
-        return numeric
-
-    @classmethod
-    def standard_analyzer_row_values(cls, result: SamplingResult) -> Dict[str, Any]:
-        row: Dict[str, Any] = {}
-        for row_key, attr_name in cls.STANDARD_ANALYZER_ROW_FIELDS:
-            row[row_key] = getattr(result, attr_name, None)
-        return row
-
-    @staticmethod
-    def sampling_result_to_row(result: SamplingResult) -> Dict[str, Any]:
-        return {
-            "timestamp": result.timestamp.isoformat(),
-            "point_index": result.point.index,
-            "temperature_c": result.point.temperature_c,
-            "co2_ppm": result.point.co2_ppm,
-            "co2_group": result.point.co2_group,
-            "cylinder_nominal_ppm": result.point.cylinder_nominal_ppm,
-            "humidity_pct": result.point.humidity_pct,
-            "route": result.point.route,
-            "analyzer_id": result.analyzer_id,
-            "sample_co2_ppm": result.co2_ppm,
-            "sample_h2o_mmol": result.h2o_mmol,
-            "h2o_signal": result.h2o_signal,
-            "co2_signal": result.co2_signal,
-            "co2_ratio_f": result.co2_ratio_f,
-            "co2_ratio_raw": result.co2_ratio_raw,
-            "h2o_ratio_f": result.h2o_ratio_f,
-            "h2o_ratio_raw": result.h2o_ratio_raw,
-            "ref_signal": result.ref_signal,
-            "pressure_hpa": result.pressure_hpa,
-            "pressure_gauge_hpa": result.pressure_gauge_hpa,
-            "pressure_reference_status": result.pressure_reference_status,
-            "thermometer_temp_c": result.thermometer_temp_c,
-            "thermometer_reference_status": result.thermometer_reference_status,
-            "dew_point_c": result.dew_point_c,
-            "analyzer_pressure_kpa": result.analyzer_pressure_kpa,
-            "analyzer_chamber_temp_c": result.analyzer_chamber_temp_c,
-            "case_temp_c": result.case_temp_c,
-            "frame_has_data": result.frame_has_data,
-            "frame_usable": result.frame_usable,
-            "frame_status": result.frame_status,
-            "sample_index": result.sample_index,
-        }
 
     def samples_for_point(
         self,
@@ -640,48 +520,12 @@ class SamplingService:
         phase: str = "",
         point_tag: str = "",
     ) -> list[SamplingResult]:
-        resolved_tag = str(point_tag or "").strip()
-        resolved_phase = str(phase or "").strip().lower()
-        samples: list[SamplingResult] = []
-        for result in self.context.result_store.get_samples():
-            if result.point.index != point.index or result.point.route != point.route:
-                continue
-            if resolved_tag and str(getattr(result, "point_tag", "") or "").strip() != resolved_tag:
-                continue
-            if resolved_phase and str(getattr(result, "point_phase", "") or "").strip().lower() not in {"", resolved_phase}:
-                continue
-            samples.append(result)
-        return samples
-
-    @staticmethod
-    def span(values: list[float]) -> float:
-        if len(values) < 2:
-            return 0.0
-        return float(max(values) - min(values))
-
-    def evaluate_sample_quality(self, rows: list[dict[str, Any]]) -> tuple[bool, dict[str, float]]:
-        qcfg = self.host._cfg_get("workflow.sampling.quality", {})
-        if not isinstance(qcfg, dict) or not qcfg.get("enabled", False):
-            return True, {}
-        limits = {
-            "co2_ppm": qcfg.get("max_span_co2_ppm"),
-            "h2o_mmol": qcfg.get("max_span_h2o_mmol"),
-            "pressure_hpa": qcfg.get("max_span_pressure_hpa"),
-            "dewpoint_c": qcfg.get("max_span_dewpoint_c"),
-        }
-        spans: dict[str, float] = {}
-        ok = True
-        for key, raw_limit in limits.items():
-            if raw_limit is None:
-                continue
-            values = [float(row[key]) for row in rows if row.get(key) is not None]
-            if not values:
-                continue
-            span = self.span(values)
-            spans[key] = span
-            if span > float(raw_limit):
-                ok = False
-        return ok, spans
+        return filter_samples_for_point(
+            self.context.result_store.get_samples(),
+            point,
+            phase=phase,
+            point_tag=point_tag,
+        )
 
     def sampling_params(self, phase: str = "") -> tuple[int, float]:
         count = int(self.host._cfg_get("workflow.sampling.stable_count", self.host._cfg_get("workflow.sampling.count", 10)))
@@ -694,51 +538,6 @@ class SamplingService:
         if self.host._collect_only_fast_path_enabled():
             return 1, 0.0
         return count, interval
-
-    def summarize_analyzer_integrity(self, rows: list[dict[str, Any]], *, analyzer_labels: list[str]) -> dict[str, Any]:
-        expected = len(analyzer_labels)
-        with_frame: list[str] = []
-        usable: list[str] = []
-        missing: list[str] = []
-        unusable: list[str] = []
-        for label in analyzer_labels:
-            prefix = str(label or "").lower().replace(" ", "_")
-            has_frame = any(bool(row.get(f"{prefix}_frame_has_data")) for row in rows)
-            has_usable = any(bool(row.get(f"{prefix}_frame_usable")) for row in rows)
-            display = str(label or "").upper()
-            if has_frame:
-                with_frame.append(display)
-            else:
-                missing.append(display)
-            if has_usable:
-                usable.append(display)
-            elif has_frame:
-                unusable.append(display)
-        usable_count = len(usable)
-        with_frame_count = len(with_frame)
-        coverage_text = f"{usable_count}/{expected}" if expected else "0/0"
-        integrity = "完整" if expected and usable_count == expected else "部分可用"
-        if expected == 0:
-            integrity = "无分析仪"
-        elif usable_count == 0 and with_frame_count == 0:
-            integrity = "无帧"
-        elif usable_count == 0:
-            integrity = "仅异常帧"
-        elif missing and unusable:
-            integrity = "部分缺失且含异常帧"
-        elif missing:
-            integrity = "部分缺失"
-        elif unusable:
-            integrity = "含异常帧"
-        return {
-            "analyzer_expected_count": expected,
-            "analyzer_with_frame_count": with_frame_count,
-            "analyzer_usable_count": usable_count,
-            "analyzer_coverage_text": coverage_text,
-            "analyzer_integrity": integrity,
-            "analyzer_missing_labels": ",".join(missing),
-            "analyzer_unusable_labels": ",".join(unusable),
-        }
 
     def _read_single_analyzer_snapshot(
         self,
@@ -823,7 +622,7 @@ class SamplingService:
                         if result is None:
                             raise RuntimeError("analyzer read returned None")
                         batch_results.append(result)
-                        snapshot = self.normalize_snapshot(raw_snapshot)
+                        snapshot = normalize_sampling_snapshot(raw_snapshot)
                         row[f"{prefix}_frame_has_data"] = True
                         row[f"{prefix}_frame_usable"] = True
                         row[f"{prefix}_frame_status"] = "ok"
@@ -846,24 +645,34 @@ class SamplingService:
             if preferred_result is None:
                 preferred_result = first_usable_result
             if preferred_result is not None:
-                row.update(self.standard_analyzer_row_values(preferred_result))
+                row.update(shape_standard_analyzer_row_values(preferred_result))
             if batch_failures and len(batch_failures) < len(analyzers):
                 self.host._disable_analyzers(batch_failures, reason="sample_timeout")
             pressure_hpa = pressure_reader() if pressure_reader is not None else None
             pressure_snapshot = pressure_gauge_snapshot_reader() if pressure_gauge_snapshot_reader is not None else {}
-            pressure_gauge_hpa = self.pick_numeric(pressure_snapshot, "pressure_gauge_hpa", "pressure_hpa", "pressure")
+            pressure_gauge_hpa = pick_sampling_numeric(
+                pressure_snapshot,
+                "pressure_gauge_hpa",
+                "pressure_hpa",
+                "pressure",
+            )
             if pressure_gauge_hpa is None and pressure_gauge_reader is not None:
                 pressure_gauge_hpa = pressure_gauge_reader()
-            pressure_reference_status = self.pick_text(
+            pressure_reference_status = pick_sampling_text(
                 pressure_snapshot,
                 "pressure_reference_status",
                 "reference_status",
             )
             thermometer_snapshot = thermometer_snapshot_reader() if thermometer_snapshot_reader is not None else {}
-            thermometer_temp_c = self.pick_numeric(thermometer_snapshot, "thermometer_temp_c", "temp_c", "temperature_c")
+            thermometer_temp_c = pick_sampling_numeric(
+                thermometer_snapshot,
+                "thermometer_temp_c",
+                "temp_c",
+                "temperature_c",
+            )
             if thermometer_temp_c is None and thermometer_reader is not None:
                 thermometer_temp_c = thermometer_reader()
-            thermometer_reference_status = self.pick_text(
+            thermometer_reference_status = pick_sampling_text(
                 thermometer_snapshot,
                 "thermometer_reference_status",
                 "reference_status",
@@ -888,7 +697,7 @@ class SamplingService:
                     row["dew_pressure_hpa"] = self.run_state.humidity.preseal_dewpoint_snapshot.get("pressure_hpa")
                     row["dewpoint_sample_ts"] = self.run_state.humidity.preseal_dewpoint_snapshot.get("sample_ts")
                 else:
-                    snapshot = self.normalize_snapshot(
+                    snapshot = normalize_sampling_snapshot(
                         self.read_device_snapshot(
                             dewpoint,
                             context="dewpoint batch snapshot",
@@ -907,7 +716,7 @@ class SamplingService:
                 if humidity_reader is not None:
                     row["chamber_rh_pct"] = self.host._as_float(humidity_reader())
             if generator is not None and self.context.device_manager.get_status("humidity_generator") is not DeviceStatus.DISABLED:
-                snapshot = self.normalize_snapshot(
+                snapshot = normalize_sampling_snapshot(
                     self.read_device_snapshot(
                         generator,
                         context="humidity generator batch snapshot",
@@ -948,7 +757,11 @@ class SamplingService:
                 phase=phase,
                 point_tag=point_tag,
             )
-            ok, spans = self.evaluate_sample_quality(rows)
+            qcfg = self.host._cfg_get("workflow.sampling.quality", {})
+            ok, spans = evaluate_sampling_quality(
+                rows,
+                quality_config=qcfg,
+            )
             final_rows = rows
             final_results = results
             if ok:
@@ -961,7 +774,10 @@ class SamplingService:
         stability_time_s = self.host._as_float(timing.get("stability_time_s"))
         total_time_s = self.host._as_float(timing.get("total_time_s"))
         analyzer_labels = [label for label, _, _ in self.host._all_gas_analyzers()]
-        integrity = self.summarize_analyzer_integrity(final_rows, analyzer_labels=analyzer_labels)
+        integrity = summarize_sampling_integrity(
+            final_rows,
+            analyzer_labels=analyzer_labels,
+        )
         for row in final_rows:
             row.update(integrity)
             row["stability_time_s"] = stability_time_s

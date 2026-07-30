@@ -4,7 +4,12 @@ import json
 from pathlib import Path
 
 from gas_calibrator.v2.scripts.run_simulation_suite import run_suite
+from gas_calibrator.v2.sim import build_certificate_operational_admission_offline_report
 from gas_calibrator.v2.sim.parity import build_summary_parity_report
+
+
+def test_certificate_operational_admission_report_has_one_package_owner() -> None:
+    assert build_certificate_operational_admission_offline_report.__module__ == "gas_calibrator.v2.sim"
 
 
 def test_run_simulation_suite_smoke_writes_suite_summary(tmp_path: Path) -> None:

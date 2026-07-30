@@ -40,7 +40,6 @@ LEGACY_V1_REFERENCE_TOOL_NAMES = (
     "run_v1_corrected_autodelivery",
     "run_v1_merged_calibration_sidecar",
     "run_v1_online_acceptance",
-    "run_v1_no500_postprocess",
 )
 
 CANONICAL_FORMAL_WORKER_TOOL_NAMES = (

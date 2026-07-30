@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import csv
+import json
 import math
 import re
 import shutil
@@ -12,7 +13,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import mean
-from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from ..coefficients.fit_ratio_poly import fit_ratio_poly_rt_p
 from ..coefficients.fit_ratio_poly_evolved import fit_ratio_poly_rt_p_evolved
@@ -298,34 +299,252 @@ def _fit_fn_for_model(model: str):
 
 
 def _pressure_diff_stats(dataframe: Any) -> Dict[str, Any]:
-    if "P" not in getattr(dataframe, "columns", ()) or "BAR" not in getattr(dataframe, "columns", ()):
+    """Compare summary pressure channels after converting both to kPa.
+
+    The mature V1 summary contract stores the external reference pressure in
+    ``P`` as hPa and the analyzer-internal pressure in ``BAR``/``P_fit`` as
+    kPa.  This helper is validation-only; it must not influence production
+    pressure-source selection.
+    """
+
+    columns = tuple(getattr(dataframe, "columns", ()))
+    analyzer_key = "BAR" if "BAR" in columns else ("P_fit" if "P_fit" in columns else "")
+    if "P" not in columns or not analyzer_key:
         return {
-            "P_coverage": int(dataframe["P"].notna().sum()) if "P" in getattr(dataframe, "columns", ()) else 0,
-            "BAR_coverage": int(dataframe["BAR"].notna().sum()) if "BAR" in getattr(dataframe, "columns", ()) else 0,
+            "P_coverage": int(dataframe["P"].notna().sum()) if "P" in columns else 0,
+            "BAR_coverage": int(dataframe[analyzer_key].notna().sum()) if analyzer_key else 0,
             "Overlap": 0,
+            "reference_pressure_unit": "hPa",
+            "reference_to_kpa_scale": 0.1,
+            "analyzer_pressure_key": analyzer_key,
+            "analyzer_pressure_unit": "kPa",
             "P_BAR_mean_abs_diff": None,
             "P_BAR_max_abs_diff": None,
+            "P_BAR_mean_abs_diff_kpa": None,
+            "P_BAR_max_abs_diff_kpa": None,
+            "P_minus_BAR_mean_kpa": None,
         }
-    pair = dataframe[["P", "BAR"]].copy()
-    for key in ("P", "BAR"):
+    pair = dataframe[["P", analyzer_key]].copy()
+    for key in ("P", analyzer_key):
         pair[key] = pair[key].map(_safe_float)
     valid = pair.dropna()
     if valid.empty:
         return {
             "P_coverage": int(pair["P"].notna().sum()),
-            "BAR_coverage": int(pair["BAR"].notna().sum()),
+            "BAR_coverage": int(pair[analyzer_key].notna().sum()),
             "Overlap": 0,
+            "reference_pressure_unit": "hPa",
+            "reference_to_kpa_scale": 0.1,
+            "analyzer_pressure_key": analyzer_key,
+            "analyzer_pressure_unit": "kPa",
             "P_BAR_mean_abs_diff": None,
             "P_BAR_max_abs_diff": None,
+            "P_BAR_mean_abs_diff_kpa": None,
+            "P_BAR_max_abs_diff_kpa": None,
+            "P_minus_BAR_mean_kpa": None,
         }
-    diff = (valid["P"] - valid["BAR"]).abs()
+    signed_diff_kpa = valid["P"] * 0.1 - valid[analyzer_key]
+    abs_diff_kpa = signed_diff_kpa.abs()
     return {
         "P_coverage": int(pair["P"].notna().sum()),
-        "BAR_coverage": int(pair["BAR"].notna().sum()),
+        "BAR_coverage": int(pair[analyzer_key].notna().sum()),
         "Overlap": int(len(valid)),
-        "P_BAR_mean_abs_diff": float(diff.mean()),
-        "P_BAR_max_abs_diff": float(diff.max()),
+        "reference_pressure_unit": "hPa",
+        "reference_to_kpa_scale": 0.1,
+        "analyzer_pressure_key": analyzer_key,
+        "analyzer_pressure_unit": "kPa",
+        # Retain the historical column names for downstream readers, but make
+        # their values physically valid and expose explicit-unit aliases.
+        "P_BAR_mean_abs_diff": float(abs_diff_kpa.mean()),
+        "P_BAR_max_abs_diff": float(abs_diff_kpa.max()),
+        "P_BAR_mean_abs_diff_kpa": float(abs_diff_kpa.mean()),
+        "P_BAR_max_abs_diff_kpa": float(abs_diff_kpa.max()),
+        "P_minus_BAR_mean_kpa": float(signed_diff_kpa.mean()),
     }
+
+
+def _fit_diagnostic_metrics(result: Any) -> Dict[str, Any]:
+    stats = dict(getattr(result, "stats", {}) or {})
+    residuals = list(getattr(result, "residuals", []) or [])
+    targets = [_safe_float(item.get("target")) for item in residuals]
+    errors = [_safe_float(item.get("error_simplified")) for item in residuals]
+    paired = [(target, error) for target, error in zip(targets, errors) if target is not None and error is not None]
+    r_squared = None
+    bias = None
+    if paired:
+        paired_targets = [item[0] for item in paired]
+        paired_errors = [item[1] for item in paired]
+        bias = float(mean(paired_errors))
+        target_mean = float(mean(paired_targets))
+        total_sum_squares = sum((value - target_mean) ** 2 for value in paired_targets)
+        if total_sum_squares > 0:
+            r_squared = 1.0 - sum(error**2 for error in paired_errors) / total_sum_squares
+    stability = dict(stats.get("original_coefficient_analysis", {}) or {})
+    return {
+        "n": int(getattr(result, "n", 0) or 0),
+        "rmse": _safe_float(stats.get("rmse_simplified")),
+        "mae": _safe_float(stats.get("mae_simplified")),
+        "bias": bias,
+        "max_abs_error": _safe_float(stats.get("max_abs_simplified")),
+        "r_squared": _safe_float(r_squared),
+        "condition_number": _safe_float(stability.get("condition_number")),
+        "max_abs_coefficient": _safe_float(stability.get("max_abs_coefficient")),
+        "min_nonzero_coefficient": _safe_float(stability.get("min_nonzero_coefficient")),
+    }
+
+
+def _same_frame_pressure_source_audit(
+    analyzer_rows: Sequence[Mapping[str, Any]],
+    *,
+    fit_fn: Any,
+    gas: str,
+    target_key: str,
+    ratio_key: str,
+    temp_keys: Sequence[str],
+    common_kwargs: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Fit both pressure sources on the exact same rows for offline diagnosis."""
+
+    analyzer_pressure_key = ""
+    if any("BAR" in row for row in analyzer_rows):
+        analyzer_pressure_key = "BAR"
+    elif any("P_fit" in row for row in analyzer_rows):
+        analyzer_pressure_key = "P_fit"
+
+    base: Dict[str, Any] = {
+        "pressure_audit_status": "evidence_insufficient",
+        "pressure_audit_reason": "",
+        "pressure_audit_evidence_source": "offline_same_frame_diagnostic",
+        "pressure_audit_not_real_acceptance_evidence": True,
+        "pressure_audit_writes_performed": False,
+        "pressure_audit_promotion_state": "blocked",
+        "pressure_audit_authority_decision": "blocked_pending_traceable_reference_evidence",
+        "pressure_audit_equivalence_decision": "not_assessed_no_predefined_limits",
+        "pressure_audit_reference_key": "P",
+        "pressure_audit_reference_unit": "hPa",
+        "pressure_audit_reference_to_kpa_scale": 0.1,
+        "pressure_audit_analyzer_key": analyzer_pressure_key,
+        "pressure_audit_analyzer_unit": "kPa",
+        "pressure_audit_reference_coverage": sum(_safe_float(row.get("P")) is not None for row in analyzer_rows),
+        "pressure_audit_analyzer_coverage": (
+            sum(_safe_float(row.get(analyzer_pressure_key)) is not None for row in analyzer_rows)
+            if analyzer_pressure_key
+            else 0
+        ),
+    }
+    if not analyzer_pressure_key:
+        base["pressure_audit_reason"] = "missing_analyzer_pressure_column_BAR_or_P_fit"
+        return base
+
+    same_frame_rows: List[Dict[str, Any]] = []
+    signed_differences_kpa: List[float] = []
+    for source in analyzer_rows:
+        reference_hpa = _safe_float(source.get("P"))
+        analyzer_kpa = _safe_float(source.get(analyzer_pressure_key))
+        if reference_hpa is None or analyzer_kpa is None:
+            continue
+        row = dict(source)
+        row["_pressure_audit_reference_kpa"] = reference_hpa * 0.1
+        row["_pressure_audit_analyzer_kpa"] = analyzer_kpa
+        same_frame_rows.append(row)
+        signed_differences_kpa.append(reference_hpa * 0.1 - analyzer_kpa)
+
+    base["pressure_audit_same_frame_rows"] = len(same_frame_rows)
+    if signed_differences_kpa:
+        absolute_differences = [abs(value) for value in signed_differences_kpa]
+        base.update(
+            {
+                "pressure_audit_P_minus_analyzer_mean_kpa": float(mean(signed_differences_kpa)),
+                "pressure_audit_mean_abs_diff_kpa": float(mean(absolute_differences)),
+                "pressure_audit_max_abs_diff_kpa": float(max(absolute_differences)),
+            }
+        )
+    if not same_frame_rows:
+        base["pressure_audit_reason"] = "no_same_frame_pressure_overlap"
+        return base
+
+    fit_kwargs = dict(common_kwargs)
+    try:
+        reference_result = fit_fn(
+            same_frame_rows,
+            gas=gas,
+            target_key=target_key,
+            ratio_keys=(ratio_key,),
+            temp_keys=tuple(temp_keys),
+            pressure_keys=("_pressure_audit_reference_kpa",),
+            pressure_scale=1.0,
+            **fit_kwargs,
+        )
+        analyzer_result = fit_fn(
+            same_frame_rows,
+            gas=gas,
+            target_key=target_key,
+            ratio_keys=(ratio_key,),
+            temp_keys=tuple(temp_keys),
+            pressure_keys=("_pressure_audit_analyzer_kpa",),
+            pressure_scale=1.0,
+            **fit_kwargs,
+        )
+    except Exception as exc:
+        base["pressure_audit_reason"] = f"same_frame_fit_failed:{exc}"
+        return base
+
+    reference_metrics = _fit_diagnostic_metrics(reference_result)
+    analyzer_metrics = _fit_diagnostic_metrics(analyzer_result)
+    base.update({f"pressure_audit_reference_{key}": value for key, value in reference_metrics.items()})
+    base.update({f"pressure_audit_analyzer_{key}": value for key, value in analyzer_metrics.items()})
+    if (
+        reference_metrics["n"] <= 0
+        or analyzer_metrics["n"] <= 0
+        or reference_metrics["n"] != analyzer_metrics["n"]
+    ):
+        base["pressure_audit_reason"] = "fit_sample_count_mismatch_or_empty"
+        return base
+
+    reference_coefficients = dict(getattr(reference_result, "simplified_coefficients", {}) or {})
+    analyzer_coefficients = dict(getattr(analyzer_result, "simplified_coefficients", {}) or {})
+    common_names = sorted(set(reference_coefficients) & set(analyzer_coefficients))
+    coefficient_deltas = {
+        name: float(analyzer_coefficients[name]) - float(reference_coefficients[name])
+        for name in common_names
+    }
+    reference_terms = dict(getattr(reference_result, "feature_terms", {}) or {})
+    pressure_related_deltas = {
+        str(reference_terms.get(name) or name): value
+        for name, value in coefficient_deltas.items()
+        if "P" in str(reference_terms.get(name) or "").upper()
+    }
+    base.update(
+        {
+            "pressure_audit_status": "diagnostic_comparable",
+            "pressure_audit_reason": "same_rows_same_units_same_model_no_authority_selection",
+            "pressure_audit_reference_coefficients_json": json.dumps(
+                reference_coefficients,
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+            "pressure_audit_analyzer_coefficients_json": json.dumps(
+                analyzer_coefficients,
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+            "pressure_audit_analyzer_minus_reference_coefficients_json": json.dumps(
+                coefficient_deltas,
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+            "pressure_audit_pressure_related_coefficient_deltas_json": json.dumps(
+                pressure_related_deltas,
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+            "pressure_audit_R_T_k_P_coefficient_delta": pressure_related_deltas.get("R*T_k*P"),
+            "pressure_audit_max_abs_coefficient_delta": (
+                max((abs(value) for value in coefficient_deltas.values()), default=None)
+            ),
+        }
+    )
+    return base
 
 
 def fit_overview_rows(
@@ -355,6 +574,14 @@ def fit_overview_rows(
                     "Analyzer": "",
                     "status": "no_rows",
                     "summary_rows_used": 0,
+                    "pressure_audit_status": "evidence_insufficient",
+                    "pressure_audit_reason": "no_fit_rows",
+                    "pressure_audit_evidence_source": "offline_same_frame_diagnostic",
+                    "pressure_audit_not_real_acceptance_evidence": True,
+                    "pressure_audit_writes_performed": False,
+                    "pressure_audit_promotion_state": "blocked",
+                    "pressure_audit_authority_decision": "blocked_pending_traceable_reference_evidence",
+                    "pressure_audit_equivalence_decision": "not_assessed_no_predefined_limits",
                 }
             )
             return out, messages
@@ -407,6 +634,15 @@ def fit_overview_rows(
             )
 
         for analyzer_label, analyzer_rows in sorted(grouped_rows.items()):
+            pressure_audit = _same_frame_pressure_source_audit(
+                analyzer_rows,
+                fit_fn=fit_fn,
+                gas=gas,
+                target_key=target_key,
+                ratio_key=ratio_key,
+                temp_keys=temp_keys,
+                common_kwargs=common_kwargs,
+            )
             try:
                 resolved = runner._resolve_ratio_poly_columns(
                     analyzer_rows,
@@ -453,10 +689,14 @@ def fit_overview_rows(
                         "P_BAR_overlap": pressure_stats["Overlap"],
                         "P_BAR_mean_abs_diff": pressure_stats["P_BAR_mean_abs_diff"],
                         "P_BAR_max_abs_diff": pressure_stats["P_BAR_max_abs_diff"],
+                        "P_BAR_mean_abs_diff_kpa": pressure_stats["P_BAR_mean_abs_diff_kpa"],
+                        "P_BAR_max_abs_diff_kpa": pressure_stats["P_BAR_max_abs_diff_kpa"],
+                        "P_minus_BAR_mean_kpa": pressure_stats["P_minus_BAR_mean_kpa"],
                         "fit_n": int(getattr(result, "n", 0) or 0),
                         "rmse_simplified": float(getattr(result, "stats", {}).get("rmse_simplified", 0.0)),
                         "bias_simplified": float(mean(errors)) if errors else None,
                         "max_abs_simplified": float(getattr(result, "stats", {}).get("max_abs_simplified", 0.0)),
+                        **pressure_audit,
                     }
                 )
             except Exception as exc:
@@ -476,6 +716,7 @@ def fit_overview_rows(
                         "model_feature_policy": model_feature_policy,
                         "model_feature_tokens": ",".join(active_model_features or []),
                         "fit_error": str(exc),
+                        **pressure_audit,
                     }
                 )
         return out, messages
@@ -502,6 +743,7 @@ def analyze_sample_rows(
         "frame_quality_summary": [],
         "summary_alignment_check": [],
         "pressure_source_check": [],
+        "pressure_source_same_frame_audit": [],
         "fit_input_overview": [],
         "per_analyzer_comparison": [],
         "conclusion_summary": [],
@@ -560,7 +802,22 @@ def analyze_sample_rows(
                         "P_BAR_overlap": fit_row.get("P_BAR_overlap"),
                         "P_BAR_mean_abs_diff": fit_row.get("P_BAR_mean_abs_diff"),
                         "P_BAR_max_abs_diff": fit_row.get("P_BAR_max_abs_diff"),
+                        "P_BAR_mean_abs_diff_kpa": fit_row.get("P_BAR_mean_abs_diff_kpa"),
+                        "P_BAR_max_abs_diff_kpa": fit_row.get("P_BAR_max_abs_diff_kpa"),
+                        "P_minus_BAR_mean_kpa": fit_row.get("P_minus_BAR_mean_kpa"),
                         "summary_rows_used": fit_row.get("summary_rows_used"),
+                    }
+                )
+                tables["pressure_source_same_frame_audit"].append(
+                    {
+                        "mode": mode,
+                        "gas": gas_name,
+                        "Analyzer": fit_row.get("Analyzer"),
+                        **{
+                            key: value
+                            for key, value in fit_row.items()
+                            if str(key).startswith("pressure_audit_")
+                        },
                     }
                 )
 

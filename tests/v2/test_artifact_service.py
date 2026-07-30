@@ -6,17 +6,17 @@ from pathlib import Path
 from types import SimpleNamespace
 import threading
 
-from gas_calibrator.v2.config import AppConfig
+from gas_calibrator.v2.config.models import AppConfig
 from gas_calibrator.v2.core.device_manager import DeviceManager
-from gas_calibrator.v2.core.event_bus import EventBus
+from gas_calibrator.v2.core import EventBus
 from gas_calibrator.v2.core.models import CalibrationPoint, SamplingResult
-from gas_calibrator.v2.core.orchestration_context import OrchestrationContext
+from gas_calibrator.v2.core import OrchestrationContext
 from gas_calibrator.v2.core.result_store import ResultStore
 from gas_calibrator.v2.core.run_logger import RunLogger
 from gas_calibrator.v2.core.run_state import RunState
 from gas_calibrator.v2.core.services import ArtifactService
-from gas_calibrator.v2.core.session import RunSession
-from gas_calibrator.v2.core.stability_checker import StabilityChecker
+from gas_calibrator.v2.core.models import RunSession
+from gas_calibrator.validation.simulation.stability_checker import StabilityChecker
 from gas_calibrator.v2.core.state_manager import StateManager
 
 
@@ -58,7 +58,6 @@ def _build_service(tmp_path: Path, *, with_storage: bool = False) -> tuple[Artif
     host = SimpleNamespace(
         get_results=result_store.get_samples,
         _remember_output_file=remembered.append,
-        _export_coefficient_report=lambda: calls.append("coeff"),
         _export_qc_report=lambda: calls.append("qc"),
         _export_temperature_snapshots=lambda: calls.append("temperature"),
         _log=logs.append,
@@ -151,7 +150,7 @@ def test_artifact_service_exports_summary_manifest_and_run_artifacts(tmp_path: P
     assert "points_readable" in manifest["artifacts"]["role_catalog"]["execution_summary"]
     assert manifest["evidence_governance"]["promotion_state"] == "dry_run_only"
     assert manifest["versions"]["config_version"].startswith("cfg-")
-    assert host.calls == ["coeff", "qc", "temperature"]
+    assert host.calls == ["qc", "temperature"]
     assert str(manifest_path) in host.remembered
     assert str(summary_path) in host.remembered
     assert context.run_logger._samples_file.closed is True
@@ -168,6 +167,21 @@ def test_artifact_service_storage_sync_warns_without_raising(tmp_path: Path) -> 
     service.sync_results_to_storage()
 
     assert any("Storage warning: database unavailable" in message for message in host.logs)
+
+
+def test_artifact_service_does_not_call_storage_when_database_is_disabled(
+    tmp_path: Path,
+) -> None:
+    service, _, _, host, _ = _build_service(tmp_path)
+
+    def fail_if_called() -> None:
+        raise AssertionError("disabled storage must not invoke the database implementation")
+
+    host.service._sync_results_to_storage_impl = fail_if_called
+
+    service.sync_results_to_storage()
+
+    assert host.logs == []
 
 
 def test_artifact_service_skips_formal_calibration_report_when_not_auto_mode(tmp_path: Path) -> None:

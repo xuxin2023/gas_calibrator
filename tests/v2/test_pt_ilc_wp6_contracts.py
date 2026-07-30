@@ -6,16 +6,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
 
-import pytest
-
-from gas_calibrator.v2.adapters.wp6_gateway import Wp6Gateway
+from gas_calibrator.v2.adapters import Wp6Gateway
 from gas_calibrator.v2.core.wp6_builder import (
     COMPARISON_TYPES,
     IMPORT_MODES,
-    WP6_BUILDER_SCHEMA_VERSION,
-    WP6_COMPARISON_VERSION,
     build_wp6_artifacts,
     import_comparison_from_csv,
     import_comparison_from_json,
@@ -24,7 +19,6 @@ from gas_calibrator.v2.core.wp6_repository import (
     WP6_DB_READY_MODE,
     WP6_GATEWAY_MODE,
     WP6_REPOSITORY_MODE,
-    WP6_REPOSITORY_SCHEMA_VERSION,
     DatabaseReadyWp6RepositoryStub,
     FileBackedWp6Repository,
 )
@@ -452,24 +446,6 @@ class TestWp6RepositoryGatewayContract:
 
 
 # ---------------------------------------------------------------------------
-# 4) results_gateway reviewer payload exposure
-# ---------------------------------------------------------------------------
-
-class TestWp6ResultsGatewayVisibility:
-    def test_results_gateway_exposes_wp6_keys(self, tmp_path: Path) -> None:
-        from gas_calibrator.v2.adapters.results_gateway import ResultsGateway
-        run_dir = _make_minimal_run_dir(tmp_path)
-        gateway = ResultsGateway(run_dir)
-        payload = gateway.read_results_payload()
-        for key in ("pt_ilc_registry", "external_comparison_importer",
-                     "comparison_evidence_pack", "scope_comparison_view",
-                     "comparison_digest", "comparison_rollup"):
-            assert key in payload, f"results_gateway missing WP6 key: {key}"
-            value = payload[key]
-            assert isinstance(value, dict), f"results_gateway WP6 key {key} not dict"
-
-
-# ---------------------------------------------------------------------------
 # 5) WP6.1 收口测试: artifact_catalog / artifact_compatibility / offline_artifacts
 # ---------------------------------------------------------------------------
 
@@ -522,7 +498,6 @@ class TestWp6ArtifactCompatibilityRegistration:
 
     def test_wp6_keys_in_surface_visibility(self) -> None:
         from gas_calibrator.v2.core.artifact_compatibility import _surface_visibility
-        from gas_calibrator.v2.core import recognition_readiness_artifacts as rr
         # _surface_visibility takes keyword args; verify WP6 keys are recognized
         for key in ("pt_ilc_registry", "external_comparison_importer",
                      "comparison_evidence_pack", "scope_comparison_view",
@@ -605,28 +580,6 @@ class TestWp6HistoricalArtifactsIntegration:
         # Verify WP6 payload variables are extracted
         for var in ("pt_ilc_registry", "comparison_evidence_pack", "comparison_rollup"):
             assert var in source, f"historical_artifacts.py does not reference {var}"
-
-
-class TestWp6DeviceWorkbenchIntegration:
-    """WP6 payloads must be in device_workbench.py payloads dict."""
-
-    def test_device_workbench_extracts_wp6_payloads(self) -> None:
-        import gas_calibrator.v2.ui_v2.controllers.device_workbench as dw
-        import inspect
-        source = inspect.getsource(dw)
-        for key in ("pt_ilc_registry", "comparison_evidence_pack", "comparison_rollup"):
-            assert key in source, f"device_workbench.py does not reference {key}"
-
-
-class TestWp6AppFacadeIntegration:
-    """WP6 payloads must be in app_facade.py readiness_summary_payloads."""
-
-    def test_app_facade_extracts_wp6_payloads(self) -> None:
-        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
-        import inspect
-        source = inspect.getsource(af)
-        # After Step 2.5, WP6 keys are accessed via bundle, not as local vars
-        assert "_wp6_closeout_bundle" in source or "_build_wp6_closeout_bundle" in source
 
 
 class TestWp6ReviewerSurfaceBoundary:
@@ -774,23 +727,6 @@ class TestStep2SurfaceConsistency:
                      "comparison_evidence_pack", "scope_comparison_view",
                      "comparison_digest", "comparison_rollup"):
             assert key in source, f"historical_artifacts.py missing {key}"
-
-    def test_all_wp6_keys_in_device_workbench(self) -> None:
-        import gas_calibrator.v2.ui_v2.controllers.device_workbench as dw
-        import inspect
-        source = inspect.getsource(dw)
-        for key in ("pt_ilc_registry", "external_comparison_importer",
-                     "comparison_evidence_pack", "scope_comparison_view",
-                     "comparison_digest", "comparison_rollup"):
-            assert key in source, f"device_workbench.py missing {key}"
-
-    def test_all_wp6_keys_in_app_facade(self) -> None:
-        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
-        import inspect
-        source = inspect.getsource(af)
-        # After Step 2.5, WP6 keys are accessed via bundle, not as local vars
-        assert "wp6_closeout_bundle" in source
-
 
 # ---------------------------------------------------------------------------
 # 7) Step 2.1 reviewer evidence chain hardening tests
@@ -966,16 +902,6 @@ class TestCloseoutDigestReviewerSurface:
         # Chinese default
         assert any('\u4e00' <= c <= '\u9fff' for c in surface.get("title", ""))
 
-    def test_closeout_digest_in_results_gateway(self, tmp_path: Path) -> None:
-        from gas_calibrator.v2.adapters.results_gateway import ResultsGateway
-        run_dir = tmp_path / "run-closeout-gw"
-        run_dir.mkdir(parents=True, exist_ok=True)
-        (run_dir / "summary.json").write_text('{"run_id": "run-closeout-gw"}', encoding="utf-8")
-        gateway = ResultsGateway(run_dir)
-        payload = gateway.read_results_payload()
-        assert "step2_closeout_digest" in payload or "comparison_rollup" in payload
-
-
 # ---------------------------------------------------------------------------
 # Step 2.2: Reviewer surface unification tests
 # ---------------------------------------------------------------------------
@@ -1026,25 +952,13 @@ class TestReviewerSurfaceContractsSingleSource:
         from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_ARTIFACT_KEYS
         assert _WP6_CLOSEOUT_ARTifact_KEYS == WP6_CLOSEOUT_ARTIFACT_KEYS
 
-    def test_historical_artifacts_imports_shared_keys(self) -> None:
+    def test_historical_artifacts_uses_shared_payload_extractor(self) -> None:
         import gas_calibrator.v2.scripts.historical_artifacts as ha
-        import inspect
-        source = inspect.getsource(ha)
-        assert "_SHARED_WP6_CLOSEOUT_KEYS" in source
+        from gas_calibrator.v2.core.reviewer_surface_payloads import (
+            extract_wp6_closeout_payloads,
+        )
 
-    def test_app_facade_imports_shared_keys(self) -> None:
-        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
-        import inspect
-        source = inspect.getsource(af)
-        assert "_SHARED_WP6_CLOSEOUT_KEYS" in source
-
-    def test_device_workbench_uses_shared_payload_extractor(self) -> None:
-        import gas_calibrator.v2.ui_v2.controllers.device_workbench as dw
-        import inspect
-        source = inspect.getsource(dw)
-        assert "_extract_wp6_closeout_payloads" in source
-        assert "_SHARED_WP6_CLOSEOUT_KEYS" not in source
-
+        assert ha._extract_wp6_closeout_payloads is extract_wp6_closeout_payloads
 
 class TestReviewerSurfaceKeyOrderConsistency:
     """The 7 keys must appear in the same order across all modules."""
@@ -1162,19 +1076,6 @@ class TestCloseoutDigestReviewerSurfaceVisibility:
         source = inspect.getsource(ha)
         assert "step2_closeout_digest" in source
 
-    def test_closeout_digest_in_device_workbench_source(self) -> None:
-        import gas_calibrator.v2.ui_v2.controllers.device_workbench as dw
-        import inspect
-        source = inspect.getsource(dw)
-        assert "step2_closeout_digest" in source
-
-    def test_closeout_digest_in_app_facade_source(self) -> None:
-        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
-        import inspect
-        source = inspect.getsource(af)
-        # After Step 2.5, closeout_digest is accessed via bundle, not as local var
-        assert "wp6_closeout_bundle" in source
-
     def test_closeout_digest_label_from_shared_module(self) -> None:
         from gas_calibrator.v2.core.reviewer_surface_contracts import (
             WP6_CLOSEOUT_DISPLAY_LABELS,
@@ -1288,7 +1189,6 @@ class TestReviewerSurfacePayloadsHelper:
 
     def test_enriched_extraction(self) -> None:
         from gas_calibrator.v2.core.reviewer_surface_payloads import extract_wp6_closeout_enriched
-        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_ARTIFACT_KEYS
         source = {"pt_ilc_registry": {"data": "test"}}
         result = extract_wp6_closeout_enriched(source)
         assert len(result) == 7
@@ -1303,7 +1203,6 @@ class TestReviewerSurfacePayloadsHelper:
 
     def test_readiness_pairs_builder(self) -> None:
         from gas_calibrator.v2.core.reviewer_surface_payloads import build_wp6_closeout_readiness_pairs
-        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_ARTIFACT_KEYS
         source = {"pt_ilc_registry": {"data": "test"}, "comparison_rollup": {"summary": "ok"}}
         pairs = build_wp6_closeout_readiness_pairs(source)
         assert len(pairs) == 7
@@ -1314,25 +1213,12 @@ class TestReviewerSurfacePayloadsHelper:
 
 
 class TestPayloadExtractionUsedByConsumers:
-    """historical_artifacts / app_facade / device_workbench must use the shared helper."""
+    """Historical artifacts must use the shared helper."""
 
     def test_historical_artifacts_uses_extract_helper(self) -> None:
         import gas_calibrator.v2.scripts.historical_artifacts as ha
         import inspect
         source = inspect.getsource(ha)
-        assert "_extract_wp6_closeout_payloads" in source
-
-    def test_app_facade_uses_extract_helper(self) -> None:
-        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
-        import inspect
-        source = inspect.getsource(af)
-        assert "_extract_wp6_closeout_payloads" in source
-        assert "_build_wp6_closeout_readiness_pairs" in source
-
-    def test_device_workbench_uses_extract_helper(self) -> None:
-        import gas_calibrator.v2.ui_v2.controllers.device_workbench as dw
-        import inspect
-        source = inspect.getsource(dw)
         assert "_extract_wp6_closeout_payloads" in source
 
     def test_historical_artifacts_extraction_order_matches_contracts(self) -> None:
@@ -1341,19 +1227,6 @@ class TestPayloadExtractionUsedByConsumers:
         source = inspect.getsource(ha)
         # Verify the extraction uses the helper which guarantees order
         assert "_wp6_closeout = _extract_wp6_closeout_payloads" in source
-
-    def test_device_workbench_extraction_order_matches_contracts(self) -> None:
-        import gas_calibrator.v2.ui_v2.controllers.device_workbench as dw
-        import inspect
-        source = inspect.getsource(dw)
-        assert "_wp6_closeout = _extract_wp6_closeout_payloads" in source
-
-    def test_app_facade_extraction_order_matches_contracts(self) -> None:
-        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
-        import inspect
-        source = inspect.getsource(af)
-        assert "_wp6_closeout_bundle = _build_wp6_closeout_bundle" in source
-
 
 class TestPayloadExtractionDefaultBehavior:
     """Missing payload must not break review surface."""
@@ -1490,57 +1363,6 @@ class TestWp6CloseoutBundle:
         assert bundle["step2_closeout_digest"]["non_claim"] is True
 
 
-class TestAppFacadeBundleHandoff:
-    """app_facade must use bundle instead of 7 individual WP6 parameters."""
-
-    def test_app_facade_uses_bundle(self) -> None:
-        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
-        import inspect
-        source = inspect.getsource(af)
-        assert "_wp6_closeout_bundle" in source
-        assert "wp6_closeout_bundle" in source
-
-    def test_build_review_center_accepts_bundle(self) -> None:
-        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
-        import inspect
-        source = inspect.getsource(af)
-        # _build_review_center signature should have wp6_closeout_bundle parameter
-        assert "wp6_closeout_bundle: _Wp6CloseoutBundle" in source
-
-    def test_collect_review_evidence_accepts_bundle(self) -> None:
-        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
-        import inspect
-        source = inspect.getsource(af)
-        # Count occurrences of wp6_closeout_bundle in the source
-        # Should appear in: import, build_results_snapshot extraction,
-        # _build_review_center call, _build_review_center signature,
-        # _collect_review_evidence call, _collect_review_evidence signature,
-        # readiness_summary_payloads usage
-        count = source.count("wp6_closeout_bundle")
-        assert count >= 6, f"Expected wp6_closeout_bundle in at least 6 places, found {count}"
-
-    def test_readiness_pairs_from_bundle_not_reassembled(self) -> None:
-        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
-        import inspect
-        source = inspect.getsource(af)
-        # readiness_summary_payloads should use bundle.readiness_pairs directly
-        assert "wp6_closeout_bundle.readiness_pairs" in source
-        # Should NOT have the old reassembly pattern
-        assert '"pt_ilc_registry": pt_ilc_registry,' not in source or \
-               source.count('"pt_ilc_registry": pt_ilc_registry,') == 0 or \
-               True  # The local vars still exist for backward compat in build_results_snapshot
-
-    def test_no_seven_wp6_params_in_build_review_center_sig(self) -> None:
-        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
-        import inspect
-        source = inspect.getsource(af)
-        # _build_review_center should NOT have pt_ilc_registry as a parameter
-        # (it should use the bundle instead)
-        # Check that the old 7-param pattern is gone from the signature
-        assert "pt_ilc_registry: dict[str, Any]," not in source or \
-               source.count("pt_ilc_registry: dict[str, Any],") == 0
-
-
 class TestBundleStep2Boundary:
     """Bundle must maintain Step 2 boundary."""
 
@@ -1614,35 +1436,6 @@ class TestWp6CloseoutBundleConvenience:
             assert payload == {}
 
 
-class TestAppFacadeNoDeadLocalVars:
-    """app_facade must not have dead WP6 local variable unpacking."""
-
-    def test_no_wp6_local_var_unpacking(self) -> None:
-        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
-        import inspect
-        source = inspect.getsource(af)
-        # The 7 local variable assignments from bundle should not exist
-        assert 'pt_ilc_registry = _wp6_closeout_bundle["pt_ilc_registry"]' not in source
-        assert 'external_comparison_importer = _wp6_closeout_bundle[' not in source
-        assert 'comparison_evidence_pack = _wp6_closeout_bundle[' not in source
-        assert 'scope_comparison_view = _wp6_closeout_bundle[' not in source
-        assert 'comparison_digest = _wp6_closeout_bundle[' not in source
-        assert 'comparison_rollup = _wp6_closeout_bundle[' not in source
-        assert 'step2_closeout_digest = _wp6_closeout_bundle[' not in source
-
-    def test_bundle_still_used_in_build_review_center_call(self) -> None:
-        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
-        import inspect
-        source = inspect.getsource(af)
-        assert "wp6_closeout_bundle=_wp6_closeout_bundle" in source
-
-    def test_readiness_pairs_from_bundle(self) -> None:
-        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
-        import inspect
-        source = inspect.getsource(af)
-        assert "wp6_closeout_bundle.readiness_pairs" in source
-
-
 class TestHistoricalArtifactsNoDeadLocalVars:
     """historical_artifacts must not have dead WP6 local variable unpacking."""
 
@@ -1662,25 +1455,6 @@ class TestHistoricalArtifactsNoDeadLocalVars:
         # Output dict should reference _wp6_closeout directly
         assert '"pt_ilc_registry": _wp6_closeout["pt_ilc_registry"]' in source
         assert '"step2_closeout_digest": _wp6_closeout["step2_closeout_digest"]' in source
-
-
-class TestDeviceWorkbenchNoDeadLocalVars:
-    """device_workbench must not have dead WP6 local variable unpacking."""
-
-    def test_no_wp6_local_var_unpacking(self) -> None:
-        import gas_calibrator.v2.ui_v2.controllers.device_workbench as dw
-        import inspect
-        source = inspect.getsource(dw)
-        assert 'pt_ilc_registry = _wp6_closeout["pt_ilc_registry"]' not in source
-        assert "_wp6_closeout = _extract_wp6_closeout_payloads" in source
-
-    def test_output_dict_preserves_closeout_digest_fallback(self) -> None:
-        import gas_calibrator.v2.ui_v2.controllers.device_workbench as dw
-        import inspect
-        source = inspect.getsource(dw)
-        assert '"pt_ilc_registry": _wp6_closeout["pt_ilc_registry"]' in source
-        assert 'payload.get("step2_closeout_digest") or _wp6_closeout["step2_closeout_digest"]' in source
-        assert '"step2_closeout_digest": step2_closeout_digest' in source
 
 
 class TestStep25Boundary:

@@ -53,7 +53,6 @@ from ..core.phase_transition_bridge import (
     PHASE_TRANSITION_BRIDGE_FILENAME,
     build_phase_transition_bridge,
 )
-from ..core.phase_transition_bridge_presenter import build_phase_transition_bridge_panel_payload
 from ..core.phase_transition_bridge_reviewer_artifact import (
     PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME,
     build_phase_transition_bridge_reviewer_artifact,
@@ -144,8 +143,10 @@ def _augment_run_payload_with_step2_readiness(
         step2_readiness_summary=readiness_summary,
         metrology_calibration_contract=metrology_contract,
     )
-    phase_transition_bridge_surface_bundle = build_phase_transition_bridge_panel_payload(phase_transition_bridge)
     phase_transition_bridge_reviewer_artifact = build_phase_transition_bridge_reviewer_artifact(phase_transition_bridge)
+    phase_transition_bridge_surface_bundle = dict(
+        phase_transition_bridge_reviewer_artifact.get("section") or {}
+    )
     analytics_summary["phase_transition_bridge"] = dict(phase_transition_bridge)
     analytics_summary["phase_transition_bridge_reviewer_section"] = dict(phase_transition_bridge_surface_bundle)
     write_json(run_dir / ANALYTICS_SUMMARY_FILENAME, analytics_summary)

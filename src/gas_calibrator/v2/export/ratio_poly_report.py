@@ -17,8 +17,14 @@ from ...senco_format import format_senco_value
 from ...coefficients.fit_ratio_poly import fit_ratio_poly_rt_p
 from ...coefficients.model_metrics import compute_metrics
 from ...coefficients.prediction_analysis import analyze_by_range
-from ..config.models import CoefficientSummaryColumnConfig, CoefficientsConfig, H2OSummarySelectionConfig
+from ...export.corrected_water_points_report import select_corrected_fit_rows_with_diagnostics
+from ...validation.simulation.config import (
+    CoefficientSummaryColumnConfig,
+    CoefficientsConfig,
+    H2OSummarySelectionConfig,
+)
 from ..core.models import SamplingResult
+from ..exceptions import ConfigurationMissingError
 
 _TEMP_RE = re.compile(r"([-+]?\d+(?:\.\d+)?)(?:°|℃)?C?")
 _REPORT_SCOPE_TEXT = "按水路纠正规则"
@@ -82,6 +88,29 @@ class QualityAnalysisBundle:
     summary: pd.DataFrame
     detail: pd.DataFrame
     notes: pd.DataFrame
+
+
+def load_ratio_poly_report_config(
+    config_path: str | Path | None,
+    *,
+    default_payload: Optional[Dict[str, Any]] = None,
+) -> CoefficientsConfig:
+    """Load only the coefficient subtree required by this report."""
+
+    if config_path is None:
+        payload = default_payload
+    else:
+        file_path = Path(config_path)
+        if not file_path.exists():
+            raise ConfigurationMissingError(f"配置文件: {config_path}")
+        with file_path.open("r", encoding="utf-8") as handle:
+            root_payload = json.load(handle)
+        payload = root_payload.get("coefficients")
+
+    config = CoefficientsConfig.from_dict(payload)
+    config.enabled = True
+    config.auto_fit = True
+    return config
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -877,10 +906,13 @@ def build_analyzer_summary_frame(
             "AnalyzerCoverage": f"{len(point_usable)}/{expected_count}" if expected_count else "0/0",
             "UsableAnalyzers": len(point_usable),
             "ExpectedAnalyzers": expected_count,
-            "PointIntegrity": "完整" if usable_samples else "缺失",
+            "PointIntegrity": _point_integrity_text(
+                expected_count=expected_count,
+                present=point_present,
+                usable=point_usable,
+            ),
             "MissingAnalyzers": ",".join(missing_analyzers),
             "UnusableAnalyzers": ",".join(unusable_analyzers),
-            "PointIntegrity": _point_integrity_text(expected_count=expected_count, present=point_present, usable=point_usable),
             "ValidFrames": len(usable_samples),
             "TotalFrames": len(samples),
             "FrameStatus": "全部可用" if len(usable_samples) == len(samples) else ("部分可用" if usable_samples else "无可用帧"),
@@ -949,36 +981,12 @@ def select_corrected_fit_rows(
     working["PhaseKey"] = working.get("PhaseKey", working.get("PointPhase", "")).map(_phase_key)
     working["FitTemp"] = pd.to_numeric(working.get(temperature_key), errors="coerce")
     working["EnvTempC"] = working.apply(lambda row: _env_temp_from_row(dict(row)), axis=1)
-    working["ppm_CO2_Tank_num"] = pd.to_numeric(working.get("ppm_CO2_Tank"), errors="coerce")
-
-    gas_key = str(gas or "").strip().lower()
-    if gas_key == "co2":
-        return working[working["PhaseKey"] == "co2"].copy()
-    if gas_key != "h2o":
-        raise ValueError(f"Unsupported gas: {gas}")
-
-    phase_mask = working["PhaseKey"] == "h2o" if selection.include_h2o_phase else False
-    co2_mask = working["PhaseKey"] == "co2"
-
-    co2_temp_mask = False
-    for target in selection.include_co2_temp_groups_c:
-        co2_temp_mask = co2_temp_mask | (
-            co2_mask & (working["EnvTempC"] - float(target)).abs().le(float(selection.temp_tolerance_c))
-        )
-
-    zero_temp_mask = False
-    if selection.include_co2_zero_ppm_rows:
-        zero_ppm_mask = working["ppm_CO2_Tank_num"].sub(float(selection.co2_zero_ppm_target)).abs().le(
-            float(selection.co2_zero_ppm_tolerance)
-        )
-        for target in selection.include_co2_zero_ppm_temp_groups_c:
-            zero_temp_mask = zero_temp_mask | (
-                co2_mask
-                & zero_ppm_mask
-                & (working["EnvTempC"] - float(target)).abs().le(float(selection.temp_tolerance_c))
-            )
-
-    return working[phase_mask | co2_temp_mask | zero_temp_mask].copy()
+    return select_corrected_fit_rows_with_diagnostics(
+        working,
+        gas=gas,
+        temperature_key=temperature_key,
+        selection=dict(vars(selection)),
+    )["selected_frame"].copy()
 
 
 def _available_fit_gases(frame: pd.DataFrame) -> tuple[str, ...]:

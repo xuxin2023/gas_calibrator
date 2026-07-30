@@ -15,7 +15,7 @@ SOFTWARE_VALIDATION_REPOSITORY_SCHEMA_VERSION = "step2-software-validation-repos
 SOFTWARE_VALIDATION_REPOSITORY_MODE = "file_artifact_first"
 SOFTWARE_VALIDATION_GATEWAY_MODE = "file_backed_default"
 SOFTWARE_VALIDATION_DB_READY_MODE = "db_ready_stub"
-SOFTWARE_VALIDATION_REPOSITORY_TOOL = "gas_calibrator.v2.adapters.software_validation_gateway"
+SOFTWARE_VALIDATION_REPOSITORY_TOOL = "gas_calibrator.v2.adapters"
 
 _LINKED_SURFACES = ["results", "review_center", "workbench", "historical_artifacts"]
 _ARTIFACT_KEYS = (

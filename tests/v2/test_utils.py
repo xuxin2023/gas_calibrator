@@ -1,6 +1,6 @@
 import pytest
 
-from gas_calibrator.v2.utils import (
+from gas_calibrator.utils import (
     as_bool,
     as_float,
     as_int,

@@ -17,8 +17,6 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
-
 from gas_calibrator.v2.core.compact_summary_budget import (
     COMPACT_SUMMARY_BUDGET_VERSION,
     SURFACE_DEFAULT_BUDGETS,
@@ -44,20 +42,12 @@ class TestBudgetVersion:
 # ---------------------------------------------------------------------------
 
 class TestSurfaceDefaultBudgets:
-    def test_contains_three_surfaces(self):
-        assert "results_gateway" in SURFACE_DEFAULT_BUDGETS
-        assert "review_center" in SURFACE_DEFAULT_BUDGETS
-        assert "historical" in SURFACE_DEFAULT_BUDGETS
+    def test_contains_only_retained_historical_surface(self):
+        assert set(SURFACE_DEFAULT_BUDGETS) == {"historical"}
 
     def test_values_are_positive(self):
         for surface, budget in SURFACE_DEFAULT_BUDGETS.items():
             assert budget > 0, f"Budget for {surface} must be positive"
-
-    def test_results_gateway_budget(self):
-        assert SURFACE_DEFAULT_BUDGETS["results_gateway"] == 24
-
-    def test_review_center_budget(self):
-        assert SURFACE_DEFAULT_BUDGETS["review_center"] == 40
 
     def test_historical_budget(self):
         assert SURFACE_DEFAULT_BUDGETS["historical"] == 32
@@ -69,8 +59,6 @@ class TestSurfaceDefaultBudgets:
 
 class TestGetSurfaceBudget:
     def test_known_surface(self):
-        assert get_surface_budget("results_gateway") == 24
-        assert get_surface_budget("review_center") == 40
         assert get_surface_budget("historical") == 32
 
     def test_unknown_surface_returns_zero(self):
@@ -87,7 +75,7 @@ class TestApplySurfaceBudgetNoTruncation:
             {"summary_key": "a", "priority": 10, "summary_lines": ["line1", "line2"]},
             {"summary_key": "b", "priority": 20, "summary_lines": ["line3"]},
         ]
-        result = apply_surface_budget(packs, surface="results_gateway", budget=10)
+        result = apply_surface_budget(packs, surface="historical", budget=10)
         assert result["truncated_count"] == 0
         assert len(result["must_retain"]) + len(result["optional_expand"]) == 3
         assert result["truncated"] == []
@@ -97,7 +85,7 @@ class TestApplySurfaceBudgetNoTruncation:
             {"summary_key": "a", "priority": 10, "summary_lines": ["line1", "line2"]},
             {"summary_key": "b", "priority": 20, "summary_lines": ["line3"]},
         ]
-        result = apply_surface_budget(packs, surface="results_gateway", budget=3)
+        result = apply_surface_budget(packs, surface="historical", budget=3)
         assert result["truncated_count"] == 0
         assert result["used"] == 3
 
@@ -112,7 +100,7 @@ class TestApplySurfaceBudgetWithTruncation:
             {"summary_key": "a", "priority": 10, "summary_lines": ["line1", "line2"]},
             {"summary_key": "b", "priority": 20, "summary_lines": ["line3", "line4", "line5"]},
         ]
-        result = apply_surface_budget(packs, surface="results_gateway", budget=3)
+        result = apply_surface_budget(packs, surface="historical", budget=3)
         assert result["truncated_count"] > 0
         assert len(result["truncated"]) > 0
 
@@ -121,7 +109,7 @@ class TestApplySurfaceBudgetWithTruncation:
             {"summary_key": "high", "priority": 10, "summary_lines": ["h1", "h2"]},
             {"summary_key": "low", "priority": 20, "summary_lines": ["l1", "l2", "l3"]},
         ]
-        result = apply_surface_budget(packs, surface="results_gateway", budget=3)
+        result = apply_surface_budget(packs, surface="historical", budget=3)
         # high priority lines should be in must_retain
         assert "h1" in result["must_retain"]
         assert "h2" in result["must_retain"]
@@ -138,7 +126,7 @@ class TestApplySurfaceBudgetClassification:
         packs = [
             {"summary_key": "a", "priority": 10, "summary_lines": ["line1"]},
         ]
-        result = apply_surface_budget(packs, surface="results_gateway")
+        result = apply_surface_budget(packs, surface="historical")
         assert "must_retain" in result
         assert "optional_expand" in result
         assert "truncated" in result
@@ -153,7 +141,7 @@ class TestApplySurfaceBudgetClassification:
             {"summary_key": "first", "priority": 10, "summary_lines": ["f1", "f2"]},
             {"summary_key": "second", "priority": 20, "summary_lines": ["s1"]},
         ]
-        result = apply_surface_budget(packs, surface="results_gateway", budget=10)
+        result = apply_surface_budget(packs, surface="historical", budget=10)
         assert "f1" in result["must_retain"]
         assert "f2" in result["must_retain"]
 
@@ -162,7 +150,7 @@ class TestApplySurfaceBudgetClassification:
             {"summary_key": "first", "priority": 10, "summary_lines": ["f1"]},
             {"summary_key": "second", "priority": 20, "summary_lines": ["s1", "s2"]},
         ]
-        result = apply_surface_budget(packs, surface="results_gateway", budget=10)
+        result = apply_surface_budget(packs, surface="historical", budget=10)
         assert "s1" in result["optional_expand"]
         assert "s2" in result["optional_expand"]
 
@@ -177,8 +165,8 @@ class TestApplySurfaceBudgetDeterministic:
             {"summary_key": "a", "priority": 10, "summary_lines": ["l1", "l2"]},
             {"summary_key": "b", "priority": 20, "summary_lines": ["l3", "l4"]},
         ]
-        result1 = apply_surface_budget(packs, surface="results_gateway", budget=3)
-        result2 = apply_surface_budget(packs, surface="results_gateway", budget=3)
+        result1 = apply_surface_budget(packs, surface="historical", budget=3)
+        result2 = apply_surface_budget(packs, surface="historical", budget=3)
         assert result1 == result2
 
 
@@ -192,7 +180,7 @@ class TestApplySurfaceBudgetSamePriority:
             {"summary_key": "z_pack", "priority": 10, "summary_lines": ["z1"]},
             {"summary_key": "a_pack", "priority": 10, "summary_lines": ["a1"]},
         ]
-        result = apply_surface_budget(packs, surface="results_gateway", budget=1)
+        result = apply_surface_budget(packs, surface="historical", budget=1)
         # a_pack comes before z_pack alphabetically, so a1 should be must_retain
         assert "a1" in result["must_retain"]
 

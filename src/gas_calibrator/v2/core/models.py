@@ -4,17 +4,16 @@ V2 核心数据模型。
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Optional, Set
 
-from ..domain.pressure_selection import (
-    effective_pressure_mode,
-    normalize_pressure_selection_token,
-    pressure_selection_key,
-    pressure_target_label,
-)
+from gas_calibrator.validation.simulation.runtime_point import CalibrationPoint
+
+if TYPE_CHECKING:
+    from ..config.models import AppConfig
 
 
 class CalibrationPhase(Enum):
@@ -34,89 +33,6 @@ class CalibrationPhase(Enum):
 
 
 @dataclass(frozen=True)
-class CalibrationPoint:
-    """V2 校准点定义。"""
-
-    index: int
-    temperature_c: float
-    co2_ppm: Optional[float] = None
-    humidity_pct: Optional[float] = None
-    pressure_hpa: Optional[float] = None
-    route: str = "co2"
-    humidity_generator_temp_c: Optional[float] = None
-    dewpoint_c: Optional[float] = None
-    h2o_mmol: Optional[float] = None
-    raw_h2o: Optional[str] = None
-    co2_group: Optional[str] = None
-    cylinder_nominal_ppm: Optional[float] = None
-    pressure_mode: str = ""
-    pressure_target_label: Optional[str] = None
-    pressure_selection_token: str = ""
-
-    @property
-    def temp_chamber_c(self) -> float:
-        return float(self.temperature_c)
-
-    @property
-    def hgen_temp_c(self) -> Optional[float]:
-        if self.humidity_generator_temp_c is not None:
-            return float(self.humidity_generator_temp_c)
-        if self.is_h2o_point:
-            return float(self.temperature_c)
-        return None
-
-    @property
-    def hgen_rh_pct(self) -> Optional[float]:
-        if self.humidity_pct is None:
-            return None
-        return float(self.humidity_pct)
-
-    @property
-    def target_pressure_hpa(self) -> Optional[float]:
-        if self.pressure_hpa is None:
-            return None
-        return float(self.pressure_hpa)
-
-    @property
-    def effective_pressure_mode(self) -> str:
-        return effective_pressure_mode(
-            pressure_hpa=self.pressure_hpa,
-            pressure_mode=self.pressure_mode,
-            pressure_selection_token=self.pressure_selection_token,
-        )
-
-    @property
-    def pressure_selection_token_value(self) -> str:
-        return normalize_pressure_selection_token(self.pressure_selection_token)
-
-    @property
-    def is_ambient_pressure_point(self) -> bool:
-        return self.effective_pressure_mode == "ambient_open"
-
-    @property
-    def pressure_display_label(self) -> Optional[str]:
-        return pressure_target_label(
-            pressure_hpa=self.pressure_hpa,
-            pressure_mode=self.pressure_mode,
-            pressure_selection_token=self.pressure_selection_token,
-            explicit_label=self.pressure_target_label,
-        )
-
-    @property
-    def pressure_selection_key(self) -> Optional[float | str]:
-        return pressure_selection_key(
-            pressure_hpa=self.pressure_hpa,
-            pressure_mode=self.pressure_mode,
-            pressure_selection_token=self.pressure_selection_token,
-        )
-
-    @property
-    def is_h2o_point(self) -> bool:
-        route = str(self.route or "").strip().lower()
-        return route == "h2o" or self.humidity_pct is not None or self.humidity_generator_temp_c is not None
-
-
-@dataclass(frozen=True)
 class CalibrationStatus:
     """V2 校准状态。"""
 
@@ -128,6 +44,111 @@ class CalibrationStatus:
     message: str = ""
     elapsed_s: float = 0.0
     error: Optional[str] = None
+
+
+class RunSession:
+    """Runtime context for a single calibration run."""
+
+    def __init__(self, config: AppConfig):
+        self.run_id: str = datetime.now().strftime("run_%Y%m%d_%H%M%S")
+        self.config: AppConfig = config
+        self.started_at: Optional[datetime] = None
+        self.ended_at: Optional[datetime] = None
+        self.phase: CalibrationPhase = CalibrationPhase.IDLE
+        self.current_point: Optional[CalibrationPoint] = None
+        self.total_points: int = 0
+        self.completed_points: int = 0
+        self.progress: float = 0.0
+        self.enabled_devices: Set[str] = self._collect_enabled_devices(config)
+        self.output_dir: Path = Path(config.paths.output_dir) / self.run_id
+        self.stop_reason: str = ""
+        self.warnings: list[str] = []
+        self.errors: list[str] = []
+
+    def start(self) -> None:
+        self.started_at = datetime.now()
+        self.ended_at = None
+        self.stop_reason = ""
+        self.phase = CalibrationPhase.IDLE
+        self.current_point = None
+        self.completed_points = 0
+        self.progress = 0.0
+
+    def end(self, reason: str = "") -> None:
+        self.ended_at = datetime.now()
+        self.stop_reason = str(reason or "")
+
+    def add_warning(self, msg: str) -> None:
+        text = str(msg or "").strip()
+        if text:
+            self.warnings.append(text)
+
+    def add_error(self, msg: str) -> None:
+        text = str(msg or "").strip()
+        if text:
+            self.errors.append(text)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "run_id": self.run_id,
+            "config": self._serialize_config(self.config),
+            "started_at": None if self.started_at is None else self.started_at.isoformat(timespec="seconds"),
+            "ended_at": None if self.ended_at is None else self.ended_at.isoformat(timespec="seconds"),
+            "phase": self.phase.value,
+            "current_point": self._serialize_point(self.current_point),
+            "total_points": self.total_points,
+            "completed_points": self.completed_points,
+            "progress": self.progress,
+            "enabled_devices": sorted(self.enabled_devices),
+            "output_dir": str(self.output_dir),
+            "stop_reason": self.stop_reason,
+            "warnings": list(self.warnings),
+            "errors": list(self.errors),
+        }
+
+    @staticmethod
+    def _serialize_config(config: AppConfig) -> Any:
+        if is_dataclass(config):
+            return asdict(config)
+        return config
+
+    @staticmethod
+    def _serialize_point(point: Optional[CalibrationPoint]) -> Optional[dict[str, Any]]:
+        if point is None:
+            return None
+        if is_dataclass(point):
+            return asdict(point)
+        return {
+            "index": getattr(point, "index", None),
+            "temperature_c": getattr(point, "temperature_c", None),
+            "co2_ppm": getattr(point, "co2_ppm", None),
+            "humidity_pct": getattr(point, "humidity_pct", None),
+            "pressure_hpa": getattr(point, "pressure_hpa", None),
+            "route": getattr(point, "route", None),
+        }
+
+    @staticmethod
+    def _collect_enabled_devices(config: AppConfig) -> Set[str]:
+        enabled: set[str] = set()
+        devices = config.devices
+        single_names = (
+            "pressure_controller",
+            "pressure_meter",
+            "dewpoint_meter",
+            "humidity_generator",
+            "temperature_chamber",
+            "relay_a",
+            "relay_b",
+        )
+        for name in single_names:
+            item = getattr(devices, name, None)
+            if item is not None and bool(getattr(item, "enabled", True)):
+                enabled.add(name)
+
+        for index, item in enumerate(getattr(devices, "gas_analyzers", []) or []):
+            if bool(getattr(item, "enabled", True)):
+                enabled.add(f"gas_analyzer_{index}")
+        return enabled
 
 
 @dataclass(frozen=True)
@@ -164,3 +185,88 @@ class SamplingResult:
     sample_index: int = 0
     stability_time_s: Optional[float] = None
     total_time_s: Optional[float] = None
+
+
+@dataclass
+class RouteRunResult:
+    success: bool
+    completed_points: list[CalibrationPoint] = field(default_factory=list)
+    completed_point_indices: list[int] = field(default_factory=list)
+    sampled_points: list[CalibrationPoint] = field(default_factory=list)
+    sampled_point_indices: list[int] = field(default_factory=list)
+    skipped_point_indices: list[int] = field(default_factory=list)
+    stopped: bool = False
+    error: str | None = None
+
+
+@dataclass
+class RouteContext:
+    """Lightweight route execution state exposed to runners and future UI consumers."""
+
+    current_route: str = ""
+    current_phase: Optional[CalibrationPhase] = None
+    current_point: Optional[CalibrationPoint] = None
+    source_point: Optional[CalibrationPoint] = None
+    active_point: Optional[CalibrationPoint] = None
+    point_tag: str = ""
+    retry: int = 0
+    route_state: dict[str, Any] = field(default_factory=dict)
+
+    def enter(
+        self,
+        *,
+        current_route: str,
+        current_phase: Optional[CalibrationPhase] = None,
+        current_point: Optional[CalibrationPoint] = None,
+        source_point: Optional[CalibrationPoint] = None,
+        active_point: Optional[CalibrationPoint] = None,
+        point_tag: str = "",
+        retry: int = 0,
+        route_state: Optional[dict[str, Any]] = None,
+    ) -> None:
+        self.current_route = str(current_route or "").strip().lower()
+        self.current_phase = current_phase
+        self.current_point = current_point
+        self.source_point = current_point if source_point is None else source_point
+        self.active_point = current_point if active_point is None else active_point
+        self.point_tag = str(point_tag or "").strip()
+        self.retry = max(0, int(retry))
+        self.route_state = dict(route_state or {})
+
+    def update(
+        self,
+        *,
+        current_phase: Optional[CalibrationPhase] = None,
+        current_point: Optional[CalibrationPoint] = None,
+        source_point: Optional[CalibrationPoint] = None,
+        active_point: Optional[CalibrationPoint] = None,
+        point_tag: Optional[str] = None,
+        retry: Optional[int] = None,
+        route_state: Optional[dict[str, Any]] = None,
+    ) -> None:
+        if current_phase is not None:
+            self.current_phase = current_phase
+        if current_point is not None:
+            self.current_point = current_point
+            if active_point is None:
+                self.active_point = current_point
+        if source_point is not None:
+            self.source_point = source_point
+        if active_point is not None:
+            self.active_point = active_point
+        if point_tag is not None:
+            self.point_tag = str(point_tag or "").strip()
+        if retry is not None:
+            self.retry = max(0, int(retry))
+        if route_state:
+            self.route_state.update(route_state)
+
+    def clear(self) -> None:
+        self.current_route = ""
+        self.current_phase = None
+        self.current_point = None
+        self.source_point = None
+        self.active_point = None
+        self.point_tag = ""
+        self.retry = 0
+        self.route_state.clear()

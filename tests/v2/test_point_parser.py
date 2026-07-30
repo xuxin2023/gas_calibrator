@@ -1,10 +1,26 @@
 import csv
+from importlib.util import find_spec
 import json
 from pathlib import Path
 
 import pytest
 
-from gas_calibrator.v2.core.point_parser import PointFilter, PointParser
+from gas_calibrator.validation.exceptions import (
+    CalibrationError,
+    DataError,
+    DataParseError,
+    DataValidationError,
+)
+from gas_calibrator.validation.simulation.point_parser import (
+    LegacyExcelPointLoader,
+    PointFilter,
+    PointParser,
+    TemperatureGroup,
+)
+from gas_calibrator.validation.simulation.runtime_point import CalibrationPoint
+from gas_calibrator.v2 import core as v2_core
+from gas_calibrator.v2 import exceptions as v2_exceptions
+from gas_calibrator.v2.core import models as v2_models
 
 
 def test_point_parser_parses_json_legacy_fields(tmp_path: Path) -> None:
@@ -100,3 +116,26 @@ def test_point_parser_filters_by_indices_and_groups_temperature() -> None:
     assert [point.index for point in groups[0].points] == [1]
     assert groups[1].temperature_c == 25.0
     assert [point.index for point in groups[1].points] == [3]
+
+
+def test_point_parser_and_runtime_point_have_shared_single_owners() -> None:
+    assert (
+        PointParser.__module__
+        == "gas_calibrator.validation.simulation.point_parser"
+    )
+    assert (
+        CalibrationPoint.__module__
+        == "gas_calibrator.validation.simulation.runtime_point"
+    )
+    assert DataParseError.__module__ == "gas_calibrator.validation.exceptions"
+    assert v2_core.PointParser is PointParser
+    assert v2_core.PointFilter is PointFilter
+    assert v2_core.TemperatureGroup is TemperatureGroup
+    assert v2_core.CalibrationPoint is CalibrationPoint
+    assert v2_models.CalibrationPoint is CalibrationPoint
+    assert v2_exceptions.CalibrationError is CalibrationError
+    assert v2_exceptions.DataError is DataError
+    assert v2_exceptions.DataParseError is DataParseError
+    assert v2_exceptions.DataValidationError is DataValidationError
+    assert v2_core.PointParser().legacy_excel_loader == LegacyExcelPointLoader()
+    assert find_spec("gas_calibrator.v2.core.point_parser") is None

@@ -2,8 +2,7 @@ from pathlib import Path
 import json
 import sys
 
-from gas_calibrator.v2.adapters.method_confirmation_gateway import MethodConfirmationGateway
-from gas_calibrator.v2.adapters.results_gateway import ResultsGateway
+from gas_calibrator.v2.adapters import MethodConfirmationGateway
 from gas_calibrator.v2.core.method_confirmation_repository import (
     DatabaseReadyMethodConfirmationRepositoryStub,
     FileBackedMethodConfirmationRepository,
@@ -14,7 +13,7 @@ SUPPORT_DIR = Path(__file__).resolve().parent
 if str(SUPPORT_DIR) not in sys.path:
     sys.path.insert(0, str(SUPPORT_DIR))
 
-from ui_v2_support import build_fake_facade
+from ui_v2_support import build_fake_service
 
 
 REQUIRED_DIMENSIONS = {
@@ -96,18 +95,16 @@ def _write_compare_report(
     (report_dir / "control_flow_compare_report.md").write_text("# compare\n", encoding="utf-8")
 
 
-def test_method_confirmation_wp4_object_model_and_results_contract(tmp_path: Path) -> None:
-    facade = build_fake_facade(tmp_path)
-    run_dir = Path(facade.result_store.run_dir)
+def test_method_confirmation_wp4_object_model_and_gateway_contract(
+    tmp_path: Path,
+) -> None:
+    service = build_fake_service(tmp_path)
+    run_dir = Path(service.result_store.run_dir)
     rebuild_run(run_dir)
 
     repository = FileBackedMethodConfirmationRepository(run_dir)
     snapshot = repository.load_snapshot()
     payload = MethodConfirmationGateway(run_dir).read_payload()
-    results_payload = ResultsGateway(
-        run_dir,
-        output_files_provider=facade.service.get_output_files,
-    ).read_results_payload()
 
     protocol = payload["method_confirmation_protocol"]
     matrix = payload["method_confirmation_matrix"]
@@ -176,22 +173,11 @@ def test_method_confirmation_wp4_object_model_and_results_contract(tmp_path: Pat
     assert verification_rollup["rollup_summary_display"]
 
     assert snapshot["verification_rollup"]["rollup_summary_display"]
-    assert results_payload["method_confirmation_protocol"]["artifact_type"] == "method_confirmation_protocol"
-    assert results_payload["route_specific_validation_matrix"]["artifact_type"] == "route_specific_validation_matrix"
-    assert results_payload["validation_run_set"]["artifact_type"] == "validation_run_set"
-    assert results_payload["verification_digest"]["artifact_type"] == "verification_digest"
-    assert results_payload["verification_rollup"]["artifact_type"] == "verification_rollup"
-    assert "方法确认概览" in results_payload["result_summary_text"] or "Method confirmation overview" in results_payload["result_summary_text"]
-    assert "验证矩阵完整度" in results_payload["result_summary_text"] or "Validation matrix completeness" in results_payload["result_summary_text"]
-    assert "当前证据覆盖" in results_payload["result_summary_text"] or "Current evidence coverage" in results_payload["result_summary_text"]
-    assert "主要缺口" in results_payload["result_summary_text"] or "Top gaps" in results_payload["result_summary_text"]
-    assert "审阅动作" in results_payload["result_summary_text"] or "Reviewer actions" in results_payload["result_summary_text"]
-    assert "验证就绪状态" in results_payload["result_summary_text"] or "Verification readiness status" in results_payload["result_summary_text"]
 
 
 def test_method_confirmation_wp4_links_coverage_items_and_digest_fields(tmp_path: Path) -> None:
-    facade = build_fake_facade(tmp_path)
-    run_dir = Path(facade.result_store.run_dir)
+    service = build_fake_service(tmp_path)
+    run_dir = Path(service.result_store.run_dir)
     rebuild_run(run_dir)
 
     payload = MethodConfirmationGateway(run_dir).read_payload()
@@ -225,8 +211,8 @@ def test_method_confirmation_wp4_links_coverage_items_and_digest_fields(tmp_path
 
 
 def test_method_confirmation_wp4_validation_run_set_binds_replay_sim_smoke_and_sidecar(tmp_path: Path) -> None:
-    facade = build_fake_facade(tmp_path)
-    run_dir = Path(facade.result_store.run_dir)
+    service = build_fake_service(tmp_path)
+    run_dir = Path(service.result_store.run_dir)
     rebuild_run(run_dir)
     _write_compare_report(
         run_dir,
@@ -277,7 +263,6 @@ def test_method_confirmation_wp4_db_stub_and_placeholder_fallback(tmp_path: Path
     stub_payload = DatabaseReadyMethodConfirmationRepositoryStub(run_dir).load_snapshot()
     snapshot = FileBackedMethodConfirmationRepository(run_dir).load_snapshot()
     payload = MethodConfirmationGateway(run_dir).read_payload()
-    results_payload = ResultsGateway(run_dir).read_results_payload()
 
     assert stub_payload["verification_rollup"]["repository_mode"] == "db_ready_stub"
     assert stub_payload["verification_rollup"]["db_ready_stub"]["not_in_default_chain"] is True
@@ -295,8 +280,3 @@ def test_method_confirmation_wp4_db_stub_and_placeholder_fallback(tmp_path: Path
     assert payload["verification_rollup"]["db_ready_stub"]["not_in_default_chain"] is True
     assert payload["verification_rollup"]["non_claim_note"]
     assert snapshot["verification_digest"]["reviewer_placeholder"] is True
-    assert results_payload["verification_rollup"]["legacy_placeholder_used"] is True
-    assert results_payload["verification_rollup"]["primary_evidence_rewritten"] is False
-    assert results_payload["route_specific_validation_matrix"]["reviewer_placeholder"] is True
-    assert "方法确认概览" in results_payload["result_summary_text"] or "Method confirmation overview" in results_payload["result_summary_text"]
-    assert "non-claim" in results_payload["result_summary_text"].lower()

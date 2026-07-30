@@ -1,4 +1,10 @@
-from gas_calibrator.v2.core.event_bus import EventBus, EventType
+from gas_calibrator.v2.core import Event, EventBus, EventType
+
+
+def test_event_bus_types_have_single_core_package_owner() -> None:
+    assert {Event.__module__, EventBus.__module__, EventType.__module__} == {
+        "gas_calibrator.v2.core"
+    }
 
 
 def test_event_bus_subscribe_publish_and_unsubscribe() -> None:

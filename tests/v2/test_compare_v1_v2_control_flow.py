@@ -17,6 +17,28 @@ def _write_points_json(path: Path, rows: list[dict[str, object]]) -> None:
     path.write_text(json.dumps({"points": rows}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def test_replacement_profile_command_hints_use_the_retained_compare_entrypoint() -> None:
+    profiles = {
+        compare_v1_v2_control_flow.SKIP0_CO2_ONLY_VALIDATION_PROFILE: (
+            "--replacement-skip0-co2-only"
+        ),
+        compare_v1_v2_control_flow.SKIP0_CO2_ONLY_DIAGNOSTIC_VALIDATION_PROFILE: (
+            "--replacement-skip0-co2-only-diagnostic-relaxed"
+        ),
+        compare_v1_v2_control_flow.SKIP0_VALIDATION_PROFILE: "--replacement-skip0",
+        compare_v1_v2_control_flow.H2O_ONLY_VALIDATION_PROFILE: "--replacement-h2o-only",
+    }
+
+    for profile, preset_flag in profiles.items():
+        names = compare_v1_v2_control_flow._validation_profile_artifact_names(profile)
+        command_hint = str((names or {}).get("command_hint") or "")
+
+        assert "gas_calibrator.v2.scripts.compare_v1_v2_control_flow" in command_hint
+        assert preset_flag in command_hint
+        assert "--skip-connect-check" in command_hint
+        assert "verify_v1_v2" not in command_hint
+
+
 def test_build_control_flow_report_summarizes_presence_counts_and_key_actions(tmp_path: Path) -> None:
     v1_trace = tmp_path / "v1.jsonl"
     v2_trace = tmp_path / "v2.jsonl"

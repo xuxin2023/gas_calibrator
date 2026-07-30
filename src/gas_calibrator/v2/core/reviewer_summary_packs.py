@@ -106,13 +106,13 @@ PACK_DISPLAY_LABELS_EN: dict[str, str] = {
 # Surface budget hints — per-surface line budget for each pack
 # ---------------------------------------------------------------------------
 PACK_SURFACE_BUDGET_HINT: dict[str, dict[str, int]] = {
-    "measurement_digest": {"results_gateway": 7, "review_center": 7, "historical": 5},
-    "readiness_digest": {"results_gateway": 7, "review_center": 7, "historical": 5},
-    "phase_evidence": {"results_gateway": 3, "review_center": 3, "historical": 3},
-    "v12_alignment": {"results_gateway": 8, "review_center": 8, "historical": 6},
-    "governance_handoff": {"results_gateway": 4, "review_center": 4, "historical": 3},
-    "parity_resilience": {"results_gateway": 4, "review_center": 4, "historical": 3},
-    CONTROL_FLOW_COMPARE_PACK_KEY: {"results_gateway": 6, "review_center": 6, "historical": 5},
+    "measurement_digest": {"historical": 5},
+    "readiness_digest": {"historical": 5},
+    "phase_evidence": {"historical": 3},
+    "v12_alignment": {"historical": 6},
+    "governance_handoff": {"historical": 3},
+    "parity_resilience": {"historical": 3},
+    CONTROL_FLOW_COMPARE_PACK_KEY: {"historical": 5},
 }
 
 
@@ -142,13 +142,13 @@ def build_compact_summary_render_context(
 ) -> dict[str, Any]:
     """Build a unified render context for compact summary packs on a given surface.
 
-    This is the primary entry point for downstream consumers (app_facade,
-    historical_artifacts, review_center_artifact_scope) to consume
+    This is the primary entry point for downstream consumers
+    for the retained historical-artifact reader to consume
     compact_summary_packs with deterministic ordering and budget governance.
 
     Args:
         packs: List of pack dicts from compact_summary_packs.
-        surface: Surface name (e.g. "review_center", "historical").
+        surface: Retained surface name (``historical``).
         budget: Override budget. If None, uses SURFACE_DEFAULT_BUDGETS[surface].
         lang: "zh" (default) or "en".
 

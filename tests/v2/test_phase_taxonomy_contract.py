@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
 from pathlib import Path
 import sys
 
-from gas_calibrator.v2.adapters.results_gateway import ResultsGateway
 from gas_calibrator.v2.core.measurement_phase_coverage import (
     MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME,
     MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME,
@@ -15,9 +15,12 @@ from gas_calibrator.v2.core.multi_source_stability import (
     MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME,
     SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME,
 )
+from gas_calibrator.v2.core.recognition_readiness_artifacts import (
+    AUDIT_READINESS_DIGEST_FILENAME,
+    SCOPE_READINESS_SUMMARY_FILENAME,
+)
 from gas_calibrator.v2.core.phase_taxonomy_contract import (
     GAP_CLASSIFICATION_FAMILY,
-    GAP_SEVERITY_FAMILY,
     METHOD_CONFIRMATION_FAMILY,
     REVIEWER_NEXT_STEP_TEMPLATE_FAMILY,
     TAXONOMY_CONTRACT_VERSION,
@@ -41,24 +44,17 @@ from gas_calibrator.v2.core.reviewer_fragments_contract import (
     REVIEWER_FRAGMENTS_CONTRACT_VERSION,
     REVIEWER_NEXT_STEP_FRAGMENT_FAMILY,
     build_fragment_filter_row,
-    build_fragment_row,
     fragment_filter_rows_to_ids,
     normalize_fragment_key,
-    normalize_fragment_rows,
-)
-from gas_calibrator.v2.review_surface_formatter import (
-    build_measurement_review_digest_lines,
-    build_readiness_review_digest_lines,
-    collect_boundary_digest_lines,
 )
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import rebuild_run
-from gas_calibrator.v2.ui_v2.i18n import display_fragment_value, display_taxonomy_value, set_locale, t
+from gas_calibrator.v2.ui_v2.i18n import display_fragment_value, display_taxonomy_value, t
 
 SUPPORT_DIR = Path(__file__).resolve().parent
 if str(SUPPORT_DIR) not in sys.path:
     sys.path.insert(0, str(SUPPORT_DIR))
 
-from ui_v2_support import build_fake_facade
+from ui_v2_support import build_fake_service
 
 
 def _point(
@@ -446,28 +442,25 @@ def test_taxonomy_contract_preserves_partial_complete_and_payload_backed_phase_d
     )
     assert dict(preseal_contrast_row.get("params") or {}).get("preseal_missing")
     assert dict(preseal_contrast_row.get("params") or {}).get("stable_available")
-    set_locale("zh_CN")
-    localized_lines = build_measurement_review_digest_lines(report)
-    localized_text = "\n".join(
-        list(localized_lines.get("summary_lines") or []) + list(localized_lines.get("detail_lines") or [])
-    )
-    assert "preseal / pressure_stable 对照：" in localized_text
-    assert "payload-backed 的 ambient/recovery 阶段" in localized_text
 
 
-def test_taxonomy_contract_parity_remains_consistent_across_gateway_and_review_surfaces(tmp_path: Path) -> None:
-    facade = build_fake_facade(tmp_path)
-    run_dir = Path(facade.result_store.run_dir)
+def test_taxonomy_contract_parity_remains_consistent_across_persisted_artifacts(
+    tmp_path: Path,
+) -> None:
+    service = build_fake_service(tmp_path)
+    run_dir = Path(service.result_store.run_dir)
     rebuild_run(run_dir)
-    gateway = ResultsGateway(
-        run_dir,
-        output_files_provider=facade.service.get_output_files,
+    measurement_entry = json.loads(
+        (run_dir / MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME).read_text(
+            encoding="utf-8"
+        )
     )
-
-    results_payload = gateway.read_results_payload()
-    measurement_entry = dict(results_payload["measurement_phase_coverage_report"])
-    scope_entry = dict(results_payload["scope_readiness_summary"])
-    audit_entry = dict(results_payload["audit_readiness_digest"])
+    scope_entry = json.loads(
+        (run_dir / SCOPE_READINESS_SUMMARY_FILENAME).read_text(encoding="utf-8")
+    )
+    audit_entry = json.loads(
+        (run_dir / AUDIT_READINESS_DIGEST_FILENAME).read_text(encoding="utf-8")
+    )
 
     assert measurement_entry["phase_rows"]
     assert scope_entry["linked_measurement_gaps"]
@@ -487,56 +480,21 @@ def test_taxonomy_contract_parity_remains_consistent_across_gateway_and_review_s
     assert list(scope_gap.get("blocker_fragment_keys") or [])
     assert list(scope_gap.get("reviewer_next_step_fragment_keys") or [])
 
-    measurement_lines = build_measurement_review_digest_lines(measurement_entry)
-    scope_lines = build_readiness_review_digest_lines(scope_entry)
-    audit_lines = build_readiness_review_digest_lines(audit_entry)
 
-    method_label = display_taxonomy_value(
-        METHOD_CONFIRMATION_FAMILY,
-        "ambient_baseline_stabilization_rule",
-    )
-    gap_label = display_taxonomy_value(
-        GAP_CLASSIFICATION_FAMILY,
-        "ambient_baseline_gap",
-    )
-    audit_gap_label = display_taxonomy_value(
-        GAP_CLASSIFICATION_FAMILY,
-        "recovery_retry_test_only_gap",
-    )
-    blocker_label = display_fragment_value(
-        BLOCKER_FRAGMENT_FAMILY,
-        "linked_method_items_open",
-        params={"items": "Ambient baseline stabilization rule"},
-    )
-    blocker_prefix = blocker_label.split("：", 1)[0]
-    scope_joined = "\n".join(scope_lines["detail_lines"])
-    measurement_joined = "\n".join(measurement_lines["detail_lines"])
-    audit_joined = "\n".join(audit_lines["detail_lines"])
-
-    assert method_label in measurement_joined
-    assert method_label in scope_joined
-    assert gap_label in measurement_joined
-    assert gap_label in scope_joined
-    assert audit_gap_label in audit_joined
-    assert blocker_prefix in measurement_joined or blocker_prefix in scope_joined
-    assert "ambient_baseline_stabilization_rule" not in measurement_joined
-    assert "ambient_baseline_gap" not in scope_joined
-    assert "linked method confirmation items remain open" not in scope_joined
-    
-
-def test_structured_fragment_locale_catalog_and_boundary_digest_lines_stay_consistent(tmp_path: Path) -> None:
-    set_locale("zh_CN")
-    facade = build_fake_facade(tmp_path)
-    run_dir = Path(facade.result_store.run_dir)
+def test_structured_fragment_locale_catalog_and_persisted_keys_stay_consistent(
+    tmp_path: Path,
+) -> None:
+    service = build_fake_service(tmp_path)
+    run_dir = Path(service.result_store.run_dir)
     rebuild_run(run_dir)
-    gateway = ResultsGateway(
-        run_dir,
-        output_files_provider=facade.service.get_output_files,
+    measurement_entry = json.loads(
+        (run_dir / MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME).read_text(
+            encoding="utf-8"
+        )
     )
-
-    results_payload = gateway.read_results_payload()
-    measurement_entry = dict(results_payload["measurement_phase_coverage_report"])
-    scope_entry = dict(results_payload["scope_readiness_summary"])
+    scope_entry = json.loads(
+        (run_dir / SCOPE_READINESS_SUMMARY_FILENAME).read_text(encoding="utf-8")
+    )
 
     assert "shadow_evaluation_only" in list(measurement_entry.get("boundary_fragment_keys") or [])
     assert "not_real_acceptance" in list(measurement_entry.get("non_claim_fragment_keys") or [])
@@ -545,7 +503,6 @@ def test_structured_fragment_locale_catalog_and_boundary_digest_lines_stay_consi
     assert "non_claim:not_real_acceptance" in list(measurement_entry.get("boundary_filters") or [])
     assert "non_claim:not_accreditation_claim" in list(scope_entry.get("boundary_filters") or [])
 
-    boundary_lines = collect_boundary_digest_lines(measurement_entry, scope_entry)
     shadow_boundary = display_fragment_value(
         BOUNDARY_FRAGMENT_FAMILY,
         "shadow_evaluation_only",
@@ -556,36 +513,8 @@ def test_structured_fragment_locale_catalog_and_boundary_digest_lines_stay_consi
         "not_accreditation_claim",
         locale="zh_CN",
     )
-    assert shadow_boundary in boundary_lines
-    assert accreditation_boundary in boundary_lines
     assert shadow_boundary == t("reviewer_fragments.boundary.shadow_evaluation_only", locale="zh_CN")
     assert accreditation_boundary == t(
         "reviewer_fragments.non_claim.not_accreditation_claim",
         locale="zh_CN",
     )
-
-    measurement_lines = build_measurement_review_digest_lines(measurement_entry)
-    scope_lines = build_readiness_review_digest_lines(scope_entry)
-    measurement_text = "\n".join(
-        list(measurement_lines.get("summary_lines") or []) + list(measurement_lines.get("detail_lines") or [])
-    )
-    readiness_text = "\n".join(
-        list(scope_lines.get("summary_lines") or []) + list(scope_lines.get("detail_lines") or [])
-    )
-
-    assert shadow_boundary in measurement_text
-    assert display_fragment_value(
-        NON_CLAIM_FRAGMENT_FAMILY,
-        "not_real_acceptance",
-        locale="zh_CN",
-    ) in measurement_text
-    assert accreditation_boundary in readiness_text
-    assert display_taxonomy_value(
-        REVIEWER_NEXT_STEP_TEMPLATE_FAMILY,
-        "water_preseal_partial_gap_closeout",
-        locale="zh_CN",
-    ) in measurement_text
-    assert "shadow evaluation only" not in measurement_text
-    assert "not_accreditation_claim" not in readiness_text
-    assert any("关联方法确认条目" in line for line in scope_lines["detail_lines"])
-    assert any("缺口索引" in line for line in measurement_lines["detail_lines"])

@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from gas_calibrator.v2.config import AppConfig
-from gas_calibrator.v2.core.models import CalibrationPoint
-from gas_calibrator.v2.core.point_parser import PointParser
-from gas_calibrator.v2.core.route_context import RouteContext
-from gas_calibrator.v2.core.route_planner import RoutePlanner
-from gas_calibrator.v2.core.runners.route_run_result import RouteRunResult
+from gas_calibrator.v2.config.models import AppConfig
+from gas_calibrator.v2.core.models import CalibrationPoint, RouteContext, RouteRunResult
+from gas_calibrator.validation.simulation.point_parser import PointParser
+from gas_calibrator.validation.simulation.route_planner import RoutePlanner
 from gas_calibrator.v2.core.runners.temperature_group_runner import TemperatureGroupRunner
 from gas_calibrator.v2.exceptions import WorkflowValidationError
+
+
+def test_route_run_result_has_single_core_model_owner() -> None:
+    assert RouteRunResult.__module__ == "gas_calibrator.v2.core.models"
 
 
 def test_temperature_group_runner_dispatches_h2o_then_co2(monkeypatch) -> None:

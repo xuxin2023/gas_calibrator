@@ -1,5 +1,6 @@
 {
   "storage": {
+    "enabled": false,
     "backend": "postgresql",
     "host": "localhost",
     "port": 5432,

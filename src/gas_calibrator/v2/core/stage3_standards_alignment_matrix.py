@@ -11,11 +11,11 @@ from .stage_admission_review_pack import build_stage_admission_review_pack
 from .stage3_real_validation_plan import (
     STAGE3_REAL_VALIDATION_PLAN_FILENAME,
     STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME,
+    STAGE3_VALIDATION_CATEGORY_LABELS,
     _artifact_ref,
     _normalize_artifact_paths,
     build_stage3_real_validation_plan,
 )
-from .stage3_real_validation_plan_artifact_entry import _VALIDATION_CATEGORY_LABELS
 
 
 STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME = "stage3_standards_alignment_matrix.json"
@@ -765,7 +765,9 @@ def _collect_category_sets(validation_items: list[dict[str, Any]]) -> dict[str, 
     }
     for item in validation_items:
         category = str(item.get("category") or "").strip()
-        label = _VALIDATION_CATEGORY_LABELS.get(category) or str(item.get("title_text") or category).strip()
+        label = STAGE3_VALIDATION_CATEGORY_LABELS.get(category) or str(
+            item.get("title_text") or category
+        ).strip()
         if not category or not label:
             continue
         grouped.setdefault(category, [])

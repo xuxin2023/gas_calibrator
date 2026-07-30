@@ -7,12 +7,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from gas_calibrator.v2.core.offline_artifacts import build_suite_case_metadata
-from gas_calibrator.v2.domain.services.ec_dynamic_metrology import DynamicPathMetadata
-from gas_calibrator.v2.domain.services.ec_system_identification import (
+from gas_calibrator.validation.metrology.ec_system_identification import (
     build_system_identification_acceptance,
     identify_empirical_transfer,
 )
+from gas_calibrator.validation.metrology.ec_dynamic_metrology import DynamicPathMetadata
+from gas_calibrator.v2.core.offline_artifacts import build_suite_case_metadata
 from gas_calibrator.v2.sim.ec_system_identification import (
     SystemIdentificationProtocol,
     build_ec_system_identification_offline_report,
@@ -90,6 +90,16 @@ def _analyze(
 
 
 def test_prbs_is_deterministic_balanced_maximal_length_sequence() -> None:
+    assert (
+        identify_empirical_transfer.__module__
+        == "gas_calibrator.validation.metrology.ec_system_identification"
+    )
+    old_owner = (
+        Path(__file__).resolve().parents[2]
+        / "src/gas_calibrator/v2/domain/services/ec_system_identification.py"
+    )
+    assert not old_owner.exists()
+
     sequence = generate_prbs(length=511)
     repeated = generate_prbs(length=1022)
     bipolar = 2.0 * sequence - 1.0

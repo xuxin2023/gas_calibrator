@@ -273,7 +273,7 @@ def resolve_results_fallback_label(key: str, *, lang: str = "zh") -> str:
 
 # ---------------------------------------------------------------------------
 # Formatter display labels — Chinese default / English fallback
-# Used by review_surface_formatter.py module-level dicts
+# Shared display labels retained for active evidence-contract consumers.
 # ---------------------------------------------------------------------------
 FORMATTER_DISPLAY_LABELS: dict[str, str] = {
     "artifacts": "工件",
@@ -323,7 +323,7 @@ FORMATTER_DISPLAY_LABELS_EN: dict[str, str] = {
 
 # ---------------------------------------------------------------------------
 # Artifact compatibility row labels — Chinese default / English fallback
-# Used by results_gateway._decorate_artifact_compatibility_row
+# Retained for persisted artifact-compatibility rows.
 # ---------------------------------------------------------------------------
 COMPATIBILITY_ROW_LABELS: dict[str, str] = {
     "version": "版本",
@@ -365,7 +365,7 @@ HISTORICAL_ROLLUP_LABELS_EN: dict[str, str] = {
 
 # ---------------------------------------------------------------------------
 # Measurement digest line labels — Chinese default / English fallback
-# Used by review_surface_formatter.build_measurement_review_digest_lines
+# Measurement digest labels retained for shared compact-summary builders.
 # ---------------------------------------------------------------------------
 MEASUREMENT_DIGEST_LABELS: dict[str, str] = {
     "payload_complete_phases": "payload 完整阶段",
@@ -409,7 +409,7 @@ MEASUREMENT_DIGEST_LABELS_EN: dict[str, str] = {
 
 # ---------------------------------------------------------------------------
 # Readiness digest line labels — Chinese default / English fallback
-# Used by review_surface_formatter.build_readiness_review_digest_lines
+# Readiness digest labels retained for shared compact-summary builders.
 # ---------------------------------------------------------------------------
 READINESS_DIGEST_LABELS: dict[str, str] = {
     "scope_overview": "认可范围概览",
@@ -489,7 +489,7 @@ def resolve_readiness_digest_label(key: str, *, lang: str = "zh") -> str:
 
 # ---------------------------------------------------------------------------
 # Results summary line labels — Chinese default / English fallback
-# Used by results_gateway._build_result_summary_text t() default prefixes
+# Retained for historical summary text compatibility.
 # ---------------------------------------------------------------------------
 RESULTS_SUMMARY_LABELS: dict[str, str] = {
     "offline_diagnostic_coverage": "离线诊断覆盖",
@@ -607,7 +607,7 @@ RESULTS_SUMMARY_LABELS_EN: dict[str, str] = {
 
 # ---------------------------------------------------------------------------
 # Inline replacement phrases — Chinese default / English fallback
-# Used by review_surface_formatter._REVIEW_SURFACE_INLINE_REPLACEMENTS
+# Shared inline replacement phrases retained by the evidence display contract.
 # ---------------------------------------------------------------------------
 INLINE_REPLACEMENT_PHRASES: dict[str, str] = {
     "current_run_baseline": "当前运行基线",
@@ -639,7 +639,7 @@ INLINE_REPLACEMENT_PHRASES_EN: dict[str, str] = {
 
 # ---------------------------------------------------------------------------
 # Prefix labels — Chinese default / English fallback
-# Used by review_surface_formatter._REVIEW_SURFACE_PREFIX_LABELS
+# Shared prefix labels retained by the evidence display contract.
 # ---------------------------------------------------------------------------
 PREFIX_LABELS: dict[str, str] = {
     "payload_backed_phases": "payload 阶段",

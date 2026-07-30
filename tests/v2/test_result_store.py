@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 
-from gas_calibrator.v2.config import AppConfig
+from gas_calibrator.v2.config.models import AppConfig
 from gas_calibrator.v2.core.artifact_compatibility import (
     ARTIFACT_CONTRACT_CATALOG_FILENAME,
     COMPATIBILITY_SCAN_SUMMARY_FILENAME,
@@ -11,7 +11,7 @@ from gas_calibrator.v2.core.artifact_compatibility import (
 )
 from gas_calibrator.v2.core.models import CalibrationPhase, CalibrationPoint, CalibrationStatus, SamplingResult
 from gas_calibrator.v2.core.result_store import ResultStore
-from gas_calibrator.v2.core.session import RunSession
+from gas_calibrator.v2.core.models import RunSession
 
 
 def _sample() -> SamplingResult:

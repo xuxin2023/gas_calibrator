@@ -20,7 +20,7 @@ WP6_REPOSITORY_SCHEMA_VERSION = "step2-wp6-repository-v1"
 WP6_REPOSITORY_MODE = "file_artifact_first"
 WP6_GATEWAY_MODE = "file_backed_default"
 WP6_DB_READY_MODE = "db_ready_stub"
-WP6_REPOSITORY_TOOL = "gas_calibrator.v2.adapters.wp6_gateway"
+WP6_REPOSITORY_TOOL = "gas_calibrator.v2.adapters"
 
 _LINKED_SURFACES = ["results", "review_center", "workbench", "historical_artifacts"]
 _ARTIFACT_KEYS = (

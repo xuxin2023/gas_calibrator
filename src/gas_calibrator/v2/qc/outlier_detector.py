@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from statistics import mean, pstdev
 from typing import Any, Optional, Set
 
-from ..config import QCConfig
+from gas_calibrator.validation.simulation.config import QCConfig
 from ..core.models import SamplingResult
 
 

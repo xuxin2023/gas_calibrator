@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from gas_calibrator.v2.config import AppConfig
-from gas_calibrator.v2.core.models import CalibrationPoint
-from gas_calibrator.v2.core.point_parser import PointParser
-from gas_calibrator.v2.core.route_planner import RoutePlanner
+from importlib.util import find_spec
+
+from gas_calibrator.validation.simulation.point_parser import PointParser
+from gas_calibrator.validation.simulation.route_planner import RoutePlanner
+from gas_calibrator.validation.simulation.runtime_point import CalibrationPoint
+from gas_calibrator.v2.config.models import AppConfig
 
 
 def test_route_planner_groups_points_and_plans_h2o_and_co2_routes() -> None:
@@ -153,3 +155,11 @@ def test_route_planner_water_first_all_temps_forces_h2o_first_for_non_subzero_gr
 
     assert planner.water_first_temp_threshold() == float("-inf")
     assert planner.route_sequence(points) == ["h2o", "co2"]
+
+
+def test_route_planner_has_one_shared_owner_and_old_module_is_absent() -> None:
+    assert (
+        RoutePlanner.__module__
+        == "gas_calibrator.validation.simulation.route_planner"
+    )
+    assert find_spec("gas_calibrator.v2.core.route_planner") is None

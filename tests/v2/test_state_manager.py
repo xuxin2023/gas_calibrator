@@ -1,4 +1,4 @@
-from gas_calibrator.v2.core.event_bus import EventBus
+from gas_calibrator.v2.core import EventBus
 from gas_calibrator.v2.core.models import CalibrationPhase, CalibrationPoint
 from gas_calibrator.v2.core.state_manager import StateManager
 

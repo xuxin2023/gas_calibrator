@@ -8,20 +8,21 @@ from typing import Any, Iterable, Optional
 
 from gas_calibrator.utils.file_io import write_json
 
-from ..config import (
+from ..config.models import (
     build_step2_config_governance_handoff,
     build_step2_config_safety_review,
     summarize_step2_config_safety,
 )
-from ..domain.pressure_selection import effective_pressure_mode, pressure_target_label
-from ..domain.services import build_run_spectral_quality_summary
+from ...validation.simulation.pressure_selection import (
+    effective_pressure_mode,
+    pressure_target_label,
+)
 from ..qc.qc_report import build_qc_evidence_section, build_qc_review_payload
 from .acceptance_model import (
     build_run_acceptance_plan,
     build_suite_acceptance_plan,
     build_user_visible_evidence_boundary,
     build_version_snapshot,
-    gate_display_name,
     normalize_evidence_source,
     reference_quality_ok,
     relay_mismatch_present,
@@ -61,7 +62,6 @@ from .reviewer_surface_contracts import (
 OFFLINE_ARTIFACT_SCHEMA_VERSION = "1.0"
 ACCEPTANCE_PLAN_FILENAME = "acceptance_plan.json"
 ANALYTICS_SUMMARY_FILENAME = "analytics_summary.json"
-SPECTRAL_QUALITY_SUMMARY_FILENAME = "spectral_quality_summary.json"
 TREND_REGISTRY_FILENAME = "trend_registry.json"
 LINEAGE_SUMMARY_FILENAME = "lineage_summary.json"
 EVIDENCE_REGISTRY_FILENAME = "evidence_registry.json"
@@ -1587,32 +1587,6 @@ def export_run_offline_artifacts(
         config_safety=step2_config_safety,
         config_safety_review=step2_config_safety_review,
     )
-    spectral_quality_summary: dict[str, Any] = {}
-    spectral_quality_path: Optional[Path] = None
-    if bool(getattr(features, "enable_spectral_quality_analysis", False)):
-        spectral_min_samples = int(getattr(features, "spectral_min_samples", 64) or 64)
-        spectral_min_duration_s = float(getattr(features, "spectral_min_duration_s", 30.0) or 30.0)
-        spectral_low_freq_max_hz = float(getattr(features, "spectral_low_freq_max_hz", 0.01) or 0.01)
-        try:
-            spectral_quality_summary = build_run_spectral_quality_summary(
-                run_id=run_id,
-                samples=samples,
-                simulation_mode=bool(getattr(features, "simulation_mode", False)),
-                min_samples=spectral_min_samples,
-                min_duration_s=spectral_min_duration_s,
-                low_freq_max_hz=spectral_low_freq_max_hz,
-            )
-        except Exception as exc:
-            spectral_quality_summary = _build_skipped_spectral_quality_summary(
-                run_id=run_id,
-                simulation_mode=bool(getattr(features, "simulation_mode", False)),
-                min_samples=spectral_min_samples,
-                min_duration_s=spectral_min_duration_s,
-                low_freq_max_hz=spectral_low_freq_max_hz,
-                error=str(exc),
-            )
-        spectral_quality_path = write_json(run_dir / SPECTRAL_QUALITY_SUMMARY_FILENAME, spectral_quality_summary)
-
     acceptance_path = write_json(run_dir / ACCEPTANCE_PLAN_FILENAME, acceptance_plan)
     analytics_path = write_json(run_dir / ANALYTICS_SUMMARY_FILENAME, analytics_summary)
     lineage_path = write_json(run_dir / LINEAGE_SUMMARY_FILENAME, lineage_summary)
@@ -2007,7 +1981,6 @@ def export_run_offline_artifacts(
             for paths in recognition_readiness_written_paths.values()
             for path in paths
         ],
-        *([str(spectral_quality_path)] if spectral_quality_path is not None else []),
     ]
     compatibility_bundle = build_artifact_compatibility_bundle(
         run_dir,
@@ -2069,8 +2042,6 @@ def export_run_offline_artifacts(
             measurement_phase_coverage_markdown_path,
         ),
     }
-    if spectral_quality_path is not None:
-        statuses["spectral_quality_summary"] = _artifact_status_payload("diagnostic_analysis", spectral_quality_path)
     recognition_readiness_roles = {
         "scope_definition_pack": "execution_summary",
         "decision_rule_profile": "execution_summary",
@@ -2246,9 +2217,6 @@ def export_run_offline_artifacts(
         summary_stats["offline_diagnostic_adapter_summary"] = dict(
             analytics_summary.get("offline_diagnostic_adapter_summary") or {}
         )
-    if spectral_quality_summary:
-        summary_stats["spectral_quality_summary"] = spectral_quality_summary
-        summary_stats["spectral_quality_digest"] = _spectral_quality_digest(spectral_quality_summary)
     manifest_sections = {
         "versions": versions,
         "evidence_governance": summary_stats["evidence_governance"],
@@ -2356,12 +2324,6 @@ def export_run_offline_artifacts(
             "non_claim_summary": str(bundle_raw.get("non_claim_digest") or ""),
             "review_surface": dict(bundle_raw.get("review_surface") or {}),
         }
-    if spectral_quality_summary:
-        manifest_sections["spectral_quality"] = _spectral_quality_digest(spectral_quality_summary)
-        manifest_sections["spectral_quality"]["not_real_acceptance_evidence"] = bool(
-            spectral_quality_summary.get("not_real_acceptance_evidence", True)
-        )
-        manifest_sections["spectral_quality"]["evidence_source"] = spectral_quality_summary.get("evidence_source")
     return {
         "artifact_statuses": statuses,
         "summary_stats": summary_stats,
@@ -2393,7 +2355,6 @@ def export_run_offline_artifacts(
                 for paths in compatibility_written_paths.values()
                 for path in paths
             ],
-            *([str(spectral_quality_path)] if spectral_quality_path is not None else []),
         ],
     }
 
@@ -3721,51 +3682,6 @@ def build_registry_indexes(entries: list[dict[str, Any]]) -> dict[str, Any]:
         for temp in _ensure_list(dimensions.get("temp")) or ["--"]:
             index_payload["by_temp"][str(temp)].append(artifact_id)
     return {name: {key: sorted(set(value)) for key, value in mapping.items()} for name, mapping in index_payload.items()}
-
-
-def _build_skipped_spectral_quality_summary(
-    *,
-    run_id: str,
-    simulation_mode: bool,
-    min_samples: int,
-    min_duration_s: float,
-    low_freq_max_hz: float,
-    error: str,
-) -> dict[str, Any]:
-    return {
-        "artifact_type": "spectral_quality_summary",
-        "schema_version": OFFLINE_ARTIFACT_SCHEMA_VERSION,
-        "run_id": str(run_id or ""),
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "status": "skipped",
-        "evidence_source": "simulated_protocol" if simulation_mode else "diagnostic",
-        "evidence_state": "collected",
-        "not_real_acceptance_evidence": True,
-        "channel_count": 0,
-        "ok_channel_count": 0,
-        "overall_score": None,
-        "flags": [],
-        "status_counts": {"skipped": 1},
-        "config": {
-            "min_samples": int(min_samples),
-            "min_duration_s": float(min_duration_s),
-            "low_freq_max_hz": float(low_freq_max_hz),
-        },
-        "channels": {},
-        "diagnostics": {
-            "error": str(error or "").strip(),
-        },
-    }
-
-
-def _spectral_quality_digest(payload: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "status": str(payload.get("status") or ""),
-        "channel_count": int(payload.get("channel_count", 0) or 0),
-        "ok_channel_count": int(payload.get("ok_channel_count", 0) or 0),
-        "overall_score": payload.get("overall_score"),
-        "flags": [str(item) for item in list(payload.get("flags") or []) if str(item).strip()],
-    }
 
 
 def _artifact_status_payload(role: str, path: Path) -> dict[str, str]:

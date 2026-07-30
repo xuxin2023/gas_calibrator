@@ -17,13 +17,11 @@ Covers:
 - Inline replacement phrases completeness (2.10)
 - Prefix labels completeness (2.10)
 - Resolve helpers
-- Terminology convergence with review_center_scan_contracts
+- Shared terminology consistency
 - Step 2 boundary markers
 """
 
 from __future__ import annotations
-
-import pytest
 
 from gas_calibrator.v2.core.phase_evidence_display_contracts import (
     PHASE_EVIDENCE_DISPLAY_CONTRACTS_VERSION,
@@ -335,16 +333,7 @@ class TestResolveHelpers:
 # ---------------------------------------------------------------------------
 
 class TestTerminologyConvergence:
-    """Verify review_center_scan_contracts uses the same PHASE_TERMS."""
-
-    def test_v12_phase_display_terms_same_as_phase_terms(self):
-        from gas_calibrator.v2.ui_v2.review_center_scan_contracts import (
-            V12_PHASE_DISPLAY_TERMS,
-            V12_PHASE_DISPLAY_TERMS_EN,
-        )
-        # Same object (identity check)
-        assert V12_PHASE_DISPLAY_TERMS is PHASE_TERMS
-        assert V12_PHASE_DISPLAY_TERMS_EN is PHASE_TERMS_EN
+    """Verify shared phase terminology remains stable."""
 
     def test_point_taxonomy_term_consistent(self):
         """point_taxonomy should be '点位语义' not '测点分类'."""
@@ -501,33 +490,6 @@ class TestNewResolveHelpers:
 
 
 # ---------------------------------------------------------------------------
-# TestFormatterUsesContracts (2.9)
-# ---------------------------------------------------------------------------
-class TestFormatterUsesContracts:
-    """Verify review_surface_formatter uses contracts for key labels."""
-
-    def test_offline_diagnostic_display_labels_from_contracts(self):
-        from gas_calibrator.v2.review_surface_formatter import _OFFLINE_DIAGNOSTIC_DISPLAY_LABELS
-        assert _OFFLINE_DIAGNOSTIC_DISPLAY_LABELS["artifacts"] == FORMATTER_DISPLAY_LABELS["artifacts"]
-        assert _OFFLINE_DIAGNOSTIC_DISPLAY_LABELS["primary"] == FORMATTER_DISPLAY_LABELS["primary"]
-
-    def test_review_center_coverage_labels_from_contracts(self):
-        from gas_calibrator.v2.review_surface_formatter import _REVIEW_CENTER_COVERAGE_LABELS
-        assert _REVIEW_CENTER_COVERAGE_LABELS["coverage"] == FORMATTER_DISPLAY_LABELS["coverage"]
-        assert _REVIEW_CENTER_COVERAGE_LABELS["missing"] == FORMATTER_DISPLAY_LABELS["missing_label"]
-
-    def test_review_surface_fragment_labels_from_contracts(self):
-        from gas_calibrator.v2.review_surface_formatter import _REVIEW_SURFACE_FRAGMENT_LABELS
-        assert _REVIEW_SURFACE_FRAGMENT_LABELS["catalog"] == FORMATTER_DISPLAY_LABELS["catalog"]
-        assert _REVIEW_SURFACE_FRAGMENT_LABELS["degraded"] == FORMATTER_DISPLAY_LABELS["degraded"]
-
-    def test_no_gaps_from_contracts(self):
-        from gas_calibrator.v2.review_surface_formatter import humanize_review_center_coverage_text
-        result = humanize_review_center_coverage_text("no gaps")
-        assert result == FORMATTER_DISPLAY_LABELS["no_gaps"]
-
-
-# ---------------------------------------------------------------------------
 # TestResultsSummaryLabels (2.10)
 # ---------------------------------------------------------------------------
 class TestResultsSummaryLabels:
@@ -607,55 +569,12 @@ class TestStep210ResolveHelpers:
 
 
 # ---------------------------------------------------------------------------
-# TestFormatterUsesContracts210 (2.10)
+# TestResultsSummaryContracts210 (2.10)
 # ---------------------------------------------------------------------------
-class TestFormatterUsesContracts210:
-    """Verify review_surface_formatter uses contracts for inline replacements and prefix labels."""
+class TestResultsSummaryContracts210:
+    """Verify the persisted results-summary labels remain complete."""
 
-    def test_inline_replacements_from_contracts(self):
-        from gas_calibrator.v2.review_surface_formatter import _REVIEW_SURFACE_INLINE_REPLACEMENTS
-        # Check that inline replacements use contract values
-        for source, target in _REVIEW_SURFACE_INLINE_REPLACEMENTS:
-            if source == "Current-run catalog baseline":
-                assert target == INLINE_REPLACEMENT_PHRASES["current_run_baseline"]
-            if source == "offline only":
-                assert target == INLINE_REPLACEMENT_PHRASES["offline_only"]
-
-    def test_prefix_labels_from_contracts(self):
-        from gas_calibrator.v2.review_surface_formatter import _REVIEW_SURFACE_PREFIX_LABELS
-        # Check that prefix labels use contract values
-        _, default = _REVIEW_SURFACE_PREFIX_LABELS["blockers"]
-        assert default == PREFIX_LABELS["blockers"]
-        _, default = _REVIEW_SURFACE_PREFIX_LABELS["boundary"]
-        assert default == PREFIX_LABELS["boundary"]
-        _, default = _REVIEW_SURFACE_PREFIX_LABELS["next artifacts"]
-        assert default == PREFIX_LABELS["next_artifacts"]
-
-    def test_measurement_digest_labels_used_in_formatter(self):
-        """Key measurement digest labels must match between contracts and formatter usage."""
-        from gas_calibrator.v2.review_surface_formatter import _MEASUREMENT_DIGEST
-        assert _MEASUREMENT_DIGEST["blockers"] == MEASUREMENT_DIGEST_LABELS["blockers"]
-        assert _MEASUREMENT_DIGEST["boundary"] == MEASUREMENT_DIGEST_LABELS["boundary"]
-        assert _MEASUREMENT_DIGEST["non_claim"] == MEASUREMENT_DIGEST_LABELS["non_claim"]
-
-    def test_readiness_digest_labels_used_in_formatter(self):
-        """Key readiness digest labels must match between contracts and formatter usage."""
-        from gas_calibrator.v2.review_surface_formatter import _READINESS_DIGEST
-        assert _READINESS_DIGEST["scope_overview"] == READINESS_DIGEST_LABELS["scope_overview"]
-        assert _READINESS_DIGEST["boundary"] == READINESS_DIGEST_LABELS["boundary"]
-        assert _READINESS_DIGEST["non_claim"] == READINESS_DIGEST_LABELS["non_claim"]
-
-
-# ---------------------------------------------------------------------------
-# TestResultsGatewayUsesContracts210 (2.10)
-# ---------------------------------------------------------------------------
-class TestResultsGatewayUsesContracts210:
-    """Verify results_gateway uses contracts for summary labels."""
-
-    def test_results_gateway_imports_summary_labels(self):
-        from gas_calibrator.v2.adapters.results_gateway import ResultsGateway
-        # Verify the import chain works
-        from gas_calibrator.v2.core.phase_evidence_display_contracts import RESULTS_SUMMARY_LABELS
+    def test_results_summary_label_domains_are_importable(self):
         assert "taxonomy_pressure" in RESULTS_SUMMARY_LABELS
         assert "artifact_compatibility" in RESULTS_SUMMARY_LABELS
         assert "scope_package" in RESULTS_SUMMARY_LABELS

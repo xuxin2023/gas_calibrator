@@ -7,14 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from gas_calibrator.v2.core.offline_artifacts import build_suite_case_metadata
-from gas_calibrator.v2.domain.services.ec_system_identification import (
+from gas_calibrator.validation.metrology.ec_system_identification import (
     identify_empirical_transfer,
 )
-from gas_calibrator.v2.domain.services.gas_analyzer_dynamic_uncertainty import (
+from gas_calibrator.validation.metrology.gas_analyzer_dynamic_uncertainty import (
     analyze_gas_analyzer_dynamic_performance,
     build_gas_analyzer_dynamic_uncertainty_acceptance,
 )
+from gas_calibrator.v2.core.offline_artifacts import build_suite_case_metadata
 from gas_calibrator.v2.sim.ec_system_identification import (
     default_system_identification_fixtures,
     simulate_system_identification,
@@ -72,6 +72,16 @@ def _performance(
 
 
 def test_clean_co2_and_h2o_bandwidths_are_physically_ordered() -> None:
+    assert (
+        analyze_gas_analyzer_dynamic_performance.__module__
+        == "gas_calibrator.validation.metrology.gas_analyzer_dynamic_uncertainty"
+    )
+    old_owner = (
+        Path(__file__).resolve().parents[2]
+        / "src/gas_calibrator/v2/domain/services/gas_analyzer_dynamic_uncertainty.py"
+    )
+    assert not old_owner.exists()
+
     co2, _co2_id, _contract = _performance("co2")
     h2o, _h2o_id, _contract = _performance("h2o")
 

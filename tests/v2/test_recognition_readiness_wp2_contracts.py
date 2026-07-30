@@ -9,7 +9,7 @@ SUPPORT_DIR = Path(__file__).resolve().parent
 if str(SUPPORT_DIR) not in sys.path:
     sys.path.insert(0, str(SUPPORT_DIR))
 
-from ui_v2_support import build_fake_facade
+from ui_v2_support import build_fake_service
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -111,8 +111,8 @@ def test_pre_run_gate_evaluator_supports_pass_warning_block_and_stays_no_control
 
 
 def test_wp2_reference_lifecycle_and_gate_artifacts_keep_step2_boundaries(tmp_path: Path) -> None:
-    facade = build_fake_facade(tmp_path)
-    run_dir = Path(facade.result_store.run_dir)
+    service = build_fake_service(tmp_path)
+    run_dir = Path(service.result_store.run_dir)
     rebuild_run(run_dir)
 
     reference_registry = json.loads(
