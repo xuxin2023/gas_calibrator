@@ -24,10 +24,17 @@ READONLY_EXECUTOR_SCHEMA = "v1_5_formal_readonly_com_minimal_executor_v1"
 CURRENT_PROBE_BINDING_SCHEMA = "v1_5_current_site_probe_evidence_binding_v1"
 PASSIVE_PROBE_SCHEMA = "v1_5_passive_site_inventory_probe_v1"
 POWERED_IDENTITY_QUERY_SCHEMA = "v1_5_powered_analyzer_identity_query_v1"
+CURRENT_INITIALIZATION_PROBE_SCHEMA = (
+    "v1_5_current_powered_initialization_probe_v1"
+)
 SN_PATTERN = re.compile(r"^\d{8}$")
 ANALYZER_BANK = tuple(f"COM{index}" for index in range(35, 43))
 LEGACY_ALGORITHMS = {"legacy", "legacy_ratio", "old", "ratio"}
 NEW_ALGORITHMS = {"new", "new_absorption", "absorption", "absorption_ratio"}
+INITIALIZATION_QUERY_WHITELIST = tuple(
+    f"GETCO,YGAS,FFF,{group}" for group in (5, 6, 7, 8)
+)
+NEUTRAL_TEMPERATURE_INPUT = (0.0, 1.0, 0.0, 0.0)
 
 
 def _now() -> str:
@@ -339,6 +346,222 @@ def _current_site_state_sha256(site_profile: Mapping[str, Any]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _is_neutral_temperature_input(values: Any, *, atol: float = 1e-9) -> bool:
+    if not isinstance(values, Sequence) or isinstance(
+        values,
+        (str, bytes, bytearray),
+    ):
+        return False
+    if len(values) < len(NEUTRAL_TEMPERATURE_INPUT):
+        return False
+    try:
+        return all(
+            abs(float(value) - expected) <= atol
+            for value, expected in zip(values, NEUTRAL_TEMPERATURE_INPUT)
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def _validate_initialization_probe(
+    *,
+    evidence: Mapping[str, Any],
+    by_port: Mapping[str, Mapping[str, Any]],
+    streaming_ports: Sequence[str],
+) -> dict[str, Any]:
+    path = _text(evidence, "initialization_probe_json")
+    declared_sha256 = _text(evidence, "initialization_probe_sha256")
+    if not path and not declared_sha256:
+        return {
+            "present": False,
+            "status": "not_supplied",
+            "reasons": [],
+            "path": "",
+            "sha256": "",
+            "opens_com_ports": False,
+            "sends_read_only_commands": False,
+            "sends_write_commands": False,
+        }
+
+    reasons: list[str] = []
+    payload = _load_json(path)
+    actual_sha256 = _sha256(path)
+    if not payload:
+        reasons.append("current_probe_initialization_probe_missing")
+    if not declared_sha256:
+        reasons.append("current_probe_initialization_probe_sha256_missing")
+    elif declared_sha256 != actual_sha256:
+        reasons.append("current_probe_initialization_probe_sha256_mismatch")
+    if payload:
+        if payload.get("schema") != CURRENT_INITIALIZATION_PROBE_SCHEMA:
+            reasons.append("current_probe_initialization_probe_schema_invalid")
+        if (
+            payload.get("overall_status")
+            != "effective_1hz_and_senco78_already_neutral"
+        ):
+            reasons.append("current_probe_initialization_probe_status_invalid")
+        if payload.get("engineering_probe_only") is not True:
+            reasons.append(
+                "current_probe_initialization_engineering_only_marker_missing"
+            )
+        if payload.get("promotion_state") != "blocked":
+            reasons.append(
+                "current_probe_initialization_promotion_state_must_be_blocked"
+            )
+        if payload.get("not_real_acceptance_evidence") is not True:
+            reasons.append(
+                "current_probe_initialization_not_real_acceptance_marker_missing"
+            )
+        if payload.get("sends_read_only_commands") is not True:
+            reasons.append(
+                "current_probe_initialization_read_only_command_marker_missing"
+            )
+        if payload.get("sends_write_commands") is not False:
+            reasons.append("current_probe_initialization_sent_write_commands")
+        if payload.get("sets_comm_way") is not False:
+            reasons.append("current_probe_initialization_set_comm_way")
+        for field in (
+            "writes_sn",
+            "writes_device_id",
+            "writes_coefficients",
+            "connects_postgresql",
+            "controls_pressure",
+            "controls_temperature",
+            "controls_water_or_gas_routes",
+            "database_written",
+        ):
+            if payload.get(field) is not False:
+                reasons.append(
+                    f"current_probe_initialization_{field}_must_be_false"
+                )
+        query_whitelist = tuple(payload.get("query_command_whitelist") or ())
+        if len(query_whitelist) != len(INITIALIZATION_QUERY_WHITELIST) or set(
+            query_whitelist
+        ) != set(INITIALIZATION_QUERY_WHITELIST):
+            reasons.append(
+                "current_probe_initialization_query_whitelist_invalid"
+            )
+        if int(payload.get("query_command_count") or 0) != (
+            len(streaming_ports) * len(INITIALIZATION_QUERY_WHITELIST)
+        ):
+            reasons.append("current_probe_initialization_query_count_invalid")
+        try:
+            command_gap_ok = (
+                float(payload.get("minimum_inter_command_gap_s")) >= 1.0
+            )
+        except (TypeError, ValueError):
+            command_gap_ok = False
+        if not command_gap_ok:
+            reasons.append(
+                "current_probe_initialization_command_gap_below_1s"
+            )
+
+        sources = payload.get("source_artifacts")
+        sources = sources if isinstance(sources, Mapping) else {}
+        source_pairs = (
+            ("cadence_json", "cadence_json_sha256"),
+            ("identity_json", "identity_json_sha256"),
+            ("getco_snapshot_json", "getco_snapshot_json_sha256"),
+            ("getco_rows_csv", "getco_rows_csv_sha256"),
+            ("getco_identity_csv", "getco_identity_csv_sha256"),
+            ("getco_conclusion_csv", "getco_conclusion_csv_sha256"),
+            ("getco_meta_json", "getco_meta_json_sha256"),
+            ("getco_probe_source_py", "getco_probe_source_py_sha256"),
+        )
+        for source_key, hash_key in source_pairs:
+            source_path = _text(sources, source_key)
+            source_hash = _text(sources, hash_key)
+            if not source_path or not source_hash:
+                reasons.append(
+                    f"current_probe_initialization_source_{source_key}_missing"
+                )
+            elif _sha256(source_path) != source_hash:
+                reasons.append(
+                    f"current_probe_initialization_source_{source_key}_sha256_mismatch"
+                )
+
+        raw_result_rows = _rows(payload, "results")
+        result_rows = {
+            str(row.get("port") or "").upper(): row
+            for row in raw_result_rows
+        }
+        if len(raw_result_rows) != len(streaming_ports) or set(
+            result_rows
+        ) != set(streaming_ports):
+            reasons.append(
+                "current_probe_initialization_result_ports_mismatch"
+            )
+        for port in streaming_ports:
+            result = result_rows.get(port, {})
+            profile_row = by_port.get(port, {})
+            if _text(result, "protocol_device_id") != _text(
+                profile_row,
+                "protocol_device_id",
+            ):
+                reasons.append(
+                    f"current_probe_initialization_{port}_protocol_identity_mismatch"
+                )
+            if _text(result, "sn_code") != _text(profile_row, "sn_code"):
+                reasons.append(
+                    f"current_probe_initialization_{port}_sn_mismatch"
+                )
+            if result.get("effective_ftd_hz") != 1:
+                reasons.append(
+                    f"current_probe_initialization_{port}_effective_1hz_missing"
+                )
+            runtime = _runtime_evidence(profile_row)
+            try:
+                profile_ftd_ok = abs(float(runtime.get("ftd_hz")) - 1.0) < 1e-9
+            except (TypeError, ValueError):
+                profile_ftd_ok = False
+            if not profile_ftd_ok:
+                reasons.append(
+                    f"current_probe_initialization_{port}_profile_1hz_not_bound"
+                )
+            if not _is_neutral_temperature_input(result.get("GETCO7")):
+                reasons.append(
+                    f"current_probe_initialization_{port}_senco7_not_neutral"
+                )
+            if not _is_neutral_temperature_input(result.get("GETCO8")):
+                reasons.append(
+                    f"current_probe_initialization_{port}_senco8_not_neutral"
+                )
+            if result.get("senco7_write_required") is not False:
+                reasons.append(
+                    f"current_probe_initialization_{port}_senco7_write_not_skipped"
+                )
+            if result.get("senco8_write_required") is not False:
+                reasons.append(
+                    f"current_probe_initialization_{port}_senco8_write_not_skipped"
+                )
+            if (
+                result.get("initialization_action")
+                != "already_neutral_readback_only_skip_senco78_write"
+            ):
+                reasons.append(
+                    f"current_probe_initialization_{port}_action_invalid"
+                )
+            if result.get("status") != "pass":
+                reasons.append(
+                    f"current_probe_initialization_{port}_status_not_pass"
+                )
+
+    return {
+        "present": True,
+        "status": "valid_no_write_initialization_probe"
+        if not reasons
+        else "review_required",
+        "reasons": reasons,
+        "path": path,
+        "sha256": actual_sha256,
+        "opens_com_ports": payload.get("opens_com_ports") is True,
+        "sends_read_only_commands": (
+            payload.get("sends_read_only_commands") is True
+        ),
+        "sends_write_commands": payload.get("sends_write_commands") is True,
+    }
+
+
 def confirm_v1_5_current_site_state(
     *,
     site_profile: Mapping[str, Any],
@@ -516,16 +739,27 @@ def _validate_current_probe_evidence(
         if profile_row.get("powered") is not True:
             reasons.append(f"current_probe_{port}_must_be_powered")
 
+    initialization_probe = _validate_initialization_probe(
+        evidence=evidence,
+        by_port=by_port,
+        streaming_ports=streaming_ports,
+    )
+    reasons.extend(initialization_probe["reasons"])
     opens_com_ports = any(
         row.get("open_succeeded") is True
         for row in _rows(passive, "port_results") + _rows(identity, "results")
+    ) or initialization_probe["opens_com_ports"]
+    sends_write_commands = (
+        identity.get("sends_write_commands") is True
+        or initialization_probe["sends_write_commands"]
     )
-    sends_write_commands = identity.get("sends_write_commands") is True
     sends_read_only_commands = bool(
-        identity.get("sends_device_commands") is True
-        and int(identity.get("command_attempt_count") or 0) > 0
-        and not sends_write_commands
-    )
+        (
+            identity.get("sends_device_commands") is True
+            and int(identity.get("command_attempt_count") or 0) > 0
+        )
+        or initialization_probe["sends_read_only_commands"]
+    ) and not sends_write_commands
     return {
         "present": True,
         "status": "valid_engineering_probe_binding" if not reasons else "review_required",
@@ -534,6 +768,9 @@ def _validate_current_probe_evidence(
         "passive_inventory_sha256": _sha256(passive_path),
         "identity_query_json": identity_path,
         "identity_query_sha256": _sha256(identity_path),
+        "initialization_probe": initialization_probe,
+        "initialization_probe_json": initialization_probe["path"],
+        "initialization_probe_sha256": initialization_probe["sha256"],
         "streaming_powered_ports": streaming_ports,
         "opens_com_ports": opens_com_ports,
         "sends_read_only_device_commands": sends_read_only_commands,
@@ -884,6 +1121,19 @@ def build_v1_5_real_acceptance_control_pack(
                 ),
             ]
         )
+        initialization_probe = current_probe.get("initialization_probe")
+        initialization_probe = (
+            initialization_probe
+            if isinstance(initialization_probe, Mapping)
+            else {}
+        )
+        if initialization_probe.get("present") is True:
+            artifacts.append(
+                _artifact(
+                    "current_powered_initialization_probe",
+                    initialization_probe.get("path"),
+                )
+            )
     return {
         "schema": SCHEMA,
         "generated_at": _now(),

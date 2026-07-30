@@ -1,6 +1,8 @@
 import csv
 import json
 
+import pytest
+
 from gas_calibrator.tools import probe_v1_5_getco_component_snapshot as probe
 
 
@@ -11,6 +13,25 @@ def _write_json(path, payload):
 def _read_csv(path):
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         return list(csv.DictReader(handle))
+
+
+@pytest.fixture(autouse=True)
+def _skip_real_serial_waits(monkeypatch):
+    monkeypatch.setattr(probe.time, "sleep", lambda _seconds: None)
+
+
+def test_identity_parser_reuses_current_strict_mode2_parser():
+    frame = (
+        "YGAS,001,0000.000,00.000,0000.000,00.000,1.2197,1.2198,"
+        "0.5469,0.5469,03843,04684,02096,028.67,029.81,100.20"
+    )
+
+    parsed = probe._parse_identity_from_lines([frame])
+
+    assert parsed["ok"] is True
+    assert parsed["id"] == "001"
+    assert parsed["mode"] == 2
+    assert parsed["source"] == "mode2_parser"
 
 
 def _config(tmp_path):
@@ -105,6 +126,8 @@ class _RuntimeRebindGasAnalyzer(_FakeGasAnalyzer):
 def test_component_getco_snapshot_captures_old_groups_without_runtime_writes(monkeypatch, tmp_path):
     _FakeGasAnalyzer.instances = []
     monkeypatch.setattr(probe, "GasAnalyzer", _FakeGasAnalyzer)
+    sleep_calls = []
+    monkeypatch.setattr(probe.time, "sleep", sleep_calls.append)
     cfg_path = tmp_path / "cfg.json"
     out_dir = tmp_path / "out"
     _write_json(cfg_path, _config(tmp_path))
@@ -140,6 +163,7 @@ def test_component_getco_snapshot_captures_old_groups_without_runtime_writes(mon
     commands = [item[1] for item in ga.ser.commands if item[0] == "exchange"]
     assert "SETCOMWAY,YGAS,FFF,0" not in commands
     assert "SETCOMWAY,YGAS,FFF,1" not in commands
+    assert sleep_calls == [1.0, 1.0]
 
 
 def test_component_getco_snapshot_rejects_subsecond_command_gap(monkeypatch, tmp_path):

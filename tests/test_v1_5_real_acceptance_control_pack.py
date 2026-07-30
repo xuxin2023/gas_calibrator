@@ -149,6 +149,95 @@ def _attach_current_probe_evidence(
     return profile, passive, identity
 
 
+def _attach_current_initialization_probe(
+    tmp_path: Path,
+    profile: dict,
+) -> tuple[dict, Path, Path]:
+    source_dir = tmp_path / "probe" / "initialization_sources"
+    source_pairs = (
+        ("cadence_json", "cadence_json_sha256"),
+        ("identity_json", "identity_json_sha256"),
+        ("getco_snapshot_json", "getco_snapshot_json_sha256"),
+        ("getco_rows_csv", "getco_rows_csv_sha256"),
+        ("getco_identity_csv", "getco_identity_csv_sha256"),
+        ("getco_conclusion_csv", "getco_conclusion_csv_sha256"),
+        ("getco_meta_json", "getco_meta_json_sha256"),
+        ("getco_probe_source_py", "getco_probe_source_py_sha256"),
+    )
+    sources = {}
+    first_source = None
+    for source_key, hash_key in source_pairs:
+        source_path = source_dir / source_key
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+        source_path.write_text(f"{source_key}\n", encoding="utf-8")
+        sources[source_key] = str(source_path)
+        sources[hash_key] = hashlib.sha256(source_path.read_bytes()).hexdigest()
+        first_source = first_source or source_path
+
+    results = []
+    for port in ("COM35", "COM36"):
+        row = next(
+            item
+            for item in profile["candidate_analyzers"]
+            if item["port"] == port
+        )
+        results.append(
+            {
+                "port": port,
+                "protocol_device_id": row["protocol_device_id"],
+                "sn_code": row["sn_code"],
+                "effective_ftd_hz": 1,
+                "GETCO7": [0.0, 1.0, 0.0, 0.0],
+                "GETCO8": [0.0, 1.0, 0.0, 0.0],
+                "senco7_write_required": False,
+                "senco8_write_required": False,
+                "initialization_action": (
+                    "already_neutral_readback_only_skip_senco78_write"
+                ),
+                "status": "pass",
+            }
+        )
+    initialization = _write(
+        tmp_path / "probe" / "initialization_probe.json",
+        {
+            "schema": "v1_5_current_powered_initialization_probe_v1",
+            "overall_status": "effective_1hz_and_senco78_already_neutral",
+            "engineering_probe_only": True,
+            "promotion_state": "blocked",
+            "not_real_acceptance_evidence": True,
+            "query_command_whitelist": [
+                f"GETCO,YGAS,FFF,{group}" for group in (5, 6, 7, 8)
+            ],
+            "query_command_count": 8,
+            "minimum_inter_command_gap_s": 1.0,
+            "opens_com_ports": True,
+            "sends_read_only_commands": True,
+            "sends_write_commands": False,
+            "sets_comm_way": False,
+            "writes_sn": False,
+            "writes_device_id": False,
+            "writes_coefficients": False,
+            "connects_postgresql": False,
+            "controls_pressure": False,
+            "controls_temperature": False,
+            "controls_water_or_gas_routes": False,
+            "database_written": False,
+            "source_artifacts": sources,
+            "results": results,
+        },
+    )
+    profile["current_probe_evidence"].update(
+        {
+            "initialization_probe_json": str(initialization),
+            "initialization_probe_sha256": hashlib.sha256(
+                initialization.read_bytes()
+            ).hexdigest(),
+        }
+    )
+    assert first_source is not None
+    return profile, initialization, first_source
+
+
 def _historical_identity(tmp_path: Path) -> Path:
     rows = (
         ("070", "GA01", "COM35", "004", "01260604"),
@@ -495,6 +584,109 @@ def test_current_probe_source_tamper_blocks_profile(
         in validation["reasons"]
     )
     assert "current_probe_COM35_sn_mismatch" in validation["reasons"]
+
+
+def test_current_initialization_probe_binds_effective_1hz_and_neutral_senco78(
+    tmp_path: Path,
+) -> None:
+    inventory, profile = _site_profile(tmp_path, mapped=True, confirmed=False)
+    profile, _, _ = _attach_current_probe_evidence(tmp_path, profile)
+    profile, initialization, _ = _attach_current_initialization_probe(
+        tmp_path,
+        profile,
+    )
+    profile = confirm_v1_5_current_site_state(
+        site_profile=profile,
+        operator_name="operator-a",
+        observation_basis="physical observation plus read-only probes",
+        confirmed_at="2026-07-30T14:31:00Z",
+    )
+    evidence = _evidence(tmp_path, ready=False)
+
+    model = build_v1_5_real_acceptance_control_pack(
+        runtime_port_inventory_json=inventory,
+        certificate_registry_json=evidence["registry"],
+        certificate_reconciliation_json=evidence["reconciliation"],
+        certificate_admission_json=evidence["admission"],
+        workstation_dry_run_json=evidence["workstation"],
+        site_profile=profile,
+    )
+
+    current_probe = model["source_probe_evidence"]
+    assert current_probe["status"] == "valid_engineering_probe_binding"
+    assert (
+        current_probe["initialization_probe"]["status"]
+        == "valid_no_write_initialization_probe"
+    )
+    assert current_probe["sends_write_commands"] is False
+    artifacts = {row["role"]: row for row in model["artifacts"]}
+    assert artifacts["current_powered_initialization_probe"]["sha256"] == (
+        hashlib.sha256(initialization.read_bytes()).hexdigest()
+    )
+
+
+def test_current_initialization_probe_source_tamper_blocks_profile(
+    tmp_path: Path,
+) -> None:
+    inventory, profile = _site_profile(tmp_path, mapped=True, confirmed=False)
+    profile, _, _ = _attach_current_probe_evidence(tmp_path, profile)
+    profile, _, source = _attach_current_initialization_probe(tmp_path, profile)
+    profile = confirm_v1_5_current_site_state(
+        site_profile=profile,
+        operator_name="operator-a",
+        observation_basis="physical observation plus read-only probes",
+        confirmed_at="2026-07-30T14:31:00Z",
+    )
+    source.write_text("tampered\n", encoding="utf-8")
+
+    validation = validate_v1_5_real_acceptance_site_profile(
+        site_profile=profile,
+        runtime_port_inventory_json=inventory,
+    )
+
+    assert validation["ready_for_readonly_packet_build"] is False
+    assert any(
+        reason.endswith("_sha256_mismatch")
+        and "initialization_source_" in reason
+        for reason in validation["reasons"]
+    )
+
+
+def test_current_initialization_probe_nonneutral_senco8_blocks_profile(
+    tmp_path: Path,
+) -> None:
+    inventory, profile = _site_profile(tmp_path, mapped=True, confirmed=False)
+    profile, _, _ = _attach_current_probe_evidence(tmp_path, profile)
+    profile, initialization, _ = _attach_current_initialization_probe(
+        tmp_path,
+        profile,
+    )
+    payload = json.loads(initialization.read_text(encoding="utf-8"))
+    payload["results"][0]["GETCO8"] = [0.0, 0.9, 0.0, 0.0]
+    initialization.write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    profile["current_probe_evidence"]["initialization_probe_sha256"] = (
+        hashlib.sha256(initialization.read_bytes()).hexdigest()
+    )
+    profile = confirm_v1_5_current_site_state(
+        site_profile=profile,
+        operator_name="operator-a",
+        observation_basis="physical observation plus read-only probes",
+        confirmed_at="2026-07-30T14:31:00Z",
+    )
+
+    validation = validate_v1_5_real_acceptance_site_profile(
+        site_profile=profile,
+        runtime_port_inventory_json=inventory,
+    )
+
+    assert validation["ready_for_readonly_packet_build"] is False
+    assert (
+        "current_probe_initialization_COM35_senco8_not_neutral"
+        in validation["reasons"]
+    )
 
 
 def test_current_probe_declared_write_command_is_exposed_and_blocked(

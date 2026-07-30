@@ -74,6 +74,26 @@ def _split_lines(raw: Any) -> List[str]:
     return _ProtocolGasAnalyzer._split_stream_lines(raw)
 
 
+def _parse_mode2_line(text: str) -> Optional[Dict[str, Any]]:
+    """Parse one MODE2 frame without opening a device.
+
+    ``GasAnalyzer`` intentionally exposes its production parser as an instance
+    method.  The snapshot probe only has raw drained lines here, so reuse the
+    same tokenizer and strict MODE2 parser directly instead of relying on a
+    non-existent compatibility method.
+    """
+
+    try:
+        for candidate in _ProtocolGasAnalyzer._iter_frame_candidates(text):
+            parts = _ProtocolGasAnalyzer._split_frame_parts(candidate)
+            parsed = _ProtocolGasAnalyzer._parse_mode2(parts, text)
+            if parsed is not None:
+                return parsed
+    except Exception:
+        return None
+    return None
+
+
 def _safe_exchange(
     ga: GasAnalyzer,
     command: str,
@@ -116,10 +136,7 @@ def _parse_identity_from_lines(lines: Sequence[str]) -> Dict[str, Any]:
             text = str(line or "").strip()
             if not text:
                 continue
-            try:
-                parsed = _ProtocolGasAnalyzer.parse_mode2_line(text)
-            except Exception:
-                parsed = None
+            parsed = _parse_mode2_line(text)
             if isinstance(parsed, Mapping) and parsed.get("id"):
                 return {
                     "ok": True,
@@ -306,6 +323,8 @@ def _probe_one(
                     response_timeout_s=response_timeout_s,
                     clear_input=True,
                 )
+                if command_gap_s > 0:
+                    time.sleep(command_gap_s)
                 parsed = _first_coefficient(lines)
                 parsed_values = _coefficient_values(parsed)
                 required_coefficients = _min_coefficients_for_group(group, int(min_coefficients_per_group))
@@ -342,8 +361,6 @@ def _probe_one(
                 if coefficient_valid:
                     found_for_group = True
                     break
-                if command_gap_s > 0:
-                    time.sleep(command_gap_s)
             if found_for_group:
                 break
     if allow_quiet_setcomway and bool(analyzer_cfg.get("active_send", True)):
