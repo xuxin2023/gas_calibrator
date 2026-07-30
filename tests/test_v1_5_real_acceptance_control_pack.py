@@ -56,6 +56,9 @@ def _runtime_setup_result(tmp_path: Path, analyzers: list[dict]) -> Path:
             "schema_version": "v1_5_analyzer_runtime_setup_result_v0",
             "run_id": "test-runtime-setup",
             "status": "ready",
+            "evidence_source": "real_device_runtime_setup",
+            "execution_mode": "controlled_real_com",
+            "engineering_setup_only": True,
             "not_real_acceptance_evidence": True,
             "boundary": {
                 "opens_com_ports": True,
@@ -752,6 +755,48 @@ def test_runtime_setup_result_requires_identity_bound_ack_sequence(
         "COM35_runtime_setup_evidence_ack_sequence_invalid"
         in validation["reasons"]
     )
+
+
+def test_simulated_runtime_setup_result_cannot_release_gate(
+    tmp_path: Path,
+) -> None:
+    inventory, profile = _site_profile(
+        tmp_path,
+        mapped=True,
+        confirmed=False,
+    )
+    runtime = profile["candidate_analyzers"][0]["runtime_evidence"]
+    result_path = Path(runtime["runtime_setup_result_json"])
+    payload = json.loads(result_path.read_text(encoding="utf-8"))
+    payload["evidence_source"] = "simulated_fixture"
+    payload["execution_mode"] = "offline_replay"
+    result_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    updated_sha = hashlib.sha256(result_path.read_bytes()).hexdigest()
+    for row in profile["candidate_analyzers"]:
+        evidence = row.get("runtime_evidence")
+        if isinstance(evidence, dict) and evidence.get(
+            "runtime_setup_result_json"
+        ) == str(result_path):
+            evidence["runtime_setup_result_sha256"] = updated_sha
+    profile = confirm_v1_5_current_site_state(
+        site_profile=profile,
+        operator_name="operator-a",
+        observation_basis="physical observation",
+        confirmed_at="2026-07-30T14:31:00Z",
+    )
+
+    validation = validate_v1_5_real_acceptance_site_profile(
+        site_profile=profile,
+        runtime_port_inventory_json=inventory,
+    )
+
+    assert validation["ready_for_readonly_packet_build"] is False
+    assert "COM35_runtime_setup_evidence_result_invalid" in validation[
+        "reasons"
+    ]
 
 
 def test_algorithm_selection_requires_current_identity_bound_record(

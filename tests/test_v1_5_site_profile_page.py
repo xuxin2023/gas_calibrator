@@ -66,6 +66,9 @@ def _runtime_setup_result(tmp_path: Path, rows: list[dict]) -> Path:
                 "schema_version": "v1_5_analyzer_runtime_setup_result_v0",
                 "run_id": "site-page-test-runtime-setup",
                 "status": "ready",
+                "evidence_source": "real_device_runtime_setup",
+                "execution_mode": "controlled_real_com",
+                "engineering_setup_only": True,
                 "not_real_acceptance_evidence": True,
                 "boundary": {
                     "opens_com_ports": True,

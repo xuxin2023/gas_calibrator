@@ -545,6 +545,9 @@ def _runtime_setup_evidence_reasons(
     if (
         payload.get("schema_version") != RUNTIME_SETUP_RESULT_SCHEMA
         or payload.get("status") != "ready"
+        or payload.get("evidence_source") != "real_device_runtime_setup"
+        or payload.get("execution_mode") != "controlled_real_com"
+        or payload.get("engineering_setup_only") is not True
         or payload.get("not_real_acceptance_evidence") is not True
         or not _text(payload, "run_id")
     ):
