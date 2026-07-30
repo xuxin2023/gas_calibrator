@@ -77,6 +77,78 @@ def _site_profile(
     return inventory, profile
 
 
+def _attach_current_probe_evidence(
+    tmp_path: Path,
+    profile: dict,
+) -> tuple[dict, Path, Path]:
+    passive = _write(
+        tmp_path / "probe" / "passive.json",
+        {
+            "schema": "v1_5_passive_site_inventory_probe_v1",
+            "engineering_probe_only": True,
+            "not_real_acceptance_evidence": True,
+            "bytes_written": 0,
+            "sends_device_commands": False,
+            "writes_sn": False,
+            "writes_device_id": False,
+            "writes_coefficients": False,
+            "streaming_powered_ports": ["COM35", "COM36"],
+            "port_results": [
+                {
+                    "port": f"COM{index}",
+                    "open_succeeded": True,
+                    "observed_device_ids": (
+                        [f"{index - 34:03d}"] if index in (35, 36) else []
+                    ),
+                }
+                for index in range(35, 43)
+            ],
+        },
+    )
+    identity = _write(
+        tmp_path / "probe" / "identity.json",
+        {
+            "schema": "v1_5_powered_analyzer_identity_query_v1",
+            "engineering_probe_only": True,
+            "not_real_acceptance_evidence": True,
+            "sends_device_commands": True,
+            "sends_write_commands": False,
+            "command_attempt_count": 2,
+            "writes_sn": False,
+            "writes_device_id": False,
+            "writes_coefficients": False,
+            "results": [
+                {
+                    "port": "COM35",
+                    "open_succeeded": True,
+                    "sn_code_read": "01260701",
+                },
+                {
+                    "port": "COM36",
+                    "open_succeeded": True,
+                    "sn_code_read": "01260702",
+                },
+            ],
+        },
+    )
+    profile["current_probe_evidence"] = {
+        "schema": "v1_5_current_site_probe_evidence_binding_v1",
+        "engineering_probe_only": True,
+        "promotion_state": "blocked",
+        "not_real_acceptance_evidence": True,
+        "passive_inventory_json": str(passive),
+        "passive_inventory_sha256": hashlib.sha256(passive.read_bytes()).hexdigest(),
+        "identity_query_json": str(identity),
+        "identity_query_sha256": hashlib.sha256(identity.read_bytes()).hexdigest(),
+        "streaming_powered_ports": ["COM35", "COM36"],
+        "connected_unpowered_ports_inferred": False,
+        "writes_sn": False,
+        "writes_device_id": False,
+        "writes_coefficients": False,
+    }
+    return profile, passive, identity
+
+
 def _historical_identity(tmp_path: Path) -> Path:
     rows = (
         ("070", "GA01", "COM35", "004", "01260604"),
@@ -331,7 +403,9 @@ def test_complete_mapping_requires_hash_bound_current_site_confirmation(
         "COM35",
         "COM36",
     ]
-    assert len(confirmed["current_site_confirmation"]["candidate_state_sha256"]) == 64
+    assert confirmed["current_site_confirmation"]["candidate_state_sha256"] == (
+        "632fa75121386dc11595e1123bcb6e24574a555f4ccdefdf89628aa12aeae2c3"
+    )
 
 
 def test_current_site_confirmation_becomes_invalid_after_mapping_edit(
@@ -348,6 +422,138 @@ def test_current_site_confirmation_becomes_invalid_after_mapping_edit(
     assert validation["ready_for_readonly_packet_build"] is False
     assert (
         "current_site_confirmation_state_sha256_mismatch"
+        in validation["reasons"]
+    )
+
+
+def test_current_probe_sources_are_hash_and_identity_bound(
+    tmp_path: Path,
+) -> None:
+    inventory, profile = _site_profile(tmp_path, mapped=True, confirmed=False)
+    profile, passive, identity = _attach_current_probe_evidence(tmp_path, profile)
+    profile = confirm_v1_5_current_site_state(
+        site_profile=profile,
+        operator_name="operator-a",
+        observation_basis="physical observation plus read-only probe",
+        confirmed_at="2026-07-30T14:31:00Z",
+    )
+
+    validation = validate_v1_5_real_acceptance_site_profile(
+        site_profile=profile,
+        runtime_port_inventory_json=inventory,
+    )
+    evidence = _evidence(tmp_path, ready=False)
+    model = build_v1_5_real_acceptance_control_pack(
+        runtime_port_inventory_json=inventory,
+        certificate_registry_json=evidence["registry"],
+        certificate_reconciliation_json=evidence["reconciliation"],
+        certificate_admission_json=evidence["admission"],
+        workstation_dry_run_json=evidence["workstation"],
+        site_profile=profile,
+    )
+
+    assert validation["ready_for_readonly_packet_build"] is True
+    assert (
+        validation["current_probe_evidence_validation"]["status"]
+        == "valid_engineering_probe_binding"
+    )
+    assert model["source_evidence_opened_com_ports"] is True
+    assert model["source_evidence_sent_read_only_device_commands"] is True
+    assert model["source_evidence_sent_write_commands"] is False
+    artifacts = {row["role"]: row for row in model["artifacts"]}
+    assert artifacts["current_site_passive_inventory_probe"]["sha256"] == (
+        hashlib.sha256(passive.read_bytes()).hexdigest()
+    )
+    assert artifacts["current_site_powered_identity_query"]["sha256"] == (
+        hashlib.sha256(identity.read_bytes()).hexdigest()
+    )
+
+
+def test_current_probe_source_tamper_blocks_profile(
+    tmp_path: Path,
+) -> None:
+    inventory, profile = _site_profile(tmp_path, mapped=True, confirmed=False)
+    profile, _, identity = _attach_current_probe_evidence(tmp_path, profile)
+    profile = confirm_v1_5_current_site_state(
+        site_profile=profile,
+        operator_name="operator-a",
+        observation_basis="physical observation plus read-only probe",
+        confirmed_at="2026-07-30T14:31:00Z",
+    )
+    payload = json.loads(identity.read_text(encoding="utf-8"))
+    payload["results"][0]["sn_code_read"] = "01260799"
+    identity.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    validation = validate_v1_5_real_acceptance_site_profile(
+        site_profile=profile,
+        runtime_port_inventory_json=inventory,
+    )
+
+    assert validation["ready_for_readonly_packet_build"] is False
+    assert (
+        "current_probe_identity_query_sha256_mismatch"
+        in validation["reasons"]
+    )
+    assert "current_probe_COM35_sn_mismatch" in validation["reasons"]
+
+
+def test_current_probe_declared_write_command_is_exposed_and_blocked(
+    tmp_path: Path,
+) -> None:
+    inventory, profile = _site_profile(tmp_path, mapped=True, confirmed=False)
+    profile, _, identity = _attach_current_probe_evidence(tmp_path, profile)
+    payload = json.loads(identity.read_text(encoding="utf-8"))
+    payload["sends_write_commands"] = True
+    identity.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    profile["current_probe_evidence"]["identity_query_sha256"] = hashlib.sha256(
+        identity.read_bytes()
+    ).hexdigest()
+    profile = confirm_v1_5_current_site_state(
+        site_profile=profile,
+        operator_name="operator-a",
+        observation_basis="physical observation plus read-only probe",
+        confirmed_at="2026-07-30T14:31:00Z",
+    )
+    evidence = _evidence(tmp_path, ready=False)
+
+    model = build_v1_5_real_acceptance_control_pack(
+        runtime_port_inventory_json=inventory,
+        certificate_registry_json=evidence["registry"],
+        certificate_reconciliation_json=evidence["reconciliation"],
+        certificate_admission_json=evidence["admission"],
+        workstation_dry_run_json=evidence["workstation"],
+        site_profile=profile,
+    )
+
+    assert "current_probe_identity_sent_write_commands" in model[
+        "site_profile_validation"
+    ]["reasons"]
+    assert model["source_evidence_sent_write_commands"] is True
+    assert model["source_evidence_sent_read_only_device_commands"] is False
+    assert model["preflight_ready_for_explicit_readonly_authorization"] is False
+
+
+def test_current_probe_identity_mismatch_blocks_even_when_operator_confirms(
+    tmp_path: Path,
+) -> None:
+    inventory, profile = _site_profile(tmp_path, mapped=True, confirmed=False)
+    profile, _, _ = _attach_current_probe_evidence(tmp_path, profile)
+    profile["candidate_analyzers"][0]["protocol_device_id"] = "099"
+    profile = confirm_v1_5_current_site_state(
+        site_profile=profile,
+        operator_name="operator-a",
+        observation_basis="physical observation plus read-only probe",
+        confirmed_at="2026-07-30T14:31:00Z",
+    )
+
+    validation = validate_v1_5_real_acceptance_site_profile(
+        site_profile=profile,
+        runtime_port_inventory_json=inventory,
+    )
+
+    assert validation["ready_for_readonly_packet_build"] is False
+    assert (
+        "current_probe_COM35_protocol_identity_mismatch"
         in validation["reasons"]
     )
 

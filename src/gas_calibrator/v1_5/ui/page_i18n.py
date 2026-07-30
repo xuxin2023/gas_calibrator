@@ -343,6 +343,7 @@ _ZH_CN = {
     "pages.site_profile.value.ready": "就绪",
     "pages.site_profile.value.review": "待完善",
     "pages.site_profile.value.historical_prefill": "历史身份待确认",
+    "pages.site_profile.value.current_probe": "当前通电身份已读，待人工确认",
     "pages.site_profile.value.not_selected": "未用于本次",
     "pages.site_profile.value.not_loaded": "未载入",
     "pages.site_profile.value.yes": "是",
@@ -381,6 +382,7 @@ _ZH_CN = {
     "pages.site_profile.reason.confirmation_connected_count_mismatch": "报告接入台数与已确认记录不一致，请重新确认。",
     "pages.site_profile.reason.confirmation_powered_count_mismatch": "报告通电台数与已确认记录不一致，请重新确认。",
     "pages.site_profile.reason.confirmation_state_changed": "现场映射内容在确认后发生变化，原确认哈希已失效。",
+    "pages.site_profile.reason.probe_invalid": "当前现场探针证据、文件哈希或逐端口身份不一致；已阻断并要求工程复核。",
     "pages.site_profile.reason.connected_count": "报告接入 {expected} 台，当前只确认 {actual} 台。",
     "pages.site_profile.reason.powered_count": "报告通电 {expected} 台，当前只确认 {actual} 台。",
     "pages.site_profile.reason.active_count": "当前通电分析仪为 {actual} 台；只读初始化要求 1 至 6 台。",
@@ -629,6 +631,7 @@ _EN_US = {
     "pages.site_profile.value.ready": "Ready",
     "pages.site_profile.value.review": "Review Required",
     "pages.site_profile.value.historical_prefill": "Historical Identity - Confirm",
+    "pages.site_profile.value.current_probe": "Current Powered Identity Read - Confirm",
     "pages.site_profile.value.not_selected": "Not Used in This Run",
     "pages.site_profile.value.not_loaded": "Not Loaded",
     "pages.site_profile.value.yes": "Yes",
@@ -700,6 +703,10 @@ _EN_US = {
     ),
     "pages.site_profile.reason.confirmation_state_changed": (
         "The mapping changed after confirmation, so the confirmation hash is invalid."
+    ),
+    "pages.site_profile.reason.probe_invalid": (
+        "Current probe evidence, source hashes, or per-port identity is inconsistent; "
+        "engineering review is required."
     ),
     "pages.site_profile.reason.connected_count": "Reported {expected} connected; {actual} are currently confirmed.",
     "pages.site_profile.reason.powered_count": "Reported {expected} powered; {actual} are currently confirmed.",

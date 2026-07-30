@@ -247,6 +247,12 @@ def test_site_profile_page_marks_historical_identity_as_pending_current_confirma
         assert "其中 1 台为历史身份预填" in page.status_var.get()
         assert page.profile["candidate_analyzers"][0]["connected"] is None
         assert page.profile["candidate_analyzers"][0]["powered"] is None
+
+        page.profile["candidate_analyzers"][0]["identity_evidence"]["scope"] = (
+            "current_powered_identity_query_engineering_probe_only"
+        )
+        page._refresh_table()
+        assert page.tree.item("COM35", "values")[-1] == "当前通电身份已读，待人工确认"
     finally:
         root.destroy()
 
@@ -293,14 +299,20 @@ def test_site_profile_page_i18n_is_chinese_first_with_english_fallback() -> None
     assert zh("pages.site_profile.title") == "现场设备配置与只读初始化准备"
     assert zh("pages.site_profile.actions.save") == "保存配置与清单"
     assert zh("pages.site_profile.value.historical_prefill") == "历史身份待确认"
+    assert zh("pages.site_profile.value.current_probe") == "当前通电身份已读，待人工确认"
     assert zh("pages.site_profile.confirmation.action") == "确认并绑定当前4/2映射"
     assert "历史6台身份记录不能证明" in zh(
         "pages.site_profile.reason.confirmation_missing"
     )
+    assert "探针证据" in zh("pages.site_profile.reason.probe_invalid")
     assert en("pages.site_profile.title") == (
         "Site Device Mapping and Read-only Initialization"
     )
     assert en("pages.site_profile.actions.save") == "Save Profile and Lists"
+    assert en("pages.site_profile.value.current_probe") == (
+        "Current Powered Identity Read - Confirm"
+    )
     assert en("pages.site_profile.confirmation.action") == (
         "Confirm and Bind Current 4/2 Mapping"
     )
+    assert "probe evidence" in en("pages.site_profile.reason.probe_invalid")

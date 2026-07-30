@@ -21,6 +21,9 @@ from typing import Any, Mapping, Sequence
 SCHEMA = "v1_5_real_acceptance_control_pack_v1"
 SITE_PROFILE_SCHEMA = "v1_5_real_acceptance_site_profile_v1"
 READONLY_EXECUTOR_SCHEMA = "v1_5_formal_readonly_com_minimal_executor_v1"
+CURRENT_PROBE_BINDING_SCHEMA = "v1_5_current_site_probe_evidence_binding_v1"
+PASSIVE_PROBE_SCHEMA = "v1_5_passive_site_inventory_probe_v1"
+POWERED_IDENTITY_QUERY_SCHEMA = "v1_5_powered_analyzer_identity_query_v1"
 SN_PATTERN = re.compile(r"^\d{8}$")
 ANALYZER_BANK = tuple(f"COM{index}" for index in range(35, 43))
 LEGACY_ALGORITHMS = {"legacy", "legacy_ratio", "old", "ratio"}
@@ -300,7 +303,7 @@ def _current_site_state_payload(site_profile: Mapping[str, Any]) -> dict[str, An
         str(row.get("port") or "").upper(): row
         for row in _rows(site_profile, "candidate_analyzers")
     }
-    return {
+    payload = {
         "reported_connected_count": site_profile.get("reported_connected_count"),
         "reported_powered_count": site_profile.get("reported_powered_count"),
         "candidate_analyzers": [
@@ -321,6 +324,9 @@ def _current_site_state_payload(site_profile: Mapping[str, Any]) -> dict[str, An
             for row in [rows.get(port, {})]
         ],
     }
+    if isinstance(site_profile.get("current_probe_evidence"), Mapping):
+        payload["current_probe_evidence"] = site_profile["current_probe_evidence"]
+    return payload
 
 
 def _current_site_state_sha256(site_profile: Mapping[str, Any]) -> str:
@@ -401,6 +407,144 @@ def confirm_v1_5_current_site_state(
     return profile
 
 
+def _validate_current_probe_evidence(
+    site_profile: Mapping[str, Any],
+    by_port: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    evidence = site_profile.get("current_probe_evidence")
+    if not isinstance(evidence, Mapping):
+        return {
+            "present": False,
+            "status": "not_supplied",
+            "reasons": [],
+            "opens_com_ports": False,
+            "sends_read_only_device_commands": False,
+            "sends_write_commands": False,
+            "engineering_probe_only": False,
+        }
+
+    reasons: list[str] = []
+    if evidence.get("schema") != CURRENT_PROBE_BINDING_SCHEMA:
+        reasons.append("current_probe_binding_schema_invalid")
+    if evidence.get("engineering_probe_only") is not True:
+        reasons.append("current_probe_engineering_only_marker_missing")
+    if evidence.get("promotion_state") != "blocked":
+        reasons.append("current_probe_promotion_state_must_be_blocked")
+    if evidence.get("not_real_acceptance_evidence") is not True:
+        reasons.append("current_probe_not_real_acceptance_marker_missing")
+    for field in ("writes_sn", "writes_device_id", "writes_coefficients"):
+        if evidence.get(field) is not False:
+            reasons.append(f"current_probe_binding_{field}_must_be_false")
+
+    passive_path = _text(evidence, "passive_inventory_json")
+    identity_path = _text(evidence, "identity_query_json")
+    passive = _load_json(passive_path)
+    identity = _load_json(identity_path)
+    if not passive:
+        reasons.append("current_probe_passive_inventory_missing")
+    elif evidence.get("passive_inventory_sha256") != _sha256(passive_path):
+        reasons.append("current_probe_passive_inventory_sha256_mismatch")
+    if not identity:
+        reasons.append("current_probe_identity_query_missing")
+    elif evidence.get("identity_query_sha256") != _sha256(identity_path):
+        reasons.append("current_probe_identity_query_sha256_mismatch")
+
+    if passive:
+        if passive.get("schema") != PASSIVE_PROBE_SCHEMA:
+            reasons.append("current_probe_passive_inventory_schema_invalid")
+        if passive.get("engineering_probe_only") is not True:
+            reasons.append("current_probe_passive_engineering_only_marker_missing")
+        if passive.get("not_real_acceptance_evidence") is not True:
+            reasons.append("current_probe_passive_not_real_acceptance_marker_missing")
+        if passive.get("bytes_written") != 0:
+            reasons.append("current_probe_passive_bytes_written_nonzero")
+        if passive.get("sends_device_commands") is not False:
+            reasons.append("current_probe_passive_sent_device_commands")
+        for field in ("writes_sn", "writes_device_id", "writes_coefficients"):
+            if passive.get(field) is not False:
+                reasons.append(f"current_probe_passive_{field}_must_be_false")
+
+    if identity:
+        if identity.get("schema") != POWERED_IDENTITY_QUERY_SCHEMA:
+            reasons.append("current_probe_identity_query_schema_invalid")
+        if identity.get("engineering_probe_only") is not True:
+            reasons.append("current_probe_identity_engineering_only_marker_missing")
+        if identity.get("not_real_acceptance_evidence") is not True:
+            reasons.append("current_probe_identity_not_real_acceptance_marker_missing")
+        if identity.get("sends_write_commands") is not False:
+            reasons.append("current_probe_identity_sent_write_commands")
+        for field in ("writes_sn", "writes_device_id", "writes_coefficients"):
+            if identity.get(field) is not False:
+                reasons.append(f"current_probe_identity_{field}_must_be_false")
+
+    streaming_ports = [
+        str(port).upper()
+        for port in evidence.get("streaming_powered_ports") or []
+    ]
+    passive_ports = [
+        str(port).upper()
+        for port in passive.get("streaming_powered_ports") or []
+    ]
+    if streaming_ports != passive_ports:
+        reasons.append("current_probe_streaming_ports_mismatch")
+    passive_rows = {
+        str(row.get("port") or "").upper(): row
+        for row in _rows(passive, "port_results")
+    }
+    identity_rows = {
+        str(row.get("port") or "").upper(): row
+        for row in _rows(identity, "results")
+    }
+    for port in streaming_ports:
+        profile_row = by_port.get(port, {})
+        observed_ids = [
+            str(value).strip()
+            for value in passive_rows.get(port, {}).get("observed_device_ids") or []
+            if str(value).strip()
+        ]
+        observed_sn = _text(identity_rows.get(port, {}), "sn_code_read")
+        if len(observed_ids) != 1:
+            reasons.append(f"current_probe_{port}_protocol_identity_not_unique")
+        elif _text(profile_row, "protocol_device_id") != observed_ids[0]:
+            reasons.append(f"current_probe_{port}_protocol_identity_mismatch")
+        if not SN_PATTERN.match(observed_sn):
+            reasons.append(f"current_probe_{port}_sn_missing")
+        elif _text(profile_row, "sn_code") != observed_sn:
+            reasons.append(f"current_probe_{port}_sn_mismatch")
+        if profile_row.get("connected") is not True:
+            reasons.append(f"current_probe_{port}_must_be_connected")
+        if profile_row.get("powered") is not True:
+            reasons.append(f"current_probe_{port}_must_be_powered")
+
+    opens_com_ports = any(
+        row.get("open_succeeded") is True
+        for row in _rows(passive, "port_results") + _rows(identity, "results")
+    )
+    sends_write_commands = identity.get("sends_write_commands") is True
+    sends_read_only_commands = bool(
+        identity.get("sends_device_commands") is True
+        and int(identity.get("command_attempt_count") or 0) > 0
+        and not sends_write_commands
+    )
+    return {
+        "present": True,
+        "status": "valid_engineering_probe_binding" if not reasons else "review_required",
+        "reasons": reasons,
+        "passive_inventory_json": passive_path,
+        "passive_inventory_sha256": _sha256(passive_path),
+        "identity_query_json": identity_path,
+        "identity_query_sha256": _sha256(identity_path),
+        "streaming_powered_ports": streaming_ports,
+        "opens_com_ports": opens_com_ports,
+        "sends_read_only_device_commands": sends_read_only_commands,
+        "sends_write_commands": sends_write_commands,
+        "engineering_probe_only": evidence.get("engineering_probe_only") is True,
+        "not_real_acceptance_evidence": (
+            evidence.get("not_real_acceptance_evidence") is True
+        ),
+    }
+
+
 def validate_v1_5_real_acceptance_site_profile(
     *,
     site_profile: Mapping[str, Any],
@@ -425,6 +569,8 @@ def validate_v1_5_real_acceptance_site_profile(
     by_port = {str(row.get("port") or "").upper(): row for row in rows}
     if len(rows) != len(ANALYZER_BANK) or set(by_port) != set(ANALYZER_BANK):
         reasons.append("candidate_analyzer_bank_must_be_exactly_com35_to_com42")
+    current_probe = _validate_current_probe_evidence(site_profile, by_port)
+    reasons.extend(current_probe["reasons"])
     try:
         reported_connected = int(site_profile.get("reported_connected_count"))
         reported_powered = int(site_profile.get("reported_powered_count"))
@@ -563,6 +709,7 @@ def validate_v1_5_real_acceptance_site_profile(
         "reported_powered_count": reported_powered,
         "mapped_connected_count": len(connected_rows),
         "mapped_powered_count": len(powered_rows),
+        "current_probe_evidence_validation": current_probe,
         "reviewed_port_inventory": {
             "schema": "v1_5_readonly_com_reviewed_port_inventory_v1",
             "reviewed_ports": reviewed_ports,
@@ -722,6 +869,21 @@ def build_v1_5_real_acceptance_control_pack(
         _artifact("readonly_com_executor", readonly_com_executor_json),
         _artifact("formal_archive_closure", formal_archive_closure_json),
     ]
+    current_probe = site.get("current_probe_evidence_validation")
+    current_probe = current_probe if isinstance(current_probe, Mapping) else {}
+    if current_probe.get("present") is True:
+        artifacts.extend(
+            [
+                _artifact(
+                    "current_site_passive_inventory_probe",
+                    current_probe.get("passive_inventory_json"),
+                ),
+                _artifact(
+                    "current_site_powered_identity_query",
+                    current_probe.get("identity_query_json"),
+                ),
+            ]
+        )
     return {
         "schema": SCHEMA,
         "generated_at": _now(),
@@ -736,11 +898,20 @@ def build_v1_5_real_acceptance_control_pack(
         "real_primary_latest_refresh_allowed": False,
         "default_entry_switch_allowed": False,
         "site_profile_validation": site,
+        "source_probe_evidence": current_probe,
         "gates": gates,
         "blocker_count": sum(gate["status"] == "blocked" for gate in gates),
         "artifacts": artifacts,
         "opens_com_ports": False,
         "sends_device_commands": False,
+        "source_evidence_opened_com_ports": current_probe.get("opens_com_ports") is True,
+        "source_evidence_sent_read_only_device_commands": (
+            current_probe.get("sends_read_only_device_commands") is True
+        ),
+        "source_evidence_sent_write_commands": current_probe.get("sends_write_commands") is True,
+        "source_evidence_engineering_probe_only": (
+            current_probe.get("engineering_probe_only") is True
+        ),
         "connects_postgresql": False,
         "controls_pressure": False,
         "controls_water_or_gas_routes": False,
@@ -793,6 +964,13 @@ def write_v1_5_real_acceptance_control_pack_outputs(
         f"- 阻断门数量：`{model.get('blocker_count')}`",
         f"- 只读授权前置条件：`{model.get('preflight_ready_for_explicit_readonly_authorization')}`",
         "- 本工具不打开串口、不发送设备命令、不写系数、不控制气路、不自动放行。",
+        (
+            "- 警告：上游现场证据声明发送了写命令，控制包已阻断。"
+            if model.get("source_evidence_sent_write_commands")
+            else "- 上游现场证据曾打开串口并发送只读查询；已单独标记为工程探针，不是正式验收证据。"
+            if model.get("source_evidence_sent_read_only_device_commands")
+            else "- 未绑定发送设备命令的上游现场证据。"
+        ),
         "",
         "## 门禁",
         "",

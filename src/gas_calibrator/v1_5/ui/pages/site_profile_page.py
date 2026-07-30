@@ -290,14 +290,20 @@ class SiteProfilePage(ttk.Frame):
         rows = {str(row.get("port")): row for row in self._rows()}
         for port in ANALYZER_BANK:
             row = rows.get(port, {})
+            identity = row.get("identity_evidence")
+            identity = identity if isinstance(identity, Mapping) else {}
+            identity_scope = str(identity.get("scope") or "")
             state = (
                 self._t("pages.site_profile.value.ready")
                 if self.validation.get("ready_for_readonly_packet_build")
                 and row.get("connected") is True
                 else self._t("pages.site_profile.value.not_selected")
                 if self.validation.get("ready_for_readonly_packet_build")
+                else self._t("pages.site_profile.value.current_probe")
+                if identity_scope.startswith("current_powered_identity_query")
+                and row.get("operator_confirmed") is not True
                 else self._t("pages.site_profile.value.historical_prefill")
-                if isinstance(row.get("identity_evidence"), Mapping)
+                if identity_scope.startswith("historical_")
                 and row.get("operator_confirmed") is not True
                 else self._t("pages.site_profile.value.review")
                 if row
@@ -380,6 +386,8 @@ class SiteProfilePage(ttk.Frame):
         }
         if reason in exact:
             return self._t(f"pages.site_profile.reason.{exact[reason]}")
+        if reason.startswith("current_probe_"):
+            return self._t("pages.site_profile.reason.probe_invalid")
         match = re.fullmatch(r"(connected|powered)_count_expected_(-?\d+)_actual_(\d+)", reason)
         if match:
             return self._t(
