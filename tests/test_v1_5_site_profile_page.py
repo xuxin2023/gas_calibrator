@@ -95,6 +95,9 @@ def test_site_profile_page_saves_hash_bound_four_two_readonly_inputs(
         assert validation["ready_for_readonly_packet_build"] is True
         assert validation["mapped_connected_count"] == 4
         assert validation["mapped_powered_count"] == 2
+        assert page.tree.item("COM35", "values")[-1] == "就绪"
+        assert page.tree.item("COM37", "values")[-1] == "就绪"
+        assert page.tree.item("COM42", "values")[-1] == "未用于本次"
 
         outputs = page.save_profile(tmp_path / "site_profile.json")
         saved_profile = _load_json(outputs["profile"])
@@ -147,6 +150,47 @@ def test_site_profile_page_clears_derived_lists_when_mapping_is_blocked(
         root.destroy()
 
 
+def test_site_profile_page_marks_historical_identity_as_pending_current_confirmation(
+    tmp_path: Path,
+) -> None:
+    root = _root()
+    try:
+        inventory = _write_inventory(tmp_path)
+        page = SiteProfilePage(
+            root,
+            profile_path=tmp_path / "site_profile.json",
+        )
+        page.create_from_inventory(inventory)
+        page.profile["candidate_analyzers"][0].update(
+            {
+                "ga_label": "GA01",
+                "protocol_device_id": "004",
+                "sn_code": "01260604",
+                "algorithm": "legacy_ratio",
+                "identity_evidence": {
+                    "scope": "historical_identity_prefill_only",
+                },
+            }
+        )
+        page.profile["historical_identity_prefill"] = {
+            "applied_count": 1,
+        }
+        source = tmp_path / "historical_profile.json"
+        source.write_text(
+            json.dumps(page.profile, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        page.load_profile(source)
+
+        assert page.tree.item("COM35", "values")[-1] == "历史身份待确认"
+        assert "其中 1 台为历史身份预填" in page.status_var.get()
+        assert page.profile["candidate_analyzers"][0]["connected"] is None
+        assert page.profile["candidate_analyzers"][0]["powered"] is None
+    finally:
+        root.destroy()
+
+
 def test_operator_workstation_exposes_site_mapping_without_replacing_devices_page(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -188,6 +232,7 @@ def test_site_profile_page_i18n_is_chinese_first_with_english_fallback() -> None
 
     assert zh("pages.site_profile.title") == "现场设备配置与只读初始化准备"
     assert zh("pages.site_profile.actions.save") == "保存配置与清单"
+    assert zh("pages.site_profile.value.historical_prefill") == "历史身份待确认"
     assert en("pages.site_profile.title") == (
         "Site Device Mapping and Read-only Initialization"
     )

@@ -8,6 +8,7 @@ controls routes, writes analyzer state, or promotes evidence automatically.
 
 from __future__ import annotations
 
+import copy
 import csv
 import hashlib
 import json
@@ -147,6 +148,151 @@ def build_v1_5_real_acceptance_site_profile_template(
         "controls_water_or_gas_routes": False,
         "not_real_acceptance_evidence": True,
     }
+
+
+def prefill_v1_5_site_profile_from_historical_identity(
+    *,
+    site_profile: Mapping[str, Any],
+    historical_identity_csv: str | Path,
+    historical_runtime_config_json: str | Path,
+) -> dict[str, Any]:
+    """Prefill traceable identity fields without inferring current site state."""
+
+    identity_path = Path(historical_identity_csv).resolve()
+    runtime_path = Path(historical_runtime_config_json).resolve()
+    if not identity_path.is_file():
+        raise ValueError(f"historical identity CSV missing: {identity_path}")
+    runtime_config = _load_json(runtime_path)
+    if not runtime_config:
+        raise ValueError(f"historical runtime config missing or invalid: {runtime_path}")
+
+    with identity_path.open("r", encoding="utf-8-sig", newline="") as handle:
+        identity_rows = [dict(row) for row in csv.DictReader(handle)]
+    identity_sha256 = _sha256(identity_path)
+    runtime_sha256 = _sha256(runtime_path)
+    profile = copy.deepcopy(dict(site_profile))
+    profile_rows = _rows(profile, "candidate_analyzers")
+    by_port = {str(row.get("port") or "").upper(): row for row in profile_rows}
+    runtime_devices = runtime_config.get("devices")
+    runtime_devices = runtime_devices if isinstance(runtime_devices, Mapping) else {}
+    runtime_rows = _rows(runtime_devices, "gas_analyzers")
+    runtime_by_port = {
+        str(row.get("port") or "").upper(): row
+        for row in runtime_rows
+        if str(row.get("port") or "").strip()
+    }
+
+    reasons: list[str] = []
+    if not identity_rows:
+        reasons.append("historical_identity_rows_missing")
+    applied_ports: list[str] = []
+    seen_ports: set[str] = set()
+    for source_row in identity_rows:
+        port = _text(source_row, "old_port", "port").upper()
+        if port in seen_ports:
+            reasons.append(f"duplicate_historical_identity_port={port}")
+            continue
+        seen_ports.add(port)
+        target = by_port.get(port)
+        if target is None:
+            reasons.append(f"historical_identity_port_outside_candidate_bank={port}")
+            continue
+        runtime = runtime_by_port.get(port)
+        if runtime is None:
+            reasons.append(f"{port}_historical_runtime_missing")
+            continue
+
+        old_device_id = _text(source_row, "old_device_id")
+        runtime_device_id = _text(runtime, "device_id")
+        protocol_device_id = _text(source_row, "sn_write_protocol_device_id")
+        sn_code = _text(source_row, "final_sn")
+        sn_readback = _text(source_row, "sn_readback")
+        evidence_level = _text(source_row, "evidence_level")
+        status = _text(source_row, "status")
+        row_reasons: list[str] = []
+        if old_device_id != runtime_device_id:
+            row_reasons.append(f"{port}_historical_old_device_id_mismatch")
+        if status != "formal_identity_ready":
+            row_reasons.append(f"{port}_historical_identity_status={status or 'missing'}")
+        if evidence_level != "owner_attested_traceable":
+            row_reasons.append(
+                f"{port}_historical_evidence_level={evidence_level or 'missing'}"
+            )
+        if sn_code != sn_readback or not SN_PATTERN.fullmatch(sn_code):
+            row_reasons.append(f"{port}_historical_sn_readback_mismatch")
+        if not protocol_device_id:
+            row_reasons.append(f"{port}_historical_protocol_device_id_missing")
+        if not _text(source_row, "old_slot"):
+            row_reasons.append(f"{port}_historical_ga_label_missing")
+
+        proposed = {
+            "ga_label": _text(source_row, "old_slot").upper(),
+            "protocol_device_id": protocol_device_id,
+            "sn_code": sn_code,
+            "algorithm": "legacy_ratio",
+            "check_capable": False,
+            "check_required": False,
+        }
+        for field, value in proposed.items():
+            current = target.get(field)
+            if current not in (None, "") and current != value:
+                row_reasons.append(f"{port}_{field}_conflicts_with_historical_identity")
+        if row_reasons:
+            reasons.extend(row_reasons)
+            continue
+
+        target.update(proposed)
+        target["identity_evidence"] = {
+            "scope": "historical_identity_prefill_only",
+            "source_csv": str(identity_path),
+            "source_csv_sha256": identity_sha256,
+            "evidence_level": evidence_level,
+            "binding_basis": _text(source_row, "binding_basis"),
+            "owner_confirmation_date": _text(
+                source_row,
+                "owner_confirmation_date",
+            ),
+            "historical_old_device_id": old_device_id,
+            "historical_runtime_config_json": str(runtime_path),
+            "historical_runtime_config_sha256": runtime_sha256,
+            "historical_runtime_reference": {
+                "ftd_hz": runtime.get("ftd_hz"),
+                "average1": runtime.get("average_co2"),
+                "average2": runtime.get("average_h2o"),
+                "filter": runtime.get("average_filter"),
+            },
+            "current_connection_state_inferred": False,
+            "current_power_state_inferred": False,
+            "current_operator_confirmation_inferred": False,
+            "current_runtime_evidence_inferred": False,
+        }
+        applied_ports.append(port)
+
+    profile["historical_identity_prefill"] = {
+        "schema": "v1_5_historical_identity_prefill_v1",
+        "generated_at": _now(),
+        "status": (
+            "operator_current_state_confirmation_required"
+            if applied_ports and not reasons
+            else "review_required"
+        ),
+        "applied_ports": applied_ports,
+        "applied_count": len(applied_ports),
+        "reasons": reasons,
+        "historical_identity_csv": str(identity_path),
+        "historical_identity_csv_sha256": identity_sha256,
+        "historical_runtime_config_json": str(runtime_path),
+        "historical_runtime_config_sha256": runtime_sha256,
+        "current_connection_state_inferred": False,
+        "current_power_state_inferred": False,
+        "current_operator_confirmation_inferred": False,
+        "current_runtime_evidence_inferred": False,
+        "opens_com_ports": False,
+        "sends_device_commands": False,
+        "writes_sn": False,
+        "writes_coefficients": False,
+    }
+    return profile
 
 
 def validate_v1_5_real_acceptance_site_profile(

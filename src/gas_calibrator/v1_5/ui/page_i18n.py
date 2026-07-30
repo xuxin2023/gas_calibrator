@@ -334,6 +334,8 @@ _ZH_CN = {
     "pages.site_profile.field.check_required": "要求CHECK",
     "pages.site_profile.value.ready": "就绪",
     "pages.site_profile.value.review": "待完善",
+    "pages.site_profile.value.historical_prefill": "历史身份待确认",
+    "pages.site_profile.value.not_selected": "未用于本次",
     "pages.site_profile.value.not_loaded": "未载入",
     "pages.site_profile.value.yes": "是",
     "pages.site_profile.value.no": "否",
@@ -342,6 +344,9 @@ _ZH_CN = {
     "pages.site_profile.status.select_row": "请先在表格中选择一个端口。",
     "pages.site_profile.status.row_applied": "已应用 {port} 的编辑内容；尚未执行任何设备操作。",
     "pages.site_profile.status.loaded": "已载入 {path}，并完成离线校验。",
+    "pages.site_profile.status.loaded_historical": (
+        "已载入 {path}；其中 {count} 台为历史身份预填，仍需确认当前4台接入和2台通电状态。"
+    ),
     "pages.site_profile.status.template_created": "已从端口清单建立4台接入/2台通电模板，请逐台确认。",
     "pages.site_profile.status.valid": "现场映射校验通过；只读执行仍需独立授权。",
     "pages.site_profile.status.invalid": "现场映射仍有 {count} 项需要处理。",
@@ -586,6 +591,8 @@ _EN_US = {
     "pages.site_profile.field.check_required": "CHECK Required",
     "pages.site_profile.value.ready": "Ready",
     "pages.site_profile.value.review": "Review Required",
+    "pages.site_profile.value.historical_prefill": "Historical Identity - Confirm",
+    "pages.site_profile.value.not_selected": "Not Used in This Run",
     "pages.site_profile.value.not_loaded": "Not Loaded",
     "pages.site_profile.value.yes": "Yes",
     "pages.site_profile.value.no": "No",
@@ -597,6 +604,10 @@ _EN_US = {
     "pages.site_profile.status.select_row": "Select a port row first.",
     "pages.site_profile.status.row_applied": "Applied edits for {port}; no device action was performed.",
     "pages.site_profile.status.loaded": "Loaded and validated {path} offline.",
+    "pages.site_profile.status.loaded_historical": (
+        "Loaded {path}; {count} historical identities were prefilled. Confirm the current "
+        "four connected and two powered analyzers."
+    ),
     "pages.site_profile.status.template_created": (
         "Created the four-connected/two-powered template; confirm each device."
     ),

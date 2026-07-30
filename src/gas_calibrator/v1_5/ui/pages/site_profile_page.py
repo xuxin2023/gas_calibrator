@@ -238,19 +238,21 @@ class SiteProfilePage(ttk.Frame):
     def _refresh_table(self) -> None:
         self.tree.delete(*self.tree.get_children())
         rows = {str(row.get("port")): row for row in self._rows()}
-        reasons = set(self.validation.get("reasons") or [])
         for port in ANALYZER_BANK:
             row = rows.get(port, {})
             state = (
                 self._t("pages.site_profile.value.ready")
                 if self.validation.get("ready_for_readonly_packet_build")
-                and row.get("powered") is True
+                and row.get("connected") is True
+                else self._t("pages.site_profile.value.not_selected")
+                if self.validation.get("ready_for_readonly_packet_build")
+                else self._t("pages.site_profile.value.historical_prefill")
+                if isinstance(row.get("identity_evidence"), Mapping)
+                and row.get("operator_confirmed") is not True
                 else self._t("pages.site_profile.value.review")
                 if row
                 else self._t("pages.site_profile.value.not_loaded")
             )
-            if reasons and row:
-                state = self._t("pages.site_profile.value.review")
             self.tree.insert(
                 "",
                 "end",
@@ -392,7 +394,20 @@ class SiteProfilePage(ttk.Frame):
         self.profile_path = source
         self.profile = payload
         self.validate_profile(show_dialog=False)
-        self.status_var.set(self._t("pages.site_profile.status.loaded", path=source.name))
+        prefill = payload.get("historical_identity_prefill")
+        prefill = prefill if isinstance(prefill, Mapping) else {}
+        if int(prefill.get("applied_count") or 0) > 0:
+            self.status_var.set(
+                self._t(
+                    "pages.site_profile.status.loaded_historical",
+                    path=source.name,
+                    count=prefill["applied_count"],
+                )
+            )
+        else:
+            self.status_var.set(
+                self._t("pages.site_profile.status.loaded", path=source.name)
+            )
 
     def create_from_inventory(self, path: str | Path) -> None:
         self.profile = build_v1_5_real_acceptance_site_profile_template(
