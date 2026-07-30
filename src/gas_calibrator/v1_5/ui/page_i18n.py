@@ -306,6 +306,7 @@ _ZH_CN = {
     "pages.site_profile.metric.status": "只读准备状态",
     "pages.site_profile.actions.load_profile": "载入现场配置",
     "pages.site_profile.actions.new_from_inventory": "从端口清单新建",
+    "pages.site_profile.actions.attach_runtime_setup": "载入运行设置证据",
     "pages.site_profile.actions.apply_row": "应用当前设备",
     "pages.site_profile.actions.validate": "校验全部映射",
     "pages.site_profile.actions.save": "保存配置与清单",
@@ -361,6 +362,12 @@ _ZH_CN = {
     "pages.site_profile.reasons.none": "现场映射完整，可生成只读初始化输入；仍需另行明确授权才能打开真实COM。",
     "pages.site_profile.status.select_row": "请先在表格中选择一个端口。",
     "pages.site_profile.status.row_applied": "已应用 {port} 的编辑内容；尚未执行任何设备操作。",
+    "pages.site_profile.status.runtime_setup_attached": (
+        "已载入 {path}；FTD 与 AVERAGE 值从受控运行设置结果提取，需重新确认现场映射。"
+    ),
+    "pages.site_profile.status.runtime_setup_attach_failed": (
+        "运行设置证据未载入：{error}"
+    ),
     "pages.site_profile.status.loaded": "已载入 {path}，并完成离线校验。",
     "pages.site_profile.status.loaded_historical": (
         "已载入 {path}；其中 {count} 台为历史身份预填，仍需确认当前4台接入和2台通电状态。"
@@ -374,6 +381,7 @@ _ZH_CN = {
     "pages.site_profile.status.saved_blocked": "已保存阻断版 {path}；派生清单已清空，不能用于执行。",
     "pages.site_profile.dialog.validation": "现场映射校验",
     "pages.site_profile.dialog.json": "JSON 文件",
+    "pages.site_profile.dialog.runtime_setup_result": "选择受控运行设置结果 JSON",
     "pages.site_profile.dialog.load_failed": "载入现场配置失败",
     "pages.site_profile.dialog.save_failed": "保存现场配置失败",
     "pages.site_profile.dialog.confirmation_failed": "当前现场确认失败",
@@ -420,7 +428,12 @@ _ZH_CN = {
     "pages.site_profile.reason.legacy_check": "{port} 使用旧算法时，支持 CHECK 和要求 CHECK 必须均不勾选。",
     "pages.site_profile.reason.new_check": "{port} 使用新算法时，支持 CHECK 和要求 CHECK 必须均勾选。",
     "pages.site_profile.reason.runtime_1hz": "{port} 缺少经确认的 1 Hz 上传频率。",
-    "pages.site_profile.reason.average": "{port} 缺少 AVERAGE1 或 AVERAGE2 现场记录。",
+    "pages.site_profile.reason.average": (
+        "{port} 缺少由受控运行设置结果提供的 AVERAGE1/AVERAGE2 证据。"
+    ),
+    "pages.site_profile.reason.runtime_setup": (
+        "{port} 的运行设置结果、身份绑定、命令顺序或 ACK 证据无效。"
+    ),
     "pages.site_profile.reason.unknown": "存在未识别的现场映射问题，请由工程师查看验证 JSON。",
 }
 
@@ -607,6 +620,7 @@ _EN_US = {
     "pages.site_profile.metric.status": "Read-only Readiness",
     "pages.site_profile.actions.load_profile": "Load Site Profile",
     "pages.site_profile.actions.new_from_inventory": "New from Port Inventory",
+    "pages.site_profile.actions.attach_runtime_setup": "Load Runtime Setup Evidence",
     "pages.site_profile.actions.apply_row": "Apply Selected Device",
     "pages.site_profile.actions.validate": "Validate All Mappings",
     "pages.site_profile.actions.save": "Save Profile and Lists",
@@ -674,6 +688,13 @@ _EN_US = {
     ),
     "pages.site_profile.status.select_row": "Select a port row first.",
     "pages.site_profile.status.row_applied": "Applied edits for {port}; no device action was performed.",
+    "pages.site_profile.status.runtime_setup_attached": (
+        "Loaded {path}. FTD and AVERAGE values were derived from the controlled "
+        "runtime setup result; reconfirm the site mapping."
+    ),
+    "pages.site_profile.status.runtime_setup_attach_failed": (
+        "Runtime setup evidence was not loaded: {error}"
+    ),
     "pages.site_profile.status.loaded": "Loaded and validated {path} offline.",
     "pages.site_profile.status.loaded_historical": (
         "Loaded {path}; {count} historical identities were prefilled. Confirm the current "
@@ -697,6 +718,9 @@ _EN_US = {
     ),
     "pages.site_profile.dialog.validation": "Site Mapping Validation",
     "pages.site_profile.dialog.json": "JSON files",
+    "pages.site_profile.dialog.runtime_setup_result": (
+        "Select Controlled Runtime Setup Result JSON"
+    ),
     "pages.site_profile.dialog.load_failed": "Failed to Load Site Profile",
     "pages.site_profile.dialog.save_failed": "Failed to Save Site Profile",
     "pages.site_profile.dialog.confirmation_failed": "Current Site Confirmation Failed",
@@ -768,7 +792,12 @@ _EN_US = {
     "pages.site_profile.reason.legacy_check": "{port} uses the legacy algorithm, so both CHECK flags must be clear.",
     "pages.site_profile.reason.new_check": "{port} uses the new algorithm, so both CHECK flags must be selected.",
     "pages.site_profile.reason.runtime_1hz": "{port} has no confirmed 1 Hz upload evidence.",
-    "pages.site_profile.reason.average": "{port} is missing an AVERAGE1 or AVERAGE2 record.",
+    "pages.site_profile.reason.average": (
+        "{port} lacks AVERAGE1/AVERAGE2 evidence from a controlled runtime setup result."
+    ),
+    "pages.site_profile.reason.runtime_setup": (
+        "{port} has invalid runtime setup result, identity binding, command order, or ACK evidence."
+    ),
     "pages.site_profile.reason.unknown": "An unrecognized mapping issue exists; ask an engineer to review the validation JSON.",
 }
 

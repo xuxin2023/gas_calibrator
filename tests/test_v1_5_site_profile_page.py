@@ -41,7 +41,91 @@ def _write_inventory(tmp_path: Path) -> Path:
     return path
 
 
-def _complete_four_connected_two_powered(page: SiteProfilePage) -> None:
+def _runtime_setup_result(tmp_path: Path, rows: list[dict]) -> Path:
+    command_pairs = [
+        ("set_comm_way_inactive", "SETCOMWAY,YGAS,FFF,0"),
+        ("set_mode2", "MODE,YGAS,FFF,2"),
+        ("set_active_frequency", "FTD,YGAS,FFF,01"),
+        ("set_average1_filter", "AVERAGE1,YGAS,FFF,49"),
+        ("set_average2_filter", "AVERAGE2,YGAS,FFF,49"),
+        ("set_comm_way_active", "SETCOMWAY,YGAS,FFF,1"),
+    ]
+    commands = [
+        {
+            "step": index,
+            "action": action,
+            "command_preview": command,
+            "ack_required": True,
+        }
+        for index, (action, command) in enumerate(command_pairs, start=1)
+    ]
+    path = tmp_path / "v1_5_analyzer_runtime_setup_result.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "v1_5_analyzer_runtime_setup_result_v0",
+                "run_id": "site-page-test-runtime-setup",
+                "status": "ready",
+                "not_real_acceptance_evidence": True,
+                "boundary": {
+                    "opens_com_ports": True,
+                    "sends_device_commands": True,
+                    "writes_runtime_settings": True,
+                    "all_configuration_commands_require_ack": True,
+                    "writes_senco": False,
+                    "writes_device_id": False,
+                    "writes_sn": False,
+                },
+                "plan": {
+                    "contract": {
+                        "command_gap_s": 1.0,
+                        "mode": 2,
+                        "active_send": True,
+                        "ftd_hz": 1,
+                        "average1_target": 49,
+                        "average2_target": 49,
+                    },
+                    "commands": commands,
+                },
+                "results": [
+                    {
+                        "port": row["port"],
+                        "protocol_device_id": row["protocol_device_id"],
+                        "sn_code": row["sn_code"],
+                        "status": "ready",
+                        "sn_readback": row["sn_code"],
+                        "identity_before": {
+                            "mode": 2,
+                            "id": row["protocol_device_id"],
+                        },
+                        "identity_after": {
+                            "mode": 2,
+                            "id": row["protocol_device_id"],
+                        },
+                        "runtime_setup_events": [
+                            {
+                                **command,
+                                "ack_received": True,
+                                "ok": True,
+                            }
+                            for command in commands
+                        ],
+                    }
+                    for row in rows
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _complete_four_connected_two_powered(
+    page: SiteProfilePage,
+    tmp_path: Path,
+) -> None:
     for index, row in enumerate(page.profile["candidate_analyzers"], start=1):
         row["connected"] = index <= 4
         row["powered"] = index <= 2
@@ -70,14 +154,18 @@ def _complete_four_connected_two_powered(page: SiteProfilePage) -> None:
                     },
                     "check_capable": False,
                     "check_required": False,
-                    "runtime_evidence": {
-                        "ftd_hz": 1.0,
-                        "average1": "AVERAGE1",
-                        "average2": "AVERAGE2",
-                        "filter": "operator_reviewed",
-                    },
                 }
             )
+    page.attach_runtime_setup_result(
+        _runtime_setup_result(
+            tmp_path,
+            [
+                row
+                for row in page.profile["candidate_analyzers"]
+                if row.get("powered") is True
+            ],
+        )
+    )
 
 
 def _load_json(path: Path) -> dict:
@@ -105,7 +193,17 @@ def test_site_profile_page_saves_hash_bound_four_two_readonly_inputs(
         assert page.profile["sends_device_commands"] is False
         assert page.profile["writes_coefficients"] is False
 
-        _complete_four_connected_two_powered(page)
+        _complete_four_connected_two_powered(page, tmp_path)
+        page.tree.selection_set("COM35")
+        page._on_selected()
+        page.form_vars["average1"].set("operator-free-text-must-not-apply")
+        page.apply_selected_row()
+        assert (
+            page.profile["candidate_analyzers"][0]["runtime_evidence"][
+                "average1"
+            ]
+            == 49
+        )
         unconfirmed = page.validate_profile(show_dialog=False)
         assert unconfirmed["ready_for_readonly_packet_build"] is False
         assert "current_site_confirmation_missing" in unconfirmed["reasons"]
@@ -167,14 +265,14 @@ def test_site_profile_page_invalidates_confirmation_after_row_edit(
             profile_path=tmp_path / "site_profile.json",
         )
         page.create_from_inventory(inventory)
-        _complete_four_connected_two_powered(page)
+        _complete_four_connected_two_powered(page, tmp_path)
         page.confirmation_vars["operator_name"].set("现场操作员")
         page.confirmation_vars["observation_basis"].set("逐台检查线缆与电源指示灯")
         assert page.confirm_current_state(show_dialog=False) is True
 
         page.tree.selection_set("COM35")
         page._on_selected()
-        page.form_vars["average1"].set("AVERAGE1-EDITED")
+        page.form_vars["ga_label"].set("GA01-EDITED")
         page.apply_selected_row()
 
         assert (
@@ -202,7 +300,7 @@ def test_site_profile_page_binds_algorithm_record_to_current_identity(
             profile_path=tmp_path / "site_profile.json",
         )
         page.create_from_inventory(inventory)
-        _complete_four_connected_two_powered(page)
+        _complete_four_connected_two_powered(page, tmp_path)
         page.profile["candidate_analyzers"][0]["algorithm_evidence"] = {}
 
         blocked = page.validate_profile(show_dialog=False)

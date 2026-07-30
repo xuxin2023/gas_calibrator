@@ -14,6 +14,7 @@ from ....validation.v1_5_real_acceptance_control_pack import (
     ALGORITHM_CLASSIFICATION_EVIDENCE_SCHEMA,
     ANALYZER_BANK,
     LEGACY_ALGORITHMS,
+    bind_v1_5_runtime_setup_result,
     build_v1_5_real_acceptance_site_profile_template,
     confirm_v1_5_current_site_state,
     validate_v1_5_real_acceptance_site_profile,
@@ -134,12 +135,17 @@ class SiteProfilePage(ttk.Frame):
 
         actions = ttk.Frame(body, style="Card.TFrame")
         actions.grid(row=3, column=0, sticky="ew", pady=(0, 10))
-        for index in range(5):
+        for index in range(6):
             actions.columnconfigure(index, weight=1)
         for index, (key, command, accent) in enumerate(
             (
                 ("load_profile", self._choose_profile, False),
                 ("new_from_inventory", self._choose_inventory, False),
+                (
+                    "attach_runtime_setup",
+                    self._choose_runtime_setup_result,
+                    False,
+                ),
                 ("apply_row", self.apply_selected_row, False),
                 ("validate", self.validate_profile, False),
                 ("save", self._choose_save_path, True),
@@ -195,9 +201,9 @@ class SiteProfilePage(ttk.Frame):
             ("protocol_device_id", False),
             ("sn_code", False),
             ("algorithm", False),
-            ("ftd_hz", False),
-            ("average1", False),
-            ("average2", False),
+            ("ftd_hz", True),
+            ("average1", True),
+            ("average2", True),
         )
         for index, (field, readonly) in enumerate(fields):
             ttk.Label(
@@ -447,6 +453,11 @@ class SiteProfilePage(ttk.Frame):
                 "pages.site_profile.reason.active_count",
                 actual=match.group(1),
             )
+        if "_runtime_setup_evidence_" in reason:
+            return self._t(
+                "pages.site_profile.reason.runtime_setup",
+                port=reason.split("_runtime_setup_evidence_", 1)[0],
+            )
         for prefix, key in (
             ("site_profile_schema=", "schema"),
             ("duplicate_ga_label=", "duplicate_ga"),
@@ -536,10 +547,6 @@ class SiteProfilePage(ttk.Frame):
             row[field] = self.form_vars[field].get().strip()
         for field, variable in self.bool_vars.items():
             row[field] = bool(variable.get())
-        runtime = row.setdefault("runtime_evidence", {})
-        runtime["ftd_hz"] = self.form_vars["ftd_hz"].get().strip() or None
-        runtime["average1"] = self.form_vars["average1"].get().strip()
-        runtime["average2"] = self.form_vars["average2"].get().strip()
         source_type = self.algorithm_evidence_types.get(
             self.form_vars["algorithm_evidence_type"].get(),
             "",
@@ -586,6 +593,38 @@ class SiteProfilePage(ttk.Frame):
             )
         self.validate_profile(show_dialog=False)
         self.status_var.set(self._t("pages.site_profile.status.row_applied", port=port))
+
+    def attach_runtime_setup_result(self, path: str | Path) -> None:
+        self.profile = bind_v1_5_runtime_setup_result(
+            site_profile=self.profile,
+            runtime_setup_result_json=path,
+        )
+        self.validate_profile(show_dialog=False)
+        self._refresh_confirmation_status()
+        self.status_var.set(
+            self._t(
+                "pages.site_profile.status.runtime_setup_attached",
+                path=Path(path).name,
+            )
+        )
+
+    def _choose_runtime_setup_result(self) -> None:
+        path = filedialog.askopenfilename(
+            title=self._t("pages.site_profile.dialog.runtime_setup_result"),
+            filetypes=[("JSON", "*.json"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            self.attach_runtime_setup_result(path)
+        except Exception as exc:
+            messagebox.showerror(
+                self._t("common.error"),
+                self._t(
+                    "pages.site_profile.status.runtime_setup_attach_failed",
+                    error=exc,
+                ),
+            )
 
     def load_profile(self, path: str | Path) -> None:
         source = Path(path)

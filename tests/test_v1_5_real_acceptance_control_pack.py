@@ -4,6 +4,7 @@ from pathlib import Path
 
 from gas_calibrator.tools.build_v1_5_real_acceptance_control_pack import main as control_pack_main
 from gas_calibrator.validation.v1_5_real_acceptance_control_pack import (
+    bind_v1_5_runtime_setup_result,
     build_v1_5_real_acceptance_control_pack,
     build_v1_5_real_acceptance_site_profile_template,
     confirm_v1_5_current_site_state,
@@ -27,6 +28,81 @@ def _inventory(tmp_path: Path) -> Path:
             "opens_com_ports": False,
             "sends_device_commands": False,
             "ports": [{"port": f"COM{index}"} for index in range(35, 43)],
+        },
+    )
+
+
+def _runtime_setup_result(tmp_path: Path, analyzers: list[dict]) -> Path:
+    command_pairs = [
+        ("set_comm_way_inactive", "SETCOMWAY,YGAS,FFF,0"),
+        ("set_mode2", "MODE,YGAS,FFF,2"),
+        ("set_active_frequency", "FTD,YGAS,FFF,01"),
+        ("set_average1_filter", "AVERAGE1,YGAS,FFF,49"),
+        ("set_average2_filter", "AVERAGE2,YGAS,FFF,49"),
+        ("set_comm_way_active", "SETCOMWAY,YGAS,FFF,1"),
+    ]
+    commands = [
+        {
+            "step": index,
+            "action": action,
+            "command_preview": command,
+            "ack_required": True,
+        }
+        for index, (action, command) in enumerate(command_pairs, start=1)
+    ]
+    return _write(
+        tmp_path / "v1_5_analyzer_runtime_setup_result.json",
+        {
+            "schema_version": "v1_5_analyzer_runtime_setup_result_v0",
+            "run_id": "test-runtime-setup",
+            "status": "ready",
+            "not_real_acceptance_evidence": True,
+            "boundary": {
+                "opens_com_ports": True,
+                "sends_device_commands": True,
+                "writes_runtime_settings": True,
+                "all_configuration_commands_require_ack": True,
+                "writes_senco": False,
+                "writes_device_id": False,
+                "writes_sn": False,
+            },
+            "plan": {
+                "schema_version": "v1_5_analyzer_runtime_setup_plan_v0",
+                "contract": {
+                    "command_gap_s": 1.0,
+                    "mode": 2,
+                    "active_send": True,
+                    "ftd_hz": 1,
+                    "average1_target": 49,
+                    "average2_target": 49,
+                },
+                "commands": commands,
+                "analyzers": analyzers,
+            },
+            "results": [
+                {
+                    **row,
+                    "status": "ready",
+                    "sn_readback": row["sn_code"],
+                    "identity_before": {
+                        "mode": 2,
+                        "id": row["protocol_device_id"],
+                    },
+                    "identity_after": {
+                        "mode": 2,
+                        "id": row["protocol_device_id"],
+                    },
+                    "runtime_setup_events": [
+                        {
+                            **command,
+                            "ack_received": True,
+                            "ok": True,
+                        }
+                        for command in commands
+                    ],
+                }
+                for row in analyzers
+            ],
         },
     )
 
@@ -76,14 +152,25 @@ def _site_profile(
                         },
                         "check_capable": False,
                         "check_required": False,
-                        "runtime_evidence": {
-                            "ftd_hz": 1.0,
-                            "average1": "AVERAGE1",
-                            "average2": "AVERAGE2",
-                            "filter": "reviewed",
-                        },
                     }
                 )
+        runtime_rows = [
+            {
+                "slot": row["ga_label"],
+                "port": row["port"],
+                "protocol_device_id": row["protocol_device_id"],
+                "sn_code": row["sn_code"],
+            }
+            for row in profile["candidate_analyzers"]
+            if row.get("powered") is True
+        ]
+        profile = bind_v1_5_runtime_setup_result(
+            site_profile=profile,
+            runtime_setup_result_json=_runtime_setup_result(
+                tmp_path,
+                runtime_rows,
+            ),
+        )
         if confirmed:
             profile = confirm_v1_5_current_site_state(
                 site_profile=profile,
@@ -572,9 +659,9 @@ def test_complete_mapping_requires_hash_bound_current_site_confirmation(
         "COM35",
         "COM36",
     ]
-    assert confirmed["current_site_confirmation"]["candidate_state_sha256"] == (
-        "8b7f1a7439206a0d8d5641efe1781d15c023dc9f95cd96a51f449e421b5abb5f"
-    )
+    assert len(
+        confirmed["current_site_confirmation"]["candidate_state_sha256"]
+    ) == 64
 
 
 def test_current_site_confirmation_becomes_invalid_after_mapping_edit(
@@ -591,6 +678,78 @@ def test_current_site_confirmation_becomes_invalid_after_mapping_edit(
     assert validation["ready_for_readonly_packet_build"] is False
     assert (
         "current_site_confirmation_state_sha256_mismatch"
+        in validation["reasons"]
+    )
+
+
+def test_average_free_text_cannot_release_runtime_setup_gate(
+    tmp_path: Path,
+) -> None:
+    inventory, profile = _site_profile(
+        tmp_path,
+        mapped=True,
+        confirmed=False,
+    )
+    profile["candidate_analyzers"][0]["runtime_evidence"] = {
+        "ftd_hz": 1,
+        "average1": "49",
+        "average2": "49",
+        "filter": "operator-entered",
+    }
+    profile = confirm_v1_5_current_site_state(
+        site_profile=profile,
+        operator_name="operator-a",
+        observation_basis="physical observation",
+        confirmed_at="2026-07-30T14:31:00Z",
+    )
+
+    validation = validate_v1_5_real_acceptance_site_profile(
+        site_profile=profile,
+        runtime_port_inventory_json=inventory,
+    )
+
+    assert validation["ready_for_readonly_packet_build"] is False
+    assert "COM35_average1_average2_evidence_missing" in validation["reasons"]
+
+
+def test_runtime_setup_result_requires_identity_bound_ack_sequence(
+    tmp_path: Path,
+) -> None:
+    inventory, profile = _site_profile(
+        tmp_path,
+        mapped=True,
+        confirmed=False,
+    )
+    runtime = profile["candidate_analyzers"][0]["runtime_evidence"]
+    result_path = Path(runtime["runtime_setup_result_json"])
+    payload = json.loads(result_path.read_text(encoding="utf-8"))
+    payload["results"][0]["runtime_setup_events"][3]["ack_received"] = False
+    result_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    updated_sha = hashlib.sha256(result_path.read_bytes()).hexdigest()
+    for row in profile["candidate_analyzers"]:
+        evidence = row.get("runtime_evidence")
+        if isinstance(evidence, dict) and evidence.get(
+            "runtime_setup_result_json"
+        ) == str(result_path):
+            evidence["runtime_setup_result_sha256"] = updated_sha
+    profile = confirm_v1_5_current_site_state(
+        site_profile=profile,
+        operator_name="operator-a",
+        observation_basis="physical observation",
+        confirmed_at="2026-07-30T14:31:00Z",
+    )
+
+    validation = validate_v1_5_real_acceptance_site_profile(
+        site_profile=profile,
+        runtime_port_inventory_json=inventory,
+    )
+
+    assert validation["ready_for_readonly_packet_build"] is False
+    assert (
+        "COM35_runtime_setup_evidence_ack_sequence_invalid"
         in validation["reasons"]
     )
 
@@ -787,8 +946,12 @@ def test_runtime_readability_review_is_bound_without_releasing_blockers(
     for row in profile["candidate_analyzers"]:
         if row["port"] in {"COM35", "COM36"}:
             row["algorithm"] = ""
-            row["runtime_evidence"]["average1"] = ""
-            row["runtime_evidence"]["average2"] = ""
+            row["runtime_evidence"] = {
+                "ftd_hz": 1,
+                "average1": "",
+                "average2": "",
+                "filter": "readability_review_only",
+            }
     profile, review = _attach_runtime_setting_readability_review(
         tmp_path,
         profile,

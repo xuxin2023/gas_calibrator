@@ -204,6 +204,16 @@ def test_build_plan_lists_only_runtime_setup_commands():
     ]
     assert "set_senco" in plan["forbidden_actions"]
     assert "sampling" in plan["forbidden_actions"]
+    assert plan["status"] == "preview_only"
+    assert plan["boundary"]["opens_com_ports"] is False
+    assert plan["boundary"]["sends_device_commands"] is False
+    assert plan["boundary"]["writes_runtime_settings"] is False
+    assert all(row["ack_required"] is True for row in plan["commands"])
+    device_plan = plan["identity_bound_command_plans"][0]
+    assert device_plan["port"] == "COM36"
+    assert device_plan["protocol_device_id"] == "047"
+    assert device_plan["sn_code"] == "01260601"
+    assert device_plan["command_steps"] == plan["commands"]
 
 
 def test_build_plan_accepts_mature_devices_gas_analyzers_shape():
@@ -359,12 +369,22 @@ def test_execute_runtime_setup_uses_identity_bound_order_and_no_write_commands(t
         "read_latest_data",
         "close",
     ]
-    assert ("set_average_filter_channel_with_ack", 1, 49, False) in analyzer.calls
-    assert ("set_average_filter_channel_with_ack", 2, 49, False) in analyzer.calls
+    assert ("set_average_filter_channel_with_ack", 1, 49, True) in analyzer.calls
+    assert ("set_average_filter_channel_with_ack", 2, 49, True) in analyzer.calls
     assert analyzer.ser.writes == ["SN,YGAS,FFF\r\n"]
     assert result["results"][0]["active_upload_rate"]["ok"] is True
     assert result["results"][0]["active_upload_rate"]["approx_hz"] == 1.0
     assert result["results"][0]["runtime_setup_attempt_count"] == 1
+    assert result["results"][0]["identity_after"] == {
+        "mode": 2,
+        "id": "047",
+        "source": "verified_mode2_frame_after_runtime_setup",
+    }
+    assert all(
+        event["ack_required"] is True and event["ack_received"] is True
+        for event in result["results"][0]["runtime_setup_events"]
+    )
+    assert result["boundary"]["all_configuration_commands_require_ack"] is True
     assert any(seconds >= 1.0 for seconds in sleeps)
     assert (tmp_path / "v1_5_analyzer_runtime_setup_result.json").exists()
 
@@ -512,4 +532,9 @@ def test_execute_runtime_setup_blocks_when_command_fails(tmp_path, monkeypatch):
     row = result["results"][0]
     assert row["status"] == "error"
     assert "set_active_frequency" in row["error"]
+    assert [event["action"] for event in row["runtime_setup_events"]] == [
+        "set_comm_way_inactive",
+        "set_mode2",
+        "set_active_frequency",
+    ]
     assert not row["mode2_frames"]

@@ -33,6 +33,8 @@ RUNTIME_SETTING_READABILITY_REVIEW_SCHEMA = (
 ALGORITHM_CLASSIFICATION_EVIDENCE_SCHEMA = (
     "v1_5_algorithm_classification_evidence_v1"
 )
+RUNTIME_SETUP_EVIDENCE_SCHEMA = "v1_5_runtime_setup_evidence_binding_v1"
+RUNTIME_SETUP_RESULT_SCHEMA = "v1_5_analyzer_runtime_setup_result_v0"
 ALGORITHM_EVIDENCE_SOURCE_TYPES = {
     "production_batch_record",
     "firmware_manifest",
@@ -414,6 +416,228 @@ def _algorithm_evidence_reasons(
     if source_path and _sha256(source_path) != source_sha256:
         return [f"{port}_algorithm_evidence_file_hash_mismatch"]
     return []
+
+
+def _runtime_setup_expected_commands() -> list[tuple[str, str]]:
+    return [
+        ("set_comm_way_inactive", "SETCOMWAY,YGAS,FFF,0"),
+        ("set_mode2", "MODE,YGAS,FFF,2"),
+        ("set_active_frequency", "FTD,YGAS,FFF,01"),
+        ("set_average1_filter", "AVERAGE1,YGAS,FFF,49"),
+        ("set_average2_filter", "AVERAGE2,YGAS,FFF,49"),
+        ("set_comm_way_active", "SETCOMWAY,YGAS,FFF,1"),
+    ]
+
+
+def bind_v1_5_runtime_setup_result(
+    *,
+    site_profile: Mapping[str, Any],
+    runtime_setup_result_json: str | Path,
+) -> dict[str, Any]:
+    """Bind a controlled runtime-setup result to matching powered identities."""
+
+    result_path = Path(runtime_setup_result_json).resolve()
+    payload = _load_json(result_path)
+    if payload.get("schema_version") != RUNTIME_SETUP_RESULT_SCHEMA:
+        raise ValueError("runtime setup result schema is invalid")
+    plan = payload.get("plan")
+    if not isinstance(plan, Mapping):
+        raise ValueError("runtime setup result is missing its command plan")
+    contract = plan.get("contract")
+    if not isinstance(contract, Mapping):
+        raise ValueError("runtime setup result is missing its runtime contract")
+    result_rows = _rows(payload, "results")
+    if not result_rows:
+        raise ValueError("runtime setup result has no device rows")
+
+    profile = copy.deepcopy(dict(site_profile))
+    profile_rows = _rows(profile, "candidate_analyzers")
+    powered_rows = [row for row in profile_rows if row.get("powered") is True]
+    if not powered_rows:
+        raise ValueError("site profile has no powered analyzer to bind")
+    by_identity = {
+        (
+            _text(row, "port").upper(),
+            _text(row, "protocol_device_id"),
+            _text(row, "sn_code"),
+        ): row
+        for row in result_rows
+    }
+    result_sha256 = _sha256(result_path)
+    bound_ports: list[str] = []
+    for row in powered_rows:
+        port = _text(row, "port").upper()
+        protocol_id = _text(row, "protocol_device_id", "device_id")
+        sn_code = _text(row, "sn_code", "device_code")
+        result_row = by_identity.get((port, protocol_id, sn_code))
+        if result_row is None:
+            raise ValueError(
+                f"{port}: runtime setup result does not match current port, protocol ID, and SN"
+            )
+        current = _runtime_evidence(row)
+        row["runtime_evidence"] = {
+            **dict(current),
+            "schema": RUNTIME_SETUP_EVIDENCE_SCHEMA,
+            "source_type": "controlled_runtime_setup_result",
+            "runtime_setup_result_json": str(result_path),
+            "runtime_setup_result_sha256": result_sha256,
+            "runtime_setup_run_id": _text(payload, "run_id"),
+            "bound_port": port,
+            "bound_protocol_device_id": protocol_id,
+            "bound_sn_code": sn_code,
+            "ftd_hz": contract.get("ftd_hz"),
+            "average1": contract.get("average1_target"),
+            "average2": contract.get("average2_target"),
+            "filter": contract.get("average1_target"),
+            "result_status": _text(result_row, "status"),
+            "values_derived_from_result": True,
+            "operator_free_text_values_accepted": False,
+        }
+        bound_ports.append(port)
+
+    profile["runtime_setup_evidence_binding"] = {
+        "schema": RUNTIME_SETUP_EVIDENCE_SCHEMA,
+        "status": "attached_for_validation",
+        "runtime_setup_result_json": str(result_path),
+        "runtime_setup_result_sha256": result_sha256,
+        "runtime_setup_run_id": _text(payload, "run_id"),
+        "bound_ports": bound_ports,
+        "opens_com_ports": False,
+        "sends_device_commands": False,
+        "writes_device_settings": False,
+    }
+    confirmation = profile.get("current_site_confirmation")
+    if isinstance(confirmation, dict) and confirmation.get("status") == "confirmed":
+        confirmation["status"] = "stale_after_runtime_setup_evidence_attachment"
+    return profile
+
+
+def _runtime_setup_evidence_reasons(
+    *,
+    runtime: Mapping[str, Any],
+    port: str,
+    protocol_id: str,
+    sn_code: str,
+) -> list[str]:
+    if runtime.get("schema") != RUNTIME_SETUP_EVIDENCE_SCHEMA:
+        return [f"{port}_average1_average2_evidence_missing"]
+    if (
+        _text(runtime, "bound_port").upper() != port
+        or _text(runtime, "bound_protocol_device_id") != protocol_id
+        or _text(runtime, "bound_sn_code") != sn_code
+    ):
+        return [f"{port}_runtime_setup_evidence_identity_mismatch"]
+    path = _text(runtime, "runtime_setup_result_json")
+    declared_sha256 = _text(runtime, "runtime_setup_result_sha256")
+    if not path or not declared_sha256:
+        return [f"{port}_runtime_setup_evidence_file_binding_invalid"]
+    if _sha256(path) != declared_sha256:
+        return [f"{port}_runtime_setup_evidence_file_hash_mismatch"]
+
+    payload = _load_json(path)
+    plan = payload.get("plan")
+    plan = plan if isinstance(plan, Mapping) else {}
+    contract = plan.get("contract")
+    contract = contract if isinstance(contract, Mapping) else {}
+    boundary = payload.get("boundary")
+    boundary = boundary if isinstance(boundary, Mapping) else {}
+    reasons: list[str] = []
+    if (
+        payload.get("schema_version") != RUNTIME_SETUP_RESULT_SCHEMA
+        or payload.get("status") != "ready"
+        or payload.get("not_real_acceptance_evidence") is not True
+        or not _text(payload, "run_id")
+    ):
+        reasons.append(f"{port}_runtime_setup_evidence_result_invalid")
+    if (
+        boundary.get("opens_com_ports") is not True
+        or boundary.get("sends_device_commands") is not True
+        or boundary.get("writes_runtime_settings") is not True
+        or boundary.get("all_configuration_commands_require_ack") is not True
+    ):
+        reasons.append(f"{port}_runtime_setup_evidence_execution_boundary_invalid")
+    for field in ("writes_senco", "writes_device_id", "writes_sn"):
+        if boundary.get(field) is not False:
+            reasons.append(f"{port}_runtime_setup_evidence_forbidden_write")
+            break
+    try:
+        contract_ok = (
+            int(contract.get("mode")) == 2
+            and contract.get("active_send") is True
+            and int(contract.get("ftd_hz")) == 1
+            and int(contract.get("average1_target")) == 49
+            and int(contract.get("average2_target")) == 49
+            and float(contract.get("command_gap_s")) >= 1.0
+        )
+    except (TypeError, ValueError):
+        contract_ok = False
+    if not contract_ok:
+        reasons.append(f"{port}_runtime_setup_evidence_contract_invalid")
+
+    expected_commands = _runtime_setup_expected_commands()
+    commands = _rows(plan, "commands")
+    actual_commands = [
+        (
+            _text(command, "action"),
+            _text(command, "command_preview"),
+            command.get("ack_required"),
+        )
+        for command in commands
+    ]
+    if actual_commands != [
+        (action, command, True) for action, command in expected_commands
+    ]:
+        reasons.append(f"{port}_runtime_setup_evidence_plan_invalid")
+
+    matching = [
+        row
+        for row in _rows(payload, "results")
+        if _text(row, "port").upper() == port
+        and _text(row, "protocol_device_id") == protocol_id
+        and _text(row, "sn_code") == sn_code
+    ]
+    if len(matching) != 1:
+        reasons.append(f"{port}_runtime_setup_evidence_identity_mismatch")
+        return reasons
+    result_row = matching[0]
+    identity_before = result_row.get("identity_before")
+    identity_before = identity_before if isinstance(identity_before, Mapping) else {}
+    identity_after = result_row.get("identity_after")
+    identity_after = identity_after if isinstance(identity_after, Mapping) else {}
+    if (
+        result_row.get("status") != "ready"
+        or _text(result_row, "sn_readback") != sn_code
+        or _text(identity_before, "id") != protocol_id
+        or _text(identity_after, "id") != protocol_id
+    ):
+        reasons.append(f"{port}_runtime_setup_evidence_identity_verification_invalid")
+    events = _rows(result_row, "runtime_setup_events")
+    actual_events = [
+        (
+            _text(event, "action"),
+            _text(event, "command_preview"),
+            event.get("ack_required"),
+            event.get("ack_received"),
+            event.get("ok"),
+        )
+        for event in events
+    ]
+    if actual_events != [
+        (action, command, True, True, True)
+        for action, command in expected_commands
+    ]:
+        reasons.append(f"{port}_runtime_setup_evidence_ack_sequence_invalid")
+    if (
+        _text(runtime, "source_type") != "controlled_runtime_setup_result"
+        or runtime.get("values_derived_from_result") is not True
+        or runtime.get("operator_free_text_values_accepted") is not False
+        or _text(runtime, "runtime_setup_run_id") != _text(payload, "run_id")
+        or runtime.get("ftd_hz") != contract.get("ftd_hz")
+        or runtime.get("average1") != contract.get("average1_target")
+        or runtime.get("average2") != contract.get("average2_target")
+    ):
+        reasons.append(f"{port}_runtime_setup_evidence_binding_invalid")
+    return reasons
 
 
 def _validate_initialization_probe(
@@ -1107,8 +1331,14 @@ def validate_v1_5_real_acceptance_site_profile(
             ftd_ok = False
         if not ftd_ok:
             reasons.append(f"{port}_runtime_1hz_evidence_missing")
-        if not _text(runtime, "average1") or not _text(runtime, "average2"):
-            reasons.append(f"{port}_average1_average2_evidence_missing")
+        reasons.extend(
+            _runtime_setup_evidence_reasons(
+                runtime=runtime,
+                port=port,
+                protocol_id=protocol_id,
+                sn_code=sn_code,
+            )
+        )
         active_analyzers.append(
             {
                 "ga_label": label,

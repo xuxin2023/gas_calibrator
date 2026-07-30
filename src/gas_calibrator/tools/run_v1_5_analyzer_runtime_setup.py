@@ -182,6 +182,7 @@ def _planned_commands(contract: Mapping[str, Any]) -> list[dict[str, Any]]:
             "args": [False],
             "command_preview": "SETCOMWAY,YGAS,FFF,0",
             "category": "runtime_setup",
+            "ack_required": True,
         },
         {
             "step": 2,
@@ -190,6 +191,7 @@ def _planned_commands(contract: Mapping[str, Any]) -> list[dict[str, Any]]:
             "args": [int(contract["mode"])],
             "command_preview": f"MODE,YGAS,FFF,{int(contract['mode'])}",
             "category": "runtime_setup",
+            "ack_required": True,
         },
         {
             "step": 3,
@@ -198,6 +200,7 @@ def _planned_commands(contract: Mapping[str, Any]) -> list[dict[str, Any]]:
             "args": [int(contract["ftd_hz"])],
             "command_preview": f"FTD,YGAS,FFF,{max(1, int(contract['ftd_hz'])):02d}",
             "category": "runtime_setup",
+            "ack_required": True,
         },
         {
             "step": 4,
@@ -207,6 +210,7 @@ def _planned_commands(contract: Mapping[str, Any]) -> list[dict[str, Any]]:
             "command_preview": f"AVERAGE1,YGAS,FFF,{int(contract['average1_target'])}",
             "category": "runtime_setup",
             "physical_channel": "H2O",
+            "ack_required": True,
         },
         {
             "step": 5,
@@ -216,6 +220,7 @@ def _planned_commands(contract: Mapping[str, Any]) -> list[dict[str, Any]]:
             "command_preview": f"AVERAGE2,YGAS,FFF,{int(contract['average2_target'])}",
             "category": "runtime_setup",
             "physical_channel": "CO2",
+            "ack_required": True,
         },
     ]
     if bool(contract["active_send"]):
@@ -227,6 +232,7 @@ def _planned_commands(contract: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "args": [True],
                 "command_preview": "SETCOMWAY,YGAS,FFF,1",
                 "category": "runtime_setup",
+                "ack_required": True,
             }
         )
     return commands
@@ -237,15 +243,45 @@ def build_plan(config: Mapping[str, Any]) -> dict[str, Any]:
     contract = _runtime_contract(config)
     analyzers = _enabled_analyzers(config)
     commands = _planned_commands(contract)
+    identity_bound_command_plans = [
+        {
+            "slot": analyzer["slot"],
+            "port": analyzer["port"],
+            "protocol_device_id": analyzer["protocol_device_id"],
+            "sn_code": analyzer["sn_code"],
+            "command_steps": [dict(command) for command in commands],
+        }
+        for analyzer in analyzers
+    ]
     return {
         "schema_version": "v1_5_analyzer_runtime_setup_plan_v0",
         "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "status": "preview_only",
         "source_schema_version": config.get("schema_version"),
+        "planning_context": dict(config.get("planning_context") or {}),
         "safety": dict(config.get("safety") or {}),
         "contract": contract,
         "analyzer_count": len(analyzers),
         "analyzers": analyzers,
         "commands": commands,
+        "identity_bound_command_plans": identity_bound_command_plans,
+        "execution_contract": {
+            "requires_explicit_operator_authorization": True,
+            "authorization_phrase": AUTHORIZATION_PHRASE,
+            "all_configuration_commands_require_ack": True,
+            "minimum_inter_command_gap_s": contract["command_gap_s"],
+        },
+        "boundary": {
+            "opens_com_ports": False,
+            "sends_device_commands": False,
+            "writes_runtime_settings": False,
+            "writes_senco": False,
+            "writes_device_id": False,
+            "writes_sn": False,
+            "runs_sampling": False,
+            "runs_fitting": False,
+            "not_real_acceptance_evidence": True,
+        },
         "forbidden_actions": [
             "set_senco",
             "set_device_id",
@@ -282,6 +318,7 @@ def _write_outputs(plan: Mapping[str, Any], output_dir: str | Path) -> dict[str,
                     "action": command.get("action", ""),
                     "method": command.get("method", ""),
                     "command_preview": command.get("command_preview", ""),
+                    "ack_required": command.get("ack_required", ""),
                     "category": command.get("category", ""),
                     "writes_senco": False,
                     "writes_device_id": False,
@@ -298,6 +335,7 @@ def _write_outputs(plan: Mapping[str, Any], output_dir: str | Path) -> dict[str,
         "action",
         "method",
         "command_preview",
+        "ack_required",
         "category",
         "writes_senco",
         "writes_device_id",
@@ -441,11 +479,11 @@ def _read_identity_snapshot(analyzer: Any, *, prefer_stream: bool = False) -> Op
     return None
 
 
-def _call_optional_ack(method: Any, *args: Any) -> bool:
+def _call_required_ack(method: Any, *args: Any) -> bool:
     if not callable(method):
         return False
     try:
-        return bool(method(*args, require_ack=False))
+        return bool(method(*args, require_ack=True))
     except TypeError:
         return bool(method(*args))
 
@@ -453,24 +491,66 @@ def _call_optional_ack(method: Any, *args: Any) -> bool:
 def _apply_runtime_commands(analyzer: Any, contract: Mapping[str, Any]) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     gap = _coerce_serial_command_gap(contract["command_gap_s"])
+    command_by_action = {
+        str(command["action"]): command
+        for command in _planned_commands(contract)
+    }
 
-    def record(action: str, ok: bool) -> None:
-        events.append({"action": action, "ok": bool(ok), "category": "runtime_setup"})
+    def record(action: str, ok: bool) -> bool:
+        planned = command_by_action[action]
+        events.append(
+            {
+                "step": planned["step"],
+                "action": action,
+                "command_preview": planned["command_preview"],
+                "ack_required": True,
+                "ack_received": bool(ok),
+                "ok": bool(ok),
+                "category": "runtime_setup",
+            }
+        )
         if gap > 0:
             time.sleep(gap)
+        return bool(ok)
 
-    record("set_comm_way_inactive", _call_optional_ack(getattr(analyzer, "set_comm_way_with_ack", None), False))
-    record("set_mode2", _call_optional_ack(getattr(analyzer, "set_mode_with_ack", None), int(contract["mode"])))
-    record("set_active_frequency", _call_optional_ack(getattr(analyzer, "set_active_freq_with_ack", None), int(contract["ftd_hz"])))
+    if not record("set_comm_way_inactive", _call_required_ack(getattr(analyzer, "set_comm_way_with_ack", None), False)):
+        return events
+    if not record("set_mode2", _call_required_ack(getattr(analyzer, "set_mode_with_ack", None), int(contract["mode"]))):
+        return events
+    if not record(
+        "set_active_frequency",
+        _call_required_ack(
+            getattr(analyzer, "set_active_freq_with_ack", None),
+            int(contract["ftd_hz"]),
+        ),
+    ):
+        return events
     set_channel = getattr(analyzer, "set_average_filter_channel_with_ack", None)
     if callable(set_channel):
-        record("set_average1_filter", _call_optional_ack(set_channel, 1, int(contract["average1_target"])))
-        record("set_average2_filter", _call_optional_ack(set_channel, 2, int(contract["average2_target"])))
+        if not record(
+            "set_average1_filter",
+            _call_required_ack(
+                set_channel,
+                1,
+                int(contract["average1_target"]),
+            ),
+        ):
+            return events
+        if not record(
+            "set_average2_filter",
+            _call_required_ack(
+                set_channel,
+                2,
+                int(contract["average2_target"]),
+            ),
+        ):
+            return events
     else:
-        set_filter = getattr(analyzer, "set_average_filter_with_ack", None)
-        record("set_average_filter", _call_optional_ack(set_filter, int(contract["average1_target"])))
+        raise RuntimeSetupError(
+            "runtime setup analyzer does not support identity-preserving AVERAGE1/AVERAGE2 ACK commands"
+        )
     if bool(contract["active_send"]):
-        record("set_comm_way_active", _call_optional_ack(getattr(analyzer, "set_comm_way_with_ack", None), True))
+        record("set_comm_way_active", _call_required_ack(getattr(analyzer, "set_comm_way_with_ack", None), True))
     return events
 
 
@@ -639,6 +719,28 @@ def _copy_attempt_summary_to_row(row: dict[str, Any], attempt_row: Mapping[str, 
         row["error"] = str(attempt_row.get("error"))
 
 
+def _verified_identity_after(row: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Derive post-setup identity from the final verified MODE2 frame."""
+
+    for key in ("mode2_frames_after_ack_wait", "mode2_frames"):
+        frames = row.get(key)
+        if not isinstance(frames, list):
+            continue
+        for frame in reversed(frames):
+            parsed = frame.get("parsed") if isinstance(frame, Mapping) else None
+            if (
+                isinstance(parsed, Mapping)
+                and parsed.get("mode") == 2
+                and str(parsed.get("id") or "").strip()
+            ):
+                return {
+                    "mode": 2,
+                    "id": str(parsed["id"]),
+                    "source": "verified_mode2_frame_after_runtime_setup",
+                }
+    return None
+
+
 def execute_runtime_setup(
     config: Mapping[str, Any],
     *,
@@ -718,6 +820,20 @@ def execute_runtime_setup(
                         time.sleep(retry_delay_s)
                 row["runtime_setup_attempts"] = attempts
                 row["runtime_setup_attempt_count"] = len(attempts)
+                if row["status"] == "ready":
+                    row["identity_after"] = _verified_identity_after(row)
+                    if not row["identity_after"]:
+                        raise RuntimeSetupError(
+                            f"{slot}: post-setup MODE2 identity evidence missing"
+                        )
+                    if str(row["identity_after"]["id"]) != str(
+                        item.get("protocol_device_id")
+                    ):
+                        raise RuntimeSetupError(
+                            f"{slot}: post-setup protocol id mismatch "
+                            f"read={row['identity_after']['id']} "
+                            f"expected={item.get('protocol_device_id')}"
+                        )
         except Exception as exc:
             row["status"] = "error"
             row["error"] = str(exc)
@@ -743,8 +859,13 @@ def execute_runtime_setup(
             "writes_device_id": False,
             "writes_sn": False,
             "opens_com": True,
+            "opens_com_ports": True,
+            "sends_device_commands": True,
+            "writes_runtime_settings": True,
+            "all_configuration_commands_require_ack": True,
             "serial_command_min_gap_s": MIN_ANALYZER_SERIAL_COMMAND_GAP_S,
         },
+        "not_real_acceptance_evidence": True,
     }
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
