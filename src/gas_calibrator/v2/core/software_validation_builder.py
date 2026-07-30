@@ -15,10 +15,8 @@ WORKSPACE_MODE = "step2_simulation_only_file_artifact_first"
 GENERATED_BY_TOOL = "gas_calibrator.v2.core.software_validation_builder"
 HASH_ALGORITHM = "sha256"
 LINKED_REVIEW_SURFACES = [
-    "results_payload",
-    "reports",
-    "review_center",
-    "workbench_recognition_readiness",
+    "persisted_artifacts",
+    "historical_artifacts",
 ]
 
 
@@ -432,22 +430,16 @@ def build_software_validation_wp5_artifacts(
         "uncertainty_repository/file-backed reviewer skeleton",
         "method_confirmation_repository/file-backed reviewer skeleton",
         "software_validation_repository/file-backed reviewer skeleton",
-        "results_gateway/review_center/workbench/historical sidecar integration",
+        "narrow file gateways and historical-artifact integration",
     ]
     code_refs = [
         "src/gas_calibrator/v2/core/software_validation_builder.py",
         "src/gas_calibrator/v2/core/software_validation_repository.py",
         "src/gas_calibrator/v2/adapters/software_validation_gateway.py",
-        "src/gas_calibrator/v2/adapters/results_gateway.py",
-        "src/gas_calibrator/v2/ui_v2/controllers/app_facade.py",
-        "src/gas_calibrator/v2/ui_v2/controllers/device_workbench.py",
         "src/gas_calibrator/v2/scripts/historical_artifacts.py",
     ]
     test_refs = [
-        "tests/v2/test_results_gateway.py",
         "tests/v2/test_build_offline_governance_artifacts.py",
-        "tests/v2/test_ui_v2_review_center.py",
-        "tests/v2/test_ui_v2_workbench_evidence.py",
         "tests/v2/test_historical_artifacts_cli.py",
         "tests/v2/test_export_resilience.py",
         "tests/v2/test_summary_parity.py",
@@ -455,9 +447,7 @@ def build_software_validation_wp5_artifacts(
     ]
     change_set_refs = [f"git:{branch_or_head}@{repo_ref}"]
     impact_scope = [
-        "results_summary",
-        "review_center",
-        "device_workbench",
+        "persisted_artifacts",
         "historical_artifacts",
         "offline_sidecars",
         "artifact_catalog_compatibility",
@@ -473,25 +463,13 @@ def build_software_validation_wp5_artifacts(
             "module_name": "software_validation_repository",
             "module_path": "src/gas_calibrator/v2/core/software_validation_repository.py",
             "change_scope": "Load file-backed reviewer artifacts and summarize rollup visibility without enabling DB by default.",
-            "impacted_surfaces": ["results_payload", "review_center", "workbench_recognition_readiness"],
+            "impacted_surfaces": list(LINKED_REVIEW_SURFACES),
         },
         {
-            "module_name": "results_gateway",
-            "module_path": "src/gas_calibrator/v2/adapters/results_gateway.py",
-            "change_scope": "Expose software validation sidecars to results payloads and reports rows.",
-            "impacted_surfaces": ["results_payload", "reports"],
-        },
-        {
-            "module_name": "app_facade",
-            "module_path": "src/gas_calibrator/v2/ui_v2/controllers/app_facade.py",
-            "change_scope": "Keep review_center aware of software validation / audit readiness artifacts.",
-            "impacted_surfaces": ["review_center"],
-        },
-        {
-            "module_name": "device_workbench",
-            "module_path": "src/gas_calibrator/v2/ui_v2/controllers/device_workbench.py",
-            "change_scope": "Reference software validation / audit readiness artifacts from workbench recognition readiness.",
-            "impacted_surfaces": ["workbench_recognition_readiness"],
+            "module_name": "historical_artifacts",
+            "module_path": "src/gas_calibrator/v2/scripts/historical_artifacts.py",
+            "change_scope": "Read persisted software-validation sidecars for historical audit only.",
+            "impacted_surfaces": ["historical_artifacts"],
         },
     ]
     changed_module_paths = [str(item.get("module_path") or "").strip() for item in changed_modules]
@@ -505,13 +483,15 @@ def build_software_validation_wp5_artifacts(
     artifact_schema_impact_summary = (
         "Yes; reviewer-sidecar schema expands, but primary evidence schema remains unchanged."
     )
-    results_surface_impact_summary = "Yes; results payloads and reports rows now expose the reviewer-sidecar chain."
-    review_center_impact_summary = "Yes; review_center can scan and show the full software validation / audit sidechain."
-    workbench_surface_impact_summary = "Yes; the workbench recognition readiness section can reference the full sidechain."
+    results_surface_impact_summary = "Retired active surface; no aggregate results gateway is generated."
+    review_center_impact_summary = "Retired active surface; no review-center UI is generated."
+    workbench_surface_impact_summary = (
+        "Retired active surface; historical workbench artifacts remain file-read compatible."
+    )
     file_artifact_first_summary = "file-artifact-first rollback over reviewer sidecars and derived indexes only"
     rollback_steps = [
         "Delete or replace the new reviewer-sidecar JSON/Markdown artifacts first.",
-        "Rebuild results/reports/review_center/workbench indexes from surviving file artifacts only.",
+        "Rebuild historical indexes from surviving file artifacts only.",
         "Keep primary evidence, summary exports, and default DB path untouched.",
     ]
     traceability_rows = [
@@ -521,7 +501,7 @@ def build_software_validation_wp5_artifacts(
             "code_refs": code_refs[:3],
             "test_refs": [
                 "tests/v2/test_software_validation_wp5_contracts.py",
-                "tests/v2/test_results_gateway.py",
+                "tests/v2/test_historical_artifacts_cli.py",
             ],
             "artifact_refs": [
                 _artifact_ref("scope_definition_pack", str(path_map.get("scope_definition_pack") or "")),
@@ -538,10 +518,10 @@ def build_software_validation_wp5_artifacts(
             "code_refs": [
                 "src/gas_calibrator/v2/core/software_validation_builder.py",
                 "src/gas_calibrator/v2/core/software_validation_repository.py",
-                "src/gas_calibrator/v2/adapters/results_gateway.py",
+                "src/gas_calibrator/v2/adapters/software_validation_gateway.py",
             ],
             "test_refs": [
-                "tests/v2/test_results_gateway.py",
+                "tests/v2/test_historical_artifacts_cli.py",
                 "tests/v2/test_software_validation_wp5_contracts.py",
             ],
             "artifact_refs": [
@@ -555,13 +535,11 @@ def build_software_validation_wp5_artifacts(
             "design_refs": [design_refs[4]],
             "code_refs": [
                 "src/gas_calibrator/v2/core/software_validation_builder.py",
-                "src/gas_calibrator/v2/adapters/results_gateway.py",
-                "src/gas_calibrator/v2/ui_v2/controllers/app_facade.py",
-                "src/gas_calibrator/v2/ui_v2/controllers/device_workbench.py",
+                "src/gas_calibrator/v2/adapters/software_validation_gateway.py",
+                "src/gas_calibrator/v2/scripts/historical_artifacts.py",
             ],
             "test_refs": [
-                "tests/v2/test_ui_v2_review_center.py",
-                "tests/v2/test_ui_v2_workbench_evidence.py",
+                "tests/v2/test_historical_artifacts_cli.py",
                 "tests/v2/test_software_validation_wp5_contracts.py",
             ],
             "artifact_refs": [
@@ -579,11 +557,10 @@ def build_software_validation_wp5_artifacts(
             "code_refs": [
                 "src/gas_calibrator/v2/core/software_validation_builder.py",
                 "src/gas_calibrator/v2/core/software_validation_repository.py",
-                "src/gas_calibrator/v2/adapters/results_gateway.py",
+                "src/gas_calibrator/v2/adapters/software_validation_gateway.py",
             ],
             "test_refs": [
                 "tests/v2/test_software_validation_wp5_contracts.py",
-                "tests/v2/test_ui_v2_workbench_evidence.py",
             ],
             "artifact_refs": [
                 _artifact_ref("change_impact_summary", str(path_map.get("change_impact_summary") or "")),
@@ -791,6 +768,19 @@ def build_software_validation_wp5_artifacts(
             "smoke_status": smoke_status,
             "linked_surface_visibility": list(LINKED_REVIEW_SURFACES),
             "linked_surface_summary": linked_surface_summary,
+            "method_confirmation_validation_runs": [
+                {
+                    "validation_case_id": str(item.get("validation_case_id") or ""),
+                    "route_type": str(item.get("route_type") or ""),
+                    "measurand": str(item.get("measurand") or ""),
+                    "validation_status": str(item.get("validation_status") or ""),
+                    "reviewer_only": bool(item.get("reviewer_only", True)),
+                    "not_real_acceptance_evidence": bool(
+                        item.get("not_real_acceptance_evidence", True)
+                    ),
+                }
+                for item in validation_runs
+            ],
             "input_artifact_refs": list(traceability_artifact_refs),
             "reviewer_sidecar_artifact_refs": list(reviewer_sidecar_artifact_refs),
             "evidence_rows": [
@@ -843,7 +833,7 @@ def build_software_validation_wp5_artifacts(
             f"changed modules: {changed_modules_summary}",
             "main execution chain impacted: no",
             "artifact schema impacted: reviewer-sidecar only",
-            "results / review_center / workbench: yes | yes | yes",
+            "persisted / historical artifacts: yes | yes",
         ],
         detail_lines=[
             f"impact scope: {' | '.join(impact_scope)}",
@@ -870,14 +860,17 @@ def build_software_validation_wp5_artifacts(
             "main_execution_chain_impact_summary": main_execution_chain_impact_summary,
             "impacts_artifact_schema": True,
             "artifact_schema_impact_summary": artifact_schema_impact_summary,
-            "impacts_results_surface": True,
+            "impacts_results_surface": False,
             "results_surface_impact_summary": results_surface_impact_summary,
-            "impacts_review_center_surface": True,
+            "impacts_review_center_surface": False,
             "review_center_surface_impact_summary": review_center_impact_summary,
-            "impacts_workbench_surface": True,
+            "impacts_workbench_surface": False,
             "workbench_surface_impact_summary": workbench_surface_impact_summary,
-            "impacts_reports_surface": True,
-            "reports_surface_impact_summary": "Yes; report rows expose each sidecar with reviewer-facing notes.",
+            "impacts_reports_surface": False,
+            "reports_surface_impact_summary": (
+                "Retired active surface; persisted artifacts remain readable through "
+                "the historical audit path."
+            ),
             "linked_surface_visibility": list(LINKED_REVIEW_SURFACES),
             "linked_surface_summary": linked_surface_summary,
             "db_ready_stub_only": True,
@@ -1267,7 +1260,10 @@ def build_software_validation_wp5_artifacts(
             conformity_boundary_summary=non_claim_note,
             current_coverage_summary=f"hash algorithm {HASH_ALGORITHM} | entries {len(hash_registry_entries)}",
             missing_evidence_summary="Hash registry is file-backed only and does not claim formal anti-tamper protection.",
-            reviewer_next_step_digest="Use hash entries as reviewer traceability context in results, workbench, review center, and historical views.",
+            reviewer_next_step_digest=(
+                "Use hash entries as reviewer traceability context in persisted "
+                "artifacts and historical views."
+            ),
             non_claim_digest=non_claim_note,
         ),
         boundary_statements=boundary_statements,

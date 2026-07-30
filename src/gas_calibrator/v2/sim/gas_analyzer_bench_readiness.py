@@ -11,7 +11,7 @@ from typing import Any, Mapping
 
 from gas_calibrator.utils.file_io import write_json as _write_json
 
-from ..domain.services.gas_analyzer_bench_readiness import (
+from gas_calibrator.validation.metrology.gas_analyzer_bench_readiness import (
     analyze_gas_analyzer_bench_readiness,
     build_gas_analyzer_bench_readiness_acceptance,
 )

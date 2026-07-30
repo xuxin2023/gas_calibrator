@@ -9,7 +9,7 @@ from typing import Any, Callable, Mapping, Optional
 
 from ...exceptions import WorkflowValidationError
 from ..models import CalibrationPoint
-from ..orchestration_context import OrchestrationContext
+from .. import OrchestrationContext
 from ..run_state import RunState
 
 

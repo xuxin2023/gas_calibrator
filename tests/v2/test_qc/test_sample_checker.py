@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from gas_calibrator.v2.config import QCConfig
+from gas_calibrator.v2.config.models import QCConfig
 from gas_calibrator.v2.core.models import CalibrationPoint, SamplingResult
 from gas_calibrator.v2.qc.sample_checker import SampleChecker
 

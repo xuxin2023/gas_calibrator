@@ -1,4 +1,7 @@
-from gas_calibrator.v2.export import build_product_report_manifest, build_product_report_templates
+from gas_calibrator.v2.export import (
+    build_product_report_manifest,
+    build_product_report_templates,
+)
 
 
 def test_product_report_templates_enable_calibration_only_for_auto_mode() -> None:
@@ -12,12 +15,12 @@ def test_product_report_templates_enable_calibration_only_for_auto_mode() -> Non
         "co2_test_report",
         "co2_calibration_report",
         "h2o_test_report",
-        "h2o_calibration_report",
     }
     assert measurement_keys == {"co2_test_report"}
     h2o_calibration = next(item for item in auto_templates if item.key == "h2o_calibration_report")
-    assert h2o_calibration.implementation_status == "first_exporter_available"
-    assert h2o_calibration.current_exporter == "storage.exporter.export_h2o_calibration_reports"
+    assert h2o_calibration.enabled is False
+    assert h2o_calibration.implementation_status == "retired_v2_no_formal_exporter"
+    assert h2o_calibration.current_exporter == ""
 
 
 def test_product_report_manifest_marks_per_device_template_family() -> None:
@@ -28,10 +31,7 @@ def test_product_report_manifest_marks_per_device_template_family() -> None:
     assert manifest["template_count"] == 2
     assert {item["key"] for item in manifest["templates"]} == {"h2o_test_report", "h2o_calibration_report"}
     assert any(item["component"] == "ratio_poly_report" for item in manifest["current_capabilities"])
-    assert any(
-        item["component"] == "storage.exporter.export_h2o_calibration_reports"
-        for item in manifest["current_capabilities"]
-    )
+    assert any(item["component"] == "v1_5_formal_reports" for item in manifest["current_capabilities"])
     calibration = next(item for item in manifest["templates"] if item["key"] == "h2o_calibration_report")
     assert calibration["enabled"] is False
-    assert calibration["implementation_status"] == "gated_off"
+    assert calibration["implementation_status"] == "retired_v2_no_formal_exporter"

@@ -3,12 +3,12 @@ from pathlib import Path
 
 import pytest
 
-from gas_calibrator.v2.config import AppConfig
+from gas_calibrator.v2.config.models import AppConfig
 from gas_calibrator.v2.core.calibration_service import CalibrationService
 from gas_calibrator.v2.core import orchestrator as orchestrator_mod
 from gas_calibrator.v2.core.device_manager import DeviceManager, DeviceStatus
 from gas_calibrator.v2.core.models import CalibrationPoint
-from gas_calibrator.v2.core.stability_checker import StabilityResult, StabilityType
+from gas_calibrator.validation.simulation.stability_checker import StabilityResult
 from gas_calibrator.v2.exceptions import WorkflowValidationError
 
 
@@ -120,6 +120,33 @@ def _disable_long_waits(service: CalibrationService) -> None:
     service.orchestrator.valve_routing_service.set_valves_for_co2 = lambda point: None
     service.orchestrator.valve_routing_service.cleanup_co2_route = lambda reason="": None
     service.orchestrator._export_qc_report = lambda: None
+
+
+def test_create_devices_includes_simulated_reference_thermometer(tmp_path: Path) -> None:
+    config = AppConfig.from_dict(
+        {
+            "devices": {
+                "thermometer": {
+                    "port": "SIM-TH",
+                    "enabled": True,
+                }
+            },
+            "features": {
+                "simulation_mode": True,
+            },
+            "paths": {
+                "output_dir": str(tmp_path),
+            },
+        }
+    )
+    service = CalibrationService(config=config, output_dir=str(tmp_path))
+
+    service.orchestrator._create_devices()
+
+    thermometer = service.device_manager.get_device("thermometer")
+    assert thermometer is not None
+    assert thermometer.__class__.__name__ == "ThermometerFake"
+    assert service.device_manager.get_info("thermometer").device_type == "thermometer"
 
 
 def test_orchestrator_runs_points_and_records_results(tmp_path: Path) -> None:

@@ -3,9 +3,12 @@ from pathlib import Path
 
 import pytest
 
-from gas_calibrator.v2.config import AppConfig
+from gas_calibrator.v2.config.models import AppConfig
 from gas_calibrator.v2.core.calibration_service import CalibrationService
-from gas_calibrator.v2.core.point_parser import LegacyExcelPointLoader, PointParser
+from gas_calibrator.validation.simulation.point_parser import (
+    LegacyExcelPointLoader,
+    PointParser,
+)
 
 
 REPO_POINTS = Path(__file__).resolve().parents[2] / "points.xlsx"

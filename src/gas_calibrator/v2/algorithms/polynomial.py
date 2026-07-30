@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from .base import AlgorithmBase
-from .result_types import FitResult, ValidationResult
+from . import FitResult, ValidationResult
 from .validator import BackValidator
 
 

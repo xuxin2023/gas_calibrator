@@ -1,7 +1,7 @@
 """Compact summary budget — surface-aware line budget, truncation, and ordering.
 
 This module provides deterministic governance for compact summary line budgets
-across different display surfaces (results_gateway, review_center, historical).
+while replaying the retained historical-artifact surface.
 
 Design principles:
 - Each surface gets a fixed line budget
@@ -26,8 +26,6 @@ COMPACT_SUMMARY_BUDGET_VERSION: str = "2.16.0"
 # Surface default budgets — max compact summary lines per surface
 # ---------------------------------------------------------------------------
 SURFACE_DEFAULT_BUDGETS: dict[str, int] = {
-    "results_gateway": 24,
-    "review_center": 40,
     "historical": 32,
 }
 
@@ -101,7 +99,7 @@ def apply_surface_budget(
 
     Args:
         packs: List of pack dicts, each with summary_key, priority, summary_lines.
-        surface: Surface name (e.g. "results_gateway").
+        surface: Retained surface name (``historical``).
         budget: Override budget. If None, uses SURFACE_DEFAULT_BUDGETS[surface].
 
     Returns:
@@ -179,7 +177,7 @@ def build_surface_render_result(
 
     Args:
         packs: List of pack dicts, each with summary_key, priority, summary_lines.
-        surface: Surface name (e.g. "results_gateway").
+        surface: Retained surface name (``historical``).
         budget: Override budget. If None, uses SURFACE_DEFAULT_BUDGETS[surface].
         lang: "zh" (default) or "en".
 

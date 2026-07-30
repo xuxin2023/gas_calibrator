@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-from gas_calibrator.v2.core.models import CalibrationPhase, CalibrationPoint
-from gas_calibrator.v2.core.route_context import RouteContext
+from gas_calibrator.v2.core.models import CalibrationPhase, CalibrationPoint, RouteContext
+
+
+def test_route_context_has_single_core_model_owner() -> None:
+    assert RouteContext.__module__ == "gas_calibrator.v2.core.models"
 
 
 def test_route_context_tracks_and_clears_route_runtime_state() -> None:

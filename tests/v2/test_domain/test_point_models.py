@@ -1,5 +1,9 @@
-from gas_calibrator.v2.domain.enums import PointStatus, WorkflowPhase
-from gas_calibrator.v2.domain.point_models import CalibrationPoint, PointExecutionState
+from gas_calibrator.validation.simulation.domain import (
+    CalibrationPoint,
+    PointExecutionState,
+    PointStatus,
+    WorkflowPhase,
+)
 
 
 def test_calibration_point_defaults() -> None:
@@ -18,3 +22,14 @@ def test_point_execution_state_defaults() -> None:
     assert state.phase is WorkflowPhase.POINT_EXECUTION
     assert state.sample_count == 0
     assert state.rejected is False
+
+
+def test_point_models_have_domain_package_as_their_single_owner() -> None:
+    assert (
+        CalibrationPoint.__module__
+        == "gas_calibrator.validation.simulation.domain"
+    )
+    assert (
+        PointExecutionState.__module__
+        == "gas_calibrator.validation.simulation.domain"
+    )

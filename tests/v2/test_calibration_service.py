@@ -2,14 +2,25 @@ import json
 from pathlib import Path
 import time
 
-from gas_calibrator.v2.config import AppConfig
+from gas_calibrator.validation.simulation.point_preparation import (
+    filter_selected_temperatures,
+    normalize_negative_temperature_route,
+    parse_points_for_execution,
+    prepare_points_for_execution,
+    reorder_points_for_execution,
+)
+from gas_calibrator.v2.config.models import AppConfig
+import gas_calibrator.v2.core.calibration_service as v2_calibration_service
 from gas_calibrator.v2.core.calibration_service import (
     CalibrationPhase,
     CalibrationService,
 )
 from gas_calibrator.v2.core.device_manager import DeviceManager
-from gas_calibrator.v2.core.runners.route_run_result import RouteRunResult
-from gas_calibrator.v2.core.stability_checker import StabilityResult, StabilityType
+from gas_calibrator.v2.core.models import RouteRunResult
+from gas_calibrator.validation.simulation.stability_checker import (
+    StabilityResult,
+    StabilityType,
+)
 
 
 class FakeTemperatureChamber:
@@ -231,6 +242,44 @@ def _make_service(points_path: Path, stability_checker) -> CalibrationService:
     )
     _stub_route_services(service)
     return service
+
+
+def test_point_preparation_functions_have_one_shared_owner() -> None:
+    functions = (
+        filter_selected_temperatures,
+        normalize_negative_temperature_route,
+        parse_points_for_execution,
+        prepare_points_for_execution,
+        reorder_points_for_execution,
+    )
+    assert {
+        function.__module__
+        for function in functions
+    } == {"gas_calibrator.validation.simulation.point_preparation"}
+    assert (
+        v2_calibration_service._filter_selected_temperatures
+        is filter_selected_temperatures
+    )
+    assert (
+        v2_calibration_service._normalize_negative_temperature_route
+        is normalize_negative_temperature_route
+    )
+    assert (
+        v2_calibration_service._parse_points_for_execution
+        is parse_points_for_execution
+    )
+    assert (
+        v2_calibration_service._reorder_points_for_execution
+        is reorder_points_for_execution
+    )
+    for public_name in (
+        "filter_selected_temperatures",
+        "normalize_negative_temperature_route",
+        "parse_points_for_execution",
+        "prepare_points_for_execution",
+        "reorder_points_for_execution",
+    ):
+        assert not hasattr(v2_calibration_service, public_name)
 
 
 def test_initial_status_is_idle(tmp_path: Path) -> None:

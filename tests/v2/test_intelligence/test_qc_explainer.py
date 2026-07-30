@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from gas_calibrator.v2.config import AIConfig, AIFeaturesConfig
+from gas_calibrator.validation.simulation.config import AIConfig, AIFeaturesConfig
 from gas_calibrator.v2.intelligence.explainers import QCExplainer
 from gas_calibrator.v2.intelligence.llm_client import LLMConfig, MockLLMClient
 
@@ -70,3 +70,7 @@ def test_qc_explainer_batch() -> None:
 
     assert len(texts) == 2
     assert all("建议：" in text for text in texts)
+
+
+def test_qc_explainer_has_one_package_owner() -> None:
+    assert QCExplainer.__module__ == "gas_calibrator.v2.intelligence.explainers"

@@ -29,7 +29,6 @@ from ..sim import (
     build_gas_analyzer_operating_envelope_offline_report,
     build_summary_parity_report,
     get_simulation_suite,
-    list_replay_scenarios,
     list_simulation_suites,
     load_replay_fixture,
     materialize_replay_fixture,

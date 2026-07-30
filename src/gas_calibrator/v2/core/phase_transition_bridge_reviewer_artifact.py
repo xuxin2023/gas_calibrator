@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from .phase_transition_bridge_presenter import build_phase_transition_bridge_panel_payload
 from .governance_handoff_contracts import GOVERNANCE_HANDOFF_FILENAMES as _GOV_FILENAMES
 
 
@@ -12,7 +11,7 @@ PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME = _GOV_FILENAMES["phase_transition_bri
 def build_phase_transition_bridge_reviewer_artifact(
     bridge: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    section = build_phase_transition_bridge_panel_payload(bridge)
+    section = _build_reviewer_section(bridge)
     if not bool(section.get("available", False)):
         return {
             "available": False,
@@ -53,6 +52,74 @@ def build_phase_transition_bridge_reviewer_artifact(
         "display": reviewer_display,
         "section": section,
         "markdown": markdown,
+    }
+
+
+def _build_reviewer_section(
+    bridge: dict[str, Any] | None,
+) -> dict[str, Any]:
+    payload = dict(bridge or {})
+    reviewer_display = dict(payload.get("reviewer_display") or {})
+    if not payload or not reviewer_display:
+        return {
+            "available": False,
+            "raw": {},
+            "display": {},
+        }
+
+    display = {
+        "title_text": "阶段准入桥",
+        "summary_text": str(reviewer_display.get("summary_text") or "").strip(),
+        "status_line": str(reviewer_display.get("status_line") or "").strip(),
+        "current_stage_text": str(reviewer_display.get("current_stage_text") or "").strip(),
+        "next_stage_text": str(reviewer_display.get("next_stage_text") or "").strip(),
+        "engineering_isolation_text": str(
+            reviewer_display.get("engineering_isolation_text") or ""
+        ).strip(),
+        "real_acceptance_text": str(
+            reviewer_display.get("real_acceptance_text") or ""
+        ).strip(),
+        "execute_now_text": str(reviewer_display.get("execute_now_text") or "").strip(),
+        "defer_to_stage3_text": str(
+            reviewer_display.get("defer_to_stage3_text") or ""
+        ).strip(),
+        "blocking_text": str(reviewer_display.get("blocking_text") or "").strip(),
+        "warning_text": str(reviewer_display.get("warning_text") or "").strip(),
+    }
+    card_lines = [
+        display["current_stage_text"],
+        display["next_stage_text"],
+        display["engineering_isolation_text"],
+        display["real_acceptance_text"],
+        display["execute_now_text"],
+        display["defer_to_stage3_text"],
+        display["warning_text"],
+    ]
+    section_lines = [
+        display["summary_text"],
+        display["status_line"],
+        *card_lines[:6],
+        display["blocking_text"],
+        display["warning_text"],
+    ]
+    display["card_lines"] = [line for line in card_lines if line]
+    display["card_text"] = "\n".join(display["card_lines"])
+    display["section_lines"] = [line for line in section_lines if line]
+    display["section_text"] = "\n".join(display["section_lines"])
+
+    return {
+        "available": True,
+        "raw": {
+            "overall_status": str(payload.get("overall_status") or "not_ready"),
+            "recommended_next_stage": str(
+                payload.get("recommended_next_stage") or "close_step2_tail_gaps"
+            ),
+            "ready_for_engineering_isolation": bool(
+                payload.get("ready_for_engineering_isolation", False)
+            ),
+            "real_acceptance_ready": bool(payload.get("real_acceptance_ready", False)),
+        },
+        "display": display,
     }
 
 

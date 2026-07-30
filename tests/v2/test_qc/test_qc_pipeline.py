@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
-from gas_calibrator.v2.config import AIConfig, AIFeaturesConfig, QCConfig
+from gas_calibrator.validation.simulation.config import AIConfig, AIFeaturesConfig
+from gas_calibrator.v2.config.models import QCConfig
 from gas_calibrator.v2.core.models import CalibrationPoint, SamplingResult
 from gas_calibrator.v2.intelligence.explainers import QCExplainer
 from gas_calibrator.v2.intelligence.llm_client import LLMConfig, MockLLMClient

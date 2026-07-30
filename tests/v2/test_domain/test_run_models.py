@@ -1,7 +1,11 @@
 from datetime import datetime
 
-from gas_calibrator.v2.domain.enums import RunStatus, WorkflowPhase
-from gas_calibrator.v2.domain.run_models import RunContext, RunSummary
+from gas_calibrator.validation.simulation.domain import (
+    RunContext,
+    RunStatus,
+    RunSummary,
+    WorkflowPhase,
+)
 
 
 def test_run_context_defaults() -> None:
@@ -38,3 +42,8 @@ def test_run_summary_fields() -> None:
     assert summary.status is RunStatus.FINISHED
     assert summary.warnings == ["warn"]
     assert summary.errors == ["err"]
+
+
+def test_run_models_have_domain_package_as_their_single_owner() -> None:
+    assert RunContext.__module__ == "gas_calibrator.validation.simulation.domain"
+    assert RunSummary.__module__ == "gas_calibrator.validation.simulation.domain"

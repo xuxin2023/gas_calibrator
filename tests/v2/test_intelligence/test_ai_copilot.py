@@ -3,10 +3,9 @@ import json
 from datetime import datetime, timedelta
 
 from gas_calibrator.v2.algorithms.engine import AlgorithmEngine
-from gas_calibrator.v2.algorithms.registry import AlgorithmRegistry
-from gas_calibrator.v2.config import AIConfig, AIFeaturesConfig
-from gas_calibrator.v2.domain.result_models import PointResult
-from gas_calibrator.v2.domain.sample_models import RawSample
+from gas_calibrator.v2.algorithms import AlgorithmRegistry
+from gas_calibrator.validation.simulation.config import AIConfig, AIFeaturesConfig
+from gas_calibrator.validation.simulation.domain import PointResult, RawSample
 from gas_calibrator.v2.intelligence.advisors import AlgorithmAdvisor, AnomalyAdvisor
 from gas_calibrator.v2.intelligence.llm_client import LLMConfig, MockLLMClient
 from gas_calibrator.v2.intelligence.summarizer import Summarizer

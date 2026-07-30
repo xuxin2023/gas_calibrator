@@ -13,9 +13,9 @@ from pathlib import Path
 from typing import Any, Iterable, Optional
 
 from gas_calibrator.utils.file_io import write_json as _write_json
+from gas_calibrator.validation.simulation.config import _normalize_sensor_precheck_config
 
 from ...config import load_config
-from ..config.models import _normalize_sensor_precheck_config
 from . import route_trace_diff
 
 
@@ -680,7 +680,7 @@ def _preflight_points_input(
     side: str,
     validation_profile: str,
 ) -> dict[str, Any]:
-    from ..core.point_parser import PointParser
+    from gas_calibrator.validation.simulation.point_parser import PointParser
 
     workflow = runtime_cfg.get("workflow") if isinstance(runtime_cfg, dict) else {}
     paths = runtime_cfg.get("paths") if isinstance(runtime_cfg, dict) else {}
@@ -2448,7 +2448,8 @@ def _validation_profile_artifact_names(validation_profile: str) -> Optional[dict
             "bundle_artifact_key": "skip0_co2_only_replacement_bundle",
             "latest_artifact_key": "skip0_co2_only_replacement_latest",
             "command_hint": (
-                "python -m gas_calibrator.v2.scripts.verify_v1_v2_skip0_co2_only_replacement "
+                "python -m gas_calibrator.v2.scripts.compare_v1_v2_control_flow "
+                "--replacement-skip0-co2-only --skip-connect-check "
                 "--v1-config <v1_config.json> --v2-config <v2_config.json> [--temp <temp_c>] "
                 "[--simulation] [--run-name <name>]"
             ),
@@ -2460,7 +2461,8 @@ def _validation_profile_artifact_names(validation_profile: str) -> Optional[dict
             "bundle_artifact_key": "skip0_co2_only_diagnostic_relaxed_bundle",
             "latest_artifact_key": "skip0_co2_only_diagnostic_relaxed_latest",
             "command_hint": (
-                "python -m gas_calibrator.v2.scripts.verify_v1_v2_skip0_co2_only_diagnostic_relaxed "
+                "python -m gas_calibrator.v2.scripts.compare_v1_v2_control_flow "
+                "--replacement-skip0-co2-only-diagnostic-relaxed --skip-connect-check "
                 "--v1-config <v1_config.json> --v2-config <v2_config.json> [--temp <temp_c>] "
                 "[--simulation] [--run-name <name>]"
             ),
@@ -2472,7 +2474,8 @@ def _validation_profile_artifact_names(validation_profile: str) -> Optional[dict
             "bundle_artifact_key": "skip0_replacement_bundle",
             "latest_artifact_key": "skip0_replacement_latest",
             "command_hint": (
-                "python -m gas_calibrator.v2.scripts.verify_v1_v2_skip0_replacement "
+                "python -m gas_calibrator.v2.scripts.compare_v1_v2_control_flow "
+                "--replacement-skip0 --skip-connect-check "
                 "--v1-config <v1_config.json> --v2-config <v2_config.json> [--temp <temp_c>] "
                 "[--simulation] [--run-name <name>]"
             ),
@@ -2484,7 +2487,8 @@ def _validation_profile_artifact_names(validation_profile: str) -> Optional[dict
             "bundle_artifact_key": "h2o_only_replacement_bundle",
             "latest_artifact_key": "h2o_only_replacement_latest",
             "command_hint": (
-                "python -m gas_calibrator.v2.scripts.verify_v1_v2_h2o_only_replacement "
+                "python -m gas_calibrator.v2.scripts.compare_v1_v2_control_flow "
+                "--replacement-h2o-only --skip-connect-check "
                 "--v1-config <v1_config.json> --v2-config <v2_config.json> [--temp <temp_c>] "
                 "[--simulation] [--run-name <name>]"
             ),

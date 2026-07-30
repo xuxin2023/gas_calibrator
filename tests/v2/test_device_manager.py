@@ -1,6 +1,6 @@
 from typing import Any
 
-from gas_calibrator.v2.config import DeviceConfig
+from gas_calibrator.v2.config.models import DeviceConfig
 from gas_calibrator.v2.core.device_manager import DeviceManager, DeviceStatus
 
 
@@ -60,6 +60,26 @@ def _make_config() -> DeviceConfig:
             ],
         }
     )
+
+
+def test_device_registry_includes_configured_reference_thermometer() -> None:
+    manager = DeviceManager(
+        DeviceConfig.from_dict(
+            {
+                "thermometer": {
+                    "port": "SIM-TH",
+                    "enabled": True,
+                }
+            }
+        )
+    )
+
+    info = manager.get_info("thermometer")
+
+    assert info is not None
+    assert info.device_type == "thermometer"
+    assert info.port == "SIM-TH"
+    assert info.status is DeviceStatus.UNKNOWN
 
 
 def test_open_all_opens_registered_enabled_devices() -> None:

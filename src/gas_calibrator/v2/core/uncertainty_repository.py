@@ -14,7 +14,7 @@ UNCERTAINTY_REPOSITORY_SCHEMA_VERSION = "step2-uncertainty-repository-v1"
 UNCERTAINTY_REPOSITORY_MODE = "file_artifact_first"
 UNCERTAINTY_GATEWAY_MODE = "file_backed_default"
 UNCERTAINTY_DB_READY_MODE = "db_ready_stub"
-UNCERTAINTY_REPOSITORY_TOOL = "gas_calibrator.v2.adapters.uncertainty_gateway"
+UNCERTAINTY_REPOSITORY_TOOL = "gas_calibrator.v2.adapters"
 UNCERTAINTY_INPUT_FIXTURE_FILENAME = "uncertainty_budget_inputs.json"
 
 _LINKED_SURFACES = ["results", "review_center", "workbench", "historical_artifacts"]

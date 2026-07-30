@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 
-from gas_calibrator.v2.config import QCConfig
-from gas_calibrator.v2.domain.sample_models import RawSample
+from gas_calibrator.v2.config.models import QCConfig
+from gas_calibrator.validation.simulation.domain import RawSample
 from gas_calibrator.v2.qc.outlier_detector import OutlierDetector
 
 

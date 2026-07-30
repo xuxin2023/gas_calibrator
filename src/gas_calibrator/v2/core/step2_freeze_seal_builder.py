@@ -51,8 +51,6 @@ from .step2_freeze_seal_contracts import (
     FREEZE_SEAL_SUMMARY_EN,
     FREEZE_SEAL_SIMULATION_ONLY_BOUNDARY_ZH,
     FREEZE_SEAL_SIMULATION_ONLY_BOUNDARY_EN,
-    resolve_freeze_seal_title,
-    resolve_freeze_seal_summary,
     resolve_freeze_seal_status_label,
     resolve_freeze_seal_simulation_only_boundary,
     resolve_freeze_seal_reviewer_only_notice,

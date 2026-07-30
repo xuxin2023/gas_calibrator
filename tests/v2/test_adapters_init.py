@@ -7,23 +7,36 @@ import pytest
 def test_adapters_package_import_is_lazy() -> None:
     for name in [
         "gas_calibrator.v2.adapters",
-        "gas_calibrator.v2.adapters.offline_refit_runner",
-        "gas_calibrator.v2.adapters.v1_postprocess_runner",
         "gas_calibrator.v2.adapters.analyzer_coefficient_downloader",
     ]:
         sys.modules.pop(name, None)
 
     import gas_calibrator.v2.adapters as adapters
 
-    assert "gas_calibrator.v2.adapters.offline_refit_runner" not in sys.modules
-    assert "gas_calibrator.v2.adapters.v1_postprocess_runner" not in sys.modules
+    assert "run_v1_postprocess" not in adapters.__all__
+    assert "run_from_cli" not in adapters.__all__
 
     downloader = adapters.download_coefficients_to_analyzers
 
     assert callable(downloader)
     assert "gas_calibrator.v2.adapters.analyzer_coefficient_downloader" in sys.modules
-    assert "gas_calibrator.v2.adapters.offline_refit_runner" not in sys.modules
-    assert "gas_calibrator.v2.adapters.v1_postprocess_runner" not in sys.modules
+
+
+def test_read_only_gateways_have_one_package_owner() -> None:
+    import gas_calibrator.v2.adapters as adapters
+
+    expected_module = "gas_calibrator.v2.adapters"
+    gateway_names = (
+        "MethodConfirmationGateway",
+        "RecognitionScopeGateway",
+        "SoftwareValidationGateway",
+        "UncertaintyGateway",
+        "Wp6Gateway",
+    )
+    assert all(
+        getattr(adapters, name).__module__ == expected_module
+        for name in gateway_names
+    )
 
 
 def test_analyzer_coefficient_downloader_module_import_stays_lightweight() -> None:

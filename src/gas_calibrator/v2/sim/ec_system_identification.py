@@ -11,12 +11,12 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 from gas_calibrator.utils.file_io import write_json as _write_json
-
-from ..domain.services.ec_dynamic_metrology import DynamicPathMetadata
-from ..domain.services.ec_system_identification import (
+from gas_calibrator.validation.metrology.ec_dynamic_metrology import DynamicPathMetadata
+from gas_calibrator.validation.metrology.ec_system_identification import (
     build_system_identification_acceptance,
     identify_empirical_transfer,
 )
+
 
 
 DEFAULT_SYSTEM_ID_CONTRACT_PATH = (

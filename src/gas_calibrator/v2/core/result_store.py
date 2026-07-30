@@ -6,17 +6,21 @@ from pathlib import Path
 import json
 from typing import Any, Optional
 
-from ..config import (
+from ..config.models import (
     build_step2_config_governance_handoff,
     build_step2_config_safety_review,
     summarize_step2_config_safety,
 )
-from ..domain.pressure_selection import effective_pressure_mode, normalize_pressure_selection_token, pressure_target_label
+from ...validation.simulation.pressure_selection import (
+    effective_pressure_mode,
+    normalize_pressure_selection_token,
+    pressure_target_label,
+)
 from .data_writer import DataWriter
 from .models import CalibrationPoint, CalibrationStatus, SamplingResult
 from .offline_artifacts import build_point_taxonomy_handoff, export_run_offline_artifacts
 from .run_manifest import write_run_manifest
-from .session import RunSession
+from .models import RunSession
 
 try:  # pragma: no cover - defensive import
     from ... import __version__ as SOFTWARE_VERSION

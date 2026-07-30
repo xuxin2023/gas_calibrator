@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 
-from .result_types import FitResult, ValidationResult
+from . import FitResult, ValidationResult
 
 
 class BackValidator:

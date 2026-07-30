@@ -9,11 +9,14 @@ pytest.importorskip("sqlalchemy")
 
 from sqlalchemy import func, select
 
-from gas_calibrator.v2.storage.database import DatabaseManager, StorageSettings
-from gas_calibrator.v2.storage.import_v1_5_initialization import run_import as run_initialization_import
-from gas_calibrator.v2.storage.import_v1_5_readiness_events import EVENT_TYPE, run_import
-from gas_calibrator.v2.storage.models import DeviceEventRecord
+from gas_calibrator.storage.database import DatabaseManager, StorageSettings
+from gas_calibrator.storage.models import DeviceEventRecord
 from gas_calibrator.v1_5 import readiness_event_database
+from gas_calibrator.v1_5.import_initialization_database import (
+    run_import as run_initialization_import,
+)
+from gas_calibrator.v1_5.import_readiness_events import run_import
+from gas_calibrator.v1_5.readiness_event_database import EVENT_TYPE
 
 from .test_v1_5_initialization_import import _bundle_path
 

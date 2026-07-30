@@ -6,7 +6,7 @@ Verifies:
 - gate field naming and order are consistent between reports page and review center panel
 - gate fields missing → fallback text
 - aligned=False → ⚠ marker
-- results_gateway uses config_governance_handoff as canonical source
+- closeout builder uses config_governance_handoff as canonical source
 - app_facade fallback uses config_governance_handoff
 - closeout readiness prefers persisted payload, fallback only when missing
 - No real path / real device / formal approval / real acceptance language
@@ -24,11 +24,11 @@ from gas_calibrator.v2.core.step2_closeout_readiness_builder import (
 
 
 # ---------------------------------------------------------------------------
-# Helper: build gate display lines (mirrors reports_page / review_center_panel logic)
+# Helper: build gate display lines (mirrors the retained closeout-readiness contract)
 # ---------------------------------------------------------------------------
 
 def _build_gate_display_lines(closeout: dict) -> list[str]:
-    """Mirror the _build_gate_display_lines logic from reports_page / review_center_panel."""
+    """Mirror the retained closeout-readiness gate display contract."""
     lines: list[str] = []
     gate_status = str(closeout.get("gate_status") or "")
     gate_summary = dict(closeout.get("gate_summary") or {})
@@ -146,9 +146,8 @@ def test_gate_field_order_consistent_between_reports_and_review_center() -> None
 # Tests: governance_handoff canonical source
 # ---------------------------------------------------------------------------
 
-def test_results_gateway_uses_config_governance_handoff_for_closeout() -> None:
-    """results_gateway should use config_governance_handoff (not config_safety.governance_handoff)
-    as the governance_handoff input for closeout readiness building."""
+def test_closeout_builder_uses_config_governance_handoff() -> None:
+    """Closeout readiness accepts the canonical config governance handoff."""
     # We verify this by checking that the builder produces consistent output
     # when given config_governance_handoff-style input
     governance_handoff = {

@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from .csv_resilience import load_csv_rows, merge_csv_headers, save_csv_atomic
 from .models import CalibrationPoint

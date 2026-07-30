@@ -20,10 +20,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .step2_closeout_readiness_contracts import (
-    CLOSEOUT_CONTRIBUTING_SECTIONS,
-    CLOSEOUT_CONTRIBUTING_SECTION_LABELS_ZH,
-    CLOSEOUT_CONTRIBUTING_SECTION_LABELS_EN,
-    CLOSEOUT_STEP2_BOUNDARY,
     CLOSEOUT_STATUS_ATTENTION,
     CLOSEOUT_STATUS_BLOCKER,
     CLOSEOUT_STATUS_OK,
@@ -34,10 +30,6 @@ from .step2_closeout_readiness_contracts import (
     CLOSEOUT_TITLE_EN,
     CLOSEOUT_SUMMARY_LINE_ZH,
     CLOSEOUT_SUMMARY_LINE_EN,
-    CLOSEOUT_BLOCKER_LABELS_ZH,
-    CLOSEOUT_BLOCKER_LABELS_EN,
-    CLOSEOUT_NEXT_STEPS_ZH,
-    CLOSEOUT_NEXT_STEPS_EN,
     resolve_closeout_status_label,
     resolve_closeout_blocker_label,
     resolve_closeout_next_step_label,

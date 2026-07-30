@@ -13,7 +13,7 @@ METHOD_CONFIRMATION_REPOSITORY_SCHEMA_VERSION = "step2-method-confirmation-repos
 METHOD_CONFIRMATION_REPOSITORY_MODE = "file_artifact_first"
 METHOD_CONFIRMATION_GATEWAY_MODE = "file_backed_default"
 METHOD_CONFIRMATION_DB_READY_MODE = "db_ready_stub"
-METHOD_CONFIRMATION_REPOSITORY_TOOL = "gas_calibrator.v2.adapters.method_confirmation_gateway"
+METHOD_CONFIRMATION_REPOSITORY_TOOL = "gas_calibrator.v2.adapters"
 
 _LINKED_SURFACES = ["results", "review_center", "workbench", "historical_artifacts"]
 _ARTIFACT_KEYS = (

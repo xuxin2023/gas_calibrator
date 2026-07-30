@@ -1,55 +1,63 @@
 from __future__ import annotations
 
-from dataclasses import replace
-import json
-import math
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-from statistics import mean, stdev
-import time
 from typing import Any, Callable, Dict, Iterable, Mapping, Optional
 
-from ..config import AppConfig
-from ..export import export_ratio_poly_report
-from ..exceptions import StabilityTimeoutError, WorkflowInterruptedError, WorkflowValidationError
-from ..qc import QCPipeline
-from ..utils import as_bool, as_float, safe_get
+from gas_calibrator.utils import as_bool, as_float
+from gas_calibrator.validation.simulation.point_parser import (
+    PointParser,
+    TemperatureGroup,
+)
+from gas_calibrator.validation.simulation.route_planner import RoutePlanner
+from gas_calibrator.validation.simulation.sampling_contracts import (
+    normalize_snapshot,
+    pick_humidity_value,
+    pick_numeric,
+    sampling_result_to_row,
+    sanitize_humidity_value,
+)
+
 from ...validation.dewpoint_flush_gate import evaluate_dewpoint_flush_gate
+from ..config.models import AppConfig
+from ..exceptions import WorkflowValidationError
+from ..qc import QCPipeline
+from . import EventBus, EventType, OrchestrationContext
+from .a2_hooks import A2Hooks
 from .device_factory import DeviceType
 from .device_manager import DeviceManager, DeviceStatus
-from .event_bus import EventBus, EventType
-from .models import CalibrationPhase, CalibrationPoint, CalibrationStatus, SamplingResult
-from .orchestration_context import OrchestrationContext
-from .point_parser import PointParser, TemperatureGroup
-from .route_context import RouteContext
-from .route_planner import RoutePlanner
+from .models import (
+    CalibrationPhase,
+    CalibrationPoint,
+    CalibrationStatus,
+    RouteContext,
+    SamplingResult,
+)
 from .result_store import ResultStore
-from .run_state import RunState
 from .run_logger import RunLogger
-from .session import RunSession
+from .run_state import RunState
 from .services import (
     AIExplanationService,
     AnalyzerFleetService,
     ArtifactService,
-    CoefficientService,
     ConditioningService,
     DewpointAlignmentService,
     HumidityGeneratorService,
     PressureControlService,
-    PressureWaitResult,
-    StartupPressurePrecheckResult,
     QCService,
     SamplingService,
+    StartupPressurePrecheckResult,
     StatusService,
     TemperatureControlService,
     TimingMonitorService,
     ValveRoutingService,
 )
-from .stability_checker import StabilityChecker, StabilityType
+from .models import RunSession
+from gas_calibrator.validation.simulation.stability_checker import StabilityChecker
 from .state_manager import StateManager
 
 
-from .a2_hooks import A2Hooks
 class WorkflowOrchestrator:
     """Executes workflow business logic for one calibration run."""
 
@@ -104,7 +112,6 @@ class WorkflowOrchestrator:
         self.status_service = StatusService(self.context, self.run_state, host=self)
         self.sampling_service = SamplingService(self.context, self.run_state, host=self)
         self.qc_service = QCService(self.context, self.run_state, host=self)
-        self.coefficient_service = CoefficientService(self.context, self.run_state, host=self)
         self.temperature_control_service = TemperatureControlService(self.context, self.run_state, host=self)
         self.analyzer_fleet_service = AnalyzerFleetService(self.context, self.run_state, host=self)
         self.humidity_generator_service = HumidityGeneratorService(self.context, self.run_state, host=self)
@@ -404,6 +411,7 @@ class WorkflowOrchestrator:
         self._ensure_device("dewpoint_meter", DeviceType.DEWPOINT_METER, self.config.devices.dewpoint_meter)
         self._ensure_device("humidity_generator", DeviceType.HUMIDITY_GENERATOR, self.config.devices.humidity_generator)
         self._ensure_device("temperature_chamber", DeviceType.TEMPERATURE_CHAMBER, self.config.devices.temperature_chamber)
+        self._ensure_device("thermometer", DeviceType.THERMOMETER, self.config.devices.thermometer)
         self._ensure_device("relay_a", DeviceType.RELAY, self.config.devices.relay_a)
         self._ensure_device("relay_b", DeviceType.RELAY, self.config.devices.relay_b)
         for index, config in enumerate(self.config.devices.gas_analyzers):
@@ -871,23 +879,23 @@ class WorkflowOrchestrator:
 
     @staticmethod
     def _normalize_snapshot(snapshot: Any) -> Dict[str, Any]:
-        return SamplingService.normalize_snapshot(snapshot)
+        return normalize_snapshot(snapshot)
 
     @staticmethod
     def _pick_numeric(snapshot: Dict[str, Any], *keys: str) -> Optional[float]:
-        return SamplingService.pick_numeric(snapshot, *keys)
+        return pick_numeric(snapshot, *keys)
 
     @classmethod
     def _pick_humidity_value(cls, snapshot: Dict[str, Any]) -> Optional[float]:
-        return SamplingService.pick_humidity_value(snapshot)
+        return pick_humidity_value(snapshot)
 
     @staticmethod
     def _sanitize_humidity_value(value: Optional[float]) -> Optional[float]:
-        return SamplingService.sanitize_humidity_value(value)
+        return sanitize_humidity_value(value)
 
     @staticmethod
     def _sampling_result_to_row(result: SamplingResult) -> Dict[str, Any]:
-        return SamplingService.sampling_result_to_row(result)
+        return sampling_result_to_row(result)
 
     def _remember_output_file(self, path: str) -> None:
         self.status_service.remember_output_file(path)
@@ -973,9 +981,6 @@ class WorkflowOrchestrator:
 
     def _sync_results_to_storage(self) -> None:
         self.artifact_service.sync_results_to_storage()
-
-    def _export_coefficient_report(self) -> dict[str, str]:
-        return self.coefficient_service.export_coefficient_report()
 
     def _anomaly_alarm_payload(self) -> list[dict[str, Any]]:
         alarms: list[dict[str, Any]] = []

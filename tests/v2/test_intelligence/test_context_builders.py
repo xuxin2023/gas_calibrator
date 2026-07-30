@@ -1,6 +1,9 @@
 from types import SimpleNamespace
 
 from gas_calibrator.v2.intelligence.context_builders import (
+    FitContext,
+    QCContext,
+    RunContext,
     build_fit_context,
     build_qc_context,
     build_run_context,
@@ -56,3 +59,13 @@ def test_build_run_context_uses_quality_score_and_fit_result() -> None:
     assert context.invalid_points == 1
     assert context.algorithm == "polynomial"
     assert context.overall_score == 0.88
+
+
+def test_context_builders_have_one_package_owner() -> None:
+    expected_module = "gas_calibrator.v2.intelligence.context_builders"
+    assert FitContext.__module__ == expected_module
+    assert QCContext.__module__ == expected_module
+    assert RunContext.__module__ == expected_module
+    assert build_fit_context.__module__ == expected_module
+    assert build_qc_context.__module__ == expected_module
+    assert build_run_context.__module__ == expected_module

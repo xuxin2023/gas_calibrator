@@ -1,6 +1,5 @@
 from gas_calibrator.v2.algorithms.engine import AlgorithmEngine
-from gas_calibrator.v2.algorithms.registry import AlgorithmRegistry
-from gas_calibrator.v2.algorithms.result_types import ComparisonResult, FitResult
+from gas_calibrator.v2.algorithms import AlgorithmRegistry, ComparisonResult, FitResult
 from gas_calibrator.v2.algorithms.validator import BackValidator
 
 

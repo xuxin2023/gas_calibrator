@@ -67,6 +67,7 @@ def build_device_snapshot(session: Any) -> dict[str, Any]:
         "dewpoint_meter",
         "humidity_generator",
         "temperature_chamber",
+        "thermometer",
         "relay_a",
         "relay_b",
     )
@@ -208,7 +209,9 @@ def _build_environment_snapshot(config: Any) -> dict[str, Any]:
     return {
         "simulation_mode": bool(getattr(features, "simulation_mode", False)),
         "debug_mode": bool(getattr(features, "debug_mode", False)),
-        "use_v2": bool(getattr(features, "use_v2", False)),
+        # Legacy schema key: this builder itself belongs to the V2 validation
+        # runtime, so runtime identity must not be inferred from a config flag.
+        "use_v2": True,
         "run_mode": _run_mode_from_config(config),
         "route_mode": _route_mode_from_config(config),
     }

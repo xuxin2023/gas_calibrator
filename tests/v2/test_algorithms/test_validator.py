@@ -1,8 +1,8 @@
 from datetime import datetime
 
-from gas_calibrator.v2.algorithms.result_types import FitResult
+from gas_calibrator.v2.algorithms import FitResult
 from gas_calibrator.v2.algorithms.validator import BackValidator
-from gas_calibrator.v2.domain.sample_models import RawSample
+from gas_calibrator.validation.simulation.domain import RawSample
 
 
 def test_back_validator_validates_linear_fit() -> None:

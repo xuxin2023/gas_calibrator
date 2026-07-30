@@ -1,5 +1,10 @@
 # V2 软件架构说明
 
+> **历史文档，已废止（2026-07-28）。** 本文描述的是退役 V2 架构，
+> 其中 `run_v2`、`test_v2_safe`、`ui_v2.app`、旧桌面 shell、AppFacade、
+> PlanGateway、ResultsGateway、可编辑计划页、设备工作台和审阅面板均已删除；
+> 不得据此恢复 V2 产品入口。当前架构以 V1.5 最终产品文档为准。
+
 ## 1. 范围与原则
 
 V2 当前的工程目标不是替代 V1，而是把 Step 2 所需的仿真、治理、评审和产品化骨架做稳。软件架构因此围绕三件事组织：
@@ -25,9 +30,8 @@ flowchart LR
     D --> F["qc/* + algorithms/* + domain/*"]
     D --> G["core/result_store.py"]
     G --> H["core/offline_artifacts.py"]
-    H --> I["adapters/results_gateway.py"]
-    I --> J["ui_v2/controllers/app_facade.py"]
-    J --> K["ui_v2/pages/* + review/report/workbench"]
+    H --> I["adapters/*_gateway.py"]
+    I --> J["scripts/historical_artifacts.py"]
     D --> L["sim/*"]
     L --> M["scripts/run_simulation_suite.py / run_validation_replay.py"]
 ```
@@ -35,7 +39,7 @@ flowchart LR
 这张图可以理解成两条主线共享同一套核心：
 
 - 运行主线：`entry.py -> CalibrationService -> DeviceFactory / services -> ResultStore`
-- 治理主线：`ResultStore -> offline_artifacts -> results_gateway -> UI / suite / review`
+- 治理主线：`ResultStore -> offline_artifacts -> 窄文件网关 -> historical_artifacts`
 
 ## 3. 关键入口
 
@@ -65,7 +69,7 @@ flowchart LR
 | --- | --- | --- |
 | QC | `qc/pipeline.py`、`qc/rule_registry.py`、`qc/qc_report.py` | 异常样本处理、规则注册、评分与证据输出。 |
 | 标定算法 | `algorithms/engine.py`、`algorithms/registry.py` | 线性、多项式、AMT 等算法注册、比较和自动选择。 |
-| 分析 | `analytics/service.py`、`analytics/feature_builder.py` | KPI、健康度、漂移、控制图等离线分析能力。 |
+| 历史诊断摘要 | `scripts/historical_artifacts.py` | 通过窄文件网关只读加载已落盘工件；实时旁路索引、旧 KPI、漂移、控制图、总结果网关和自动 Copilot 已退役。 |
 
 ### 4.3 输出与治理
 
@@ -73,7 +77,7 @@ flowchart LR
 | --- | --- | --- |
 | 结果存储 | `core/result_store.py` | 写 `results.json`、`point_summaries.json`、`summary.json`、`manifest.json` 等基础工件。 |
 | 离线工件 | `core/offline_artifacts.py` | 生成 analytics、lineage、evidence registry、review digest、suite 汇总等治理工件。 |
-| 网关 / 适配器 | `adapters/results_gateway.py`、`adapters/*_gateway.py` | 把运行工件整理成 UI、历史扫描、报告页可消费的数据。 |
+| 窄文件网关 | `adapters/*_gateway.py` | 按识别范围、不确定度、方法确认、软件验证和 WP6 分域读取历史工件，不再构造第二套产品结果页。 |
 | 存储 | `storage/*` | profile、数据库、导入导出与运行数据装载。 |
 
 ### 4.4 仿真与回放
@@ -112,12 +116,12 @@ flowchart LR
 5. `ResultStore` 落基础结果，随后 `offline_artifacts` 生成离线治理工件。
 6. 输出目录进入 `output/.../run_<timestamp>`，供 UI、suite 与历史工件工具继续消费。
 
-### 5.2 UI 查看与离线评审
+### 5.2 历史离线评审
 
-1. `ui_v2/app.py` 创建 `AppFacade`。
-2. `AppFacade` 通过 `ResultsGateway`、`offline_artifacts`、review surface helpers 汇总工件。
-3. 页面层展示结果、报告、review digest、artifact scope 与 simulation-only workbench。
-4. 用户看到的状态优先来自中文 i18n，不直接暴露内部英文 key。
+1. `scripts/historical_artifacts.py` 发现已有运行目录。
+2. 五个窄文件网关分域读取已落盘工件。
+3. 工件兼容层生成历史审计摘要，不恢复 V2 UI、报告页或工作台。
+4. V1.5 产品结果、报告和复核页只消费 `WorkstationSnapshot`。
 
 ## 6. 扩展建议
 
@@ -126,7 +130,7 @@ flowchart LR
 | 新的仿真场景 / suite | `sim/scenarios/catalog.py`、`sim/scenarios/suites.py` |
 | 新的 QC 规则 | `qc/rule_templates.py`、`qc/rule_registry.py` |
 | 新的分析指标 | `analytics/` 或 `core/offline_artifacts.py` |
-| 新的报告/评审视图 | `adapters/results_gateway.py`、`ui_v2/controllers/app_facade.py`、`ui_v2/pages/*` |
+| 新的报告/评审视图 | 仅在 V1.5 `WorkstationSnapshot` 与自有页面中设计；不得恢复 V2 总网关或页面层 |
 | 新的运行设备能力 | `core/services/*`、`core/device_factory.py`，但 Step 2 默认仍要保持 simulation-only 验证路径 |
 | 新的配置字段 | `config/models.py`、`configs/*.json`、相应 tests |
 

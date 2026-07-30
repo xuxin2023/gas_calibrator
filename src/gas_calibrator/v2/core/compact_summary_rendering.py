@@ -4,8 +4,8 @@ Provides shared helpers for building rendered_summary_sections,
 omitted_summary_sections, and compact_summary_budget_display from
 compact summary packs and budget data.
 
-All three surfaces (app_facade / review_center, historical, results_gateway)
-consume these helpers instead of maintaining parallel logic.
+The historical-artifact reader consumes these helpers without restoring a
+second product results or review surface.
 
 Design principles:
 - Deterministic ordering by (priority ASC, summary_key ASC)
@@ -53,10 +53,8 @@ def build_visible_sections(
 ) -> dict[str, Any]:
     """Build rendered, omitted, and budget display from packs and budget.
 
-    This is the single entry point that replaces the parallel logic
-    previously in app_facade._build_rendered_sections / _build_omitted_sections /
-    _build_budget_display and review_center_artifact_scope.
-    _build_compact_summary_pack_visible_sections.
+    This is the single entry point that replaces the parallel rendering
+    logic previously duplicated across retired V2 presentation adapters.
 
     Args:
         packs: Sorted compact summary packs (already ordered by priority).
@@ -209,12 +207,12 @@ def build_budget_display(budget: dict[str, Any]) -> dict[str, Any]:
 def build_compact_summary_pack_fields(
     packs: list[dict[str, Any]] | None = None,
     *,
-    surface: str = "review_center",
+    surface: str = "historical",
 ) -> dict[str, Any]:
     """Build compact summary pack fields for a given surface.
 
-    Unified replacement for the former _build_compact_summary_pack_fields
-    in review_center_artifact_scope and the inline logic in app_facade.
+    Shared rendering fields for current results and historical-artifact
+    consumers.
 
     Args:
         packs: Raw compact summary packs (may be unsorted).
@@ -253,7 +251,7 @@ def build_compact_summary_pack_fields(
 def build_full_compact_summary_view(
     packs: list[dict[str, Any]] | None = None,
     *,
-    surface: str = "review_center",
+    surface: str = "historical",
     locale: str = "zh",
 ) -> dict[str, Any]:
     """Build the complete compact summary view: pack fields + visible sections.

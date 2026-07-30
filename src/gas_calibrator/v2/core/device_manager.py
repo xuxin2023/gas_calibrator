@@ -11,8 +11,9 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, Optional
 
+from gas_calibrator.utils import as_bool
+
 from ..config.models import DeviceConfig, SingleDeviceConfig
-from ..utils import as_bool
 from .device_factory import DeviceFactory, DeviceType
 
 
@@ -333,6 +334,11 @@ class DeviceManager:
         self._register_from_config("dewpoint_meter", self.config.dewpoint_meter)
         self._register_from_config("humidity_generator", self.config.humidity_generator)
         self._register_from_config("temperature_chamber", self.config.temperature_chamber)
+        self._register_from_config(
+            "thermometer",
+            self.config.thermometer,
+            device_type=DeviceType.THERMOMETER,
+        )
         self._register_from_config("relay_a", self.config.relay_a, device_type=DeviceType.RELAY)
         self._register_from_config("relay_b", self.config.relay_b, device_type=DeviceType.RELAY)
 

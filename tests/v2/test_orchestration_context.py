@@ -3,14 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 import threading
 
-from gas_calibrator.v2.config import AppConfig
+from gas_calibrator.v2.config.models import AppConfig
 from gas_calibrator.v2.core.device_manager import DeviceManager
-from gas_calibrator.v2.core.event_bus import EventBus
-from gas_calibrator.v2.core.orchestration_context import OrchestrationContext
+from gas_calibrator.v2.core import EventBus
+from gas_calibrator.v2.core import OrchestrationContext
 from gas_calibrator.v2.core.result_store import ResultStore
 from gas_calibrator.v2.core.run_logger import RunLogger
-from gas_calibrator.v2.core.session import RunSession
-from gas_calibrator.v2.core.stability_checker import StabilityChecker
+from gas_calibrator.v2.core.models import RunSession
+from gas_calibrator.validation.simulation.stability_checker import StabilityChecker
 from gas_calibrator.v2.core.state_manager import StateManager
 
 
@@ -57,3 +57,7 @@ def test_orchestration_context_collects_runtime_dependencies(tmp_path: Path) -> 
     assert context.data_writer is result_store.data_writer
 
     run_logger.finalize()
+
+
+def test_orchestration_context_has_one_package_owner() -> None:
+    assert OrchestrationContext.__module__ == "gas_calibrator.v2.core"

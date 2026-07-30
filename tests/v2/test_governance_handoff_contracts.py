@@ -180,22 +180,6 @@ class TestStageAdmissionAndChecklistParity:
         assert GOVERNANCE_HANDOFF_PHASES["stage_admission_review_pack"] == \
                GOVERNANCE_HANDOFF_PHASES["engineering_isolation_admission_checklist"]
 
-    def test_checklist_title_chinese_first(self) -> None:
-        """Checklist title must be Chinese-first (matching stage_admission convention)."""
-        from gas_calibrator.v2.core.engineering_isolation_admission_checklist_artifact_entry import (
-            build_engineering_isolation_admission_checklist_artifact_entry,
-        )
-        entry = build_engineering_isolation_admission_checklist_artifact_entry(
-            artifact_path="/tmp/test.json",
-        )
-        title = entry.get("title_text", "")
-        assert "工程隔离准入清单" in title
-        # Chinese must come before English
-        zh_pos = title.index("工程隔离准入清单")
-        en_pos = title.index("Engineering")
-        assert zh_pos < en_pos, f"Chinese should come before English in title: {title}"
-
-
 # ---------------------------------------------------------------------------
 # 4. Filenames match module constants
 # ---------------------------------------------------------------------------
@@ -491,67 +475,7 @@ class TestEngineeringIsolationAdmissionChecklistConsumesContracts:
 
 
 # ---------------------------------------------------------------------------
-# 9. artifact_entry shares constants with main artifact via contracts
-# ---------------------------------------------------------------------------
-
-
-class TestArtifactEntrySharesContractConstants:
-    """engineering_isolation_admission_checklist_artifact_entry must use contracts for title/role/anchor."""
-
-    def test_title_text_from_contracts(self) -> None:
-        from gas_calibrator.v2.core.engineering_isolation_admission_checklist_artifact_entry import (
-            build_engineering_isolation_admission_checklist_artifact_entry,
-        )
-        from gas_calibrator.v2.core.governance_handoff_contracts import GOVERNANCE_HANDOFF_TITLE_TEXTS
-        entry = build_engineering_isolation_admission_checklist_artifact_entry(
-            artifact_path="/tmp/test.json",
-        )
-        assert entry["title_text"] == GOVERNANCE_HANDOFF_TITLE_TEXTS["engineering_isolation_admission_checklist"]
-
-    def test_role_text_from_contracts(self) -> None:
-        from gas_calibrator.v2.core.engineering_isolation_admission_checklist_artifact_entry import (
-            build_engineering_isolation_admission_checklist_artifact_entry,
-        )
-        from gas_calibrator.v2.core.governance_handoff_contracts import GOVERNANCE_HANDOFF_COMBINED_ROLE_TEXTS
-        entry = build_engineering_isolation_admission_checklist_artifact_entry(
-            artifact_path="/tmp/test.json",
-        )
-        assert entry["role_text"] == GOVERNANCE_HANDOFF_COMBINED_ROLE_TEXTS["engineering_isolation_admission_checklist"]
-
-    def test_anchor_id_from_contracts(self) -> None:
-        from gas_calibrator.v2.core.engineering_isolation_admission_checklist_artifact_entry import (
-            build_engineering_isolation_admission_checklist_artifact_entry,
-        )
-        from gas_calibrator.v2.core.governance_handoff_contracts import GOVERNANCE_HANDOFF_ANCHOR_IDS
-        entry = build_engineering_isolation_admission_checklist_artifact_entry(
-            artifact_path="/tmp/test.json",
-        )
-        assert entry["anchor_id"] == GOVERNANCE_HANDOFF_ANCHOR_IDS["engineering_isolation_admission_checklist"]
-
-    def test_phase_filters_from_contracts(self) -> None:
-        from gas_calibrator.v2.core.engineering_isolation_admission_checklist_artifact_entry import (
-            build_engineering_isolation_admission_checklist_artifact_entry,
-        )
-        from gas_calibrator.v2.core.governance_handoff_contracts import GOVERNANCE_HANDOFF_PHASES
-        entry = build_engineering_isolation_admission_checklist_artifact_entry(
-            artifact_path="/tmp/test.json",
-        )
-        assert GOVERNANCE_HANDOFF_PHASES["engineering_isolation_admission_checklist"] in entry["phase_filters"]
-
-    def test_artifact_role_filters_from_contracts(self) -> None:
-        from gas_calibrator.v2.core.engineering_isolation_admission_checklist_artifact_entry import (
-            build_engineering_isolation_admission_checklist_artifact_entry,
-        )
-        from gas_calibrator.v2.core.governance_handoff_contracts import GOVERNANCE_HANDOFF_ROLES
-        entry = build_engineering_isolation_admission_checklist_artifact_entry(
-            artifact_path="/tmp/test.json",
-        )
-        assert GOVERNANCE_HANDOFF_ROLES["engineering_isolation_admission_checklist"] in entry["artifact_role_filters"]
-        assert GOVERNANCE_HANDOFF_ROLES["engineering_isolation_admission_checklist_reviewer_artifact"] in entry["artifact_role_filters"]
-
-
-# ---------------------------------------------------------------------------
-# 10. Summary texts coverage and Chinese default
+# 9. Summary texts coverage and Chinese default
 # ---------------------------------------------------------------------------
 
 
@@ -638,7 +562,7 @@ class TestSummaryTextsCoverage:
 
 
 # ---------------------------------------------------------------------------
-# 11. No real paths / real device / formal claim language in new contract fields
+# 10. No real paths / real device / formal claim language in new contract fields
 # ---------------------------------------------------------------------------
 
 

@@ -3,15 +3,15 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any, Optional
 
-from ..config import AIConfig
-from ..domain.explanation_models import (
+from gas_calibrator.validation.simulation.config import AIConfig
+from gas_calibrator.validation.simulation.domain import (
     AlgorithmRecommendation,
     PointRejection,
     Recommendation,
 )
+
 from ..intelligence.advisors import AlgorithmAdvisor
-from .registry import AlgorithmRegistry
-from .result_types import ComparisonResult, FitResult
+from . import AlgorithmRegistry, ComparisonResult, FitResult
 from .validator import BackValidator
 
 

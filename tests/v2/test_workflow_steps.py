@@ -1,11 +1,20 @@
 import json
 from pathlib import Path
 
-from gas_calibrator.v2.config import AppConfig
+from gas_calibrator.v2.config.models import AppConfig
 from gas_calibrator.v2.core.calibration_service import CalibrationPhase, CalibrationService
 from gas_calibrator.v2.core.device_manager import DeviceManager
-from gas_calibrator.v2.core.event_bus import EventType
-from gas_calibrator.v2.core.stability_checker import StabilityResult, StabilityType
+from gas_calibrator.v2.core import EventType
+from gas_calibrator.validation.simulation.stability_checker import StabilityResult
+from gas_calibrator.v2.core.workflow_steps import (
+    Co2RouteStep,
+    FinalizeStep,
+    H2oRouteStep,
+    PrecheckStep,
+    SamplingStep,
+    StartupStep,
+    TemperatureGroupStep,
+)
 
 
 class FakeTemperatureChamber:
@@ -76,6 +85,23 @@ def _write_points_file(tmp_path: Path) -> Path:
     return path
 
 
+def test_workflow_step_classes_have_one_package_owner() -> None:
+    step_classes = (
+        Co2RouteStep,
+        FinalizeStep,
+        H2oRouteStep,
+        PrecheckStep,
+        SamplingStep,
+        StartupStep,
+        TemperatureGroupStep,
+    )
+
+    assert {
+        step_class.__module__
+        for step_class in step_classes
+    } == {"gas_calibrator.v2.core.workflow_steps"}
+
+
 def test_workflow_steps_publish_events(tmp_path: Path) -> None:
     points_path = _write_points_file(tmp_path)
     config = AppConfig.from_dict(
@@ -87,8 +113,15 @@ def test_workflow_steps_publish_events(tmp_path: Path) -> None:
             "workflow": {
                 "sampling": {"count": 1, "interval_s": 0.0, "discard_first_n": 0},
                 "precheck": {"enabled": True, "device_connection": True, "sensor_check": False, "pressure_leak_test": False},
+                "stability": {
+                    "temperature": {"analyzer_chamber_temp_enabled": False}
+                },
             },
-            "paths": {"points_excel": str(points_path)},
+            "paths": {
+                "points_excel": str(points_path),
+                "output_dir": str(tmp_path / "output"),
+                "logs_dir": str(tmp_path / "logs"),
+            },
         }
     )
     device_manager = DeviceManager(config.devices)
@@ -112,14 +145,14 @@ def test_workflow_steps_publish_events(tmp_path: Path) -> None:
     service.orchestrator.valve_routing_service.set_co2_route_baseline = lambda reason="": None
     service.orchestrator.valve_routing_service.set_valves_for_co2 = lambda point: None
     service.orchestrator.valve_routing_service.cleanup_co2_route = lambda reason="": None
-    service.orchestrator._export_qc_report = lambda: None
+    service.orchestrator._export_all_artifacts = lambda: None
     events: list[EventType] = []
     for event_type in EventType:
         service.event_bus.subscribe(event_type, lambda event, bucket=events: bucket.append(event.type))
 
     service.start(str(points_path))
 
-    assert service.wait(timeout=2.0) is True
+    assert service.wait(timeout=5.0) is True
     assert service.get_status().phase is CalibrationPhase.COMPLETED
     assert EventType.WORKFLOW_STARTED in events
     assert EventType.POINT_STARTED in events

@@ -4,17 +4,21 @@ from pathlib import Path
 from types import SimpleNamespace
 import threading
 
-from gas_calibrator.v2.config import AppConfig
+from gas_calibrator.v2.config.models import AppConfig
 from gas_calibrator.v2.core.device_manager import DeviceManager
-from gas_calibrator.v2.core.event_bus import EventBus
-from gas_calibrator.v2.core.orchestration_context import OrchestrationContext
+from gas_calibrator.v2.core import EventBus
+from gas_calibrator.v2.core import OrchestrationContext
 from gas_calibrator.v2.core.result_store import ResultStore
 from gas_calibrator.v2.core.run_logger import RunLogger
 from gas_calibrator.v2.core.run_state import RunState
 from gas_calibrator.v2.core.services import AIExplanationService
-from gas_calibrator.v2.core.session import RunSession
-from gas_calibrator.v2.core.stability_checker import StabilityChecker
+from gas_calibrator.v2.core.models import RunSession
+from gas_calibrator.validation.simulation.stability_checker import StabilityChecker
 from gas_calibrator.v2.core.state_manager import StateManager
+
+
+def test_ai_explanation_service_has_one_package_owner() -> None:
+    assert AIExplanationService.__module__ == "gas_calibrator.v2.core.services"
 
 
 def _build_service(tmp_path: Path) -> tuple[AIExplanationService, OrchestrationContext, RunState, SimpleNamespace]:

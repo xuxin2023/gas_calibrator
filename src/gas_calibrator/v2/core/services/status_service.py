@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import json
-from pathlib import Path
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
-from ..event_bus import EventType
-from ..models import CalibrationPhase, CalibrationPoint
-from ..orchestration_context import OrchestrationContext
-from ..run_state import RunState
 from ...exceptions import WorkflowInterruptedError
+from .. import EventType, OrchestrationContext
+from ..models import CalibrationPhase, CalibrationPoint
+from ..run_state import RunState
 from .trace_size_guard import guard_trace_event
 
 
@@ -231,6 +230,7 @@ class StatusService:
             return [self._json_safe_value(item) for item in value]
         if isinstance(value, Path):
             return str(value)
+        return str(value)
 
     def _progress_point_key(self, point: CalibrationPoint, *, point_tag: str = "") -> str:
         planner = getattr(self.host, "route_planner", None)
@@ -243,4 +243,3 @@ class StatusService:
         if point_tag:
             return f"{route}:{point_tag}"
         return f"{route}:{int(point.index)}"
-        return str(value)

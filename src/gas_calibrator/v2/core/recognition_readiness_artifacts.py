@@ -23,7 +23,6 @@ from .reviewer_fragments_contract import (
     READINESS_IMPACT_FRAGMENT_FAMILY,
     REVIEWER_FRAGMENTS_CONTRACT_VERSION,
     REVIEWER_NEXT_STEP_FRAGMENT_FAMILY,
-    build_fragment_row,
     fragment_filter_rows_to_ids,
     fragment_rows_to_keys,
     fragment_rows_to_texts,
@@ -35,10 +34,6 @@ from .reviewer_surface_contracts import (
     WP6_CLOSEOUT_ARTIFACT_KEYS as WP6_CLOSEOUT_ARTIFACT_KEYS,
     WP6_CLOSEOUT_DISPLAY_LABELS as WP6_CLOSEOUT_DISPLAY_LABELS,
     WP6_CLOSEOUT_DISPLAY_LABELS_EN as WP6_CLOSEOUT_DISPLAY_LABELS_EN,
-    WP6_CLOSEOUT_ANCHOR_DEFAULTS as _SHARED_ANCHOR_DEFAULTS,
-    WP6_CLOSEOUT_NEXT_ARTIFACT_DEFAULTS as _SHARED_NEXT_ARTIFACT_DEFAULTS,
-    WP6_CLOSEOUT_BLOCKER_DEFAULTS as _SHARED_BLOCKER_DEFAULTS,
-    WP6_CLOSEOUT_MISSING_EVIDENCE_DEFAULTS as _SHARED_MISSING_EVIDENCE_DEFAULTS,
     WP6_CLOSEOUT_ARTIFACT_ROLES as WP6_CLOSEOUT_ARTIFACT_ROLES,
     WP6_CLOSEOUT_I18N_KEYS as WP6_CLOSEOUT_I18N_KEYS,
     PT_ILC_REGISTRY_FILENAME,
@@ -54,14 +49,16 @@ from .reviewer_surface_contracts import (
     COMPARISON_ROLLUP_FILENAME,
     COMPARISON_ROLLUP_MARKDOWN_FILENAME,
     STEP2_CLOSEOUT_DIGEST_FILENAME,
-    STEP2_CLOSEOUT_DIGEST_MARKDOWN_FILENAME,
-    REVIEWER_SURFACE_CONTRACTS_VERSION,
+    STEP2_CLOSEOUT_DIGEST_MARKDOWN_FILENAME as STEP2_CLOSEOUT_DIGEST_MARKDOWN_FILENAME,
 )
+from .software_validation_builder import build_software_validation_wp5_artifacts
 from .step2_closeout_bundle_builder import (
     STEP2_CLOSEOUT_BUNDLE_FILENAME,
     STEP2_CLOSEOUT_EVIDENCE_INDEX_FILENAME,
     STEP2_CLOSEOUT_SUMMARY_FILENAME,
 )
+from .uncertainty_builder import build_uncertainty_wp3_artifacts
+from .wp6_builder import build_step2_closeout_digest, build_wp6_artifacts
 
 SCOPE_DEFINITION_PACK_FILENAME = "scope_definition_pack.json"
 SCOPE_DEFINITION_PACK_MARKDOWN_FILENAME = "scope_definition_pack.md"
@@ -166,10 +163,6 @@ RECOGNITION_READINESS_SUMMARY_FILENAMES = (
     STEP2_CLOSEOUT_BUNDLE_FILENAME,
     STEP2_CLOSEOUT_EVIDENCE_INDEX_FILENAME,
 )
-from .software_validation_builder import build_software_validation_wp5_artifacts
-from .uncertainty_builder import build_uncertainty_wp3_artifacts
-from .wp6_builder import build_wp6_artifacts
-from .wp6_builder import build_step2_closeout_digest
 
 RECOGNITION_READINESS_BOUNDARY_STATEMENTS = [
     "Step 2 reviewer readiness only",
@@ -753,10 +746,6 @@ def build_recognition_readiness_artifacts(
     acceptance_payload = dict(acceptance_plan or {})
     analytics_payload = dict(analytics_summary or {})
     lineage_payload = dict(lineage_summary or {})
-    evidence_registry_payload = dict(evidence_registry or {})
-    stability_payload = dict((multi_source_stability_evidence or {}).get("raw") or multi_source_stability_evidence or {})
-    transition_payload = dict((state_transition_evidence or {}).get("raw") or state_transition_evidence or {})
-    sidecar_payload = dict(simulation_evidence_sidecar_bundle or {})
     phase_coverage_payload = dict((measurement_phase_coverage_report or {}).get("raw") or measurement_phase_coverage_report or {})
     run_dir_path = Path(run_dir) if run_dir is not None else Path(str(run_id))
     path_map = _artifact_path_map(dict(artifact_paths or {}))
@@ -3419,7 +3408,6 @@ def derive_method_confirmation_step2_linkages(
     phase_coverage_payload = dict(measurement_phase_coverage_report or {})
     phase_coverage_digest = dict(phase_coverage_payload.get("digest") or {})
     sidecar_payload = dict(simulation_evidence_sidecar_bundle or {})
-    sidecar_stores = dict(sidecar_payload.get("stores") or {})
     analyzers = [
         str(item).strip()
         for item in list(sample_digest_payload.get("analyzers") or [])
@@ -4707,14 +4695,14 @@ def _method_confirmation_reviewer_action(route_label: str, dimension: str) -> st
     return {
         "linearity": f"复核 {route_label} 的 scope / decision rule / uncertainty linkage，并继续保持 real method confirmation 关闭。",
         "repeatability": f"为 {route_label} 保留 reviewer 占位行，等待未来真实重复测量 acceptance 方案。",
-        "reproducibility": f"补 reviewer-facing reproducibility skeleton，禁止写成 formal compliance claim。",
+        "reproducibility": "补 reviewer-facing reproducibility skeleton，禁止写成 formal compliance claim。",
         "drift": f"把 {route_label} drift 与 historical trend / report pack 的 reviewer linkage 对齐。",
-        "temperature_effect": f"把温度影响占位项与 certificate / pre-run gate / uncertainty refs 对齐。",
-        "pressure_effect": f"把压力影响占位项与 pressure-related reference assets / uncertainty case 对齐。",
+        "temperature_effect": "把温度影响占位项与 certificate / pre-run gate / uncertainty refs 对齐。",
+        "pressure_effect": "把压力影响占位项与 pressure-related reference assets / uncertainty case 对齐。",
         "route_switch_effect": f"复核 {route_label} 路由切换 placeholder 行，仅输出 reviewer action，不给真实通过结论。",
         "seal_ingress_sensitivity": f"复核 {route_label} seal / ingress skeleton 与 preseal/readiness mapping 的边界提示。",
-        "freshness_check": f"保留 freshness reviewer 检查项，继续禁止 real acceptance 解释。",
-        "writeback_verification": f"把 writeback reviewer 占位项与 golden / report pack linkage 对齐，不改 primary evidence。",
+        "freshness_check": "保留 freshness reviewer 检查项，继续禁止 real acceptance 解释。",
+        "writeback_verification": "把 writeback reviewer 占位项与 golden / report pack linkage 对齐，不改 primary evidence。",
     }[dimension]
 
 
@@ -4891,12 +4879,11 @@ def _build_software_validation_traceability_matrix(
             ],
         },
         {
-            "requirement": "reviewer discoverability across results / workbench / review_center",
-            "design": "results_gateway + app_facade + device_workbench",
+            "requirement": "reviewer discoverability in persisted and historical artifacts",
+            "design": "narrow file gateways + historical_artifacts",
             "tests": [
-                "tests/v2/test_results_gateway.py",
-                "tests/v2/test_ui_v2_workbench_evidence.py",
-                "tests/v2/test_ui_v2_review_center.py",
+                "tests/v2/test_historical_artifacts_cli.py",
+                "tests/v2/test_software_validation_wp5_contracts.py",
             ],
             "artifacts": [
                 path_map["scope_readiness_summary"],
@@ -4910,7 +4897,7 @@ def _build_software_validation_traceability_matrix(
             "design": "simulation_evidence_sidecar_bundle + release_validation_manifest",
             "tests": [
                 "tests/v2/test_multi_source_stability.py",
-                "tests/v2/test_results_gateway.py",
+                "tests/v2/test_historical_artifacts_cli.py",
             ],
             "artifacts": [
                 path_map["simulation_evidence_sidecar_bundle"],

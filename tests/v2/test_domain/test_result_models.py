@@ -1,4 +1,4 @@
-from gas_calibrator.v2.domain.result_models import PointResult, RunArtifactManifest
+from gas_calibrator.validation.simulation.domain import PointResult, RunArtifactManifest
 
 
 def test_point_result_defaults() -> None:

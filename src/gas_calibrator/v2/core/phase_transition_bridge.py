@@ -121,6 +121,7 @@ def build_phase_transition_bridge(
         overall_status=overall_status,
         recommended_next_stage=recommended_next_stage,
         ready_for_engineering_isolation=ready_for_engineering_isolation,
+        real_acceptance_ready=False,
         blocking_items=blocking_items,
         warning_items=warning_items,
         execute_now_in_step2_tail=execute_now_in_step2_tail,
@@ -163,6 +164,7 @@ def _build_reviewer_display(
     overall_status: str,
     recommended_next_stage: str,
     ready_for_engineering_isolation: bool,
+    real_acceptance_ready: bool,
     blocking_items: list[str],
     warning_items: list[str],
     execute_now_in_step2_tail: list[str],
@@ -185,7 +187,23 @@ def _build_reviewer_display(
     execute_now_text = _BRIDGE_TEXTS["execute_now_prefix"] + "、".join(execute_now_in_step2_tail) + "。"
     defer_to_stage3_text = _BRIDGE_TEXTS["defer_to_stage3_prefix"] + "、".join(defer_to_stage3_real_validation) + "。"
     blocking_text = _BRIDGE_TEXTS["no_blocking"] if not blocking_items else _BRIDGE_TEXTS["blocking_prefix"] + "、".join(blocking_items) + "。"
-    warning_text = _BRIDGE_TEXTS["warning_prefix"] + "、".join(warning_items) + "。"
+    warning_detail = "、".join(warning_items)
+    warning_text = (
+        _BRIDGE_TEXTS["warning_prefix"]
+        + "不是 real acceptance，不能替代真实计量验证"
+        + (f"，{warning_detail}" if warning_detail else "")
+        + "。"
+    )
+    engineering_isolation_text = (
+        "engineering-isolation 准备：已具备。"
+        if ready_for_engineering_isolation
+        else "engineering-isolation 准备：尚未具备。"
+    )
+    real_acceptance_text = (
+        "real acceptance 准备：已具备。"
+        if real_acceptance_ready
+        else "real acceptance 准备：尚未具备。"
+    )
     gate_lines = [
         _build_gate_line(item)
         for item in gate_matrix
@@ -196,6 +214,8 @@ def _build_reviewer_display(
         "status_line": status_line,
         "current_stage_text": current_stage_text,
         "next_stage_text": next_stage_text,
+        "engineering_isolation_text": engineering_isolation_text,
+        "real_acceptance_text": real_acceptance_text,
         "execute_now_text": execute_now_text,
         "defer_to_stage3_text": defer_to_stage3_text,
         "blocking_text": blocking_text,

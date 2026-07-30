@@ -10,7 +10,7 @@ from typing import Any, Mapping
 
 from gas_calibrator.utils.file_io import write_json as _write_json
 
-from ..domain.services.gas_analyzer_operating_envelope import (
+from gas_calibrator.validation.metrology.gas_analyzer_operating_envelope import (
     analyze_gas_analyzer_operating_envelope,
     build_gas_analyzer_operating_envelope_acceptance,
 )

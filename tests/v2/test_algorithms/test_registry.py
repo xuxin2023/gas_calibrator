@@ -1,5 +1,5 @@
 from gas_calibrator.v2.algorithms.linear import LinearAlgorithm
-from gas_calibrator.v2.algorithms.registry import AlgorithmRegistry
+from gas_calibrator.v2.algorithms import AlgorithmRegistry, ComparisonResult, ValidationResult
 
 
 def test_registry_register_and_get() -> None:
@@ -20,3 +20,9 @@ def test_registry_register_default_algorithms() -> None:
     assert "linear" in names
     assert "polynomial" in names
     assert "amt" in names
+
+
+def test_algorithm_package_types_have_one_owner() -> None:
+    assert AlgorithmRegistry.__module__ == "gas_calibrator.v2.algorithms"
+    assert ComparisonResult.__module__ == "gas_calibrator.v2.algorithms"
+    assert ValidationResult.__module__ == "gas_calibrator.v2.algorithms"

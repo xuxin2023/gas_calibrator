@@ -20,10 +20,9 @@ import pandas as pd
 from openpyxl import Workbook, load_workbook
 
 from ..config import load_config
-from ..data.points import CalibrationPoint, load_points_from_excel
+from ..data.points import load_points_from_excel
 from ..export import export_temperature_compensation_artifacts
 from ..senco_format import format_senco_values
-from ..v2.config import AppConfig, CoefficientsConfig
 from ..v2.adapters.analyzer_coefficient_downloader import (
     CsvIoLogger,
     _resolve_gas_analyzer_class,
@@ -33,6 +32,7 @@ from ..v2.adapters.analyzer_coefficient_downloader import (
 )
 from ..v2.export.ratio_poly_report import (
     export_ratio_poly_report_from_summary_frame,
+    load_ratio_poly_report_config,
     load_summary_workbook_rows,
 )
 from . import verify_short_run
@@ -57,24 +57,22 @@ def _default_coefficients_payload() -> dict[str, Any]:
         "enabled": True,
         "auto_fit": True,
         "model": "ratio_poly_rt_p",
+        "report_temperature_key": "Temp",
+        "report_pressure_key": "P_fit",
         "summary_columns": {
-            "co2": {"target": "ppm_CO2_Tank", "ratio": "R_CO2", "temperature": "Temp", "pressure": "BAR"},
-            "h2o": {"target": "ppm_H2O_Dew", "ratio": "R_H2O", "temperature": "Temp", "pressure": "BAR"},
+            "co2": {"target": "ppm_CO2_Tank", "ratio": "R_CO2"},
+            "h2o": {"target": "ppm_H2O_Dew", "ratio": "R_H2O"},
         },
     }
 
 
-def _load_coefficients_config_lazy(config_path: str | Path | None) -> CoefficientsConfig:
+def _load_coefficients_config_lazy(config_path: str | Path | None) -> Any:
     # Keep merged-sidecar merge/report flows independent from SQLAlchemy-backed
     # postprocess modules so summary-only paths still run in lean environments.
-    if not config_path:
-        config = AppConfig.from_dict({"coefficients": _default_coefficients_payload()})
-    else:
-        config = AppConfig.from_json_file(str(Path(config_path)))
-    coeff_cfg = config.coefficients
-    coeff_cfg.enabled = True
-    coeff_cfg.auto_fit = True
-    return coeff_cfg
+    return load_ratio_poly_report_config(
+        config_path,
+        default_payload=_default_coefficients_payload(),
+    )
 
 
 def _safe_float(value: Any) -> Optional[float]:

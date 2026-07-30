@@ -6,10 +6,19 @@ import pytest
 pytest.importorskip("sqlalchemy")
 from sqlalchemy import func, select
 
-from gas_calibrator.v2.storage.database import DatabaseManager, StorageSettings, stable_uuid
-from gas_calibrator.v2.storage.import_v1_5_initialization import run_import
-from gas_calibrator.v2.storage.models import DeviceEventRecord, RunRecord, SensorIdentityAliasRecord, SensorRecord
-from gas_calibrator.v2.storage.queries import HistoryQueryService
+from gas_calibrator.storage.database import (
+    DatabaseManager,
+    StorageSettings,
+    stable_uuid,
+)
+from gas_calibrator.storage.models import (
+    DeviceEventRecord,
+    RunRecord,
+    SensorIdentityAliasRecord,
+    SensorRecord,
+)
+from gas_calibrator.storage.queries import HistoryQueryService
+from gas_calibrator.v1_5.import_initialization_database import run_import
 
 
 def _bundle_path(tmp_path: Path) -> Path:

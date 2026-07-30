@@ -2,8 +2,7 @@ from pathlib import Path
 import json
 import sys
 
-from gas_calibrator.v2.adapters.results_gateway import ResultsGateway
-from gas_calibrator.v2.adapters.uncertainty_gateway import UncertaintyGateway
+from gas_calibrator.v2.adapters import UncertaintyGateway
 from gas_calibrator.v2.core.uncertainty_repository import (
     DatabaseReadyUncertaintyRepositoryStub,
     FileBackedUncertaintyRepository,
@@ -14,7 +13,7 @@ SUPPORT_DIR = Path(__file__).resolve().parent
 if str(SUPPORT_DIR) not in sys.path:
     sys.path.insert(0, str(SUPPORT_DIR))
 
-from ui_v2_support import build_fake_facade
+from ui_v2_support import build_fake_service
 
 
 def _write_legacy_run(run_dir: Path) -> None:
@@ -26,18 +25,16 @@ def _write_legacy_run(run_dir: Path) -> None:
         )
 
 
-def test_uncertainty_wp3_object_model_golden_cases_and_results_contract(tmp_path: Path) -> None:
-    facade = build_fake_facade(tmp_path)
-    run_dir = Path(facade.result_store.run_dir)
+def test_uncertainty_wp3_object_model_golden_cases_and_gateway_contract(
+    tmp_path: Path,
+) -> None:
+    service = build_fake_service(tmp_path)
+    run_dir = Path(service.result_store.run_dir)
     rebuild_run(run_dir)
 
     repository = FileBackedUncertaintyRepository(run_dir)
     snapshot = repository.load_snapshot()
     payload = UncertaintyGateway(run_dir).read_payload()
-    results_payload = ResultsGateway(
-        run_dir,
-        output_files_provider=facade.service.get_output_files,
-    ).read_results_payload()
 
     budget_cases = list(payload["budget_case"].get("budget_case") or [])
     golden_cases = list(payload["uncertainty_golden_cases"].get("golden_cases") or [])
@@ -46,7 +43,6 @@ def test_uncertainty_wp3_object_model_golden_cases_and_results_contract(tmp_path
     budget_levels = {str(item.get("budget_level") or "") for item in budget_cases}
     input_quantity_keys = {str(item.get("quantity_key") or "") for item in input_rows}
     fixture_paths = dict(payload["uncertainty_report_pack"].get("artifact_paths") or {})
-    uncertainty_binding = dict(results_payload.get("uncertainty_binding") or {})
     result_budget_case = next(
         item for item in budget_cases if str(item.get("budget_level") or "") == "result"
     )
@@ -162,33 +158,6 @@ def test_uncertainty_wp3_object_model_golden_cases_and_results_contract(tmp_path
     assert payload["uncertainty_rollup"]["rollup_summary_display"]
     assert any("uncertainty_budget_inputs.json" in str(value) for value in fixture_paths.values())
     assert snapshot["uncertainty_rollup"]["rollup_summary_display"]
-    assert uncertainty_binding["scope_id"] == results_payload["recognition_binding"]["scope_id"]
-    assert uncertainty_binding["decision_rule_id"] == results_payload["recognition_binding"]["decision_rule_id"]
-    assert uncertainty_binding["uncertainty_case_id"] == result_budget_case["uncertainty_case_id"]
-    assert uncertainty_binding["method_confirmation_protocol_id"] == result_budget_case[
-        "method_confirmation_protocol_id"
-    ]
-    assert uncertainty_binding["not_real_acceptance_evidence"] is True
-    assert uncertainty_binding["not_ready_for_formal_claim"] is True
-    assert (
-        "不确定度概览" in results_payload["result_summary_text"]
-        or "Uncertainty overview" in results_payload["result_summary_text"]
-    )
-    assert (
-        "预算完整度" in results_payload["result_summary_text"]
-        or "Budget completeness" in results_payload["result_summary_text"]
-    )
-    assert (
-        "主要不确定度贡献" in results_payload["result_summary_text"]
-        or "Top uncertainty contributors" in results_payload["result_summary_text"]
-    )
-    assert "budget levels" in results_payload["result_summary_text"].lower()
-    assert "uncertainty binding" in results_payload["result_summary_text"].lower()
-    assert "calculation chain" in results_payload["result_summary_text"].lower()
-    assert "fixture" in results_payload["result_summary_text"].lower()
-    assert results_payload["uncertainty_report_pack"]["artifact_type"] == "uncertainty_report_pack"
-    assert results_payload["uncertainty_digest"]["artifact_type"] == "uncertainty_digest"
-    assert results_payload["uncertainty_rollup"]["artifact_type"] == "uncertainty_rollup"
 
 
 def test_uncertainty_wp3_db_stub_and_placeholder_fallback(tmp_path: Path) -> None:

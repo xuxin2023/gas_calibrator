@@ -52,7 +52,14 @@ def _base_kwargs(run_dir: Path) -> dict:
         },
         "stage3_real_validation_plan": {
             "validation_items": [
-                {"title_text": "future device acceptance bundle"},
+                {
+                    "title_text": "future reference enforcement bundle",
+                    "category": "reference_instrument_enforcement",
+                },
+                {
+                    "title_text": "future device acceptance bundle",
+                    "category": "device_acceptance",
+                },
             ]
         },
         "scope_definition_pack": {"summary": "scope definition ready"},
@@ -146,6 +153,8 @@ def test_engineering_isolation_gate_evaluator_passes_reviewer_bridge_with_offlin
         ENGINEERING_ISOLATION_WARNINGS_FILENAME
     )
     assert draft_input["required_evidence_categories"]
+    assert "真实参考表 / 参考仪器强制执行" in draft_input["required_evidence_categories"]
+    assert "真机系数写入 / 回读 / acceptance" in draft_input["required_evidence_categories"]
     assert draft_input["missing_prerequisites"] == []
     assert draft_input["suggested_validation_bundles"]
 

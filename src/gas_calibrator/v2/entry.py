@@ -9,9 +9,12 @@ import json
 import os
 from pathlib import Path
 from collections.abc import Mapping
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type
+from typing import Any, Callable, List, Optional, Tuple, Type
 
-from .config import AIConfig, AppConfig, StorageConfig, summarize_step2_config_safety
+from gas_calibrator.validation.simulation.config import AIConfig
+from gas_calibrator.validation.simulation.point_parser import PointFilter, PointParser
+
+from .config.models import AppConfig, StorageConfig, summarize_step2_config_safety
 from .core.calibration_service import CalibrationService, SamplingResult
 from .core.device_factory import DeviceFactory
 from .core.no_write_guard import (
@@ -19,7 +22,6 @@ from .core.no_write_guard import (
     NoWriteDeviceFactory,
     build_no_write_guard_from_raw_config,
 )
-from .core.point_parser import PointFilter, PointParser
 from .core.run001_a1_dry_run import evaluate_run001_a1_readiness, load_point_rows
 
 
@@ -309,6 +311,7 @@ def _merge_optional_section(
     filename: str,
     section: str,
     should_skip: Callable[[dict[str, Any]], bool],
+    accept_payload: Optional[Callable[[dict[str, Any]], bool]] = None,
 ) -> dict[str, Any]:
     if should_skip(raw_cfg):
         return raw_cfg
@@ -318,6 +321,8 @@ def _merge_optional_section(
     try:
         payload = _read_json_file(candidate)
     except Exception:
+        return raw_cfg
+    if accept_payload is not None and not accept_payload(payload):
         return raw_cfg
     merged = copy.deepcopy(raw_cfg)
     merged[section] = payload.get(section) if isinstance(payload.get(section), dict) else payload
@@ -372,7 +377,11 @@ def load_config_bundle(
         raw_cfg,
         filename="storage_config.json",
         section="storage",
-        should_skip=lambda payload: StorageConfig.from_dict(payload.get("storage")).database_enabled,
+        should_skip=lambda payload: (
+            (storage := StorageConfig.from_dict(payload.get("storage"))).enabled is not None
+            or storage.database_enabled
+        ),
+        accept_payload=lambda payload: StorageConfig.from_dict(payload).enabled is True,
     )
     raw_cfg = _merge_optional_section(
         resolved_config_path,
@@ -386,6 +395,13 @@ def load_config_bundle(
     if simulation_mode:
         config.features.simulation_mode = True
         raw_cfg.setdefault("features", {})["simulation_mode"] = True
+    if config.features.simulation_mode:
+        config.storage.enabled = False
+        storage_payload = raw_cfg.get("storage")
+        if not isinstance(storage_payload, dict):
+            storage_payload = {}
+            raw_cfg["storage"] = storage_payload
+        storage_payload["enabled"] = False
     config_safety = summarize_step2_config_safety(
         config,
         allow_unsafe_step2_config=allow_unsafe_step2_config,
@@ -401,46 +417,6 @@ def load_config_bundle(
     if enforce_step2_execution_gate and not bool(config_safety.get("step2_default_workflow_allowed", True)):
         raise Step2UnsafeConfigError(resolved_config_path, config_safety)
     return resolved_config_path, raw_cfg, config
-
-
-def _resolve_config_paths(config: AppConfig, config_path: str) -> AppConfig:
-    base_dir = Path(config_path).expanduser().resolve().parent
-    config.paths.points_excel = _resolve_relative_path(base_dir, config.paths.points_excel)
-    config.paths.output_dir = _resolve_relative_path(base_dir, config.paths.output_dir)
-    config.paths.logs_dir = _resolve_relative_path(base_dir, config.paths.logs_dir)
-
-    backend = str(config.storage.backend or "").strip().lower()
-    if backend in {"sqlite", "sqlite3"} and not str(config.storage.dsn or "").strip():
-        config.storage.database = _resolve_relative_path(base_dir, config.storage.database)
-    return config
-
-
-def _load_storage_config(config_path: str, current: StorageConfig) -> StorageConfig:
-    if current.database_enabled:
-        return current
-    candidate = Path(config_path).with_name("storage_config.json")
-    if not candidate.exists():
-        return current
-    try:
-        payload = json.loads(candidate.read_text(encoding="utf-8"))
-    except Exception:
-        return current
-    loaded = StorageConfig.from_dict(payload)
-    return loaded if loaded.database_enabled else current
-
-
-def _load_ai_config(config_path: str, current: AIConfig) -> AIConfig:
-    if current.enabled:
-        return current
-    candidate = Path(config_path).with_name("ai_config.json")
-    if not candidate.exists():
-        return current
-    try:
-        payload = json.loads(candidate.read_text(encoding="utf-8"))
-    except Exception:
-        return current
-    loaded = AIConfig.from_dict(payload)
-    return loaded if loaded.enabled else current
 
 
 def create_calibration_service(

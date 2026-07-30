@@ -11,7 +11,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .step2_closure_schema_registry import (
-    CANONICAL_BOUNDARY_MARKER_FIELDS,
     CANONICAL_SOURCE_PRIORITY,
     CANONICAL_STEP2_BOUNDARY,
     STEP2_CLOSURE_CORE_OBJECT_KEYS,

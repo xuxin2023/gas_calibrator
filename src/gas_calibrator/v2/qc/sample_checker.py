@@ -5,7 +5,7 @@ from datetime import datetime
 from statistics import median
 from typing import Any, Iterable
 
-from ..config import QCConfig
+from gas_calibrator.validation.simulation.config import QCConfig
 
 
 @dataclass(frozen=True)

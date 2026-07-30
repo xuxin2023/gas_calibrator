@@ -21,8 +21,7 @@ from typing import Any, Dict, Optional, Callable
 import threading
 import logging
 
-from gas_calibrator.v2.config import AppConfig
-from gas_calibrator.v2.core.calibration_service import CalibrationService
+from gas_calibrator.v2.config.models import AppConfig
 from gas_calibrator.v2.entry import create_calibration_service_from_config
 
 # Boundary note: this file is a V2 compatibility adapter. It may call the V1
@@ -210,7 +209,6 @@ def create_runner(
     if use_v2:
         raw_cfg = None if isinstance(cfg, AppConfig) else dict(cfg or {})
         config = cfg if isinstance(cfg, AppConfig) else AppConfig.from_dict(raw_cfg)
-        config.features.use_v2 = True
         return create_calibration_service_from_config(
             config,
             raw_cfg=raw_cfg,

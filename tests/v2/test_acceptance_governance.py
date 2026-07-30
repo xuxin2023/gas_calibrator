@@ -9,54 +9,30 @@ from gas_calibrator.v2.core.metrology_calibration_contract import (
     build_metrology_calibration_contract,
 )
 from gas_calibrator.v2.core.phase_transition_bridge import build_phase_transition_bridge
-from gas_calibrator.v2.core.phase_transition_bridge_presenter import build_phase_transition_bridge_panel_payload
 from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact import (
     PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME,
     build_phase_transition_bridge_reviewer_artifact,
-)
-from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact_entry import (
-    PHASE_TRANSITION_BRIDGE_REVIEWER_ARTIFACT_KEY,
-    build_phase_transition_bridge_reviewer_artifact_entry,
 )
 from gas_calibrator.v2.core.stage_admission_review_pack import (
     STAGE_ADMISSION_REVIEW_PACK_FILENAME,
     STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME,
     build_stage_admission_review_pack,
 )
-from gas_calibrator.v2.core.stage_admission_review_pack_artifact_entry import (
-    STAGE_ADMISSION_REVIEW_PACK_ARTIFACT_KEY,
-    STAGE_ADMISSION_REVIEW_PACK_REVIEWER_ARTIFACT_KEY,
-    build_stage_admission_review_pack_artifact_entry,
-)
 from gas_calibrator.v2.core.engineering_isolation_admission_checklist import (
     ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME,
     ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME,
     build_engineering_isolation_admission_checklist,
 )
-from gas_calibrator.v2.core.engineering_isolation_admission_checklist_artifact_entry import (
-    ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_ARTIFACT_KEY,
-    ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_ARTIFACT_KEY,
-    build_engineering_isolation_admission_checklist_artifact_entry,
-)
 from gas_calibrator.v2.core.stage3_real_validation_plan import (
     STAGE3_REAL_VALIDATION_PLAN_FILENAME,
     STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME,
+    STAGE3_VALIDATION_CATEGORY_LABELS,
     build_stage3_real_validation_plan,
-)
-from gas_calibrator.v2.core.stage3_real_validation_plan_artifact_entry import (
-    STAGE3_REAL_VALIDATION_PLAN_ARTIFACT_KEY,
-    STAGE3_REAL_VALIDATION_PLAN_REVIEWER_ARTIFACT_KEY,
-    build_stage3_real_validation_plan_artifact_entry,
 )
 from gas_calibrator.v2.core.stage3_standards_alignment_matrix import (
     STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME,
     STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME,
     build_stage3_standards_alignment_matrix,
-)
-from gas_calibrator.v2.core.stage3_standards_alignment_matrix_artifact_entry import (
-    STAGE3_STANDARDS_ALIGNMENT_MATRIX_ARTIFACT_KEY,
-    STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_ARTIFACT_KEY,
-    build_stage3_standards_alignment_matrix_artifact_entry,
 )
 from gas_calibrator.v2.core.step2_readiness import build_step2_readiness_summary
 from gas_calibrator.v2.core.step2_readiness import STEP2_READINESS_SUMMARY_FILENAME
@@ -166,6 +142,14 @@ def test_step2_readiness_summary_reports_engineering_isolation_preparation_witho
     } <= gate_ids
     assert readiness["reviewer_display"]["status_line"].startswith("阶段状态：")
     assert "不是 real acceptance" in readiness["reviewer_display"]["summary_text"]
+    headless_gate = next(
+        item for item in readiness["gates"] if item["gate_id"] == "headless_smoke_path_available"
+    )
+    assert headless_gate["status"] == "retired"
+    assert headless_gate["reason_code"] == "v2_simulation_launcher_retired"
+    assert headless_gate["details"]["headless_command"] == ""
+    assert headless_gate["details"]["replacement_product_entry"] == "run_v1_5_workstation.py"
+    assert "v2_simulation_launcher_retired" in readiness["warning_items"]
     assert all(str(item["reason_code"]).strip() for item in readiness["gates"])
 
 
@@ -366,7 +350,7 @@ def test_phase_transition_bridge_reports_engineering_isolation_without_marking_r
     assert "not_real_acceptance_evidence" in bridge["warning_items"]
 
 
-def test_phase_transition_bridge_reviewer_artifact_reuses_canonical_panel_output_without_leaking_raw_keys() -> None:
+def test_phase_transition_bridge_reviewer_artifact_owns_canonical_section_without_leaking_raw_keys() -> None:
     readiness = build_step2_readiness_summary(
         run_id="run_bridge_reviewer",
         simulation_mode=True,
@@ -399,7 +383,7 @@ def test_phase_transition_bridge_reviewer_artifact_reuses_canonical_panel_output
     )
 
     artifact = build_phase_transition_bridge_reviewer_artifact(bridge)
-    expected_panel = build_phase_transition_bridge_panel_payload(bridge)
+    expected_panel = artifact["section"]
     markdown = artifact["markdown"]
 
     assert artifact["available"] is True
@@ -407,7 +391,8 @@ def test_phase_transition_bridge_reviewer_artifact_reuses_canonical_panel_output
     assert artifact["filename"] == PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME
     assert artifact["raw"]["ready_for_engineering_isolation"] is True
     assert artifact["raw"]["real_acceptance_ready"] is False
-    assert artifact["section"]["display"] == expected_panel["display"]
+    assert expected_panel["display"]["summary_text"] == bridge["reviewer_display"]["summary_text"]
+    assert expected_panel["display"]["status_line"] == bridge["reviewer_display"]["status_line"]
     assert artifact["display"]["engineering_isolation_text"] == expected_panel["display"]["engineering_isolation_text"]
     assert artifact["display"]["real_acceptance_text"] == expected_panel["display"]["real_acceptance_text"]
     assert "engineering-isolation 准备：已具备。" in expected_panel["display"]["section_text"]
@@ -422,79 +407,6 @@ def test_phase_transition_bridge_reviewer_artifact_reuses_canonical_panel_output
     assert "不能替代真实计量验证" in markdown
     assert "ready_for_engineering_isolation" not in markdown
     assert "real_acceptance_ready" not in markdown
-
-
-def test_phase_transition_bridge_reviewer_artifact_entry_reuses_manifest_and_panel_wording_without_rejudging_stage_logic() -> None:
-    readiness = build_step2_readiness_summary(
-        run_id="run_bridge_entry",
-        simulation_mode=True,
-        config_governance_handoff={
-            "simulation_only": True,
-            "operator_safe": True,
-            "real_port_device_count": 0,
-            "engineering_only_flag_count": 0,
-            "enabled_engineering_flags": [],
-            "risk_markers": [],
-            "execution_gate": {"status": "open"},
-            "step2_default_workflow_allowed": True,
-            "requires_explicit_unlock": False,
-        },
-    )
-    metrology = build_metrology_calibration_contract(
-        run_id="run_bridge_entry",
-        simulation_mode=True,
-        config_governance_handoff={
-            "simulation_only": True,
-            "real_port_device_count": 0,
-            "engineering_only_flag_count": 0,
-            "enabled_engineering_flags": [],
-        },
-    )
-    bridge = build_phase_transition_bridge(
-        run_id="run_bridge_entry",
-        step2_readiness_summary=readiness,
-        metrology_calibration_contract=metrology,
-    )
-    reviewer_artifact = build_phase_transition_bridge_reviewer_artifact(bridge)
-
-    entry = build_phase_transition_bridge_reviewer_artifact_entry(
-        artifact_path=f"D:/tmp/{PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME}",
-        manifest_section={
-            "artifact_type": reviewer_artifact["artifact_type"],
-            "path": f"D:/tmp/{PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME}",
-            "available": True,
-            "summary_text": reviewer_artifact["display"]["summary_text"],
-            "status_line": reviewer_artifact["display"]["status_line"],
-            "current_stage_text": reviewer_artifact["display"]["current_stage_text"],
-            "next_stage_text": reviewer_artifact["display"]["next_stage_text"],
-            "engineering_isolation_text": reviewer_artifact["display"]["engineering_isolation_text"],
-            "real_acceptance_text": reviewer_artifact["display"]["real_acceptance_text"],
-            "execute_now_text": reviewer_artifact["display"]["execute_now_text"],
-            "defer_to_stage3_text": reviewer_artifact["display"]["defer_to_stage3_text"],
-            "blocking_text": reviewer_artifact["display"]["blocking_text"],
-            "warning_text": reviewer_artifact["display"]["warning_text"],
-            "not_real_acceptance_evidence": True,
-        },
-        reviewer_section=reviewer_artifact["section"],
-    )
-
-    assert entry["artifact_key"] == PHASE_TRANSITION_BRIDGE_REVIEWER_ARTIFACT_KEY
-    assert entry["artifact_type"] == PHASE_TRANSITION_BRIDGE_REVIEWER_ARTIFACT_KEY
-    assert entry["path"].endswith(PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME)
-    assert entry["name_text"] == reviewer_artifact["section"]["display"]["title_text"]
-    assert entry["summary_text"] == reviewer_artifact["display"]["summary_text"]
-    assert entry["status_line"] == reviewer_artifact["display"]["status_line"]
-    assert entry["stage_marker_text"] == reviewer_artifact["display"]["current_stage_text"]
-    assert entry["engineering_isolation_text"] == reviewer_artifact["display"]["engineering_isolation_text"]
-    assert entry["real_acceptance_text"] == reviewer_artifact["display"]["real_acceptance_text"]
-    assert "Step 2 tail / Stage 3 bridge" in entry["entry_text"]
-    assert "engineering-isolation" in entry["entry_text"]
-    assert reviewer_artifact["display"]["execute_now_text"] in entry["entry_text"]
-    assert reviewer_artifact["display"]["defer_to_stage3_text"] in entry["entry_text"]
-    assert "不是 real acceptance" in entry["entry_text"]
-    assert "不能替代真实计量验证" in entry["entry_text"]
-    assert "ready_for_engineering_isolation" not in entry["entry_text"]
-    assert "real_acceptance_ready" not in entry["entry_text"]
 
 
 def test_stage3_standards_alignment_matrix_reuses_stage3_plan_pack_and_checklist_wording_without_fake_compliance() -> None:
@@ -625,44 +537,6 @@ def test_stage3_standards_alignment_matrix_reuses_stage3_plan_pack_and_checklist
 
     raw = matrix["raw"]
     markdown = matrix["markdown"]
-    entry = build_stage3_standards_alignment_matrix_artifact_entry(
-        artifact_path=artifact_paths["stage3_standards_alignment_matrix"],
-        reviewer_artifact_path=artifact_paths["stage3_standards_alignment_matrix_reviewer_artifact"],
-        manifest_section={
-            **raw,
-            "path": artifact_paths["stage3_standards_alignment_matrix"],
-            "reviewer_path": artifact_paths["stage3_standards_alignment_matrix_reviewer_artifact"],
-        },
-        reviewer_manifest_section={
-            "artifact_type": STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_ARTIFACT_KEY,
-            "path": artifact_paths["stage3_standards_alignment_matrix_reviewer_artifact"],
-            "summary_text": matrix["display"]["summary_text"],
-            "reviewer_note_text": matrix["display"]["reviewer_note_text"],
-            "status_line": matrix["display"]["status_line"],
-            "current_stage_text": matrix["display"]["current_stage_text"],
-            "next_stage_text": matrix["display"]["next_stage_text"],
-            "engineering_isolation_text": matrix["display"]["engineering_isolation_text"],
-            "real_acceptance_text": matrix["display"]["real_acceptance_text"],
-            "stage_bridge_text": matrix["display"]["stage_bridge_text"],
-            "artifact_role_text": matrix["display"]["artifact_role_text"],
-            "not_real_acceptance_evidence": True,
-        },
-        digest_section={
-            "overall_status": raw["overall_status"],
-            "recommended_next_stage": raw["recommended_next_stage"],
-            "mapping_scope": raw["mapping_scope"],
-            "standard_family_count": len(raw["standard_families"]),
-            "mapping_row_count": len(raw["rows"]),
-            "required_evidence_category_count": len(raw["required_evidence_categories"]),
-            "standard_families": raw["standard_families"],
-            "required_evidence_categories": raw["required_evidence_categories"],
-            "readiness_status_counts": raw["readiness_status_counts"],
-            "boundary_statements": raw["boundary_statements"],
-            "artifact_paths": raw["artifact_paths"],
-        },
-        reviewer_markdown_text=markdown,
-    )
-
     assert matrix["artifact_type"] == "stage3_standards_alignment_matrix"
     assert matrix["filename"] == STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME
     assert matrix["reviewer_filename"] == STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME
@@ -710,27 +584,6 @@ def test_stage3_standards_alignment_matrix_reuses_stage3_plan_pack_and_checklist
     assert "decision_rule_profile.json" in markdown
     assert "ready_for_engineering_isolation" not in markdown
     assert "real_acceptance_ready" not in markdown
-    assert entry["artifact_key"] == STAGE3_STANDARDS_ALIGNMENT_MATRIX_ARTIFACT_KEY
-    assert entry["reviewer_artifact_key"] == STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_ARTIFACT_KEY
-    assert entry["path"].endswith(STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME)
-    assert entry["reviewer_path"].endswith(STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME)
-    assert entry["status_line"] == matrix["display"]["status_line"]
-    assert entry["engineering_isolation_text"] == matrix["display"]["engineering_isolation_text"]
-    assert entry["real_acceptance_text"] == matrix["display"]["real_acceptance_text"]
-    assert entry["stage_bridge_text"] == matrix["display"]["stage_bridge_text"]
-    assert entry["navigation_id"] == "stage3-standards-alignment-matrix"
-    assert "Step 2 tail / Stage 3 bridge" in entry["card_text"]
-    assert "readiness mapping only" in entry["card_text"]
-    assert "not accreditation claim" in entry["card_text"]
-    assert "not compliance certification" in entry["card_text"]
-    assert "not real acceptance" in entry["card_text"]
-    assert "cannot replace real metrology validation" in entry["card_text"]
-    assert "ISO/IEC 17025" in entry["standard_families_text"]
-    assert "CNAS-CL01-G003" in entry["standard_families_text"]
-    assert "ready_for_engineering_isolation" not in entry["entry_text"]
-    assert "real_acceptance_ready" not in entry["entry_text"]
-
-
 def test_stage_admission_review_pack_reuses_existing_governance_artifacts_without_rejudging_stage_logic() -> None:
     readiness = build_step2_readiness_summary(
         run_id="run_stage_pack",
@@ -824,99 +677,6 @@ def test_stage_admission_review_pack_reuses_existing_governance_artifacts_withou
     assert "phase_transition_bridge_reviewer.md" in markdown
     assert "ready_for_engineering_isolation" not in markdown
     assert "real_acceptance_ready" not in markdown
-
-
-def test_stage_admission_review_pack_artifact_entry_reuses_pack_reviewer_display_without_new_stage_logic() -> None:
-    readiness = build_step2_readiness_summary(
-        run_id="run_stage_pack_entry",
-        simulation_mode=True,
-        config_governance_handoff={
-            "simulation_only": True,
-            "operator_safe": True,
-            "real_port_device_count": 0,
-            "engineering_only_flag_count": 0,
-            "enabled_engineering_flags": [],
-            "risk_markers": [],
-            "execution_gate": {"status": "open"},
-            "step2_default_workflow_allowed": True,
-            "requires_explicit_unlock": False,
-        },
-    )
-    metrology = build_metrology_calibration_contract(
-        run_id="run_stage_pack_entry",
-        simulation_mode=True,
-        config_governance_handoff={
-            "simulation_only": True,
-            "real_port_device_count": 0,
-            "engineering_only_flag_count": 0,
-            "enabled_engineering_flags": [],
-        },
-    )
-    bridge = build_phase_transition_bridge(
-        run_id="run_stage_pack_entry",
-        step2_readiness_summary=readiness,
-        metrology_calibration_contract=metrology,
-    )
-    reviewer_artifact = build_phase_transition_bridge_reviewer_artifact(bridge)
-    pack = build_stage_admission_review_pack(
-        run_id="run_stage_pack_entry",
-        step2_readiness_summary=readiness,
-        metrology_calibration_contract=metrology,
-        phase_transition_bridge=bridge,
-        phase_transition_bridge_reviewer_artifact=reviewer_artifact,
-        artifact_paths={
-            "step2_readiness_summary": f"D:/tmp/{STEP2_READINESS_SUMMARY_FILENAME}",
-            "metrology_calibration_contract": f"D:/tmp/{METROLOGY_CALIBRATION_CONTRACT_FILENAME}",
-            "phase_transition_bridge": "D:/tmp/phase_transition_bridge.json",
-            "phase_transition_bridge_reviewer_artifact": f"D:/tmp/{PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME}",
-        },
-    )
-
-    entry = build_stage_admission_review_pack_artifact_entry(
-        artifact_path=f"D:/tmp/{STAGE_ADMISSION_REVIEW_PACK_FILENAME}",
-        reviewer_artifact_path=f"D:/tmp/{STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME}",
-        manifest_section={
-            **pack["raw"],
-            "path": f"D:/tmp/{STAGE_ADMISSION_REVIEW_PACK_FILENAME}",
-            "reviewer_path": f"D:/tmp/{STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME}",
-        },
-        reviewer_manifest_section={
-            "artifact_type": STAGE_ADMISSION_REVIEW_PACK_REVIEWER_ARTIFACT_KEY,
-            "path": f"D:/tmp/{STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME}",
-            "summary_text": pack["display"]["summary_text"],
-            "status_line": pack["display"]["status_line"],
-            "current_stage_text": pack["display"]["current_stage_text"],
-            "next_stage_text": pack["display"]["next_stage_text"],
-            "engineering_isolation_text": pack["display"]["engineering_isolation_text"],
-            "real_acceptance_text": pack["display"]["real_acceptance_text"],
-            "execute_now_text": pack["display"]["execute_now_text"],
-            "defer_to_stage3_text": pack["display"]["defer_to_stage3_text"],
-            "blocking_text": pack["display"]["blocking_text"],
-            "warning_text": pack["display"]["warning_text"],
-            "not_real_acceptance_evidence": True,
-        },
-    )
-
-    assert entry["artifact_key"] == STAGE_ADMISSION_REVIEW_PACK_ARTIFACT_KEY
-    assert entry["reviewer_artifact_key"] == STAGE_ADMISSION_REVIEW_PACK_REVIEWER_ARTIFACT_KEY
-    assert entry["path"].endswith(STAGE_ADMISSION_REVIEW_PACK_FILENAME)
-    assert entry["reviewer_path"].endswith(STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME)
-    assert entry["summary_text"] == pack["display"]["summary_text"]
-    assert entry["status_line"] == pack["display"]["status_line"]
-    assert entry["current_stage_text"] == pack["display"]["current_stage_text"]
-    assert entry["next_stage_text"] == pack["display"]["next_stage_text"]
-    assert entry["engineering_isolation_text"] == pack["display"]["engineering_isolation_text"]
-    assert entry["real_acceptance_text"] == pack["display"]["real_acceptance_text"]
-    assert "Step 2 tail / Stage 3 bridge" in entry["entry_text"]
-    assert "engineering-isolation" in entry["entry_text"]
-    assert entry["execute_now_text"] in entry["entry_text"]
-    assert entry["defer_to_stage3_text"] in entry["entry_text"]
-    assert "不是 real acceptance" in entry["entry_text"]
-    assert "不能替代真实计量验证" in entry["entry_text"]
-    assert "ready_for_engineering_isolation" not in entry["entry_text"]
-    assert "real_acceptance_ready" not in entry["entry_text"]
-    assert entry["ready_for_engineering_isolation"] is True
-    assert entry["real_acceptance_ready"] is False
 
 
 def test_engineering_isolation_admission_checklist_reuses_existing_pack_and_bridge_wording_without_new_stage_logic() -> None:
@@ -1032,109 +792,6 @@ def test_engineering_isolation_admission_checklist_reuses_existing_pack_and_brid
     assert "real_acceptance_ready" not in markdown
 
 
-def test_engineering_isolation_admission_checklist_artifact_entry_reuses_checklist_reviewer_display_without_new_stage_logic() -> None:
-    readiness = build_step2_readiness_summary(
-        run_id="run_checklist_entry",
-        simulation_mode=True,
-        config_governance_handoff={
-            "simulation_only": True,
-            "operator_safe": True,
-            "real_port_device_count": 0,
-            "engineering_only_flag_count": 0,
-            "enabled_engineering_flags": [],
-            "risk_markers": [],
-            "execution_gate": {"status": "open"},
-            "step2_default_workflow_allowed": True,
-            "requires_explicit_unlock": False,
-        },
-    )
-    metrology = build_metrology_calibration_contract(
-        run_id="run_checklist_entry",
-        simulation_mode=True,
-        config_governance_handoff={
-            "simulation_only": True,
-            "real_port_device_count": 0,
-            "engineering_only_flag_count": 0,
-            "enabled_engineering_flags": [],
-        },
-    )
-    bridge = build_phase_transition_bridge(
-        run_id="run_checklist_entry",
-        step2_readiness_summary=readiness,
-        metrology_calibration_contract=metrology,
-    )
-    pack = build_stage_admission_review_pack(
-        run_id="run_checklist_entry",
-        step2_readiness_summary=readiness,
-        metrology_calibration_contract=metrology,
-        phase_transition_bridge=bridge,
-        phase_transition_bridge_reviewer_artifact=build_phase_transition_bridge_reviewer_artifact(bridge),
-        artifact_paths={
-            "step2_readiness_summary": f"D:/tmp/{STEP2_READINESS_SUMMARY_FILENAME}",
-            "metrology_calibration_contract": f"D:/tmp/{METROLOGY_CALIBRATION_CONTRACT_FILENAME}",
-            "phase_transition_bridge": "D:/tmp/phase_transition_bridge.json",
-            "phase_transition_bridge_reviewer_artifact": f"D:/tmp/{PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME}",
-        },
-    )
-    checklist = build_engineering_isolation_admission_checklist(
-        run_id="run_checklist_entry",
-        step2_readiness_summary=readiness,
-        metrology_calibration_contract=metrology,
-        phase_transition_bridge=bridge,
-        stage_admission_review_pack=pack,
-        artifact_paths={
-            "step2_readiness_summary": f"D:/tmp/{STEP2_READINESS_SUMMARY_FILENAME}",
-            "metrology_calibration_contract": f"D:/tmp/{METROLOGY_CALIBRATION_CONTRACT_FILENAME}",
-            "phase_transition_bridge": "D:/tmp/phase_transition_bridge.json",
-            "phase_transition_bridge_reviewer_artifact": f"D:/tmp/{PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME}",
-            "stage_admission_review_pack": f"D:/tmp/{STAGE_ADMISSION_REVIEW_PACK_FILENAME}",
-            "stage_admission_review_pack_reviewer_artifact": f"D:/tmp/{STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME}",
-        },
-    )
-
-    entry = build_engineering_isolation_admission_checklist_artifact_entry(
-        artifact_path=f"D:/tmp/{ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME}",
-        reviewer_artifact_path=f"D:/tmp/{ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME}",
-        manifest_section={
-            **checklist["raw"],
-            "path": f"D:/tmp/{ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME}",
-            "reviewer_path": f"D:/tmp/{ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME}",
-        },
-        reviewer_manifest_section={
-            "artifact_type": ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_ARTIFACT_KEY,
-            "path": f"D:/tmp/{ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME}",
-            "summary_text": checklist["display"]["summary_text"],
-            "status_line": checklist["display"]["status_line"],
-            "current_stage_text": checklist["display"]["current_stage_text"],
-            "next_stage_text": checklist["display"]["next_stage_text"],
-            "engineering_isolation_text": checklist["display"]["engineering_isolation_text"],
-            "real_acceptance_text": checklist["display"]["real_acceptance_text"],
-            "execute_now_text": checklist["display"]["execute_now_text"],
-            "defer_to_stage3_text": checklist["display"]["defer_to_stage3_text"],
-            "blocking_text": checklist["display"]["blocking_text"],
-            "warning_text": checklist["display"]["warning_text"],
-            "not_real_acceptance_evidence": True,
-        },
-    )
-
-    assert entry["artifact_key"] == ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_ARTIFACT_KEY
-    assert entry["reviewer_artifact_key"] == ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_ARTIFACT_KEY
-    assert entry["path"].endswith(ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME)
-    assert entry["reviewer_path"].endswith(ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME)
-    assert entry["summary_text"] == checklist["display"]["summary_text"]
-    assert entry["status_line"] == checklist["display"]["status_line"]
-    assert entry["engineering_isolation_text"] == checklist["display"]["engineering_isolation_text"]
-    assert entry["real_acceptance_text"] == checklist["display"]["real_acceptance_text"]
-    assert entry["execute_now_text"] == checklist["display"]["execute_now_text"]
-    assert entry["defer_to_stage3_text"] == checklist["display"]["defer_to_stage3_text"]
-    assert "Step 2 tail / Stage 3 bridge" in entry["entry_text"]
-    assert "engineering-isolation" in entry["entry_text"]
-    assert "不是 real acceptance" in entry["entry_text"]
-    assert "不能替代真实计量验证" in entry["entry_text"]
-    assert "ready_for_engineering_isolation" not in entry["entry_text"]
-    assert "real_acceptance_ready" not in entry["entry_text"]
-
-
 def test_stage3_real_validation_plan_reuses_existing_checklist_and_pack_wording_without_new_stage_logic() -> None:
     readiness = build_step2_readiness_summary(
         run_id="run_stage3_plan",
@@ -1231,6 +888,9 @@ def test_stage3_real_validation_plan_reuses_existing_checklist_and_pack_wording_
     assert raw["recommended_next_stage"] == checklist["raw"]["recommended_next_stage"]
     assert raw["ready_for_engineering_isolation"] is True
     assert raw["real_acceptance_ready"] is False
+    assert set(checklist["raw"]["defer_to_stage3_real_validation"]) <= set(
+        raw["defer_to_stage3_real_validation"]
+    )
     assert raw["artifact_paths"]["stage_admission_review_pack"].endswith(STAGE_ADMISSION_REVIEW_PACK_FILENAME)
     assert raw["artifact_paths"]["engineering_isolation_admission_checklist"].endswith(
         ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME
@@ -1248,6 +908,17 @@ def test_stage3_real_validation_plan_reuses_existing_checklist_and_pack_wording_
     assert item_map["real_run_uncertainty_result"]["status"] == "requires_real_evidence"
     assert item_map["coefficient_writeback_readback_acceptance"]["status"] == "not_executable_offline"
     assert item_map["real_acceptance_pass_fail_contract"]["status"] == "planned"
+    assert {item["category"] for item in raw["validation_items"]} == set(
+        STAGE3_VALIDATION_CATEGORY_LABELS
+    )
+    assert (
+        STAGE3_VALIDATION_CATEGORY_LABELS["reference_instrument_enforcement"]
+        == "真实参考表 / 参考仪器强制执行"
+    )
+    assert (
+        STAGE3_VALIDATION_CATEGORY_LABELS["device_acceptance"]
+        == "真机系数写入 / 回读 / acceptance"
+    )
     assert "real_run_uncertainty_result" in raw["pass_fail_contract"]["pass_requires"][2]
     assert plan["display"]["status_line"] == checklist["display"]["status_line"]
     assert plan["display"]["engineering_isolation_text"] == checklist["display"]["engineering_isolation_text"]
@@ -1267,70 +938,6 @@ def test_stage3_real_validation_plan_reuses_existing_checklist_and_pack_wording_
     assert "engineering_isolation_admission_checklist.json" in markdown
     assert "ready_for_engineering_isolation" not in markdown
     assert "real_acceptance_ready" not in markdown
-
-    entry = build_stage3_real_validation_plan_artifact_entry(
-        artifact_path=f"D:/tmp/{STAGE3_REAL_VALIDATION_PLAN_FILENAME}",
-        reviewer_artifact_path=f"D:/tmp/{STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME}",
-        manifest_section={
-            **raw,
-            "path": f"D:/tmp/{STAGE3_REAL_VALIDATION_PLAN_FILENAME}",
-            "reviewer_path": f"D:/tmp/{STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME}",
-        },
-        reviewer_manifest_section={
-            "artifact_type": STAGE3_REAL_VALIDATION_PLAN_REVIEWER_ARTIFACT_KEY,
-            "path": f"D:/tmp/{STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME}",
-            "summary_text": plan["display"]["summary_text"],
-            "status_line": plan["display"]["status_line"],
-            "current_stage_text": plan["display"]["current_stage_text"],
-            "next_stage_text": plan["display"]["next_stage_text"],
-            "engineering_isolation_text": plan["display"]["engineering_isolation_text"],
-            "real_acceptance_text": plan["display"]["real_acceptance_text"],
-            "execute_now_text": plan["display"]["execute_now_text"],
-            "defer_to_stage3_text": plan["display"]["defer_to_stage3_text"],
-            "blocking_text": plan["display"]["blocking_text"],
-            "warning_text": plan["display"]["warning_text"],
-            "plan_boundary_text": plan["display"]["plan_boundary_text"],
-            "not_real_acceptance_evidence": True,
-        },
-        digest_section={
-            "overall_status": raw["overall_status"],
-            "recommended_next_stage": raw["recommended_next_stage"],
-            "validation_status_counts": raw["validation_status_counts"],
-            "required_real_world_evidence": raw["required_real_world_evidence"],
-            "artifact_paths": raw["artifact_paths"],
-        },
-        reviewer_markdown_text=markdown,
-    )
-
-    assert entry["artifact_key"] == STAGE3_REAL_VALIDATION_PLAN_ARTIFACT_KEY
-    assert entry["reviewer_artifact_key"] == STAGE3_REAL_VALIDATION_PLAN_REVIEWER_ARTIFACT_KEY
-    assert entry["path"].endswith(STAGE3_REAL_VALIDATION_PLAN_FILENAME)
-    assert entry["reviewer_path"].endswith(STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME)
-    assert entry["summary_text"] == plan["display"]["summary_text"]
-    assert entry["status_line"] == plan["display"]["status_line"]
-    assert entry["current_stage_text"] == plan["display"]["current_stage_text"]
-    assert entry["next_stage_text"] == plan["display"]["next_stage_text"]
-    assert entry["engineering_isolation_text"] == plan["display"]["engineering_isolation_text"]
-    assert entry["real_acceptance_text"] == plan["display"]["real_acceptance_text"]
-    assert entry["execute_now_text"] == plan["display"]["execute_now_text"]
-    assert entry["defer_to_stage3_text"] == plan["display"]["defer_to_stage3_text"]
-    assert entry["reviewer_note_text"] in entry["card_text"]
-    assert entry["role_text"] in entry["card_text"]
-    assert "Step 2 tail / Stage 3 bridge" in entry["card_text"]
-    assert "engineering-isolation" in entry["card_text"]
-    assert "第三阶段真实验证证据类别" in entry["card_text"]
-    assert "pass/fail contract 摘要" in entry["card_text"]
-    assert "Digest：" in entry["card_text"]
-    assert "simulation / offline / headless only" in entry["card_text"]
-    assert "不是 real acceptance" in entry["card_text"]
-    assert "不能替代真实计量验证" in entry["card_text"]
-    assert "JSON：D:/tmp/stage3_real_validation_plan.json" in entry["card_text"]
-    assert "Markdown：D:/tmp/stage3_real_validation_plan.md" in entry["card_text"]
-    assert "真实参考表 / 参考仪器强制执行" in entry["required_evidence_categories_text"]
-    assert "真机系数写入 / 回读 / acceptance" in entry["required_evidence_categories_text"]
-    assert "ready_for_engineering_isolation" not in entry["entry_text"]
-    assert "real_acceptance_ready" not in entry["entry_text"]
-
 
 # ---------------------------------------------------------------------------
 # TestV12CompactSummaryGovernance (2.11)
@@ -1468,13 +1075,12 @@ def test_closeout_readiness_fallback_when_payload_missing() -> None:
     assert fb["real_acceptance_ready"] is False
 
 
-def test_governance_handoff_source_consistent_between_results_gateway_and_app_facade() -> None:
-    """Both results_gateway and app_facade should use config_governance_handoff
-    as the canonical source for governance_handoff input to closeout readiness."""
-    from gas_calibrator.v2.config import build_step2_config_governance_handoff
+def test_governance_handoff_source_builds_consistent_closeout_readiness() -> None:
+    """The canonical config handoff should build stable closeout readiness."""
+    from gas_calibrator.v2.config.models import build_step2_config_governance_handoff
     from gas_calibrator.v2.core.step2_closeout_readiness_builder import build_step2_closeout_readiness
 
-    # Simulate the same governance_handoff input that both paths should use
+    # Build the same canonical handoff consumed by persisted closeout artifacts.
     config_governance_handoff = build_step2_config_governance_handoff({
         "simulation_only": True,
         "operator_safe": True,
@@ -1486,7 +1092,6 @@ def test_governance_handoff_source_consistent_between_results_gateway_and_app_fa
         "requires_explicit_unlock": False,
     })
 
-    # Both paths should produce the same closeout readiness when given the same input
     closeout = build_step2_closeout_readiness(
         run_id="test-consistent",
         step2_readiness_summary={"overall_status": "ready_for_engineering_isolation"},

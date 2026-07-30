@@ -6,17 +6,20 @@ from types import SimpleNamespace
 import threading
 from statistics import mean
 
-from gas_calibrator.v2.config import AppConfig
+from gas_calibrator.validation.simulation.sampling_contracts import (
+    evaluate_sample_quality,
+)
+from gas_calibrator.v2.config.models import AppConfig
 from gas_calibrator.v2.core.device_manager import DeviceManager
-from gas_calibrator.v2.core.event_bus import EventBus
+from gas_calibrator.v2.core import EventBus
 from gas_calibrator.v2.core.models import CalibrationPoint
-from gas_calibrator.v2.core.orchestration_context import OrchestrationContext
+from gas_calibrator.v2.core import OrchestrationContext
 from gas_calibrator.v2.core.result_store import ResultStore
 from gas_calibrator.v2.core.run_logger import RunLogger
 from gas_calibrator.v2.core.run_state import RunState
 from gas_calibrator.v2.core.services import SamplingService
-from gas_calibrator.v2.core.session import RunSession
-from gas_calibrator.v2.core.stability_checker import StabilityChecker
+from gas_calibrator.v2.core.models import RunSession
+from gas_calibrator.validation.simulation.stability_checker import StabilityChecker
 from gas_calibrator.v2.core.state_manager import StateManager
 
 
@@ -346,7 +349,13 @@ def test_sampling_service_falls_back_to_first_usable_analyzer_when_primary_frame
         phase="co2",
         point_tag="fallback_batch",
     )
-    quality_ok, spans = service.evaluate_sample_quality(rows)
+    quality_ok, spans = evaluate_sample_quality(
+        rows,
+        quality_config=host._cfg_get(
+            "workflow.sampling.quality",
+            {},
+        ),
+    )
 
     assert len(batch_results) == 2
     assert all(row.get("co2_ppm") is not None for row in rows)

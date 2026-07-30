@@ -5,7 +5,7 @@ import time
 from typing import Any, Optional
 
 from ..models import CalibrationPoint
-from ..orchestration_context import OrchestrationContext
+from .. import OrchestrationContext
 from ..run_state import RunState
 from .sampling_service import read_device_snapshot_with_retry
 

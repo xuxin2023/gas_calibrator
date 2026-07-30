@@ -111,10 +111,6 @@ def display_run_mode(value: Any, *, locale: str | None = None, default: str | No
     return display_enum("run_mode", value, locale=locale, default=default)
 
 
-def display_notification_level(value: Any, *, locale: str | None = None, default: str | None = None) -> str:
-    return display_enum("notification_level", value, locale=locale, default=default)
-
-
 def display_risk_level(value: Any, *, locale: str | None = None, default: str | None = None) -> str:
     return display_enum("risk_level", value, locale=locale, default=default)
 

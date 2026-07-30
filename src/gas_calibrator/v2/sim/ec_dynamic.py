@@ -11,8 +11,7 @@ from typing import Any, Iterable, Mapping
 import numpy as np
 
 from gas_calibrator.utils.file_io import write_json as _write_json
-
-from ..domain.services.ec_dynamic_metrology import (
+from gas_calibrator.validation.metrology.ec_dynamic_metrology import (
     DynamicPathMetadata,
     analyze_dynamic_channel,
     build_dynamic_acceptance,

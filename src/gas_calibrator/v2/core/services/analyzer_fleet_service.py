@@ -6,11 +6,11 @@ from typing import Any, Optional
 from ...config.models import (
     _normalize_analyzer_mode2_init_config,
     _normalize_analyzer_setup_config,
-    _normalize_sensor_precheck_config,
 )
+from gas_calibrator.validation.simulation.config import _normalize_sensor_precheck_config
 from ...exceptions import WorkflowValidationError
 from ..no_write_guard import NoWriteViolation
-from ..orchestration_context import OrchestrationContext
+from .. import OrchestrationContext
 from ..run_state import RunState
 from ..device_factory import DeviceType
 

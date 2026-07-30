@@ -6,11 +6,13 @@ from datetime import datetime
 from importlib import import_module
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Iterable, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Optional, Sequence
 
 import pandas as pd
 
-from ..exceptions import ConfigurationInvalidError, DataParseError
+from gas_calibrator.validation.exceptions import DataParseError
+
+from ..exceptions import ConfigurationInvalidError
 
 if TYPE_CHECKING:
     from gas_calibrator.devices.gas_analyzer import GasAnalyzer

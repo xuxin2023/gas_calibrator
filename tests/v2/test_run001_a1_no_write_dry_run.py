@@ -21,7 +21,7 @@ from gas_calibrator.v2.core.run001_a1_dry_run import (
     load_point_rows,
     write_run001_a1_artifacts,
 )
-from gas_calibrator.v2.config import AppConfig
+from gas_calibrator.v2.config.models import AppConfig
 from gas_calibrator.v2.entry import (
     Run001A1SafetyGateError,
     authorize_run001_a1_no_write_real_machine_dry_run,

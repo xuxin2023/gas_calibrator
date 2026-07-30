@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-
 REPORT_FAMILY = "v2_product_report_family"
 
 
@@ -57,7 +56,8 @@ def build_product_report_templates(
                 channel="co2",
                 report_kind="test",
                 formal_calibration=False,
-                current_exporter="storage.exporter + run artifacts",
+                implementation_status="source_artifacts_only",
+                current_exporter="run_artifacts",
                 filename_stub="reports/co2_test/{analyzer}.xlsx",
                 description="Per-device CO2 measurement/test worksheet family.",
             )
@@ -85,7 +85,8 @@ def build_product_report_templates(
                 channel="h2o",
                 report_kind="test",
                 formal_calibration=False,
-                current_exporter="storage.exporter + run artifacts",
+                implementation_status="source_artifacts_only",
+                current_exporter="run_artifacts",
                 filename_stub="reports/h2o_test/{analyzer}.xlsx",
                 description="Per-device H2O measurement/test worksheet family.",
             )
@@ -97,13 +98,13 @@ def build_product_report_templates(
                 channel="h2o",
                 report_kind="calibration",
                 formal_calibration=True,
-                enabled=calibration_enabled,
-                implementation_status="first_exporter_available" if calibration_enabled else "gated_off",
-                current_exporter="storage.exporter.export_h2o_calibration_reports",
+                enabled=False,
+                implementation_status="retired_v2_no_formal_exporter",
+                current_exporter="",
                 filename_stub="reports/h2o_calibration/{device}.json",
                 description=(
-                    "First per-device formal H2O calibration export. Currently lands as structured JSON while the "
-                    "final workbook template is still under construction."
+                    "V2 has no formal H2O calibration exporter. The final V1.5 report chain owns reference values, "
+                    "error, uncertainty, traceability, release gates, and per-device certificates."
                 ),
             )
         )
@@ -132,9 +133,9 @@ def build_product_report_manifest(
         },
         "current_capabilities": [
             {
-                "component": "storage.exporter",
-                "status": "existing",
-                "scope": "run-level summary/points/samples/qc raw exports",
+                "component": "run_artifacts",
+                "status": "source_only",
+                "scope": "existing run-level execution rows remain source artifacts, not reconstructed product reports",
             },
             {
                 "component": "ratio_poly_report",
@@ -142,9 +143,9 @@ def build_product_report_manifest(
                 "scope": "calibration-oriented workbook and quality analysis, not yet the final 4-template product family",
             },
             {
-                "component": "storage.exporter.export_h2o_calibration_reports",
-                "status": "first_real_exporter",
-                "scope": "per-device H2O calibration JSON export with manifest linkage and mode gating",
+                "component": "v1_5_formal_reports",
+                "status": "final_product_owner_not_v2_runtime",
+                "scope": "formal reports and per-device certificates require V1.5 evidence, uncertainty, and release gates",
             },
             {
                 "component": "run_manifest",
@@ -156,6 +157,7 @@ def build_product_report_manifest(
         "notes": [
             "Only auto_calibration mode enables formal calibration reports.",
             "Measurement and experiment modes remain test-report only.",
-            "This manifest defines report families and output paths without rewriting current exporters.",
+            "V2 does not provide a formal H2O calibration exporter.",
+            "The V1.5 formal report chain is the sole final-product report owner.",
         ],
     }

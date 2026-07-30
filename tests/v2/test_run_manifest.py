@@ -3,7 +3,8 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
-from gas_calibrator.v2.core.models import CalibrationPhase
+from gas_calibrator.v2.config.models import AppConfig
+from gas_calibrator.v2.core.models import CalibrationPhase, RunSession
 from gas_calibrator.v2.core.run_manifest import (
     RUN_MANIFEST_SCHEMA_VERSION,
     build_run_manifest,
@@ -36,6 +37,7 @@ class DangerousDeviceConfig:
 def _fake_session():
     pressure = DangerousDeviceConfig(port="COM1", enabled=True, description="pressure controller")
     analyzer = DangerousDeviceConfig(port="COM3", enabled=True, description="analyzer")
+    thermometer = DangerousDeviceConfig(port="COM2", enabled=True, description="reference thermometer")
     config = SimpleNamespace(
         workflow=SimpleNamespace(
             run_mode="auto_calibration",
@@ -56,12 +58,13 @@ def _fake_session():
             dewpoint_meter=None,
             humidity_generator=None,
             temperature_chamber=None,
+            thermometer=thermometer,
             relay_a=None,
             relay_b=None,
             gas_analyzers=[analyzer],
         ),
         paths=SimpleNamespace(points_excel="points.xlsx", output_dir="output"),
-        features=SimpleNamespace(simulation_mode=True, debug_mode=False, use_v2=True),
+        features=SimpleNamespace(simulation_mode=True, debug_mode=False),
         storage=SimpleNamespace(host="localhost", password="26372023"),
         ai=SimpleNamespace(enabled=True, api_key="secret-key", provider="openai"),
     )
@@ -103,6 +106,7 @@ def test_build_run_manifest_is_json_safe_and_redacts_secrets() -> None:
     assert manifest["config_version"].startswith("cfg-")
     assert manifest["points_version"].startswith("pts-")
     assert manifest["report_family"] == "v2_product_report_family"
+    assert manifest["environment"]["use_v2"] is True
     assert manifest["analyzer_setup"]["software_version"] == "v5_plus"
     assert manifest["report_templates"]["per_device_output"] is True
     assert {item["key"] for item in manifest["report_templates"]["templates"]} == {
@@ -141,9 +145,49 @@ def test_build_run_manifest_is_json_safe_and_redacts_secrets() -> None:
     assert manifest["config_snapshot"]["ai"]["api_key"] == "***REDACTED***"
     assert manifest["device_snapshot"]["enabled_devices"] == ["gas_analyzer_0", "pressure_controller"]
     assert manifest["device_snapshot"]["configured_devices"]["pressure_controller"]["port"] == "COM1"
+    assert manifest["device_snapshot"]["configured_devices"]["thermometer"]["port"] == "COM2"
+    assert (
+        manifest["device_snapshot"]["configured_devices"]["thermometer"]["description"]
+        == "reference thermometer"
+    )
     assert manifest["device_snapshot"]["configured_devices"]["gas_analyzers"][0]["id"] == "gas_analyzer_0"
     assert pressure.probe_calls == 0
     assert analyzer.probe_calls == 0
+
+
+def test_run_manifest_keeps_active_valve_route_snapshot_only() -> None:
+    config = AppConfig.from_dict(
+        {
+            "valves": {
+                "group_a": {"concentrations": [0, 400]},
+                "group_b": {"concentrations": [600, 800]},
+                "valve_mapping": {"legacy_zero": 99},
+                "co2_path": 7,
+                "co2_path_group2": 16,
+                "gas_main": 11,
+                "h2o_path": 8,
+                "flow_switch": 10,
+                "hold": 9,
+                "relay_map": {"7": {"device": "relay", "channel": 7}},
+                "co2_map": {"0": 1, "400": 2},
+                "co2_map_group2": {"600": 3},
+            }
+        }
+    )
+
+    manifest = build_run_manifest(RunSession(config), hostname="manifest-test")
+
+    assert manifest["config_snapshot"]["valves"] == {
+        "co2_path": 7,
+        "co2_path_group2": 16,
+        "gas_main": 11,
+        "h2o_path": 8,
+        "flow_switch": 10,
+        "hold": 9,
+        "relay_map": {"7": {"device": "relay", "channel": 7}},
+        "co2_map": {"0": 1, "400": 2},
+        "co2_map_group2": {"600": 3},
+    }
 
 
 def test_write_run_manifest_creates_manifest_file(tmp_path: Path) -> None:

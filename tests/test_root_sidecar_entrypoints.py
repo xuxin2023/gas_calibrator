@@ -16,29 +16,6 @@ def _load_module(module_name: str, file_name: str):
     return module
 
 
-def test_run_v1_postprocess_delegates_to_gui(monkeypatch) -> None:
-    module = _load_module("test_run_v1_postprocess_entry", "run_v1_postprocess.py")
-    calls: list[str] = []
-
-    monkeypatch.setattr(module, "launch_gui", lambda: calls.append("gui") or 0)
-
-    result = module.main([])
-
-    assert result == 0
-    assert calls == ["gui"]
-
-
-def test_run_v1_postprocess_rejects_cli_args() -> None:
-    module = _load_module("test_run_v1_postprocess_entry_args", "run_v1_postprocess.py")
-
-    try:
-        module.main(["--unexpected"])
-    except SystemExit as exc:
-        assert str(exc) == "run_v1_postprocess.py does not accept CLI arguments"
-    else:  # pragma: no cover
-        raise AssertionError("expected CLI argument validation error")
-
-
 def test_run_v1_merged_sidecar_delegates_arguments(monkeypatch) -> None:
     module = _load_module("test_run_v1_merged_sidecar_entry", "run_v1_merged_sidecar.py")
     captured: dict[str, object] = {}

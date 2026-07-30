@@ -1,5 +1,5 @@
 from gas_calibrator.v2.algorithms.base import AlgorithmBase
-from gas_calibrator.v2.algorithms.result_types import FitResult, ValidationResult
+from gas_calibrator.v2.algorithms import FitResult, ValidationResult
 
 
 class DummyAlgorithm(AlgorithmBase):

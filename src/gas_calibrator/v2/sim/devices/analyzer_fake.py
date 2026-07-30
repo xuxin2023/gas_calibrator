@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import deque
-import math
 import re
 import time
 from typing import Any, Optional

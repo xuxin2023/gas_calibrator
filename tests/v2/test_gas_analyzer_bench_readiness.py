@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from gas_calibrator.v2.core.offline_artifacts import build_suite_case_metadata
-from gas_calibrator.v2.domain.services.gas_analyzer_bench_readiness import (
+from gas_calibrator.validation.metrology.gas_analyzer_bench_readiness import (
     analyze_gas_analyzer_bench_readiness,
     build_gas_analyzer_bench_readiness_acceptance,
 )
+from gas_calibrator.v2.core.offline_artifacts import build_suite_case_metadata
 from gas_calibrator.v2.sim.gas_analyzer_bench_readiness import (
     build_gas_analyzer_bench_readiness_offline_report,
     generate_gas_analyzer_bench_readiness_fixture,
@@ -51,6 +51,16 @@ def _evaluate(
 
 
 def test_clean_bench_protocol_is_design_ready_but_not_execution_authorized() -> None:
+    assert (
+        analyze_gas_analyzer_bench_readiness.__module__
+        == "gas_calibrator.validation.metrology.gas_analyzer_bench_readiness"
+    )
+    old_owner = (
+        Path(__file__).resolve().parents[2]
+        / "src/gas_calibrator/v2/domain/services/gas_analyzer_bench_readiness.py"
+    )
+    assert not old_owner.exists()
+
     contract, protocol, assets, budgets = _clean_inputs()
     readiness, acceptance = _evaluate(contract, protocol, assets, budgets)
 

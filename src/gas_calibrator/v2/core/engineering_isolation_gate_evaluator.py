@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .stage3_real_validation_plan_artifact_entry import _VALIDATION_CATEGORY_LABELS
+from .stage3_real_validation_plan import STAGE3_VALIDATION_CATEGORY_LABELS
 
 
 ENGINEERING_ISOLATION_GATE_RESULT_FILENAME = "engineering_isolation_gate_result.json"
@@ -1037,7 +1037,7 @@ def build_engineering_isolation_gate_evaluator(
         + [
             label
             for label in (
-                _VALIDATION_CATEGORY_LABELS.get(str(item.get("category") or ""))
+                STAGE3_VALIDATION_CATEGORY_LABELS.get(str(item.get("category") or ""))
                 for item in list(stage3_plan.get("validation_items") or [])
                 if isinstance(item, dict)
             )

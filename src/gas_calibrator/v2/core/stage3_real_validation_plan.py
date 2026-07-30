@@ -21,6 +21,15 @@ from .step2_readiness import STEP2_READINESS_SUMMARY_FILENAME
 
 STAGE3_REAL_VALIDATION_PLAN_FILENAME = "stage3_real_validation_plan.json"
 STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME = "stage3_real_validation_plan.md"
+STAGE3_VALIDATION_CATEGORY_LABELS = {
+    "reference_instrument_enforcement": "真实参考表 / 参考仪器强制执行",
+    "traceability_review": "证书 / 检定周期 / traceability 复核",
+    "uncertainty_result": "真实 run 最终不确定度",
+    "device_acceptance": "真机系数写入 / 回读 / acceptance",
+    "real_world_repeatability": "多点复测 / 重复性 / 漂移",
+    "pass_fail_contract": "real acceptance pass/fail 判定",
+    "anomaly_retest": "真实异常复核 / 复测处置",
+}
 
 
 def build_stage3_real_validation_plan(
@@ -273,6 +282,7 @@ def build_stage3_real_validation_plan(
         "pass_fail_contract": pass_fail_contract,
         "blocking_items": blocking_items,
         "warning_items": warning_items,
+        "defer_to_stage3_real_validation": defer_to_stage3_real_validation,
         "artifact_refs": artifact_refs,
         "artifact_paths": artifact_path_map,
         "notes": [

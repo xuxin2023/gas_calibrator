@@ -1,13 +1,440 @@
 import json
 from pathlib import Path
 
-from gas_calibrator.v2.config import AppConfig
-from gas_calibrator.v2.config.models import (
+import gas_calibrator.v2.config as config_package
+import gas_calibrator.v2.config.models as config_models
+from gas_calibrator.validation.simulation.config import (
+    AIConfig,
+    AIFeaturesConfig,
+    CoefficientSummaryColumnConfig,
+    CoefficientsConfig,
+    FeaturesConfig,
+    H2OSummarySelectionConfig,
+    HumidityStabilityConfig,
+    PathsConfig,
+    PrecheckConfig,
+    PressureControlConfig,
+    PressureStabilityConfig,
+    QCConfig,
+    QCRuleConfig,
+    SamplingConfig,
+    SignalStabilityConfig,
+    StabilityConfig,
+    STEP2_ENGINEERING_ONLY_PRESSURE_FLAG_SPECS,
     TemperatureStabilityConfig,
+    ValveConfig,
+    _build_shared_pressure_flag_inventory,
+    _build_step2_blocked_reason_details,
+    _build_step2_config_safety_badges,
+    _build_step2_config_safety_inventory,
+    _normalize_run_mode,
+    _normalize_sensor_precheck_config,
+    _step2_config_safety_badge_spec,
+    _step2_config_safety_classification,
+    _step2_config_safety_classification_display,
+    build_step2_config_governance_handoff,
     build_step2_config_safety_review,
+    enabled_engineering_only_flags,
+    hydrate_step2_config_safety_summary,
+    iter_config_device_ports,
+    port_requires_real_device_review,
+)
+from gas_calibrator.storage.settings import StorageConfig
+from gas_calibrator.v2.config.models import (
+    AIConfig as LegacyAIConfig,
+    AIFeaturesConfig as LegacyAIFeaturesConfig,
+    AppConfig,
+    CoefficientSummaryColumnConfig as LegacyCoefficientSummaryColumnConfig,
+    CoefficientsConfig as LegacyCoefficientsConfig,
+    FeaturesConfig as LegacyFeaturesConfig,
+    H2OSummarySelectionConfig as LegacyH2OSummarySelectionConfig,
+    HumidityStabilityConfig as LegacyHumidityStabilityConfig,
+    PathsConfig as LegacyPathsConfig,
+    PrecheckConfig as LegacyPrecheckConfig,
+    PressureControlConfig as LegacyPressureControlConfig,
+    PressureStabilityConfig as LegacyPressureStabilityConfig,
+    QCConfig as LegacyQCConfig,
+    QCRuleConfig as LegacyQCRuleConfig,
+    SamplingConfig as LegacySamplingConfig,
+    SignalStabilityConfig as LegacySignalStabilityConfig,
+    StabilityConfig as LegacyStabilityConfig,
+    STEP2_ENGINEERING_ONLY_PRESSURE_FLAG_SPECS as LegacyStep2EngineeringOnlyPressureFlagSpecs,
+    StorageConfig as LegacyStorageConfig,
+    TemperatureStabilityConfig as LegacyTemperatureStabilityConfig,
+    ValveConfig as LegacyValveConfig,
+    _build_shared_pressure_flag_inventory as legacy_build_shared_pressure_flag_inventory,
+    _build_step2_blocked_reason_details as legacy_build_step2_blocked_reason_details,
+    _build_step2_config_safety_badges as legacy_build_step2_config_safety_badges,
+    _build_step2_config_safety_inventory as legacy_build_step2_config_safety_inventory,
+    _normalize_run_mode as legacy_normalize_run_mode,
+    _normalize_sensor_precheck_config as legacy_normalize_sensor_precheck_config,
+    _step2_config_safety_badge_spec as legacy_step2_config_safety_badge_spec,
+    _step2_config_safety_classification as legacy_step2_config_safety_classification,
+    _step2_config_safety_classification_display as legacy_step2_config_safety_classification_display,
+    build_step2_config_governance_handoff as legacy_build_step2_config_governance_handoff,
+    build_step2_config_safety_review as legacy_build_step2_config_safety_review,
+    enabled_engineering_only_flags as legacy_enabled_engineering_only_flags,
+    hydrate_step2_config_safety_summary as legacy_hydrate_step2_config_safety_summary,
+    iter_config_device_ports as legacy_iter_config_device_ports,
+    port_requires_real_device_review as legacy_port_requires_real_device_review,
     summarize_step2_config_safety,
 )
-from gas_calibrator.v2.domain.pressure_selection import AMBIENT_PRESSURE_TOKEN
+from gas_calibrator.validation.simulation.pressure_selection import AMBIENT_PRESSURE_TOKEN
+
+
+def test_config_package_is_namespace_without_model_reexports() -> None:
+    package_init = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "gas_calibrator"
+        / "v2"
+        / "config"
+        / "__init__.py"
+    )
+
+    assert not package_init.exists()
+    assert config_package.__spec__.submodule_search_locations is not None
+    assert not hasattr(config_package, "AppConfig")
+    assert not hasattr(config_package, "summarize_step2_config_safety")
+
+
+def test_stability_configs_have_one_validation_owned_identity() -> None:
+    assert LegacyTemperatureStabilityConfig is TemperatureStabilityConfig
+    assert LegacyHumidityStabilityConfig is HumidityStabilityConfig
+    assert LegacyPressureStabilityConfig is PressureStabilityConfig
+    assert LegacySignalStabilityConfig is SignalStabilityConfig
+    assert LegacyStabilityConfig is StabilityConfig
+
+
+def test_ai_configs_have_one_validation_owned_identity() -> None:
+    assert LegacyAIFeaturesConfig is AIFeaturesConfig
+    assert LegacyAIConfig is AIConfig
+
+
+def test_paths_config_has_one_validation_owned_identity() -> None:
+    assert LegacyPathsConfig is PathsConfig
+    assert type(AppConfig().paths) is PathsConfig
+
+
+def test_features_config_has_one_validation_owned_identity() -> None:
+    assert LegacyFeaturesConfig is FeaturesConfig
+    assert type(AppConfig().features) is FeaturesConfig
+
+
+def test_storage_config_has_one_shared_identity() -> None:
+    assert LegacyStorageConfig is StorageConfig
+    assert type(AppConfig().storage) is StorageConfig
+
+
+def test_valve_config_keeps_only_active_raw_route_snapshot_fields() -> None:
+    assert LegacyValveConfig is ValveConfig
+    assert type(AppConfig().valves) is ValveConfig
+
+    config = AppConfig.from_dict(
+        {
+            "valves": {
+                "group_a": {"concentrations": [0, 400]},
+                "group_b": {"concentrations": [600, 800]},
+                "valve_mapping": {"legacy_zero": 99},
+                "co2_path": 7,
+                "co2_path_group2": 16,
+                "gas_main": 11,
+                "h2o_path": 8,
+                "flow_switch": 10,
+                "hold": 9,
+                "relay_map": {"7": {"device": "relay", "channel": 7}},
+                "co2_map": {"0": 1, "400": 2},
+                "co2_map_group2": {"600": 3},
+            }
+        }
+    )
+
+    assert vars(config.valves) == {
+        "co2_path": 7,
+        "co2_path_group2": 16,
+        "gas_main": 11,
+        "h2o_path": 8,
+        "flow_switch": 10,
+        "hold": 9,
+        "relay_map": {"7": {"device": "relay", "channel": 7}},
+        "co2_map": {"0": 1, "400": 2},
+        "co2_map_group2": {"600": 3},
+    }
+    assert not hasattr(config.valves, "group_a")
+    assert not hasattr(config.valves, "group_b")
+    assert not hasattr(config.valves, "valve_mapping")
+
+
+def test_coefficients_config_keeps_only_v2_ratio_poly_runtime_fields() -> None:
+    raw_coefficients = {
+        "enabled": True,
+        "auto_fit": True,
+        "model": "ratio_poly_rt_p",
+        "order": 4,
+        "ratio_degree": 5,
+        "temperature_offset_c": 273.0,
+        "add_intercept": False,
+        "simplify_coefficients": False,
+        "simplification_method": "none",
+        "target_digits": 8,
+        "report_temperature_key": "ReferenceThermometerTempC",
+        "report_pressure_key": "ReferencePressureHpa",
+        "report_output_name": "ratio_poly.xlsx",
+        "signal_keys": {"co2": ["R_CO2"], "h2o": ["R_H2O"]},
+        "summary_columns": {
+            "co2": {
+                "target": "co2_target",
+                "ratio": "co2_ratio",
+                "temperature": "legacy_co2_temperature",
+                "pressure": "legacy_co2_pressure",
+                "pressure_scale": 0.1,
+            },
+            "h2o": {
+                "target": "h2o_target",
+                "ratio": "h2o_ratio",
+                "temperature": "legacy_h2o_temperature",
+                "pressure": "legacy_h2o_pressure",
+                "pressure_scale": 0.2,
+            },
+        },
+    }
+
+    config = AppConfig.from_dict({"coefficients": raw_coefficients})
+
+    assert {
+        "enabled": config.coefficients.enabled,
+        "auto_fit": config.coefficients.auto_fit,
+        "model": config.coefficients.model,
+        "ratio_degree": config.coefficients.ratio_degree,
+        "temperature_offset_c": config.coefficients.temperature_offset_c,
+        "add_intercept": config.coefficients.add_intercept,
+        "simplify_coefficients": config.coefficients.simplify_coefficients,
+        "simplification_method": config.coefficients.simplification_method,
+        "target_digits": config.coefficients.target_digits,
+        "report_temperature_key": config.coefficients.report_temperature_key,
+        "report_pressure_key": config.coefficients.report_pressure_key,
+        "report_output_name": config.coefficients.report_output_name,
+    } == {
+        "enabled": True,
+        "auto_fit": True,
+        "model": "ratio_poly_rt_p",
+        "ratio_degree": 5,
+        "temperature_offset_c": 273.0,
+        "add_intercept": False,
+        "simplify_coefficients": False,
+        "simplification_method": "none",
+        "target_digits": 8,
+        "report_temperature_key": "ReferenceThermometerTempC",
+        "report_pressure_key": "ReferencePressureHpa",
+        "report_output_name": "ratio_poly.xlsx",
+    }
+    assert not hasattr(config.coefficients, "order")
+    assert not hasattr(config.coefficients, "signal_keys")
+    assert vars(config.coefficients.summary_columns["co2"]) == {
+        "target": "co2_target",
+        "ratio": "co2_ratio",
+        "pressure_scale": 0.1,
+    }
+    assert vars(config.coefficients.summary_columns["h2o"]) == {
+        "target": "h2o_target",
+        "ratio": "h2o_ratio",
+        "pressure_scale": 0.2,
+    }
+    assert not hasattr(config.coefficients.summary_columns["co2"], "temperature")
+    assert not hasattr(config.coefficients.summary_columns["co2"], "pressure")
+    assert raw_coefficients["order"] == 4
+    assert raw_coefficients["signal_keys"] == {"co2": ["R_CO2"], "h2o": ["R_H2O"]}
+    assert raw_coefficients["summary_columns"]["co2"]["temperature"] == "legacy_co2_temperature"
+    assert raw_coefficients["summary_columns"]["co2"]["pressure"] == "legacy_co2_pressure"
+
+
+def test_coefficient_configs_have_one_validation_owned_identity() -> None:
+    assert LegacyCoefficientSummaryColumnConfig is CoefficientSummaryColumnConfig
+    assert LegacyH2OSummarySelectionConfig is H2OSummarySelectionConfig
+    assert LegacyCoefficientsConfig is CoefficientsConfig
+    assert type(AppConfig().coefficients) is CoefficientsConfig
+    assert type(AppConfig().coefficients.summary_columns["co2"]) is CoefficientSummaryColumnConfig
+    assert type(AppConfig().coefficients.h2o_summary_selection) is H2OSummarySelectionConfig
+
+
+def test_qc_configs_have_one_validation_owned_identity_and_unchanged_contract() -> None:
+    assert LegacyQCConfig is QCConfig
+    assert LegacyQCRuleConfig is QCRuleConfig
+    config = AppConfig.from_dict(
+        {
+            "qc": {
+                "min_sample_count": 7,
+                "max_outlier_ratio": 0.15,
+                "spike_threshold": 2.5,
+                "drift_threshold": 0.08,
+                "quality_threshold": 0.82,
+                "rule_config": {
+                    "default_rule": "co2_strict",
+                    "route_rules": {"co2": "co2_strict", "h2o": "h2o_strict"},
+                    "mode_rules": {"verify": "verify_mode"},
+                    "custom_rules": [{"name": "review_only"}],
+                },
+            }
+        }
+    )
+
+    assert type(config.qc) is QCConfig
+    assert type(config.qc.rule_config) is QCRuleConfig
+    assert config.qc.min_sample_count == 7
+    assert config.qc.max_outlier_ratio == 0.15
+    assert config.qc.spike_threshold == 2.5
+    assert config.qc.drift_threshold == 0.08
+    assert config.qc.quality_threshold == 0.82
+    assert config.qc.rule_config.default_rule == "co2_strict"
+    assert config.qc.rule_config.route_rules == {
+        "co2": "co2_strict",
+        "h2o": "h2o_strict",
+    }
+    assert config.qc.rule_config.mode_rules == {"verify": "verify_mode"}
+    assert config.qc.rule_config.custom_rules == [{"name": "review_only"}]
+
+
+def test_sampling_config_has_one_validation_owned_identity_and_unchanged_contract() -> None:
+    assert LegacySamplingConfig is SamplingConfig
+    config = AppConfig.from_dict(
+        {
+            "workflow": {
+                "sampling": {
+                    "interval_s": 0.25,
+                    "count": 17,
+                    "discard_first_n": 3,
+                }
+            }
+        }
+    )
+
+    assert type(config.workflow.sampling) is SamplingConfig
+    assert config.workflow.sampling.interval_s == 0.25
+    assert config.workflow.sampling.count == 17
+    assert config.workflow.sampling.discard_first_n == 3
+    assert SamplingConfig.from_dict(None) == SamplingConfig(
+        interval_s=1.0,
+        count=10,
+        discard_first_n=0,
+    )
+
+
+def test_precheck_config_has_one_validation_owned_identity_and_unchanged_contract() -> None:
+    assert LegacyPrecheckConfig is PrecheckConfig
+    config = AppConfig.from_dict(
+        {
+            "workflow": {
+                "precheck": {
+                    "enabled": False,
+                    "pressure_leak_test": False,
+                    "sensor_check": False,
+                    "device_connection": False,
+                }
+            }
+        }
+    )
+
+    assert type(config.workflow.precheck) is PrecheckConfig
+    assert config.workflow.precheck.enabled is False
+    assert config.workflow.precheck.pressure_leak_test is False
+    assert config.workflow.precheck.sensor_check is False
+    assert config.workflow.precheck.device_connection is False
+    assert PrecheckConfig.from_dict(None) == PrecheckConfig(
+        enabled=True,
+        pressure_leak_test=True,
+        sensor_check=True,
+        device_connection=True,
+    )
+
+
+def test_pressure_control_config_has_one_validation_owned_active_contract() -> None:
+    assert LegacyPressureControlConfig is PressureControlConfig
+    config = AppConfig.from_dict(
+        {
+            "workflow": {
+                "pressure_control": {
+                    "setpoint_tolerance_hpa": 0.75,
+                    "ramp_rate_hpa_per_s": 20.0,
+                    "max_pressure_hpa": 1200.0,
+                    "min_pressure_hpa": 400.0,
+                }
+            }
+        }
+    )
+
+    assert type(config.workflow.pressure_control) is PressureControlConfig
+    assert vars(config.workflow.pressure_control) == {
+        "setpoint_tolerance_hpa": 0.75,
+    }
+    assert PressureControlConfig.from_dict(None) == PressureControlConfig(
+        setpoint_tolerance_hpa=0.5,
+    )
+    assert not hasattr(config.workflow.pressure_control, "ramp_rate_hpa_per_s")
+    assert not hasattr(config.workflow.pressure_control, "max_pressure_hpa")
+    assert not hasattr(config.workflow.pressure_control, "min_pressure_hpa")
+
+
+def test_workflow_config_ignores_dead_v2_startup_connect_check_mirror() -> None:
+    raw_config = {
+        "workflow": {
+            "startup_connect_check": {
+                "enabled": False,
+                "retries": 3,
+            }
+        }
+    }
+
+    config = AppConfig.from_dict(raw_config)
+
+    assert not hasattr(config.workflow, "startup_connect_check")
+    assert raw_config["workflow"]["startup_connect_check"] == {
+        "enabled": False,
+        "retries": 3,
+    }
+
+
+def test_features_config_ignores_historical_use_v2_label() -> None:
+    config = FeaturesConfig.from_dict(
+        {
+            "use_v2": True,
+            "simulation_mode": True,
+            "debug_mode": True,
+        }
+    )
+
+    assert config.simulation_mode is True
+    assert config.debug_mode is True
+    assert not hasattr(config, "use_v2")
+
+
+def test_app_config_ignores_inert_historical_algorithm_block() -> None:
+    config = AppConfig.from_dict(
+        {
+            "algorithm": {
+                "default_algorithm": "linear",
+                "candidates": ["linear"],
+                "auto_select": False,
+                "validation_tolerance": 0.2,
+            }
+        }
+    )
+
+    assert not hasattr(config, "algorithm")
+    assert not hasattr(config_models, "AlgorithmConfig")
+
+
+def test_app_config_ignores_inert_historical_storage_schema_field() -> None:
+    config = AppConfig.from_dict(
+        {
+            "storage": {
+                "backend": "file",
+                "schema": "historical_unused_schema",
+            }
+        }
+    )
+
+    assert config.storage.backend == "file"
+    assert not hasattr(config.storage, "schema")
 
 
 def test_temperature_stability_config_supports_synced_fields() -> None:
@@ -238,7 +665,7 @@ def test_app_config_normalizes_selected_pressure_points_with_ambient_aliases() -
     assert config.workflow.selected_pressure_points == [AMBIENT_PRESSURE_TOKEN, 900.0]
 
 
-def test_app_config_supports_spectral_quality_feature_fields() -> None:
+def test_app_config_ignores_retired_spectral_quality_feature_fields() -> None:
     config = AppConfig.from_dict(
         {
             "features": {
@@ -250,10 +677,10 @@ def test_app_config_supports_spectral_quality_feature_fields() -> None:
         }
     )
 
-    assert config.features.enable_spectral_quality_analysis is True
-    assert config.features.spectral_min_samples == 96
-    assert config.features.spectral_min_duration_s == 45.0
-    assert config.features.spectral_low_freq_max_hz == 0.02
+    assert not hasattr(config.features, "enable_spectral_quality_analysis")
+    assert not hasattr(config.features, "spectral_min_samples")
+    assert not hasattr(config.features, "spectral_min_duration_s")
+    assert not hasattr(config.features, "spectral_low_freq_max_hz")
 
 
 def test_app_config_normalizes_analyzer_setup_profile_fields() -> None:
@@ -303,6 +730,47 @@ def test_smoke_v2_minimal_contains_temperature_sync_fields() -> None:
 
 
 def test_step2_safe_v2_configs_use_sim_ports_only() -> None:
+    assert legacy_normalize_run_mode is _normalize_run_mode
+    assert legacy_normalize_sensor_precheck_config is _normalize_sensor_precheck_config
+    assert (
+        LegacyStep2EngineeringOnlyPressureFlagSpecs
+        is STEP2_ENGINEERING_ONLY_PRESSURE_FLAG_SPECS
+    )
+    assert legacy_port_requires_real_device_review is port_requires_real_device_review
+    assert legacy_iter_config_device_ports is iter_config_device_ports
+    assert legacy_enabled_engineering_only_flags is enabled_engineering_only_flags
+    assert legacy_step2_config_safety_classification is _step2_config_safety_classification
+    assert (
+        legacy_step2_config_safety_classification_display
+        is _step2_config_safety_classification_display
+    )
+    assert legacy_step2_config_safety_badge_spec is _step2_config_safety_badge_spec
+    assert legacy_build_step2_config_safety_badges is _build_step2_config_safety_badges
+    assert (
+        legacy_build_shared_pressure_flag_inventory
+        is _build_shared_pressure_flag_inventory
+    )
+    assert (
+        legacy_build_step2_config_safety_inventory
+        is _build_step2_config_safety_inventory
+    )
+    assert (
+        legacy_build_step2_blocked_reason_details
+        is _build_step2_blocked_reason_details
+    )
+    assert (
+        legacy_hydrate_step2_config_safety_summary
+        is hydrate_step2_config_safety_summary
+    )
+    assert (
+        legacy_build_step2_config_safety_review
+        is build_step2_config_safety_review
+    )
+    assert (
+        legacy_build_step2_config_governance_handoff
+        is build_step2_config_governance_handoff
+    )
+
     config_root = Path(__file__).resolve().parents[2] / "src" / "gas_calibrator" / "v2" / "configs"
     for name in ("smoke_v2_minimal.json", "fit_ready_smoke.json", "test_v2_safe.json"):
         payload = json.loads((config_root / name).read_text(encoding="utf-8"))

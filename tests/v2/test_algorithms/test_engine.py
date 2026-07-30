@@ -1,6 +1,6 @@
 from gas_calibrator.v2.algorithms.engine import AlgorithmEngine
-from gas_calibrator.v2.algorithms.registry import AlgorithmRegistry
-from gas_calibrator.v2.domain.result_models import PointResult
+from gas_calibrator.v2.algorithms import AlgorithmRegistry
+from gas_calibrator.validation.simulation.domain import PointResult
 
 
 def _quadratic_points() -> list[PointResult]:

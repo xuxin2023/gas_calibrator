@@ -3,8 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
-from ..domain.algorithm_models import AlgorithmSpec
-from .result_types import FitResult, ValidationResult
+from . import AlgorithmSpec, FitResult, ValidationResult
 
 
 class AlgorithmBase(ABC):

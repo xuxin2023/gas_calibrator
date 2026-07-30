@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from gas_calibrator.v2.core.offline_artifacts import build_suite_case_metadata
-from gas_calibrator.v2.domain.services.gas_analyzer_asset_dossier import (
+from gas_calibrator.validation.metrology.gas_analyzer_asset_dossier import (
     analyze_gas_analyzer_asset_dossier,
     build_gas_analyzer_asset_dossier_acceptance,
 )
+from gas_calibrator.v2.core.offline_artifacts import build_suite_case_metadata
 from gas_calibrator.v2.sim.gas_analyzer_asset_dossier import (
     build_gas_analyzer_asset_dossier_offline_report,
     generate_complete_asset_dossier_fixture,
@@ -40,6 +40,16 @@ def _evaluate(
 
 
 def test_observed_0620_0621_baseline_is_consistent_but_expected_blocked() -> None:
+    assert (
+        analyze_gas_analyzer_asset_dossier.__module__
+        == "gas_calibrator.validation.metrology.gas_analyzer_asset_dossier"
+    )
+    old_owner = (
+        Path(__file__).resolve().parents[2]
+        / "src/gas_calibrator/v2/domain/services/gas_analyzer_asset_dossier.py"
+    )
+    assert not old_owner.exists()
+
     contract, snapshot = _observed_inputs()
     readiness, acceptance = _evaluate(contract, snapshot)
 

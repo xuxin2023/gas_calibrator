@@ -1,10 +1,11 @@
-from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-import numpy as np
-
+from gas_calibrator.v2.core.artifact_catalog import (
+    KNOWN_ARTIFACT_KEYS_BY_FILENAME,
+    build_default_role_catalog,
+)
 from gas_calibrator.v2.core.models import CalibrationPoint, SamplingResult
 from gas_calibrator.v2.core.offline_artifacts import (
     build_coefficient_registry,
@@ -161,11 +162,17 @@ def test_reference_quality_statistics_capture_status_driven_degradation() -> Non
     assert payload["pressure_status_counts"]["wrong_unit_configuration"] == 1
 
 
-def test_export_run_offline_artifacts_keeps_spectral_sidecar_disabled_by_default(tmp_path: Path) -> None:
+def test_export_run_offline_artifacts_ignores_retired_spectral_feature_fields(tmp_path: Path) -> None:
     session = SimpleNamespace(
         config=SimpleNamespace(
             devices=SimpleNamespace(gas_analyzers=[SimpleNamespace(id="GA01", enabled=True)]),
-            features=SimpleNamespace(simulation_mode=True, enable_spectral_quality_analysis=False),
+            features=SimpleNamespace(
+                simulation_mode=True,
+                enable_spectral_quality_analysis=True,
+                spectral_min_samples=32,
+                spectral_min_duration_s=20.0,
+                spectral_low_freq_max_hz=0.05,
+            ),
             workflow=SimpleNamespace(profile_name="offline", profile_version="v2"),
         )
     )
@@ -187,81 +194,10 @@ def test_export_run_offline_artifacts_keeps_spectral_sidecar_disabled_by_default
     assert "spectral_quality_summary" not in payload["artifact_statuses"]
     assert "spectral_quality_summary" not in payload["summary_stats"]
     assert not (tmp_path / "spectral_quality_summary.json").exists()
-
-
-def test_export_run_offline_artifacts_writes_spectral_quality_summary_when_enabled(tmp_path: Path) -> None:
-    session = SimpleNamespace(
-        config=SimpleNamespace(
-            devices=SimpleNamespace(gas_analyzers=[SimpleNamespace(id="GA01", enabled=True)]),
-            features=SimpleNamespace(
-                simulation_mode=True,
-                enable_spectral_quality_analysis=True,
-                spectral_min_samples=32,
-                spectral_min_duration_s=20.0,
-                spectral_low_freq_max_hz=0.05,
-            ),
-            workflow=SimpleNamespace(profile_name="offline", profile_version="v2"),
+    assert "spectral_quality_summary" not in build_default_role_catalog()["diagnostic_analysis"]
+    assert "spectral_quality_summary.json" not in KNOWN_ARTIFACT_KEYS_BY_FILENAME
+    locale_root = Path(__file__).resolve().parents[2] / "src/gas_calibrator/v2/ui_v2/locales"
+    for locale_name in ("zh_CN.json", "en_US.json"):
+        assert '"spectral_quality"' not in (locale_root / locale_name).read_text(
+            encoding="utf-8"
         )
-    )
-    samples = []
-    for index in range(80):
-        samples.append(
-            replace(
-                _sample(analyzer_id="GA01", usable=True, has_reference=True),
-                timestamp=datetime(2026, 3, 26, 12, 0, 0, tzinfo=timezone.utc) + timedelta(seconds=index),
-                co2_signal=float(np.sin(2.0 * np.pi * 0.1 * index)),
-            )
-        )
-
-    payload = export_run_offline_artifacts(
-        run_dir=tmp_path,
-        output_dir=tmp_path,
-        run_id="run_test",
-        session=session,
-        samples=samples,
-        point_summaries=[{"stats": {"reason": "passed"}}],
-        output_files=[],
-        export_statuses={"run_summary": {"status": "ok", "role": "execution_summary", "path": str(tmp_path / "summary.json")}},
-        source_points_file=None,
-        software_build_id="build-1",
-    )
-
-    spectral_path = tmp_path / "spectral_quality_summary.json"
-    assert spectral_path.exists()
-    assert payload["artifact_statuses"]["spectral_quality_summary"]["role"] == "diagnostic_analysis"
-    assert payload["summary_stats"]["spectral_quality_summary"]["artifact_type"] == "spectral_quality_summary"
-    assert payload["summary_stats"]["spectral_quality_summary"]["not_real_acceptance_evidence"] is True
-    assert payload["manifest_sections"]["spectral_quality"]["channel_count"] >= 1
-    assert str(spectral_path) in list(payload["remembered_files"] or [])
-
-
-def test_export_run_offline_artifacts_normalizes_skipped_spectral_summary_evidence_source(tmp_path: Path) -> None:
-    session = SimpleNamespace(
-        config=SimpleNamespace(
-            devices=SimpleNamespace(gas_analyzers=[SimpleNamespace(id="GA01", enabled=True)]),
-            features=SimpleNamespace(
-                simulation_mode=True,
-                enable_spectral_quality_analysis=True,
-                spectral_min_samples=32,
-                spectral_min_duration_s=20.0,
-                spectral_low_freq_max_hz=0.05,
-            ),
-            workflow=SimpleNamespace(profile_name="offline", profile_version="v2"),
-        )
-    )
-
-    payload = export_run_offline_artifacts(
-        run_dir=tmp_path,
-        output_dir=tmp_path,
-        run_id="run_test",
-        session=session,
-        samples=[],
-        point_summaries=[{"stats": {"reason": "passed"}}],
-        output_files=[],
-        export_statuses={"run_summary": {"status": "ok", "role": "execution_summary", "path": str(tmp_path / "summary.json")}},
-        source_points_file=None,
-        software_build_id="build-1",
-    )
-
-    assert payload["summary_stats"]["spectral_quality_summary"]["status"] == "insufficient_data"
-    assert payload["summary_stats"]["spectral_quality_summary"]["evidence_source"] == "simulated_protocol"
