@@ -488,6 +488,16 @@ def _read_identity_snapshot(analyzer: Any, *, prefer_stream: bool = False) -> Op
     return None
 
 
+def _call_optional_ack(method: Any, *args: Any) -> bool:
+    """Preserve the legacy helper used by SN identity initialization."""
+    if not callable(method):
+        return False
+    try:
+        return bool(method(*args, require_ack=False))
+    except TypeError:
+        return bool(method(*args))
+
+
 def _call_required_ack(method: Any, *args: Any) -> bool:
     if not callable(method):
         return False
