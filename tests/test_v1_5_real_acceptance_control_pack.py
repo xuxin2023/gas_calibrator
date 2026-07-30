@@ -6,6 +6,7 @@ from gas_calibrator.tools.build_v1_5_real_acceptance_control_pack import main as
 from gas_calibrator.validation.v1_5_real_acceptance_control_pack import (
     build_v1_5_real_acceptance_control_pack,
     build_v1_5_real_acceptance_site_profile_template,
+    confirm_v1_5_current_site_state,
     prefill_v1_5_site_profile_from_historical_identity,
     validate_v1_5_real_acceptance_site_profile,
     write_v1_5_real_acceptance_control_pack_outputs,
@@ -30,7 +31,12 @@ def _inventory(tmp_path: Path) -> Path:
     )
 
 
-def _site_profile(tmp_path: Path, *, mapped: bool) -> tuple[Path, dict]:
+def _site_profile(
+    tmp_path: Path,
+    *,
+    mapped: bool,
+    confirmed: bool = True,
+) -> tuple[Path, dict]:
     inventory = _inventory(tmp_path)
     profile = build_v1_5_real_acceptance_site_profile_template(
         runtime_port_inventory_json=inventory,
@@ -61,6 +67,13 @@ def _site_profile(tmp_path: Path, *, mapped: bool) -> tuple[Path, dict]:
                         },
                     }
                 )
+        if confirmed:
+            profile = confirm_v1_5_current_site_state(
+                site_profile=profile,
+                operator_name="test-operator",
+                observation_basis="test physical observation",
+                confirmed_at="2026-07-30T14:30:00Z",
+            )
     return inventory, profile
 
 
@@ -280,6 +293,63 @@ def test_historical_identity_prefill_preserves_conflicting_operator_value(
         in prefilled["historical_identity_prefill"]["reasons"]
     )
     assert prefilled["historical_identity_prefill"]["status"] == "review_required"
+
+
+def test_complete_mapping_requires_hash_bound_current_site_confirmation(
+    tmp_path: Path,
+) -> None:
+    inventory, profile = _site_profile(
+        tmp_path,
+        mapped=True,
+        confirmed=False,
+    )
+    without_confirmation = validate_v1_5_real_acceptance_site_profile(
+        site_profile=profile,
+        runtime_port_inventory_json=inventory,
+    )
+    assert without_confirmation["ready_for_readonly_packet_build"] is False
+    assert "current_site_confirmation_missing" in without_confirmation["reasons"]
+
+    confirmed = confirm_v1_5_current_site_state(
+        site_profile=profile,
+        operator_name="operator-a",
+        observation_basis="physical cable and power indicator observation",
+        confirmed_at="2026-07-30T14:31:00Z",
+    )
+    with_confirmation = validate_v1_5_real_acceptance_site_profile(
+        site_profile=confirmed,
+        runtime_port_inventory_json=inventory,
+    )
+    assert with_confirmation["ready_for_readonly_packet_build"] is True
+    assert confirmed["current_site_confirmation"]["connected_ports"] == [
+        "COM35",
+        "COM36",
+        "COM37",
+        "COM38",
+    ]
+    assert confirmed["current_site_confirmation"]["powered_ports"] == [
+        "COM35",
+        "COM36",
+    ]
+    assert len(confirmed["current_site_confirmation"]["candidate_state_sha256"]) == 64
+
+
+def test_current_site_confirmation_becomes_invalid_after_mapping_edit(
+    tmp_path: Path,
+) -> None:
+    inventory, profile = _site_profile(tmp_path, mapped=True)
+    profile["candidate_analyzers"][0]["runtime_evidence"]["average1"] = "edited"
+
+    validation = validate_v1_5_real_acceptance_site_profile(
+        site_profile=profile,
+        runtime_port_inventory_json=inventory,
+    )
+
+    assert validation["ready_for_readonly_packet_build"] is False
+    assert (
+        "current_site_confirmation_state_sha256_mismatch"
+        in validation["reasons"]
+    )
 
 
 def test_certificate_blockers_do_not_block_offline_readonly_program_progress(tmp_path: Path) -> None:

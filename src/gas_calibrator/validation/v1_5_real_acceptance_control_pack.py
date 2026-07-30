@@ -295,6 +295,112 @@ def prefill_v1_5_site_profile_from_historical_identity(
     return profile
 
 
+def _current_site_state_payload(site_profile: Mapping[str, Any]) -> dict[str, Any]:
+    rows = {
+        str(row.get("port") or "").upper(): row
+        for row in _rows(site_profile, "candidate_analyzers")
+    }
+    return {
+        "reported_connected_count": site_profile.get("reported_connected_count"),
+        "reported_powered_count": site_profile.get("reported_powered_count"),
+        "candidate_analyzers": [
+            {
+                "port": port,
+                "connected": row.get("connected"),
+                "powered": row.get("powered"),
+                "operator_confirmed": row.get("operator_confirmed"),
+                "ga_label": row.get("ga_label"),
+                "protocol_device_id": row.get("protocol_device_id"),
+                "sn_code": row.get("sn_code"),
+                "algorithm": row.get("algorithm"),
+                "check_capable": row.get("check_capable"),
+                "check_required": row.get("check_required"),
+                "runtime_evidence": row.get("runtime_evidence"),
+            }
+            for port in ANALYZER_BANK
+            for row in [rows.get(port, {})]
+        ],
+    }
+
+
+def _current_site_state_sha256(site_profile: Mapping[str, Any]) -> str:
+    payload = json.dumps(
+        _current_site_state_payload(site_profile),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def confirm_v1_5_current_site_state(
+    *,
+    site_profile: Mapping[str, Any],
+    operator_name: str,
+    observation_basis: str,
+    confirmed_at: str | None = None,
+) -> dict[str, Any]:
+    """Bind an operator confirmation to the exact current 4/2 site mapping."""
+
+    operator = str(operator_name or "").strip()
+    basis = str(observation_basis or "").strip()
+    if not operator:
+        raise ValueError("operator name is required")
+    if not basis:
+        raise ValueError("current-site observation basis is required")
+    profile = copy.deepcopy(dict(site_profile))
+    rows = _rows(profile, "candidate_analyzers")
+    by_port = {str(row.get("port") or "").upper(): row for row in rows}
+    if len(rows) != len(ANALYZER_BANK) or set(by_port) != set(ANALYZER_BANK):
+        raise ValueError("candidate analyzer bank must be exactly COM35 through COM42")
+    connected_ports = [
+        port for port in ANALYZER_BANK if by_port[port].get("connected") is True
+    ]
+    powered_ports = [
+        port for port in ANALYZER_BANK if by_port[port].get("powered") is True
+    ]
+    try:
+        expected_connected = int(profile.get("reported_connected_count"))
+        expected_powered = int(profile.get("reported_powered_count"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("reported connected/powered counts are invalid") from exc
+    if len(connected_ports) != expected_connected:
+        raise ValueError(
+            f"connected ports must match reported count {expected_connected}"
+        )
+    if len(powered_ports) != expected_powered:
+        raise ValueError(f"powered ports must match reported count {expected_powered}")
+    if not set(powered_ports).issubset(connected_ports):
+        raise ValueError("powered ports must be a subset of connected ports")
+    unconfirmed = [
+        port
+        for port in connected_ports
+        if by_port[port].get("operator_confirmed") is not True
+    ]
+    if unconfirmed:
+        raise ValueError(
+            "connected ports require row confirmation: " + ", ".join(unconfirmed)
+        )
+
+    profile["current_site_confirmation"] = {
+        "schema": "v1_5_current_site_confirmation_v1",
+        "status": "confirmed",
+        "operator_name": operator,
+        "confirmed_at": str(confirmed_at or _now()),
+        "observation_basis": basis,
+        "connected_ports": connected_ports,
+        "powered_ports": powered_ports,
+        "reported_connected_count": expected_connected,
+        "reported_powered_count": expected_powered,
+        "candidate_state_sha256": _current_site_state_sha256(profile),
+        "opens_com_ports": False,
+        "sends_device_commands": False,
+        "writes_sn": False,
+        "writes_coefficients": False,
+    }
+    return profile
+
+
 def validate_v1_5_real_acceptance_site_profile(
     *,
     site_profile: Mapping[str, Any],
@@ -335,6 +441,44 @@ def validate_v1_5_real_acceptance_site_profile(
         reasons.append(f"powered_count_expected_{reported_powered}_actual_{len(powered_rows)}")
     if not (1 <= len(powered_rows) <= 6):
         reasons.append(f"active_powered_analyzer_count={len(powered_rows)}")
+
+    confirmation = site_profile.get("current_site_confirmation")
+    confirmation = confirmation if isinstance(confirmation, Mapping) else {}
+    if confirmation.get("schema") != "v1_5_current_site_confirmation_v1":
+        reasons.append("current_site_confirmation_missing")
+    elif confirmation.get("status") != "confirmed":
+        reasons.append("current_site_confirmation_not_confirmed")
+    else:
+        if not _text(confirmation, "operator_name"):
+            reasons.append("current_site_confirmation_operator_missing")
+        if not _text(confirmation, "confirmed_at"):
+            reasons.append("current_site_confirmation_time_missing")
+        if not _text(confirmation, "observation_basis"):
+            reasons.append("current_site_confirmation_basis_missing")
+        connected_port_set = {
+            str(row.get("port") or "").upper() for row in connected_rows
+        }
+        powered_port_set = {
+            str(row.get("port") or "").upper() for row in powered_rows
+        }
+        connected_ports = [
+            port for port in ANALYZER_BANK if port in connected_port_set
+        ]
+        powered_ports = [
+            port for port in ANALYZER_BANK if port in powered_port_set
+        ]
+        if list(confirmation.get("connected_ports") or []) != connected_ports:
+            reasons.append("current_site_confirmation_connected_ports_mismatch")
+        if list(confirmation.get("powered_ports") or []) != powered_ports:
+            reasons.append("current_site_confirmation_powered_ports_mismatch")
+        if confirmation.get("reported_connected_count") != reported_connected:
+            reasons.append("current_site_confirmation_connected_count_mismatch")
+        if confirmation.get("reported_powered_count") != reported_powered:
+            reasons.append("current_site_confirmation_powered_count_mismatch")
+        if confirmation.get("candidate_state_sha256") != _current_site_state_sha256(
+            site_profile
+        ):
+            reasons.append("current_site_confirmation_state_sha256_mismatch")
 
     labels: set[str] = set()
     sns: set[str] = set()

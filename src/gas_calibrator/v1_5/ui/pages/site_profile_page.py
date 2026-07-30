@@ -13,6 +13,7 @@ from typing import Any, Callable, Mapping
 from ....validation.v1_5_real_acceptance_control_pack import (
     ANALYZER_BANK,
     build_v1_5_real_acceptance_site_profile_template,
+    confirm_v1_5_current_site_state,
     validate_v1_5_real_acceptance_site_profile,
 )
 from ..page_i18n import translator_for
@@ -61,6 +62,14 @@ class SiteProfilePage(ttk.Frame):
                 "check_required",
             )
         }
+        self.confirmation_vars = {
+            "operator_name": tk.StringVar(master=self, value=""),
+            "observation_basis": tk.StringVar(master=self, value=""),
+        }
+        self.confirmation_status_var = tk.StringVar(
+            master=self,
+            value=self._t("pages.site_profile.confirmation.status.pending"),
+        )
         self._build()
         if self.profile_path.is_file():
             self.load_profile(self.profile_path)
@@ -205,13 +214,54 @@ class SiteProfilePage(ttk.Frame):
                 style="Site.TCheckbutton",
             ).grid(row=2, column=index, sticky="w", padx=3)
 
+        confirmation = ttk.LabelFrame(
+            body,
+            text=self._t("pages.site_profile.confirmation.title"),
+            style="Site.TLabelframe",
+            padding=12,
+        )
+        confirmation.grid(row=6, column=0, sticky="ew", pady=(0, 10))
+        confirmation.columnconfigure(1, weight=1)
+        confirmation.columnconfigure(3, weight=3)
+        ttk.Label(
+            confirmation,
+            text=self._t("pages.site_profile.confirmation.operator_name"),
+            style="Muted.TLabel",
+        ).grid(row=0, column=0, sticky="w", padx=(0, 6))
+        ttk.Entry(
+            confirmation,
+            textvariable=self.confirmation_vars["operator_name"],
+            style="Site.TEntry",
+        ).grid(row=0, column=1, sticky="ew", padx=(0, 12))
+        ttk.Label(
+            confirmation,
+            text=self._t("pages.site_profile.confirmation.observation_basis"),
+            style="Muted.TLabel",
+        ).grid(row=0, column=2, sticky="w", padx=(0, 6))
+        ttk.Entry(
+            confirmation,
+            textvariable=self.confirmation_vars["observation_basis"],
+            style="Site.TEntry",
+        ).grid(row=0, column=3, sticky="ew", padx=(0, 12))
+        ttk.Button(
+            confirmation,
+            text=self._t("pages.site_profile.confirmation.action"),
+            command=self.confirm_current_state,
+            style="Accent.TButton",
+        ).grid(row=0, column=4, sticky="ew")
+        ttk.Label(
+            confirmation,
+            textvariable=self.confirmation_status_var,
+            style="Muted.TLabel",
+        ).grid(row=1, column=0, columnspan=5, sticky="w", pady=(8, 0))
+
         ttk.Label(
             body,
             textvariable=self.status_var,
             style="Muted.TLabel",
             wraplength=1400,
             justify="left",
-        ).grid(row=6, column=0, sticky="ew", pady=(2, 8))
+        ).grid(row=7, column=0, sticky="ew", pady=(2, 8))
         self.reason_text = tk.Text(
             body,
             height=6,
@@ -223,7 +273,7 @@ class SiteProfilePage(ttk.Frame):
             pady=8,
             font=("Microsoft YaHei UI", 9),
         )
-        self.reason_text.grid(row=7, column=0, sticky="ew")
+        self.reason_text.grid(row=8, column=0, sticky="ew")
         self.reason_text.configure(state="disabled")
 
     def _rows(self) -> list[dict[str, Any]]:
@@ -307,6 +357,26 @@ class SiteProfilePage(ttk.Frame):
             "runtime_port_inventory_sha256_mismatch": "inventory_changed",
             "candidate_analyzer_bank_must_be_exactly_com35_to_com42": "bank_invalid",
             "reported_counts_invalid": "reported_counts_invalid",
+            "current_site_confirmation_missing": "confirmation_missing",
+            "current_site_confirmation_not_confirmed": "confirmation_not_confirmed",
+            "current_site_confirmation_operator_missing": "confirmation_operator_missing",
+            "current_site_confirmation_time_missing": "confirmation_time_missing",
+            "current_site_confirmation_basis_missing": "confirmation_basis_missing",
+            "current_site_confirmation_connected_ports_mismatch": (
+                "confirmation_connected_ports_mismatch"
+            ),
+            "current_site_confirmation_powered_ports_mismatch": (
+                "confirmation_powered_ports_mismatch"
+            ),
+            "current_site_confirmation_connected_count_mismatch": (
+                "confirmation_connected_count_mismatch"
+            ),
+            "current_site_confirmation_powered_count_mismatch": (
+                "confirmation_powered_count_mismatch"
+            ),
+            "current_site_confirmation_state_sha256_mismatch": (
+                "confirmation_state_changed"
+            ),
         }
         if reason in exact:
             return self._t(f"pages.site_profile.reason.{exact[reason]}")
@@ -383,6 +453,12 @@ class SiteProfilePage(ttk.Frame):
         runtime["ftd_hz"] = self.form_vars["ftd_hz"].get().strip() or None
         runtime["average1"] = self.form_vars["average1"].get().strip()
         runtime["average2"] = self.form_vars["average2"].get().strip()
+        confirmation = self.profile.get("current_site_confirmation")
+        if isinstance(confirmation, dict) and confirmation.get("status") == "confirmed":
+            confirmation["status"] = "stale_after_mapping_edit"
+            self.confirmation_status_var.set(
+                self._t("pages.site_profile.confirmation.status.stale")
+            )
         self.validate_profile(show_dialog=False)
         self.status_var.set(self._t("pages.site_profile.status.row_applied", port=port))
 
@@ -393,6 +469,15 @@ class SiteProfilePage(ttk.Frame):
             raise ValueError("site profile JSON must be an object")
         self.profile_path = source
         self.profile = payload
+        confirmation = payload.get("current_site_confirmation")
+        confirmation = confirmation if isinstance(confirmation, Mapping) else {}
+        self.confirmation_vars["operator_name"].set(
+            str(confirmation.get("operator_name") or "")
+        )
+        self.confirmation_vars["observation_basis"].set(
+            str(confirmation.get("observation_basis") or "")
+        )
+        self._refresh_confirmation_status()
         self.validate_profile(show_dialog=False)
         prefill = payload.get("historical_identity_prefill")
         prefill = prefill if isinstance(prefill, Mapping) else {}
@@ -417,10 +502,61 @@ class SiteProfilePage(ttk.Frame):
             observation_id="operator_site_mapping_draft",
         )
         self.validation = {}
+        for variable in self.confirmation_vars.values():
+            variable.set("")
+        self._refresh_confirmation_status()
         self._refresh_table()
         self._refresh_metrics()
         self._set_reasons(["operator_mapping_required"])
         self.status_var.set(self._t("pages.site_profile.status.template_created"))
+
+    def _refresh_confirmation_status(self) -> None:
+        confirmation = self.profile.get("current_site_confirmation")
+        confirmation = confirmation if isinstance(confirmation, Mapping) else {}
+        status = str(confirmation.get("status") or "")
+        key = (
+            "confirmed"
+            if status == "confirmed"
+            else "stale"
+            if status.startswith("stale")
+            else "pending"
+        )
+        self.confirmation_status_var.set(
+            self._t(f"pages.site_profile.confirmation.status.{key}")
+        )
+
+    def confirm_current_state(self, *, show_dialog: bool = True) -> bool:
+        """Bind the operator's physical observation to the exact editable mapping."""
+
+        if not self.profile:
+            self.status_var.set(self._t("pages.site_profile.status.empty"))
+            return False
+        try:
+            self.profile = confirm_v1_5_current_site_state(
+                site_profile=self.profile,
+                operator_name=self.confirmation_vars["operator_name"].get(),
+                observation_basis=self.confirmation_vars["observation_basis"].get(),
+            )
+        except ValueError:
+            self.confirmation_status_var.set(
+                self._t("pages.site_profile.confirmation.status.failed")
+            )
+            self.status_var.set(
+                self._t("pages.site_profile.status.confirmation_failed")
+            )
+            if show_dialog:
+                messagebox.showerror(
+                    self._t("pages.site_profile.dialog.confirmation_failed"),
+                    self.status_var.get(),
+                    parent=self,
+                )
+            return False
+        self._refresh_confirmation_status()
+        self.validate_profile(show_dialog=False)
+        self.status_var.set(
+            self._t("pages.site_profile.status.confirmation_saved")
+        )
+        return True
 
     def validate_profile(self, *, show_dialog: bool = True) -> dict[str, Any]:
         inventory_path = str(self.profile.get("runtime_port_inventory_json") or "")

@@ -332,6 +332,14 @@ _ZH_CN = {
     "pages.site_profile.field.operator_confirmed": "操作员已确认",
     "pages.site_profile.field.check_capable": "支持CHECK",
     "pages.site_profile.field.check_required": "要求CHECK",
+    "pages.site_profile.confirmation.title": "当前现场状态确认（与本次映射哈希绑定）",
+    "pages.site_profile.confirmation.operator_name": "确认人",
+    "pages.site_profile.confirmation.observation_basis": "观察依据",
+    "pages.site_profile.confirmation.action": "确认并绑定当前4/2映射",
+    "pages.site_profile.confirmation.status.pending": "状态：待确认；历史身份不能代替当前接线与通电观察。",
+    "pages.site_profile.confirmation.status.confirmed": "状态：已确认；任何映射修改都会使本确认失效。",
+    "pages.site_profile.confirmation.status.stale": "状态：映射已修改，原确认失效，请重新核对并确认。",
+    "pages.site_profile.confirmation.status.failed": "状态：确认失败；请先完成4台接入、2台通电及逐台确认。",
     "pages.site_profile.value.ready": "就绪",
     "pages.site_profile.value.review": "待完善",
     "pages.site_profile.value.historical_prefill": "历史身份待确认",
@@ -348,6 +356,8 @@ _ZH_CN = {
         "已载入 {path}；其中 {count} 台为历史身份预填，仍需确认当前4台接入和2台通电状态。"
     ),
     "pages.site_profile.status.template_created": "已从端口清单建立4台接入/2台通电模板，请逐台确认。",
+    "pages.site_profile.status.confirmation_saved": "当前现场状态已确认，并与这一本映射逐字段哈希绑定。",
+    "pages.site_profile.status.confirmation_failed": "当前映射尚不满足确认条件；请核对4台接入、2台通电、逐台确认和确认人信息。",
     "pages.site_profile.status.valid": "现场映射校验通过；只读执行仍需独立授权。",
     "pages.site_profile.status.invalid": "现场映射仍有 {count} 项需要处理。",
     "pages.site_profile.status.saved_ready": "已保存 {path}，并生成经哈希绑定的只读输入清单。",
@@ -356,10 +366,21 @@ _ZH_CN = {
     "pages.site_profile.dialog.json": "JSON 文件",
     "pages.site_profile.dialog.load_failed": "载入现场配置失败",
     "pages.site_profile.dialog.save_failed": "保存现场配置失败",
+    "pages.site_profile.dialog.confirmation_failed": "当前现场确认失败",
     "pages.site_profile.reason.inventory_missing": "端口清单缺失，请重新选择有效的端口清单。",
     "pages.site_profile.reason.inventory_changed": "端口清单在建档后发生变化，请重新从清单新建现场配置。",
     "pages.site_profile.reason.bank_invalid": "现场配置必须完整包含 COM35 至 COM42 八个候选端口。",
     "pages.site_profile.reason.reported_counts_invalid": "报告的接入台数或通电台数不是有效整数。",
+    "pages.site_profile.reason.confirmation_missing": "缺少当前现场确认；历史6台身份记录不能证明本次4台接入、2台通电状态。",
+    "pages.site_profile.reason.confirmation_not_confirmed": "当前现场确认已失效或尚未完成，请核对映射后重新确认。",
+    "pages.site_profile.reason.confirmation_operator_missing": "当前现场确认缺少确认人。",
+    "pages.site_profile.reason.confirmation_time_missing": "当前现场确认缺少确认时间。",
+    "pages.site_profile.reason.confirmation_basis_missing": "当前现场确认缺少物理观察依据。",
+    "pages.site_profile.reason.confirmation_connected_ports_mismatch": "当前接入端口与已确认记录不一致，请重新确认。",
+    "pages.site_profile.reason.confirmation_powered_ports_mismatch": "当前通电端口与已确认记录不一致，请重新确认。",
+    "pages.site_profile.reason.confirmation_connected_count_mismatch": "报告接入台数与已确认记录不一致，请重新确认。",
+    "pages.site_profile.reason.confirmation_powered_count_mismatch": "报告通电台数与已确认记录不一致，请重新确认。",
+    "pages.site_profile.reason.confirmation_state_changed": "现场映射内容在确认后发生变化，原确认哈希已失效。",
     "pages.site_profile.reason.connected_count": "报告接入 {expected} 台，当前只确认 {actual} 台。",
     "pages.site_profile.reason.powered_count": "报告通电 {expected} 台，当前只确认 {actual} 台。",
     "pages.site_profile.reason.active_count": "当前通电分析仪为 {actual} 台；只读初始化要求 1 至 6 台。",
@@ -589,6 +610,22 @@ _EN_US = {
     "pages.site_profile.field.operator_confirmed": "Operator Confirmed",
     "pages.site_profile.field.check_capable": "CHECK Capable",
     "pages.site_profile.field.check_required": "CHECK Required",
+    "pages.site_profile.confirmation.title": "Current Site Confirmation (hash-bound to this mapping)",
+    "pages.site_profile.confirmation.operator_name": "Confirmed by",
+    "pages.site_profile.confirmation.observation_basis": "Observation basis",
+    "pages.site_profile.confirmation.action": "Confirm and Bind Current 4/2 Mapping",
+    "pages.site_profile.confirmation.status.pending": (
+        "Status: pending. Historical identity cannot prove current cabling and power."
+    ),
+    "pages.site_profile.confirmation.status.confirmed": (
+        "Status: confirmed. Any mapping edit invalidates this confirmation."
+    ),
+    "pages.site_profile.confirmation.status.stale": (
+        "Status: mapping changed. Recheck and confirm the current site state."
+    ),
+    "pages.site_profile.confirmation.status.failed": (
+        "Status: failed. Complete four connected, two powered, and row confirmations."
+    ),
     "pages.site_profile.value.ready": "Ready",
     "pages.site_profile.value.review": "Review Required",
     "pages.site_profile.value.historical_prefill": "Historical Identity - Confirm",
@@ -611,6 +648,13 @@ _EN_US = {
     "pages.site_profile.status.template_created": (
         "Created the four-connected/two-powered template; confirm each device."
     ),
+    "pages.site_profile.status.confirmation_saved": (
+        "Current site state confirmed and field-by-field hash-bound to this mapping."
+    ),
+    "pages.site_profile.status.confirmation_failed": (
+        "The mapping is not confirmable yet; verify four connected, two powered, "
+        "each row, and the confirmer information."
+    ),
     "pages.site_profile.status.valid": "Site mapping passed; read-only execution still requires authorization.",
     "pages.site_profile.status.invalid": "{count} site-mapping items still require review.",
     "pages.site_profile.status.saved_ready": "Saved {path} and generated hash-bound read-only input lists.",
@@ -621,10 +665,42 @@ _EN_US = {
     "pages.site_profile.dialog.json": "JSON files",
     "pages.site_profile.dialog.load_failed": "Failed to Load Site Profile",
     "pages.site_profile.dialog.save_failed": "Failed to Save Site Profile",
+    "pages.site_profile.dialog.confirmation_failed": "Current Site Confirmation Failed",
     "pages.site_profile.reason.inventory_missing": "The port inventory is missing; select a valid inventory.",
     "pages.site_profile.reason.inventory_changed": "The port inventory changed after drafting; rebuild the profile.",
     "pages.site_profile.reason.bank_invalid": "The profile must contain all eight candidate ports from COM35 through COM42.",
     "pages.site_profile.reason.reported_counts_invalid": "The reported connected or powered count is not a valid integer.",
+    "pages.site_profile.reason.confirmation_missing": (
+        "Current-site confirmation is missing. Historical six-unit identities do not "
+        "prove the current four-connected/two-powered state."
+    ),
+    "pages.site_profile.reason.confirmation_not_confirmed": (
+        "The current-site confirmation is stale or incomplete; recheck and confirm."
+    ),
+    "pages.site_profile.reason.confirmation_operator_missing": (
+        "The current-site confirmation has no confirmer."
+    ),
+    "pages.site_profile.reason.confirmation_time_missing": (
+        "The current-site confirmation has no timestamp."
+    ),
+    "pages.site_profile.reason.confirmation_basis_missing": (
+        "The current-site confirmation has no physical observation basis."
+    ),
+    "pages.site_profile.reason.confirmation_connected_ports_mismatch": (
+        "Connected ports differ from the confirmed record; confirm again."
+    ),
+    "pages.site_profile.reason.confirmation_powered_ports_mismatch": (
+        "Powered ports differ from the confirmed record; confirm again."
+    ),
+    "pages.site_profile.reason.confirmation_connected_count_mismatch": (
+        "The reported connected count differs from the confirmed record; confirm again."
+    ),
+    "pages.site_profile.reason.confirmation_powered_count_mismatch": (
+        "The reported powered count differs from the confirmed record; confirm again."
+    ),
+    "pages.site_profile.reason.confirmation_state_changed": (
+        "The mapping changed after confirmation, so the confirmation hash is invalid."
+    ),
     "pages.site_profile.reason.connected_count": "Reported {expected} connected; {actual} are currently confirmed.",
     "pages.site_profile.reason.powered_count": "Reported {expected} powered; {actual} are currently confirmed.",
     "pages.site_profile.reason.active_count": "{actual} analyzers are powered; read-only initialization requires 1 to 6.",

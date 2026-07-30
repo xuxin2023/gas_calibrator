@@ -91,10 +91,35 @@ def test_site_profile_page_saves_hash_bound_four_two_readonly_inputs(
         assert page.profile["writes_coefficients"] is False
 
         _complete_four_connected_two_powered(page)
-        validation = page.validate_profile(show_dialog=False)
+        unconfirmed = page.validate_profile(show_dialog=False)
+        assert unconfirmed["ready_for_readonly_packet_build"] is False
+        assert "current_site_confirmation_missing" in unconfirmed["reasons"]
+
+        page.confirmation_vars["operator_name"].set("现场操作员")
+        page.confirmation_vars["observation_basis"].set("逐台检查线缆与电源指示灯")
+        assert page.confirm_current_state(show_dialog=False) is True
+        validation = page.validation
         assert validation["ready_for_readonly_packet_build"] is True
         assert validation["mapped_connected_count"] == 4
         assert validation["mapped_powered_count"] == 2
+        assert page.profile["current_site_confirmation"]["connected_ports"] == [
+            "COM35",
+            "COM36",
+            "COM37",
+            "COM38",
+        ]
+        assert page.profile["current_site_confirmation"]["powered_ports"] == [
+            "COM35",
+            "COM36",
+        ]
+        assert (
+            len(
+                page.profile["current_site_confirmation"][
+                    "candidate_state_sha256"
+                ]
+            )
+            == 64
+        )
         assert page.tree.item("COM35", "values")[-1] == "就绪"
         assert page.tree.item("COM37", "values")[-1] == "就绪"
         assert page.tree.item("COM42", "values")[-1] == "未用于本次"
@@ -112,6 +137,41 @@ def test_site_profile_page_saves_hash_bound_four_two_readonly_inputs(
         assert active["source_site_profile_sha256"] == expected_sha
         assert reviewed["blocked_reasons"] == []
         assert active["blocked_reasons"] == []
+    finally:
+        root.destroy()
+
+
+def test_site_profile_page_invalidates_confirmation_after_row_edit(
+    tmp_path: Path,
+) -> None:
+    root = _root()
+    try:
+        inventory = _write_inventory(tmp_path)
+        page = SiteProfilePage(
+            root,
+            profile_path=tmp_path / "site_profile.json",
+        )
+        page.create_from_inventory(inventory)
+        _complete_four_connected_two_powered(page)
+        page.confirmation_vars["operator_name"].set("现场操作员")
+        page.confirmation_vars["observation_basis"].set("逐台检查线缆与电源指示灯")
+        assert page.confirm_current_state(show_dialog=False) is True
+
+        page.tree.selection_set("COM35")
+        page._on_selected()
+        page.form_vars["average1"].set("AVERAGE1-EDITED")
+        page.apply_selected_row()
+
+        assert (
+            page.profile["current_site_confirmation"]["status"]
+            == "stale_after_mapping_edit"
+        )
+        assert page.validation["ready_for_readonly_packet_build"] is False
+        assert (
+            "current_site_confirmation_not_confirmed"
+            in page.validation["reasons"]
+        )
+        assert "原确认失效" in page.confirmation_status_var.get()
     finally:
         root.destroy()
 
@@ -233,7 +293,14 @@ def test_site_profile_page_i18n_is_chinese_first_with_english_fallback() -> None
     assert zh("pages.site_profile.title") == "现场设备配置与只读初始化准备"
     assert zh("pages.site_profile.actions.save") == "保存配置与清单"
     assert zh("pages.site_profile.value.historical_prefill") == "历史身份待确认"
+    assert zh("pages.site_profile.confirmation.action") == "确认并绑定当前4/2映射"
+    assert "历史6台身份记录不能证明" in zh(
+        "pages.site_profile.reason.confirmation_missing"
+    )
     assert en("pages.site_profile.title") == (
         "Site Device Mapping and Read-only Initialization"
     )
     assert en("pages.site_profile.actions.save") == "Save Profile and Lists"
+    assert en("pages.site_profile.confirmation.action") == (
+        "Confirm and Bind Current 4/2 Mapping"
+    )
