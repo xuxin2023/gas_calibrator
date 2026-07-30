@@ -238,6 +238,69 @@ def _attach_current_initialization_probe(
     return profile, initialization, first_source
 
 
+def _attach_runtime_setting_readability_review(
+    tmp_path: Path,
+    profile: dict,
+) -> tuple[dict, Path]:
+    results = []
+    for port in ("COM35", "COM36"):
+        row = next(
+            item
+            for item in profile["candidate_analyzers"]
+            if item["port"] == port
+        )
+        results.append(
+            {
+                "port": port,
+                "protocol_device_id": row["protocol_device_id"],
+                "sn_code": row["sn_code"],
+                "historical_port_values_reused": False,
+                "inferred_from_coefficient_shape": False,
+                "status": "safe_hold",
+            }
+        )
+    review = _write(
+        tmp_path / "probe" / "runtime_readability_review.json",
+        {
+            "schema": "v1_5_runtime_setting_readability_review_v1",
+            "overall_status": "safe_hold_no_supported_read_command",
+            "engineering_review_only": True,
+            "promotion_state": "blocked",
+            "not_real_acceptance_evidence": True,
+            "real_com_execution_attempted": False,
+            "opens_com_ports": False,
+            "sends_device_commands": False,
+            "command_attempt_count": 0,
+            "bytes_written": 0,
+            "writes_sn": False,
+            "writes_device_id": False,
+            "writes_coefficients": False,
+            "controls_pressure": False,
+            "controls_temperature": False,
+            "controls_water_or_gas_routes": False,
+            "connects_postgresql": False,
+            "database_written": False,
+            "capabilities": {
+                key: {
+                    "supported_read_command": "",
+                    "directly_readable": False,
+                }
+                for key in ("average1", "average2", "filter", "algorithm")
+            },
+            "results": results,
+        },
+    )
+    profile["current_probe_evidence"].update(
+        {
+            "runtime_setting_readability_review_json": str(review),
+            "runtime_setting_readability_review_sha256": hashlib.sha256(
+                review.read_bytes()
+            ).hexdigest(),
+        }
+    )
+    return profile, review
+
+
 def _historical_identity(tmp_path: Path) -> Path:
     rows = (
         ("070", "GA01", "COM35", "004", "01260604"),
@@ -622,6 +685,80 @@ def test_current_initialization_probe_binds_effective_1hz_and_neutral_senco78(
     artifacts = {row["role"]: row for row in model["artifacts"]}
     assert artifacts["current_powered_initialization_probe"]["sha256"] == (
         hashlib.sha256(initialization.read_bytes()).hexdigest()
+    )
+
+
+def test_runtime_readability_review_is_bound_without_releasing_blockers(
+    tmp_path: Path,
+) -> None:
+    inventory, profile = _site_profile(tmp_path, mapped=True, confirmed=False)
+    profile, _, _ = _attach_current_probe_evidence(tmp_path, profile)
+    for row in profile["candidate_analyzers"]:
+        if row["port"] in {"COM35", "COM36"}:
+            row["algorithm"] = ""
+            row["runtime_evidence"]["average1"] = ""
+            row["runtime_evidence"]["average2"] = ""
+    profile, review = _attach_runtime_setting_readability_review(
+        tmp_path,
+        profile,
+    )
+    evidence = _evidence(tmp_path, ready=False)
+
+    model = build_v1_5_real_acceptance_control_pack(
+        runtime_port_inventory_json=inventory,
+        certificate_registry_json=evidence["registry"],
+        certificate_reconciliation_json=evidence["reconciliation"],
+        certificate_admission_json=evidence["admission"],
+        workstation_dry_run_json=evidence["workstation"],
+        site_profile=profile,
+    )
+
+    current_probe = model["source_probe_evidence"]
+    assert current_probe["status"] == "valid_engineering_probe_binding"
+    assert (
+        current_probe["runtime_setting_readability_review"]["status"]
+        == "valid_safe_hold_review"
+    )
+    site_reasons = model["site_profile_validation"]["reasons"]
+    assert "COM35_algorithm_invalid" in site_reasons
+    assert "COM35_average1_average2_evidence_missing" in site_reasons
+    artifacts = {row["role"]: row for row in model["artifacts"]}
+    assert artifacts["current_runtime_setting_readability_review"][
+        "sha256"
+    ] == hashlib.sha256(review.read_bytes()).hexdigest()
+
+
+def test_runtime_readability_review_cannot_claim_a_read_command(
+    tmp_path: Path,
+) -> None:
+    inventory, profile = _site_profile(tmp_path, mapped=True, confirmed=False)
+    profile, _, _ = _attach_current_probe_evidence(tmp_path, profile)
+    profile, review = _attach_runtime_setting_readability_review(
+        tmp_path,
+        profile,
+    )
+    payload = json.loads(review.read_text(encoding="utf-8"))
+    payload["capabilities"]["average1"] = {
+        "supported_read_command": "GETAVERAGE1",
+        "directly_readable": True,
+    }
+    review.write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    profile["current_probe_evidence"][
+        "runtime_setting_readability_review_sha256"
+    ] = hashlib.sha256(review.read_bytes()).hexdigest()
+
+    validation = validate_v1_5_real_acceptance_site_profile(
+        site_profile=profile,
+        runtime_port_inventory_json=inventory,
+    )
+
+    assert validation["ready_for_readonly_packet_build"] is False
+    assert (
+        "current_probe_runtime_readability_capability_contract_invalid"
+        in validation["reasons"]
     )
 
 

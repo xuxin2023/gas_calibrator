@@ -27,6 +27,9 @@ POWERED_IDENTITY_QUERY_SCHEMA = "v1_5_powered_analyzer_identity_query_v1"
 CURRENT_INITIALIZATION_PROBE_SCHEMA = (
     "v1_5_current_powered_initialization_probe_v1"
 )
+RUNTIME_SETTING_READABILITY_REVIEW_SCHEMA = (
+    "v1_5_runtime_setting_readability_review_v1"
+)
 SN_PATTERN = re.compile(r"^\d{8}$")
 ANALYZER_BANK = tuple(f"COM{index}" for index in range(35, 43))
 LEGACY_ALGORITHMS = {"legacy", "legacy_ratio", "old", "ratio"}
@@ -562,6 +565,110 @@ def _validate_initialization_probe(
     }
 
 
+def _validate_runtime_setting_readability_review(
+    *,
+    evidence: Mapping[str, Any],
+    by_port: Mapping[str, Mapping[str, Any]],
+    streaming_ports: Sequence[str],
+) -> dict[str, Any]:
+    path = _text(evidence, "runtime_setting_readability_review_json")
+    declared_sha256 = _text(
+        evidence,
+        "runtime_setting_readability_review_sha256",
+    )
+    if not path and not declared_sha256:
+        return {
+            "present": False,
+            "status": "not_supplied",
+            "reasons": [],
+            "path": "",
+            "sha256": "",
+        }
+
+    payload = _load_json(path)
+    actual_sha256 = _sha256(path)
+    prefix = "current_probe_runtime_readability"
+    reasons: list[str] = []
+    if not payload:
+        reasons.append(f"{prefix}_review_missing")
+    if declared_sha256 != actual_sha256:
+        reasons.append(f"{prefix}_review_sha256_mismatch")
+    if payload:
+        false_fields = (
+            "real_com_execution_attempted",
+            "opens_com_ports",
+            "sends_device_commands",
+            "writes_sn",
+            "writes_device_id",
+            "writes_coefficients",
+            "controls_pressure",
+            "controls_temperature",
+            "controls_water_or_gas_routes",
+            "connects_postgresql",
+            "database_written",
+        )
+        contract_ok = (
+            payload.get("schema")
+            == RUNTIME_SETTING_READABILITY_REVIEW_SCHEMA
+            and payload.get("overall_status")
+            == "safe_hold_no_supported_read_command"
+            and payload.get("engineering_review_only") is True
+            and payload.get("promotion_state") == "blocked"
+            and payload.get("not_real_acceptance_evidence") is True
+            and payload.get("command_attempt_count") == 0
+            and payload.get("bytes_written") == 0
+            and all(payload.get(field) is False for field in false_fields)
+        )
+        if not contract_ok:
+            reasons.append(f"{prefix}_safe_hold_contract_invalid")
+
+        capabilities = payload.get("capabilities")
+        capabilities = (
+            capabilities if isinstance(capabilities, Mapping) else {}
+        )
+        capability_contract_ok = all(
+            isinstance(capabilities.get(key), Mapping)
+            and capabilities[key].get("directly_readable") is False
+            and not _text(capabilities[key], "supported_read_command")
+            for key in ("average1", "average2", "filter", "algorithm")
+        )
+        if not capability_contract_ok:
+            reasons.append(f"{prefix}_capability_contract_invalid")
+
+        expected_identities = {
+            (
+                port,
+                _text(by_port.get(port, {}), "protocol_device_id"),
+                _text(by_port.get(port, {}), "sn_code"),
+            )
+            for port in streaming_ports
+        }
+        actual_identities = {
+            (
+                str(row.get("port") or "").upper(),
+                _text(row, "protocol_device_id"),
+                _text(row, "sn_code"),
+            )
+            for row in _rows(payload, "results")
+            if row.get("status") == "safe_hold"
+            and row.get("historical_port_values_reused") is False
+            and row.get("inferred_from_coefficient_shape") is False
+        }
+        if (
+            actual_identities != expected_identities
+            or len(_rows(payload, "results")) != len(expected_identities)
+        ):
+            reasons.append(f"{prefix}_safe_hold_identity_set_mismatch")
+
+    return {
+        "present": True,
+        "status": "valid_safe_hold_review" if not reasons else "review_required",
+        "reasons": reasons,
+        "path": path,
+        "sha256": actual_sha256,
+    }
+
+
 def confirm_v1_5_current_site_state(
     *,
     site_profile: Mapping[str, Any],
@@ -745,6 +852,12 @@ def _validate_current_probe_evidence(
         streaming_ports=streaming_ports,
     )
     reasons.extend(initialization_probe["reasons"])
+    runtime_readability_review = _validate_runtime_setting_readability_review(
+        evidence=evidence,
+        by_port=by_port,
+        streaming_ports=streaming_ports,
+    )
+    reasons.extend(runtime_readability_review["reasons"])
     opens_com_ports = any(
         row.get("open_succeeded") is True
         for row in _rows(passive, "port_results") + _rows(identity, "results")
@@ -771,6 +884,13 @@ def _validate_current_probe_evidence(
         "initialization_probe": initialization_probe,
         "initialization_probe_json": initialization_probe["path"],
         "initialization_probe_sha256": initialization_probe["sha256"],
+        "runtime_setting_readability_review": runtime_readability_review,
+        "runtime_setting_readability_review_json": runtime_readability_review[
+            "path"
+        ],
+        "runtime_setting_readability_review_sha256": runtime_readability_review[
+            "sha256"
+        ],
         "streaming_powered_ports": streaming_ports,
         "opens_com_ports": opens_com_ports,
         "sends_read_only_device_commands": sends_read_only_commands,
@@ -1132,6 +1252,21 @@ def build_v1_5_real_acceptance_control_pack(
                 _artifact(
                     "current_powered_initialization_probe",
                     initialization_probe.get("path"),
+                )
+            )
+        runtime_readability_review = current_probe.get(
+            "runtime_setting_readability_review"
+        )
+        runtime_readability_review = (
+            runtime_readability_review
+            if isinstance(runtime_readability_review, Mapping)
+            else {}
+        )
+        if runtime_readability_review.get("present") is True:
+            artifacts.append(
+                _artifact(
+                    "current_runtime_setting_readability_review",
+                    runtime_readability_review.get("path"),
                 )
             )
     return {
