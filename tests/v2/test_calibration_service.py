@@ -244,6 +244,22 @@ def _make_service(points_path: Path, stability_checker) -> CalibrationService:
     return service
 
 
+def _assert_service_finishes(
+    service: CalibrationService,
+    *,
+    timeout_s: float = 30.0,
+) -> None:
+    if service.wait(timeout=timeout_s):
+        return
+    status = service.get_status()
+    service.stop(wait=True, timeout=5.0)
+    raise AssertionError(
+        "CalibrationService did not finish within "
+        f"{timeout_s:.1f}s: phase={status.phase.value} "
+        f"message={status.message!r} running={service.is_running}"
+    )
+
+
 def test_point_preparation_functions_have_one_shared_owner() -> None:
     functions = (
         filter_selected_temperatures,
@@ -326,7 +342,7 @@ def test_start_and_stop_service(tmp_path: Path) -> None:
 
     service.stop(wait=True, timeout=2.0)
 
-    assert service.wait(timeout=5.0) is True
+    _assert_service_finishes(service)
     assert service.get_status().phase is CalibrationPhase.STOPPED
 
 
@@ -345,7 +361,7 @@ def test_progress_callback_receives_state_updates(tmp_path: Path) -> None:
     service.set_progress_callback(lambda status: phases.append(status.phase))
     service.start(str(points_path))
 
-    assert service.wait(timeout=10.0) is True
+    _assert_service_finishes(service)
 
     final_status = service.get_status()
     assert final_status.phase is CalibrationPhase.COMPLETED
@@ -365,7 +381,7 @@ def test_sampling_results_are_recorded(tmp_path: Path) -> None:
     service = _make_service(points_path, ImmediateStabilityChecker())
 
     service.start(str(points_path))
-    assert service.wait(timeout=10.0) is True
+    _assert_service_finishes(service)
 
     results = service.get_results()
     assert len(results) == 2
@@ -437,7 +453,7 @@ def test_full_run_exports_ratio_poly_coefficient_report(tmp_path: Path) -> None:
     analyzer.point_provider = lambda: service.session.current_point
 
     service.start(str(points_path))
-    assert service.wait(timeout=20.0) is True
+    _assert_service_finishes(service)
 
     status = service.get_status()
     output_files = service.get_output_files()
@@ -506,7 +522,7 @@ def test_v2_replacement_contract_minimal_flow_persists_results_and_artifacts(tmp
     analyzer.point_provider = lambda: service.session.current_point
 
     service.start(str(points_path))
-    assert service.wait(timeout=20.0) is True
+    _assert_service_finishes(service)
 
     status = service.get_status()
     output_files = service.get_output_files()
@@ -579,7 +595,7 @@ def test_route_failure_does_not_produce_fake_completed_summary(tmp_path: Path, m
     )
 
     service.start(str(points_path))
-    assert service.wait(timeout=10.0) is True
+    _assert_service_finishes(service)
 
     status = service.get_status()
     summary_path = service.result_store.run_dir / "summary.json"

@@ -470,6 +470,8 @@ finally:
         env=env,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     assert result.returncode == 0, result.stderr or result.stdout
 
