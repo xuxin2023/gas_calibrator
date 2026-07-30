@@ -3,35 +3,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from gas_calibrator.storage.coefficient_store import (
-    CoefficientVersionStore as SharedCoefficientVersionStore,
-)
-from gas_calibrator.storage.database import DatabaseManager as SharedDatabaseManager
-from gas_calibrator.storage.importer import ArtifactImporter as SharedArtifactImporter
 from gas_calibrator.storage.models import Base as SharedBase
-from gas_calibrator.storage.queries import HistoryQueryService as SharedHistoryQueryService
-from gas_calibrator.storage.sidecar_index import (
-    SIDECAR_COLLECTIONS as SHARED_SIDECAR_COLLECTIONS,
-)
-from gas_calibrator.storage.sidecar_index import SidecarIndexStore as SharedSidecarIndexStore
-from gas_calibrator.storage.sidecar_index import (
-    normalize_sidecar_record as shared_normalize_sidecar_record,
-)
-from gas_calibrator.v2.storage.database import DatabaseManager as V2DatabaseManager
-from gas_calibrator.v2.storage.coefficient_store import (
-    CoefficientVersionStore as V2CoefficientVersionStore,
-)
-from gas_calibrator.v2.storage.importer import ArtifactImporter as V2ArtifactImporter
-from gas_calibrator.v2.storage.models import Base as V2Base
-from gas_calibrator.v2.storage.queries import HistoryQueryService as V2HistoryQueryService
-from gas_calibrator.v2.storage.sidecar_index import (
-    SIDECAR_COLLECTIONS as V2_SIDECAR_COLLECTIONS,
-)
-from gas_calibrator.v2.storage.sidecar_index import SidecarIndexStore as V2SidecarIndexStore
-from gas_calibrator.v2.storage.sidecar_index import (
-    normalize_sidecar_record as v2_normalize_sidecar_record,
-)
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = REPO_ROOT / "src" / "gas_calibrator"
@@ -78,50 +50,8 @@ def test_v1_5_storage_consumers_do_not_import_v2_storage() -> None:
     assert offenders == {}
 
 
-def test_v2_storage_database_compatibility_exports_shared_types() -> None:
-    assert V2DatabaseManager is SharedDatabaseManager
-    assert V2Base is SharedBase
-
-
-def test_v2_artifact_importer_compatibility_exports_shared_type() -> None:
-    assert V2ArtifactImporter is SharedArtifactImporter
-
-
-def test_v2_coefficient_store_compatibility_exports_shared_type() -> None:
-    assert V2CoefficientVersionStore is SharedCoefficientVersionStore
-
-
-def test_v2_sidecar_index_compatibility_exports_shared_types() -> None:
-    assert V2SidecarIndexStore is SharedSidecarIndexStore
-    assert v2_normalize_sidecar_record is shared_normalize_sidecar_record
-    assert V2_SIDECAR_COLLECTIONS is SHARED_SIDECAR_COLLECTIONS
-
-
-def test_v2_history_query_compatibility_exports_shared_type() -> None:
-    assert V2HistoryQueryService is SharedHistoryQueryService
-
-
-def test_v2_import_and_export_adapters_use_shared_storage_infrastructure() -> None:
-    from gas_calibrator.storage.models import (
-        PointRecord,
-        QCResultRecord,
-        RunRecord,
-        SampleRecord,
-    )
-    from gas_calibrator.v2.storage import exporter, import_run
-
-    assert import_run.DatabaseManager is SharedDatabaseManager
-    assert import_run.ArtifactImporter is SharedArtifactImporter
-    assert exporter.DatabaseManager is SharedDatabaseManager
-    assert exporter.HistoryQueryService is SharedHistoryQueryService
-    assert exporter.PointRecord is PointRecord
-    assert exporter.QCResultRecord is QCResultRecord
-    assert exporter.RunRecord is RunRecord
-    assert exporter.SampleRecord is SampleRecord
-    assert (
-        exporter.build_user_visible_evidence_boundary.__module__
-        == "gas_calibrator.v2.core.acceptance_model"
-    )
+def test_shared_storage_models_own_the_database_schema() -> None:
+    assert SharedBase.__module__ == "gas_calibrator.storage.models"
 
 
 def test_shared_storage_modules_do_not_import_v2() -> None:

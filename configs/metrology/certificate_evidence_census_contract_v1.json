@@ -1,0 +1,134 @@
+{
+  "schema_version": "certificate_evidence_census_contract_v1",
+  "contract_id": "GA-D6A-LOCAL-CERTIFICATE-EVIDENCE-CENSUS-V1",
+  "scope": "read_only_local_filesystem_certificate_evidence_census",
+  "evidence_boundary": {
+    "device_io_allowed": false,
+    "database_write_allowed": false,
+    "coefficient_fit_allowed": false,
+    "coefficient_write_allowed": false,
+    "real_primary_latest_refresh_allowed": false,
+    "source_file_mutation_allowed": false,
+    "report_output_only": true,
+    "not_real_acceptance_evidence": true,
+    "promotion_state": "blocked"
+  },
+  "required_roles": [
+    "co2_zero_gas",
+    "co2_standard_gas_series",
+    "h2o_dewpoint_reference",
+    "digital_pressure_reference",
+    "temperature_reference",
+    "flow_reference",
+    "timebase_reference"
+  ],
+  "expected_asset_cardinality": {
+    "co2_zero_gas": 1,
+    "co2_standard_gas_series": 10,
+    "h2o_dewpoint_reference": 1,
+    "digital_pressure_reference": 1,
+    "temperature_reference": 1,
+    "flow_reference": 1,
+    "timebase_reference": 1
+  },
+  "include_extensions": [
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv", ".jpg", ".jpeg",
+    ".png", ".tif", ".tiff", ".zip", ".rar", ".7z"
+  ],
+  "content_probe_extensions": [".pdf", ".docx", ".xlsx", ".csv"],
+  "archive_extensions": [".zip", ".rar", ".7z"],
+  "ocr_required_extensions": [".jpg", ".jpeg", ".png", ".tif", ".tiff"],
+  "legacy_parser_required_extensions": [".doc", ".xls"],
+  "excluded_directory_names": [
+    "$recycle.bin", "system volume information", ".git", ".svn",
+    "node_modules", "_worktrees", "__pycache__", ".pytest_cache", ".mypy_cache",
+    ".ruff_cache", ".venv", "venv", "site-packages"
+  ],
+  "path_context_terms": [
+    "气体", "分析仪", "标气", "标准气", "证书", "校准", "检定", "计量",
+    "露点", "湿度", "压力", "温度", "流量", "co2", "h2o", "gas",
+    "certificate", "calibration", "metrology", "dewpoint", "humidity",
+    "pressure", "temperature", "flow"
+  ],
+  "certificate_terms": [
+    "证书", "certificate",
+    "校准证书", "检定证书", "计量证书", "标准物质认定证书", "标准气体证书",
+    "标准气证书", "气体标准物质证书", "certificate of calibration",
+    "calibration certificate", "certificate of analysis", "traceability certificate",
+    "certified reference material", "crm certificate"
+  ],
+  "role_terms": {
+    "co2_zero_gas": [
+      "co2 zero gas", "carbon dioxide zero gas", "二氧化碳零气", "co2零气", "零气证书"
+    ],
+    "co2_standard_gas_series": [
+      "co2 standard gas", "carbon dioxide standard gas", "二氧化碳标准气体",
+      "co2标准气", "co2标气", "标准气体", "标准气", "标气", "气体标准物质",
+      "cylinder", "气瓶"
+    ],
+    "h2o_dewpoint_reference": [
+      "dew point", "dewpoint", "chilled mirror", "露点仪", "露点计", "露点校准",
+      "冷镜", "湿度标准器"
+    ],
+    "digital_pressure_reference": [
+      "digital pressure", "pressure calibrator", "pressure calibration",
+      "数字压力计", "数字压力表", "压力校准器", "压力校准", "压力检定"
+    ],
+    "temperature_reference": [
+      "reference thermometer", "temperature calibration", "标准温度计",
+      "参考温度计", "温度校准", "温度检定", "温度探头", "temperature probe",
+      "铂电阻", "platinum resistance"
+    ],
+    "flow_reference": [
+      "reference flow", "flow calibrator", "flow calibration", "标准流量计",
+      "参考流量计", "流量校准", "流量检定"
+    ],
+    "timebase_reference": [
+      "timebase", "time base", "frequency standard", "time interval calibration",
+      "时间基准", "频率标准", "秒表检定", "时间间隔校准"
+    ]
+  },
+  "device_output_terms": [
+    "device_certificates", "device certificate", "设备校准报告", "仪器校准报告",
+    "气体分析仪校准证书", "gas_analyzer_certificate", "v1_5_certificate_packages"
+  ],
+  "generated_artifact_terms": [
+    "\\gas_calibrator\\_runtime\\", "\\gas_calibrator\\_handoff\\",
+    "\\gas_calibrator\\output\\",
+    "\\gas_calibrator\\_p9_", "fit_inputs", "queue_manifest", "queue_failure_audit",
+    "gas_calibrator_tmp_verify", "synthetic", "fixture", "test_only", "generated_artifact"
+  ],
+  "design_document_terms": [
+    "详细设计方案", "计量校准平台现阶段", "从计量校准平台的角度", "测试大纲",
+    "能力审核", "不确定度评定报告", "design proposal", "requirements specification"
+  ],
+  "measurement_terms": [
+    "samples_runtime", "measurement", "测量数据", "采样数据", "实时数据",
+    "校准数据", "运行结果", "0620", "0621"
+  ],
+  "manual_terms": [
+    "manual", "user guide", "datasheet", "protocol", "scpi", "说明书", "手册",
+    "用户指南", "通信协议", "规格书"
+  ],
+  "dry_gas_terms": ["h2o dry gas", "dry gas point", "水汽干气点", "h2o干气", "干气点"],
+  "limits": {
+    "maximum_source_file_bytes": 2147483648,
+    "maximum_content_probe_file_bytes": 52428800,
+    "maximum_content_probe_files_per_root": 30000,
+    "maximum_extracted_characters_per_file": 200000,
+    "maximum_pdf_pages_per_file": 20,
+    "maximum_zip_members": 20000,
+    "maximum_emitted_records_per_root": 5000,
+    "maximum_non_candidate_records_per_class_per_root": 200
+  },
+  "interpretation": {
+    "candidate_is_confirmed_certificate": false,
+    "document_count_proves_asset_cardinality": false,
+    "device_output_certificate_is_reference_asset_certificate": false,
+    "measurement_evidence_is_reference_asset_certificate": false,
+    "co2_zero_and_h2o_dry_are_distinct": true,
+    "h2o_dry_gas_is_dewpoint_reference_certificate": false,
+    "census_is_execution_authorization": false,
+    "census_is_real_acceptance": false
+  }
+}

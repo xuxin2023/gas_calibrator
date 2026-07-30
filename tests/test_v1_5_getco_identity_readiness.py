@@ -188,6 +188,43 @@ def test_getco_identity_readiness_blocks_incomplete_groups_and_unsafe_conclusion
     assert "analyzer_mode2_init_command_gap_below_1s" in reasons
 
 
+def test_getco_identity_readiness_blocks_duplicate_runtime_identity_across_ports(tmp_path):
+    getco_dir = tmp_path / "coefficient_epoch_0_getco_snapshot"
+    _write_ready_getco_artifacts(getco_dir)
+    identity_path = getco_dir / "getco_component_snapshot_identity.csv"
+    rows = list(csv.DictReader(identity_path.open("r", encoding="utf-8-sig")))
+    rows[1]["analyzer_device_id"] = rows[0]["analyzer_device_id"]
+    rows[1]["runtime_device_id"] = rows[0]["runtime_device_id"]
+    _write_csv(identity_path, rows)
+
+    model = build_getco_identity_readiness_model(getco_dir=getco_dir)
+
+    identity_check = next(
+        row for row in model["checks"] if row["check"] == "identity_rows_bound_and_verified"
+    )
+    assert model["overall_status"] == "identity_getco_blocked"
+    assert identity_check["status"] == "blocked"
+    assert "001_duplicate_analyzer_device_id_across_identity_rows" in identity_check["reasons"]
+
+
+def test_getco_identity_readiness_blocks_duplicate_port_mapping(tmp_path):
+    getco_dir = tmp_path / "coefficient_epoch_0_getco_snapshot"
+    _write_ready_getco_artifacts(getco_dir)
+    identity_path = getco_dir / "getco_component_snapshot_identity.csv"
+    rows = list(csv.DictReader(identity_path.open("r", encoding="utf-8-sig")))
+    rows[1]["port"] = rows[0]["port"]
+    _write_csv(identity_path, rows)
+
+    model = build_getco_identity_readiness_model(getco_dir=getco_dir)
+
+    identity_check = next(
+        row for row in model["checks"] if row["check"] == "identity_rows_bound_and_verified"
+    )
+    assert model["overall_status"] == "identity_getco_blocked"
+    assert identity_check["status"] == "blocked"
+    assert "COM35_duplicate_port_across_identity_rows" in identity_check["reasons"]
+
+
 def test_getco_identity_readiness_keeps_missing_sn_traceability_as_review_only(tmp_path):
     getco_dir = tmp_path / "coefficient_epoch_0_getco_snapshot"
     _write_ready_getco_artifacts(getco_dir, device_ids=("001",))
