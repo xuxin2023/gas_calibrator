@@ -327,6 +327,15 @@ _ZH_CN = {
     "pages.site_profile.field.ftd_hz": "上传频率 Hz",
     "pages.site_profile.field.average1": "AVERAGE1",
     "pages.site_profile.field.average2": "AVERAGE2",
+    "pages.site_profile.field.algorithm_evidence_type": "算法证据类型",
+    "pages.site_profile.field.algorithm_evidence_reference": "算法证据编号或说明",
+    "pages.site_profile.algorithm_evidence.production_batch": "生产或批次记录",
+    "pages.site_profile.algorithm_evidence.firmware_manifest": "固件清单",
+    "pages.site_profile.algorithm_evidence.manufacturer_record": "厂家设备档案",
+    "pages.site_profile.algorithm_evidence.boundary": (
+        "算法类别必须来自与当前端口、协议 ID 和 SN 一致的设备记录；"
+        "不得按 COM 端口、协议 ID 或系数形状猜测。"
+    ),
     "pages.site_profile.field.connected": "已接入",
     "pages.site_profile.field.powered": "已通电",
     "pages.site_profile.field.operator_confirmed": "操作员已确认",
@@ -396,6 +405,18 @@ _ZH_CN = {
     "pages.site_profile.reason.protocol_missing": "{port} 已通电，但未填写协议 ID。",
     "pages.site_profile.reason.sn_invalid": "{port} 的 SN 必须是 8 位数字。",
     "pages.site_profile.reason.algorithm_invalid": "{port} 尚未选择有效算法类型。",
+    "pages.site_profile.reason.algorithm_evidence_missing": (
+        "{port} 已选择算法，但尚未填写与当前 SN 绑定的生产、固件或厂家记录。"
+    ),
+    "pages.site_profile.reason.algorithm_evidence_invalid": (
+        "{port} 的算法证据类型、编号或算法类别不完整，不能用于放行。"
+    ),
+    "pages.site_profile.reason.algorithm_evidence_identity": (
+        "{port} 的算法证据与当前端口、协议 ID 或 SN 不一致。"
+    ),
+    "pages.site_profile.reason.algorithm_evidence_file": (
+        "{port} 的算法证据文件路径与 SHA-256 不完整或文件已发生变化。"
+    ),
     "pages.site_profile.reason.legacy_check": "{port} 使用旧算法时，支持 CHECK 和要求 CHECK 必须均不勾选。",
     "pages.site_profile.reason.new_check": "{port} 使用新算法时，支持 CHECK 和要求 CHECK 必须均勾选。",
     "pages.site_profile.reason.runtime_1hz": "{port} 缺少经确认的 1 Hz 上传频率。",
@@ -607,6 +628,16 @@ _EN_US = {
     "pages.site_profile.field.ftd_hz": "Upload Hz",
     "pages.site_profile.field.average1": "AVERAGE1",
     "pages.site_profile.field.average2": "AVERAGE2",
+    "pages.site_profile.field.algorithm_evidence_type": "Algorithm Evidence Type",
+    "pages.site_profile.field.algorithm_evidence_reference": "Evidence Record or Reference",
+    "pages.site_profile.algorithm_evidence.production_batch": "Production or Batch Record",
+    "pages.site_profile.algorithm_evidence.firmware_manifest": "Firmware Manifest",
+    "pages.site_profile.algorithm_evidence.manufacturer_record": "Manufacturer Device Record",
+    "pages.site_profile.algorithm_evidence.boundary": (
+        "The algorithm must come from a device record bound to the current port, "
+        "protocol ID, and SN. Do not infer it from a COM port, protocol ID, or "
+        "coefficient shape."
+    ),
     "pages.site_profile.field.connected": "Connected",
     "pages.site_profile.field.powered": "Powered",
     "pages.site_profile.field.operator_confirmed": "Operator Confirmed",
@@ -721,6 +752,19 @@ _EN_US = {
     "pages.site_profile.reason.protocol_missing": "{port} is powered but has no protocol ID.",
     "pages.site_profile.reason.sn_invalid": "{port} must have an 8-digit numeric SN.",
     "pages.site_profile.reason.algorithm_invalid": "{port} has no valid algorithm selection.",
+    "pages.site_profile.reason.algorithm_evidence_missing": (
+        "{port} has an algorithm selection but no current-SN production, firmware, "
+        "or manufacturer record."
+    ),
+    "pages.site_profile.reason.algorithm_evidence_invalid": (
+        "{port} has incomplete algorithm evidence type, reference, or classification."
+    ),
+    "pages.site_profile.reason.algorithm_evidence_identity": (
+        "{port} algorithm evidence does not match the current port, protocol ID, or SN."
+    ),
+    "pages.site_profile.reason.algorithm_evidence_file": (
+        "{port} algorithm evidence has an incomplete path/SHA-256 binding or the file changed."
+    ),
     "pages.site_profile.reason.legacy_check": "{port} uses the legacy algorithm, so both CHECK flags must be clear.",
     "pages.site_profile.reason.new_check": "{port} uses the new algorithm, so both CHECK flags must be selected.",
     "pages.site_profile.reason.runtime_1hz": "{port} has no confirmed 1 Hz upload evidence.",

@@ -48,11 +48,26 @@ def _complete_four_connected_two_powered(page: SiteProfilePage) -> None:
         row["operator_confirmed"] = index <= 4
         row["ga_label"] = f"GA{index:02d}" if index <= 4 else ""
         if index <= 2:
+            port = str(row["port"])
+            protocol_id = f"{index:03d}"
+            sn_code = f"012607{index:02d}"
             row.update(
                 {
-                    "protocol_device_id": f"{index:03d}",
-                    "sn_code": f"012607{index:02d}",
+                    "protocol_device_id": protocol_id,
+                    "sn_code": sn_code,
                     "algorithm": "legacy_ratio",
+                    "algorithm_evidence": {
+                        "schema": "v1_5_algorithm_classification_evidence_v1",
+                        "source_type": "production_batch_record",
+                        "reference": f"TEST-BATCH-{sn_code}",
+                        "algorithm_family": "legacy_ratio",
+                        "classification_inferred": False,
+                        "bound_port": port,
+                        "bound_protocol_device_id": protocol_id,
+                        "bound_sn_code": sn_code,
+                        "source_file_path": "",
+                        "source_file_sha256": "",
+                    },
                     "check_capable": False,
                     "check_required": False,
                     "runtime_evidence": {
@@ -172,6 +187,52 @@ def test_site_profile_page_invalidates_confirmation_after_row_edit(
             in page.validation["reasons"]
         )
         assert "原确认失效" in page.confirmation_status_var.get()
+    finally:
+        root.destroy()
+
+
+def test_site_profile_page_binds_algorithm_record_to_current_identity(
+    tmp_path: Path,
+) -> None:
+    root = _root()
+    try:
+        inventory = _write_inventory(tmp_path)
+        page = SiteProfilePage(
+            root,
+            profile_path=tmp_path / "site_profile.json",
+        )
+        page.create_from_inventory(inventory)
+        _complete_four_connected_two_powered(page)
+        page.profile["candidate_analyzers"][0]["algorithm_evidence"] = {}
+
+        blocked = page.validate_profile(show_dialog=False)
+        assert "COM35_algorithm_evidence_missing" in blocked["reasons"]
+
+        page.tree.selection_set("COM35")
+        page._on_selected()
+        evidence_label = next(
+            label
+            for label, value in page.algorithm_evidence_types.items()
+            if value == "production_batch_record"
+        )
+        page.form_vars["algorithm_evidence_type"].set(evidence_label)
+        page.form_vars["algorithm_evidence_reference"].set(
+            "BATCH-SN01260701"
+        )
+        page.apply_selected_row()
+
+        evidence = page.profile["candidate_analyzers"][0][
+            "algorithm_evidence"
+        ]
+        assert evidence["algorithm_family"] == "legacy_ratio"
+        assert evidence["bound_port"] == "COM35"
+        assert evidence["bound_protocol_device_id"] == "001"
+        assert evidence["bound_sn_code"] == "01260701"
+        assert evidence["classification_inferred"] is False
+        assert (
+            "COM35_algorithm_evidence_missing"
+            not in page.validation["reasons"]
+        )
     finally:
         root.destroy()
 
@@ -305,6 +366,12 @@ def test_site_profile_page_i18n_is_chinese_first_with_english_fallback() -> None
         "pages.site_profile.reason.confirmation_missing"
     )
     assert "探针证据" in zh("pages.site_profile.reason.probe_invalid")
+    assert zh("pages.site_profile.field.algorithm_evidence_type") == (
+        "算法证据类型"
+    )
+    assert "不得按 COM 端口" in zh(
+        "pages.site_profile.algorithm_evidence.boundary"
+    )
     assert en("pages.site_profile.title") == (
         "Site Device Mapping and Read-only Initialization"
     )
@@ -316,3 +383,6 @@ def test_site_profile_page_i18n_is_chinese_first_with_english_fallback() -> None
         "Confirm and Bind Current 4/2 Mapping"
     )
     assert "probe evidence" in en("pages.site_profile.reason.probe_invalid")
+    assert en("pages.site_profile.field.algorithm_evidence_type") == (
+        "Algorithm Evidence Type"
+    )

@@ -11,7 +11,9 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Any, Callable, Mapping
 
 from ....validation.v1_5_real_acceptance_control_pack import (
+    ALGORITHM_CLASSIFICATION_EVIDENCE_SCHEMA,
     ANALYZER_BANK,
+    LEGACY_ALGORITHMS,
     build_v1_5_real_acceptance_site_profile_template,
     confirm_v1_5_current_site_state,
     validate_v1_5_real_acceptance_site_profile,
@@ -33,6 +35,17 @@ class SiteProfilePage(ttk.Frame):
     ) -> None:
         super().__init__(parent, style="Card.TFrame")
         self._t = translate or translator_for(locale)
+        self.algorithm_evidence_types = {
+            self._t("pages.site_profile.algorithm_evidence.production_batch"): (
+                "production_batch_record"
+            ),
+            self._t("pages.site_profile.algorithm_evidence.firmware_manifest"): (
+                "firmware_manifest"
+            ),
+            self._t("pages.site_profile.algorithm_evidence.manufacturer_record"): (
+                "manufacturer_device_record"
+            ),
+        }
         self.profile_path = Path(profile_path)
         self.profile: dict[str, Any] = {}
         self.validation: dict[str, Any] = {}
@@ -50,6 +63,8 @@ class SiteProfilePage(ttk.Frame):
                 "ftd_hz",
                 "average1",
                 "average2",
+                "algorithm_evidence_type",
+                "algorithm_evidence_reference",
             )
         }
         self.bool_vars = {
@@ -213,6 +228,37 @@ class SiteProfilePage(ttk.Frame):
                 variable=self.bool_vars[field],
                 style="Site.TCheckbutton",
             ).grid(row=2, column=index, sticky="w", padx=3)
+        ttk.Label(
+            editor,
+            text=self._t("pages.site_profile.field.algorithm_evidence_type"),
+            style="Muted.TLabel",
+        ).grid(row=3, column=0, columnspan=2, sticky="w", padx=3, pady=(8, 0))
+        ttk.Combobox(
+            editor,
+            textvariable=self.form_vars["algorithm_evidence_type"],
+            values=("", *self.algorithm_evidence_types),
+            state="readonly",
+            style="Site.TCombobox",
+        ).grid(row=4, column=0, columnspan=2, sticky="ew", padx=3, pady=(3, 0))
+        ttk.Label(
+            editor,
+            text=self._t(
+                "pages.site_profile.field.algorithm_evidence_reference"
+            ),
+            style="Muted.TLabel",
+        ).grid(row=3, column=2, columnspan=6, sticky="w", padx=3, pady=(8, 0))
+        ttk.Entry(
+            editor,
+            textvariable=self.form_vars["algorithm_evidence_reference"],
+            style="Site.TEntry",
+        ).grid(row=4, column=2, columnspan=6, sticky="ew", padx=3, pady=(3, 0))
+        ttk.Label(
+            editor,
+            text=self._t("pages.site_profile.algorithm_evidence.boundary"),
+            style="Muted.TLabel",
+            wraplength=1350,
+            justify="left",
+        ).grid(row=5, column=0, columnspan=8, sticky="ew", padx=3, pady=(7, 0))
 
         confirmation = ttk.LabelFrame(
             body,
@@ -419,6 +465,20 @@ class SiteProfilePage(ttk.Frame):
             ("_protocol_device_id_missing", "protocol_missing"),
             ("_sn_code_invalid", "sn_invalid"),
             ("_algorithm_invalid", "algorithm_invalid"),
+            ("_algorithm_evidence_missing", "algorithm_evidence_missing"),
+            ("_algorithm_evidence_invalid", "algorithm_evidence_invalid"),
+            (
+                "_algorithm_evidence_identity_mismatch",
+                "algorithm_evidence_identity",
+            ),
+            (
+                "_algorithm_evidence_file_binding_invalid",
+                "algorithm_evidence_file",
+            ),
+            (
+                "_algorithm_evidence_file_hash_mismatch",
+                "algorithm_evidence_file",
+            ),
             ("_legacy_check_must_be_false", "legacy_check"),
             ("_new_algorithm_check_must_be_true", "new_check"),
             ("_runtime_1hz_evidence_missing", "runtime_1hz"),
@@ -440,10 +500,29 @@ class SiteProfilePage(ttk.Frame):
             return
         runtime = row.get("runtime_evidence")
         runtime = runtime if isinstance(runtime, Mapping) else {}
+        algorithm_evidence = row.get("algorithm_evidence")
+        algorithm_evidence = (
+            algorithm_evidence
+            if isinstance(algorithm_evidence, Mapping)
+            else {}
+        )
         for field in ("port", "ga_label", "protocol_device_id", "sn_code", "algorithm"):
             self.form_vars[field].set(str(row.get(field) or ""))
         for field in ("ftd_hz", "average1", "average2"):
             self.form_vars[field].set(str(runtime.get(field) or ""))
+        source_type = str(algorithm_evidence.get("source_type") or "")
+        source_label = next(
+            (
+                label
+                for label, value in self.algorithm_evidence_types.items()
+                if value == source_type
+            ),
+            "",
+        )
+        self.form_vars["algorithm_evidence_type"].set(source_label)
+        self.form_vars["algorithm_evidence_reference"].set(
+            str(algorithm_evidence.get("reference") or "")
+        )
         for field, variable in self.bool_vars.items():
             variable.set(row.get(field) is True)
 
@@ -461,6 +540,44 @@ class SiteProfilePage(ttk.Frame):
         runtime["ftd_hz"] = self.form_vars["ftd_hz"].get().strip() or None
         runtime["average1"] = self.form_vars["average1"].get().strip()
         runtime["average2"] = self.form_vars["average2"].get().strip()
+        source_type = self.algorithm_evidence_types.get(
+            self.form_vars["algorithm_evidence_type"].get(),
+            "",
+        )
+        reference = self.form_vars[
+            "algorithm_evidence_reference"
+        ].get().strip()
+        algorithm = str(row.get("algorithm") or "").lower()
+        algorithm_family = (
+            "legacy_ratio"
+            if algorithm in LEGACY_ALGORITHMS
+            else "new_absorption"
+        )
+        existing_evidence = row.get("algorithm_evidence")
+        existing_evidence = (
+            existing_evidence
+            if isinstance(existing_evidence, Mapping)
+            else {}
+        )
+        if algorithm and source_type and reference:
+            row["algorithm_evidence"] = {
+                "schema": ALGORITHM_CLASSIFICATION_EVIDENCE_SCHEMA,
+                "source_type": source_type,
+                "reference": reference,
+                "algorithm_family": algorithm_family,
+                "classification_inferred": False,
+                "bound_port": port,
+                "bound_protocol_device_id": row["protocol_device_id"],
+                "bound_sn_code": row["sn_code"],
+                "source_file_path": str(
+                    existing_evidence.get("source_file_path") or ""
+                ),
+                "source_file_sha256": str(
+                    existing_evidence.get("source_file_sha256") or ""
+                ),
+            }
+        else:
+            row["algorithm_evidence"] = {}
         confirmation = self.profile.get("current_site_confirmation")
         if isinstance(confirmation, dict) and confirmation.get("status") == "confirmed":
             confirmation["status"] = "stale_after_mapping_edit"

@@ -30,6 +30,14 @@ CURRENT_INITIALIZATION_PROBE_SCHEMA = (
 RUNTIME_SETTING_READABILITY_REVIEW_SCHEMA = (
     "v1_5_runtime_setting_readability_review_v1"
 )
+ALGORITHM_CLASSIFICATION_EVIDENCE_SCHEMA = (
+    "v1_5_algorithm_classification_evidence_v1"
+)
+ALGORITHM_EVIDENCE_SOURCE_TYPES = {
+    "production_batch_record",
+    "firmware_manifest",
+    "manufacturer_device_record",
+}
 SN_PATTERN = re.compile(r"^\d{8}$")
 ANALYZER_BANK = tuple(f"COM{index}" for index in range(35, 43))
 LEGACY_ALGORITHMS = {"legacy", "legacy_ratio", "old", "ratio"}
@@ -131,6 +139,7 @@ def build_v1_5_real_acceptance_site_profile_template(
             "protocol_device_id": "",
             "sn_code": "",
             "algorithm": "",
+            "algorithm_evidence": {},
             "check_capable": None,
             "check_required": None,
             "runtime_evidence": {
@@ -326,6 +335,7 @@ def _current_site_state_payload(site_profile: Mapping[str, Any]) -> dict[str, An
                 "protocol_device_id": row.get("protocol_device_id"),
                 "sn_code": row.get("sn_code"),
                 "algorithm": row.get("algorithm"),
+                "algorithm_evidence": row.get("algorithm_evidence"),
                 "check_capable": row.get("check_capable"),
                 "check_required": row.get("check_required"),
                 "runtime_evidence": row.get("runtime_evidence"),
@@ -364,6 +374,46 @@ def _is_neutral_temperature_input(values: Any, *, atol: float = 1e-9) -> bool:
         )
     except (TypeError, ValueError):
         return False
+
+
+def _algorithm_evidence_reasons(
+    *,
+    row: Mapping[str, Any],
+    port: str,
+    protocol_id: str,
+    sn_code: str,
+    algorithm: str,
+) -> list[str]:
+    evidence = row.get("algorithm_evidence")
+    if not isinstance(evidence, Mapping) or not evidence:
+        return [f"{port}_algorithm_evidence_missing"]
+    family = (
+        "legacy_ratio"
+        if algorithm in LEGACY_ALGORITHMS
+        else "new_absorption"
+    )
+    required = (
+        evidence.get("schema") == ALGORITHM_CLASSIFICATION_EVIDENCE_SCHEMA
+        and _text(evidence, "source_type") in ALGORITHM_EVIDENCE_SOURCE_TYPES
+        and bool(_text(evidence, "reference"))
+        and _text(evidence, "algorithm_family") == family
+        and evidence.get("classification_inferred") is False
+    )
+    if not required:
+        return [f"{port}_algorithm_evidence_invalid"]
+    if (
+        _text(evidence, "bound_port").upper() != port
+        or _text(evidence, "bound_protocol_device_id") != protocol_id
+        or _text(evidence, "bound_sn_code") != sn_code
+    ):
+        return [f"{port}_algorithm_evidence_identity_mismatch"]
+    source_path = _text(evidence, "source_file_path")
+    source_sha256 = _text(evidence, "source_file_sha256")
+    if bool(source_path) != bool(source_sha256):
+        return [f"{port}_algorithm_evidence_file_binding_invalid"]
+    if source_path and _sha256(source_path) != source_sha256:
+        return [f"{port}_algorithm_evidence_file_hash_mismatch"]
+    return []
 
 
 def _validate_initialization_probe(
@@ -1033,10 +1083,24 @@ def validate_v1_5_real_acceptance_site_profile(
         sns.add(sn_code)
         if algorithm not in LEGACY_ALGORITHMS | NEW_ALGORITHMS:
             reasons.append(f"{port}_algorithm_invalid")
-        elif algorithm in LEGACY_ALGORITHMS and (check_capable is not False or check_required is not False):
-            reasons.append(f"{port}_legacy_check_must_be_false")
-        elif algorithm in NEW_ALGORITHMS and (check_capable is not True or check_required is not True):
-            reasons.append(f"{port}_new_algorithm_check_must_be_true")
+        else:
+            reasons.extend(
+                _algorithm_evidence_reasons(
+                    row=row,
+                    port=port,
+                    protocol_id=protocol_id,
+                    sn_code=sn_code,
+                    algorithm=algorithm,
+                )
+            )
+            if algorithm in LEGACY_ALGORITHMS and (
+                check_capable is not False or check_required is not False
+            ):
+                reasons.append(f"{port}_legacy_check_must_be_false")
+            elif algorithm in NEW_ALGORITHMS and (
+                check_capable is not True or check_required is not True
+            ):
+                reasons.append(f"{port}_new_algorithm_check_must_be_true")
         try:
             ftd_ok = abs(float(runtime.get("ftd_hz")) - 1.0) < 1e-9
         except (TypeError, ValueError):
@@ -1052,6 +1116,11 @@ def validate_v1_5_real_acceptance_site_profile(
                 "protocol_device_id": protocol_id,
                 "sn_code": sn_code,
                 "algorithm": algorithm,
+                "algorithm_evidence": dict(
+                    row.get("algorithm_evidence")
+                    if isinstance(row.get("algorithm_evidence"), Mapping)
+                    else {}
+                ),
                 "check_capable": check_capable,
                 "check_required": check_required,
                 "runtime_evidence": dict(runtime),

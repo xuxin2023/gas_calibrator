@@ -52,11 +52,28 @@ def _site_profile(
             if index <= 4:
                 row["ga_label"] = f"GA{index:02d}"
             if index <= 2:
+                port = str(row["port"])
+                protocol_id = f"{index:03d}"
+                sn_code = f"012607{index:02d}"
                 row.update(
                     {
-                        "protocol_device_id": f"{index:03d}",
-                        "sn_code": f"012607{index:02d}",
+                        "protocol_device_id": protocol_id,
+                        "sn_code": sn_code,
                         "algorithm": "legacy_ratio",
+                        "algorithm_evidence": {
+                            "schema": (
+                                "v1_5_algorithm_classification_evidence_v1"
+                            ),
+                            "source_type": "production_batch_record",
+                            "reference": f"TEST-BATCH-{sn_code}",
+                            "algorithm_family": "legacy_ratio",
+                            "classification_inferred": False,
+                            "bound_port": port,
+                            "bound_protocol_device_id": protocol_id,
+                            "bound_sn_code": sn_code,
+                            "source_file_path": "",
+                            "source_file_sha256": "",
+                        },
                         "check_capable": False,
                         "check_required": False,
                         "runtime_evidence": {
@@ -556,7 +573,7 @@ def test_complete_mapping_requires_hash_bound_current_site_confirmation(
         "COM36",
     ]
     assert confirmed["current_site_confirmation"]["candidate_state_sha256"] == (
-        "632fa75121386dc11595e1123bcb6e24574a555f4ccdefdf89628aa12aeae2c3"
+        "8b7f1a7439206a0d8d5641efe1781d15c023dc9f95cd96a51f449e421b5abb5f"
     )
 
 
@@ -572,6 +589,80 @@ def test_current_site_confirmation_becomes_invalid_after_mapping_edit(
     )
 
     assert validation["ready_for_readonly_packet_build"] is False
+    assert (
+        "current_site_confirmation_state_sha256_mismatch"
+        in validation["reasons"]
+    )
+
+
+def test_algorithm_selection_requires_current_identity_bound_record(
+    tmp_path: Path,
+) -> None:
+    inventory, profile = _site_profile(
+        tmp_path,
+        mapped=True,
+        confirmed=False,
+    )
+    profile["candidate_analyzers"][0]["algorithm_evidence"] = {}
+    profile = confirm_v1_5_current_site_state(
+        site_profile=profile,
+        operator_name="operator-a",
+        observation_basis="physical observation",
+        confirmed_at="2026-07-30T14:31:00Z",
+    )
+
+    validation = validate_v1_5_real_acceptance_site_profile(
+        site_profile=profile,
+        runtime_port_inventory_json=inventory,
+    )
+
+    assert validation["ready_for_readonly_packet_build"] is False
+    assert "COM35_algorithm_evidence_missing" in validation["reasons"]
+
+
+def test_algorithm_evidence_must_match_current_port_id_and_sn(
+    tmp_path: Path,
+) -> None:
+    inventory, profile = _site_profile(
+        tmp_path,
+        mapped=True,
+        confirmed=False,
+    )
+    profile["candidate_analyzers"][0]["algorithm_evidence"][
+        "bound_sn_code"
+    ] = "01260799"
+    profile = confirm_v1_5_current_site_state(
+        site_profile=profile,
+        operator_name="operator-a",
+        observation_basis="physical observation",
+        confirmed_at="2026-07-30T14:31:00Z",
+    )
+
+    validation = validate_v1_5_real_acceptance_site_profile(
+        site_profile=profile,
+        runtime_port_inventory_json=inventory,
+    )
+
+    assert validation["ready_for_readonly_packet_build"] is False
+    assert (
+        "COM35_algorithm_evidence_identity_mismatch"
+        in validation["reasons"]
+    )
+
+
+def test_algorithm_evidence_edit_invalidates_site_confirmation(
+    tmp_path: Path,
+) -> None:
+    inventory, profile = _site_profile(tmp_path, mapped=True)
+    profile["candidate_analyzers"][0]["algorithm_evidence"][
+        "reference"
+    ] = "EDITED-AFTER-CONFIRMATION"
+
+    validation = validate_v1_5_real_acceptance_site_profile(
+        site_profile=profile,
+        runtime_port_inventory_json=inventory,
+    )
+
     assert (
         "current_site_confirmation_state_sha256_mismatch"
         in validation["reasons"]
