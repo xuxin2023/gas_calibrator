@@ -24,111 +24,28 @@ from gas_calibrator.v1_5.initialization_database import (
     import_v1_5_runtime_setup_result,
     load_v1_5_runtime_setup_result,
 )
+from v1_5_runtime_setup_support import write_runtime_setup_result
 
 
 def _runtime_result_path(tmp_path: Path) -> Path:
-    result = {
-        "schema_version": "v1_5_analyzer_runtime_setup_result_v0",
-        "generated_at": "2026-06-23T18:10:00+08:00",
-        "run_id": "v1_5_analyzer_runtime_setup_test_2ch",
-        "status": "ready",
-        "evidence_paths": {
-            "plan_json": str(tmp_path / "plan.json"),
-            "plan_csv": str(tmp_path / "plan.csv"),
-            "summary_md": str(tmp_path / "summary.md"),
-        },
-        "plan": {
-            "schema_version": "v1_5_analyzer_runtime_setup_plan_v0",
-            "safety": {
-                "writes_senco": False,
-                "writes_device_id": False,
-                "writes_sn": False,
-                "controls_gas_route": False,
-                "controls_water_route": False,
-                "controls_pressure": False,
-                "controls_temperature": False,
-                "runs_sampling": False,
-                "runs_fitting": False,
-                "not_real_acceptance_evidence": True,
-            },
-            "contract": {
-                "mode": 2,
-                "active_send": True,
-                "ftd_hz": 1,
-                "average1_target": 49,
-                "average2_target": 49,
-            },
-        },
-        "results": [
+    return write_runtime_setup_result(
+        tmp_path / "v1_5_analyzer_runtime_setup_result.json",
+        [
             {
                 "slot": "GA01",
                 "port": "COM36",
                 "protocol_device_id": "047",
                 "sn_code": "01260601",
-                "device_code": "01260601",
-                "status": "ready",
-                "sn_readback": "01260601",
-                "identity_before": {"mode": 2, "id": "047"},
-                "runtime_setup_events": [{"action": "set_mode2", "ok": True}],
-                "mode2_frames": [{"parsed": {"mode": 2, "id": "047"}, "ok": True}],
-                "active_upload_rate": {
-                    "enabled": True,
-                    "target_hz": 1,
-                    "measure_s": 6.0,
-                    "valid_mode2_lines": 6,
-                    "approx_hz": 1.0,
-                    "min_hz": 0.7,
-                    "max_hz": 1.3,
-                    "ok": True,
-                },
-                "runtime_setup_attempt_count": 1,
-                "runtime_setup_attempts": [
-                    {
-                        "attempt": 1,
-                        "status": "ready",
-                        "runtime_setup_events": [{"action": "set_mode2", "ok": True}],
-                        "mode2_frames": [{"parsed": {"mode": 2, "id": "047"}, "ok": True}],
-                        "active_upload_rate": {"enabled": True, "target_hz": 1, "approx_hz": 1.0, "min_hz": 0.7, "max_hz": 1.3, "ok": True},
-                    }
-                ],
             },
             {
                 "slot": "GA02",
                 "port": "COM37",
                 "protocol_device_id": "054",
                 "sn_code": "01260602",
-                "device_code": "01260602",
-                "status": "ready",
-                "sn_readback": "01260602",
-                "identity_before": {"mode": 2, "id": "054"},
-                "runtime_setup_events": [{"action": "set_mode2", "ok": True}],
-                "mode2_frames": [{"parsed": {"mode": 2, "id": "054"}, "ok": True}],
-                "active_upload_rate": {
-                    "enabled": True,
-                    "target_hz": 1,
-                    "measure_s": 6.0,
-                    "valid_mode2_lines": 6,
-                    "approx_hz": 1.0,
-                    "min_hz": 0.7,
-                    "max_hz": 1.3,
-                    "ok": True,
-                },
-                "runtime_setup_attempt_count": 1,
-                "runtime_setup_attempts": [
-                    {
-                        "attempt": 1,
-                        "status": "ready",
-                        "runtime_setup_events": [{"action": "set_mode2", "ok": True}],
-                        "mode2_frames": [{"parsed": {"mode": 2, "id": "054"}, "ok": True}],
-                        "active_upload_rate": {"enabled": True, "target_hz": 1, "approx_hz": 1.0, "min_hz": 0.7, "max_hz": 1.3, "ok": True},
-                    }
-                ],
             },
         ],
-    }
-    path = tmp_path / "v1_5_analyzer_runtime_setup_result.json"
-    path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    return path
+        run_id="v1_5_analyzer_runtime_setup_test_2ch",
+    )
 
 
 def _settings(db_path: Path) -> StorageSettings:

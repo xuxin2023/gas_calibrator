@@ -12,6 +12,7 @@ from gas_calibrator.v1_5.ui import operator_workstation_app as workstation_ui
 from gas_calibrator.v1_5.ui.operator_workstation_app import OperatorWorkstationApp
 from gas_calibrator.v1_5.ui.page_i18n import translator_for
 from gas_calibrator.v1_5.ui.pages.site_profile_page import SiteProfilePage
+from v1_5_runtime_setup_support import write_runtime_setup_result
 
 
 def _root() -> tk.Tk:
@@ -42,87 +43,11 @@ def _write_inventory(tmp_path: Path) -> Path:
 
 
 def _runtime_setup_result(tmp_path: Path, rows: list[dict]) -> Path:
-    command_pairs = [
-        ("set_comm_way_inactive", "SETCOMWAY,YGAS,FFF,0"),
-        ("set_mode2", "MODE,YGAS,FFF,2"),
-        ("set_active_frequency", "FTD,YGAS,FFF,01"),
-        ("set_average1_filter", "AVERAGE1,YGAS,FFF,49"),
-        ("set_average2_filter", "AVERAGE2,YGAS,FFF,49"),
-        ("set_comm_way_active", "SETCOMWAY,YGAS,FFF,1"),
-    ]
-    commands = [
-        {
-            "step": index,
-            "action": action,
-            "command_preview": command,
-            "ack_required": True,
-        }
-        for index, (action, command) in enumerate(command_pairs, start=1)
-    ]
-    path = tmp_path / "v1_5_analyzer_runtime_setup_result.json"
-    path.write_text(
-        json.dumps(
-            {
-                "schema_version": "v1_5_analyzer_runtime_setup_result_v0",
-                "run_id": "site-page-test-runtime-setup",
-                "status": "ready",
-                "evidence_source": "real_device_runtime_setup",
-                "execution_mode": "controlled_real_com",
-                "engineering_setup_only": True,
-                "not_real_acceptance_evidence": True,
-                "boundary": {
-                    "opens_com_ports": True,
-                    "sends_device_commands": True,
-                    "writes_runtime_settings": True,
-                    "all_configuration_commands_require_ack": True,
-                    "writes_senco": False,
-                    "writes_device_id": False,
-                    "writes_sn": False,
-                },
-                "plan": {
-                    "contract": {
-                        "command_gap_s": 1.0,
-                        "mode": 2,
-                        "active_send": True,
-                        "ftd_hz": 1,
-                        "average1_target": 49,
-                        "average2_target": 49,
-                    },
-                    "commands": commands,
-                },
-                "results": [
-                    {
-                        "port": row["port"],
-                        "protocol_device_id": row["protocol_device_id"],
-                        "sn_code": row["sn_code"],
-                        "status": "ready",
-                        "sn_readback": row["sn_code"],
-                        "identity_before": {
-                            "mode": 2,
-                            "id": row["protocol_device_id"],
-                        },
-                        "identity_after": {
-                            "mode": 2,
-                            "id": row["protocol_device_id"],
-                        },
-                        "runtime_setup_events": [
-                            {
-                                **command,
-                                "ack_received": True,
-                                "ok": True,
-                            }
-                            for command in commands
-                        ],
-                    }
-                    for row in rows
-                ],
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
+    return write_runtime_setup_result(
+        tmp_path / "v1_5_analyzer_runtime_setup_result.json",
+        rows,
+        run_id="site-page-test-runtime-setup",
     )
-    return path
 
 
 def _complete_four_connected_two_powered(

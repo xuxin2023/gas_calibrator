@@ -16,6 +16,7 @@ from gas_calibrator.v1_5.import_initialization_database import run_import
 from gas_calibrator.v1_5.initialization_db_preflight import build_v1_5_initialization_db_preflight
 from gas_calibrator.storage.database import DatabaseManager, StorageSettings
 from gas_calibrator.storage.models import DeviceEventRecord
+from v1_5_runtime_setup_support import write_runtime_setup_result
 
 
 def _settings(db_path: Path) -> StorageSettings:
@@ -105,76 +106,24 @@ def _bundle_path(tmp_path: Path) -> Path:
 
 
 def _runtime_result_path(tmp_path: Path) -> Path:
-    payload = {
-        "schema_version": "v1_5_analyzer_runtime_setup_result_v0",
-        "generated_at": "2026-06-27T10:10:00+08:00",
-        "run_id": "v1_5_init_db_preflight_runtime",
-        "status": "ready",
-        "evidence_paths": {},
-        "plan": {
-            "schema_version": "v1_5_analyzer_runtime_setup_plan_v0",
-            "safety": {
-                "writes_senco": False,
-                "writes_device_id": False,
-                "writes_sn": False,
-                "controls_gas_route": False,
-                "controls_water_route": False,
-                "runs_sampling": False,
-                "runs_fitting": False,
-                "not_real_acceptance_evidence": True,
-            },
-            "contract": {
-                "mode": 2,
-                "active_send": True,
-                "ftd_hz": 1,
-                "average1_target": 49,
-                "average2_target": 49,
-            },
-        },
-        "results": [
-            _runtime_row("GA01", "COM36", "047", "01260601"),
-            _runtime_row("GA02", "COM37", "054", "01260602"),
-        ],
-    }
-    path = tmp_path / "runtime_setup.json"
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return path
-
-
-def _runtime_row(slot: str, port: str, protocol_id: str, sn_code: str) -> dict[str, object]:
-    rate = {
-        "enabled": True,
-        "target_hz": 1,
-        "measure_s": 6.0,
-        "valid_mode2_lines": 6,
-        "approx_hz": 1.0,
-        "min_hz": 0.7,
-        "max_hz": 1.3,
-        "ok": True,
-    }
-    return {
-        "slot": slot,
-        "port": port,
-        "protocol_device_id": protocol_id,
-        "sn_code": sn_code,
-        "device_code": sn_code,
-        "status": "ready",
-        "sn_readback": sn_code,
-        "identity_before": {"mode": 2, "id": protocol_id},
-        "runtime_setup_events": [{"action": "set_mode2", "ok": True}],
-        "mode2_frames": [{"parsed": {"mode": 2, "id": protocol_id}, "ok": True}],
-        "active_upload_rate": dict(rate),
-        "runtime_setup_attempt_count": 1,
-        "runtime_setup_attempts": [
+    return write_runtime_setup_result(
+        tmp_path / "runtime_setup.json",
+        [
             {
-                "attempt": 1,
-                "status": "ready",
-                "runtime_setup_events": [{"action": "set_mode2", "ok": True}],
-                "mode2_frames": [{"parsed": {"mode": 2, "id": protocol_id}, "ok": True}],
-                "active_upload_rate": dict(rate),
-            }
+                "slot": "GA01",
+                "port": "COM36",
+                "protocol_device_id": "047",
+                "sn_code": "01260601",
+            },
+            {
+                "slot": "GA02",
+                "port": "COM37",
+                "protocol_device_id": "054",
+                "sn_code": "01260602",
+            },
         ],
-    }
+        run_id="v1_5_init_db_preflight_runtime",
+    )
 
 
 def _import_ready_db(tmp_path: Path) -> Path:
