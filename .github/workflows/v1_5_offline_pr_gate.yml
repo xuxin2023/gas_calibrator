@@ -133,9 +133,10 @@ jobs:
             tests/test_v1_has_no_v2_runtime_imports.py `
             tests/test_v2_has_no_v1_runtime_imports.py `
             tests/test_v1_5_operator_workstation.py `
+            tests/test_v1_5_operator_workstation_ui.py::test_operator_workstation_settings_are_editable_and_certificate_optional `
             --junitxml=artifacts/v1_5_offline_pr_gate.xml `
             -q
-          "Windows non-Tk critical-path coverage complete; both Tk UI modules run wholly in the dedicated Xvfb job." |
+          "Windows critical-path coverage complete, including the Windows-path settings assertion; the other Tk UI checks run under Xvfb." |
             Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
 
       - name: Verify Excel worksheet compatibility
@@ -219,6 +220,7 @@ jobs:
             python -m pytest \
               tests/test_v1_5_site_profile_page.py \
               tests/test_v1_5_operator_workstation_ui.py \
+              --deselect=tests/test_v1_5_operator_workstation_ui.py::test_operator_workstation_settings_are_editable_and_certificate_optional \
               --junitxml=artifacts/v1_5_ui_xvfb_1080p.xml \
               -q
 
