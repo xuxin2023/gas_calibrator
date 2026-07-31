@@ -1224,11 +1224,13 @@ def validate_v1_5_real_acceptance_site_profile(
 
     confirmation = site_profile.get("current_site_confirmation")
     confirmation = confirmation if isinstance(confirmation, Mapping) else {}
+    confirmation_valid = False
     if confirmation.get("schema") != "v1_5_current_site_confirmation_v1":
         reasons.append("current_site_confirmation_missing")
     elif confirmation.get("status") != "confirmed":
         reasons.append("current_site_confirmation_not_confirmed")
     else:
+        confirmation_reason_count = len(reasons)
         if not _text(confirmation, "operator_name"):
             reasons.append("current_site_confirmation_operator_missing")
         if not _text(confirmation, "confirmed_at"):
@@ -1259,6 +1261,7 @@ def validate_v1_5_real_acceptance_site_profile(
             site_profile
         ):
             reasons.append("current_site_confirmation_state_sha256_mismatch")
+        confirmation_valid = len(reasons) == confirmation_reason_count
 
     labels: set[str] = set()
     sns: set[str] = set()
@@ -1342,23 +1345,24 @@ def validate_v1_5_real_acceptance_site_profile(
                 sn_code=sn_code,
             )
         )
-        active_analyzers.append(
-            {
-                "ga_label": label,
-                "port": port,
-                "protocol_device_id": protocol_id,
-                "sn_code": sn_code,
-                "algorithm": algorithm,
-                "algorithm_evidence": dict(
-                    row.get("algorithm_evidence")
-                    if isinstance(row.get("algorithm_evidence"), Mapping)
-                    else {}
-                ),
-                "check_capable": check_capable,
-                "check_required": check_required,
-                "runtime_evidence": dict(runtime),
-            }
-        )
+        if confirmed and confirmation_valid:
+            active_analyzers.append(
+                {
+                    "ga_label": label,
+                    "port": port,
+                    "protocol_device_id": protocol_id,
+                    "sn_code": sn_code,
+                    "algorithm": algorithm,
+                    "algorithm_evidence": dict(
+                        row.get("algorithm_evidence")
+                        if isinstance(row.get("algorithm_evidence"), Mapping)
+                        else {}
+                    ),
+                    "check_capable": check_capable,
+                    "check_required": check_required,
+                    "runtime_evidence": dict(runtime),
+                }
+            )
 
     return {
         "status": "ready_for_readonly_packet_build" if not reasons else "review_required",
@@ -1375,7 +1379,7 @@ def validate_v1_5_real_acceptance_site_profile(
         },
         "active_analyzer_list": {
             "schema": "v1_5_readonly_com_active_analyzer_list_v1",
-            "active_analyzers": active_analyzers,
+            "active_analyzers": active_analyzers if not reasons else [],
         },
     }
 
@@ -1608,8 +1612,12 @@ def build_v1_5_real_acceptance_control_pack(
         "database_written": False,
         "not_real_acceptance_evidence": True,
         "next_action": (
-            "Complete the operator-reviewed active analyzer mapping and mature dry-run before read-only authorization."
-            if readonly_preflight_blockers
+            "Complete the operator-reviewed active analyzer mapping and restore the mature dry-run before read-only authorization."
+            if site["reasons"] and workstation_reasons
+            else "Complete the operator-reviewed active analyzer mapping before read-only authorization."
+            if site["reasons"]
+            else "Restore the mature 0613/0620/0621 dry-run before read-only authorization."
+            if workstation_reasons
             else "Obtain separate explicit authorization before any read-only real-COM execution."
             if readonly_reasons
             else "Resolve certificate/cylinder preflight blockers before gas-flow calibration."

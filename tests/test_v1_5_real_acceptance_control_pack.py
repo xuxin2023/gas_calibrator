@@ -486,6 +486,10 @@ def test_current_four_connected_two_powered_template_stays_blocked_and_no_com(tm
     assert model["sends_device_commands"] is False
     assert model["writes_coefficients"] is False
     assert model["formal_release_allowed"] is False
+    assert (
+        model["next_action"]
+        == "Complete the operator-reviewed active analyzer mapping before read-only authorization."
+    )
 
 
 def test_historical_identity_prefill_fills_six_identities_but_not_current_state(
@@ -571,6 +575,7 @@ def test_complete_mapping_requires_hash_bound_current_site_confirmation(
     )
     assert without_confirmation["ready_for_readonly_packet_build"] is False
     assert "current_site_confirmation_missing" in without_confirmation["reasons"]
+    assert without_confirmation["active_analyzer_list"]["active_analyzers"] == []
 
     confirmed = confirm_v1_5_current_site_state(
         site_profile=profile,
@@ -644,6 +649,7 @@ def test_average_free_text_cannot_release_runtime_setup_gate(
 
     assert validation["ready_for_readonly_packet_build"] is False
     assert "COM35_average1_average2_evidence_missing" in validation["reasons"]
+    assert validation["active_analyzer_list"]["active_analyzers"] == []
 
 
 def test_runtime_setup_result_requires_identity_bound_ack_sequence(
