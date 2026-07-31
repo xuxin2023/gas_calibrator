@@ -121,7 +121,6 @@ jobs:
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
           python -m pytest `
             tests/test_v1_5_real_acceptance_control_pack.py `
-            tests/test_v1_5_site_profile_page.py `
             tests/test_v1_5_analyzer_runtime_setup.py `
             tests/v2/test_v1_5_runtime_setup_import.py `
             tests/test_v1_5_formal_readonly_com_execution_plan_preview.py `
@@ -134,13 +133,9 @@ jobs:
             tests/test_v1_has_no_v2_runtime_imports.py `
             tests/test_v2_has_no_v1_runtime_imports.py `
             tests/test_v1_5_operator_workstation.py `
-            tests/test_v1_5_operator_workstation_ui.py `
-            --deselect=tests/test_v1_5_site_profile_page.py::test_operator_workstation_exposes_site_mapping_without_replacing_devices_page `
-            --deselect=tests/test_v1_5_operator_workstation_ui.py::test_v1_5_visitor_showcase_is_read_only_and_1080p_ready `
-            --deselect=tests/test_v1_5_operator_workstation_ui.py::test_operator_workstation_is_v1_5_first_chinese_and_1080p_ready `
             --junitxml=artifacts/v1_5_offline_pr_gate.xml `
             -q
-          "Windows critical-path coverage complete; three unchanged 1080p geometry checks run in the dedicated Xvfb job." |
+          "Windows non-Tk critical-path coverage complete; both Tk UI modules run wholly in the dedicated Xvfb job." |
             Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
 
       - name: Verify Excel worksheet compatibility
@@ -157,8 +152,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-  ui-geometry-1080p:
-    name: UI geometry 1920x1080
+  ui-xvfb-1080p:
+    name: UI Tk/Xvfb 1920x1080
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -213,26 +208,25 @@ jobs:
         run: |
           xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24 -nolisten tcp" \
             python -c "import tkinter as tk; root = tk.Tk(); width, height = root.winfo_screenwidth(), root.winfo_screenheight(); print(f'Xvfb screen: {width}x{height}'); root.destroy(); assert (width, height) == (1920, 1080)"
-          echo "UI geometry checks use an isolated 1920x1080 Xvfb display; no physical display or device is accessed." \
+          echo "UI Tk checks use an isolated 1920x1080 Xvfb display; no physical display or device is accessed." \
             >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Run unchanged 1080p geometry checks
+      - name: Run complete Tk UI test modules
         shell: bash
         run: |
           mkdir -p artifacts
           xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24 -nolisten tcp" \
             python -m pytest \
-              tests/test_v1_5_site_profile_page.py::test_operator_workstation_exposes_site_mapping_without_replacing_devices_page \
-              tests/test_v1_5_operator_workstation_ui.py::test_v1_5_visitor_showcase_is_read_only_and_1080p_ready \
-              tests/test_v1_5_operator_workstation_ui.py::test_operator_workstation_is_v1_5_first_chinese_and_1080p_ready \
-              --junitxml=artifacts/v1_5_ui_geometry_1080p.xml \
+              tests/test_v1_5_site_profile_page.py \
+              tests/test_v1_5_operator_workstation_ui.py \
+              --junitxml=artifacts/v1_5_ui_xvfb_1080p.xml \
               -q
 
-      - name: Publish 1080p geometry evidence
+      - name: Publish Tk UI evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: v1-5-ui-geometry-1080p-${{ github.run_id }}
-          path: artifacts/v1_5_ui_geometry_1080p.xml
+          name: v1-5-ui-xvfb-1080p-${{ github.run_id }}
+          path: artifacts/v1_5_ui_xvfb_1080p.xml
           if-no-files-found: warn
           retention-days: 14
