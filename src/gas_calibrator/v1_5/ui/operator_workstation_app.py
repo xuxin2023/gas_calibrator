@@ -20,6 +20,7 @@ from ..certificate_metrics_registry import CertificateMetricsRegistry
 from ..orchestration.operator_workstation import (
     build_v1_5_operator_workstation_plan,
     execute_v1_5_operator_workstation_dry_run,
+    inspect_v1_5_runtime_config,
     run_v1_5_operator_workstation_application,
 )
 from ..workstation_snapshot import build_workstation_snapshot
@@ -109,6 +110,11 @@ _TEXT = {
         "aside.running": "正在演练…",
         "aside.settings": "运行设置",
         "aside.open": "打开证据目录",
+        "config.title": "运行配置门禁",
+        "config.static": "静态配置｜控制器 {controller}｜压力计 {gauge}",
+        "config.bound": "现场绑定已核验｜控制器 {controller}｜压力计 {gauge}",
+        "config.blocked": "配置被阻断｜请检查运行设置",
+        "config.hash": "SHA256 {sha}",
         "boundary.title": "安全边界（仿真模式）",
         "boundary.com": "真实 COM",
         "boundary.route": "气路 / 水路控制",
@@ -164,6 +170,11 @@ _TEXT = {
         "evidence.pressure_chain_reference_unconfigured": "Pressure chain: gauge not configured",
         "evidence.pressure_chain_controller_unconfigured": "Pressure chain: controller not configured",
         "evidence.pressure_chain_unknown": "Pressure chain: trusted readback unavailable",
+        "config.title": "Runtime Config Gate",
+        "config.static": "Static config | Controller {controller} | Gauge {gauge}",
+        "config.bound": "Evidence-bound | Controller {controller} | Gauge {gauge}",
+        "config.blocked": "Config blocked | Review runtime settings",
+        "config.hash": "SHA256 {sha}",
     },
 }
 
@@ -247,9 +258,12 @@ class OperatorWorkstationApp:
         self.point_var = tk.StringVar(master=root, value=_t("value.waiting", locale=locale))
         self.judgement_var = tk.StringVar(master=root, value=_t("value.dry_run", locale=locale))
         self.dwell_var = tk.StringVar(master=root, value="0 / 58")
+        self.config_gate_var = tk.StringVar(master=root, value="")
+        self.config_hash_var = tk.StringVar(master=root, value="")
         self._configure_root()
         self._configure_styles()
         self._build()
+        self._refresh_config_gate()
 
     def _configure_root(self) -> None:
         self.root.title(_t("title", locale=self.locale))
@@ -404,6 +418,8 @@ class OperatorWorkstationApp:
         weight: str = "normal",
         bg: str = "surface",
         anchor: str = "w",
+        justify: str = "left",
+        wraplength: int = 0,
     ) -> tk.Label:
         return tk.Label(
             parent,
@@ -413,6 +429,8 @@ class OperatorWorkstationApp:
             fg=_COLORS[color],
             font=("Microsoft YaHei UI", size, weight),
             anchor=anchor,
+            justify=justify,
+            wraplength=wraplength,
         )
 
     def _panel(self, parent: tk.Misc, *, bg: str = "surface") -> tk.Frame:
@@ -1098,6 +1116,7 @@ class OperatorWorkstationApp:
 
     def _build_aside(self, body: tk.Frame) -> None:
         aside = tk.Frame(body, bg=_COLORS["bg"], width=294)
+        self.aside_frame = aside
         aside.grid(row=0, column=2, sticky="nse", padx=(0, 14), pady=14)
         aside.grid_propagate(False)
         action = self._panel(aside)
@@ -1130,6 +1149,24 @@ class OperatorWorkstationApp:
             command=self.open_output_directory,
         ).pack(fill="x", padx=16, pady=(0, 16))
 
+        config_gate = self._panel(aside)
+        config_gate.pack(fill="x", pady=(0, 12))
+        self._section_title(config_gate, "config.title")
+        self._label(
+            config_gate,
+            textvariable=self.config_gate_var,
+            size=8,
+            color="text",
+            wraplength=250,
+            justify="left",
+        ).pack(anchor="w", padx=16, pady=(0, 6))
+        self._label(
+            config_gate,
+            textvariable=self.config_hash_var,
+            size=8,
+            color="muted",
+        ).pack(anchor="w", padx=16, pady=(0, 14))
+
         boundary = self._panel(aside)
         boundary.pack(fill="x")
         self._section_title(boundary, "boundary.title")
@@ -1154,23 +1191,6 @@ class OperatorWorkstationApp:
             size=8,
             color="muted",
         ).pack(anchor="w", padx=16, pady=(10, 16))
-
-        note = self._panel(aside)
-        note.pack(fill="x", pady=(12, 0))
-        self._section_title(note, "note.title")
-        for key in (
-            "note.simulation",
-            "note.kernel",
-            "note.certificate",
-            "note.auxiliary",
-        ):
-            self._label(
-                note,
-                f"• {_t(key, locale=self.locale)}",
-                size=8,
-                color="muted",
-            ).pack(anchor="w", padx=16, pady=5)
-        tk.Frame(note, bg=_COLORS["surface"], height=7).pack()
 
     def _build_footer(self) -> None:
         footer = tk.Frame(self.root, bg=_COLORS["nav"], height=38)
@@ -1198,7 +1218,7 @@ class OperatorWorkstationApp:
         dialog = tk.Toplevel(self.root)
         self._settings_dialog = dialog
         dialog.title(_t("dialog.title", locale=self.locale))
-        dialog.geometry("860x390")
+        dialog.geometry("860x470")
         dialog.configure(bg=_COLORS["surface"])
         dialog.transient(self.root)
         dialog.grab_set()
@@ -1224,8 +1244,20 @@ class OperatorWorkstationApp:
                 style="Secondary.TButton",
                 command=lambda key=setting, is_directory=directory: self._browse(key, is_directory),
             ).grid(row=index, column=2, padx=12, pady=8)
+        self._label(
+            dialog,
+            textvariable=self.config_gate_var,
+            size=8,
+            color="text",
+        ).grid(row=len(rows), column=0, columnspan=3, sticky="w", padx=18, pady=(8, 2))
+        self._label(
+            dialog,
+            textvariable=self.config_hash_var,
+            size=8,
+            color="muted",
+        ).grid(row=len(rows) + 1, column=0, columnspan=3, sticky="w", padx=18, pady=(0, 8))
         actions = tk.Frame(dialog, bg=_COLORS["surface"])
-        actions.grid(row=len(rows), column=0, columnspan=3, sticky="e", padx=18, pady=14)
+        actions.grid(row=len(rows) + 2, column=0, columnspan=3, sticky="e", padx=18, pady=14)
         ttk.Button(
             actions,
             text=_t("dialog.cancel", locale=self.locale),
@@ -1236,7 +1268,7 @@ class OperatorWorkstationApp:
             actions,
             text=_t("dialog.save", locale=self.locale),
             style="Primary.TButton",
-            command=dialog.destroy,
+            command=lambda: self._save_settings(dialog),
         ).pack(side="right")
 
     def _browse(self, key: str, directory: bool) -> None:
@@ -1247,11 +1279,49 @@ class OperatorWorkstationApp:
         )
         if selected:
             self.settings[key].set(selected)
+            if key == "config":
+                self._refresh_config_gate()
+
+    def _save_settings(self, dialog: tk.Toplevel) -> None:
+        self._refresh_config_gate()
+        dialog.destroy()
+
+    def _refresh_config_gate(self, inspection: Mapping[str, Any] | None = None) -> None:
+        current = dict(
+            inspection
+            or inspect_v1_5_runtime_config(self.settings["config"].get())
+        )
+        devices = current.get("pressure_devices", {})
+        controller = str(
+            (devices.get("pressure_controller") or {}).get("runtime_port") or "--"
+        )
+        gauge = str(
+            (devices.get("pressure_gauge") or {}).get("runtime_port") or "--"
+        )
+        status = str(current.get("status") or "blocked")
+        if status == "ready_bound_runtime_config":
+            key = "config.bound"
+        elif status == "ready_static_runtime_config":
+            key = "config.static"
+        else:
+            key = "config.blocked"
+        self.config_gate_var.set(
+            _t(
+                key,
+                locale=self.locale,
+                controller=controller,
+                gauge=gauge,
+            )
+        )
+        sha = str(current.get("sha256") or "")
+        self.config_hash_var.set(
+            _t("config.hash", locale=self.locale, sha=sha[:12] if sha else "--")
+        )
 
     def _plan(self) -> dict[str, Any]:
         run_id = f"operator_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         certificate = self.settings["certificate"].get().strip() or None
-        return build_v1_5_operator_workstation_plan(
+        plan = build_v1_5_operator_workstation_plan(
             config_path=self.settings["config"].get(),
             co2_queue_csv=self.settings["co2"].get(),
             h2o_queue_csv=self.settings["h2o"].get(),
@@ -1259,6 +1329,8 @@ class OperatorWorkstationApp:
             run_id=run_id,
             certificate_registry_json=certificate,
         )
+        self._refresh_config_gate(plan.get("runtime_config_inspection"))
+        return plan
 
     def start_dry_run(self) -> None:
         plan = self._plan()

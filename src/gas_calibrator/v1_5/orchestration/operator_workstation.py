@@ -7,6 +7,7 @@ operator UI, not a replacement calibration kernel.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sys
@@ -32,6 +33,11 @@ from ...tools.run_v1_5_formal_h2o_open_flow_queue import (
     _select_queue_rows as _select_h2o_queue_rows,
 )
 from ...tools.run_v1_5_formal_h2o_open_flow_queue import main as _run_h2o_queue
+from .serial_port_binding import (
+    REFERENCE_DEVICE_KEYS,
+    allowed_bank_shift_map,
+    normalize_com_port,
+)
 
 
 SCHEMA = "v1_5_operator_workstation_dry_run_v1"
@@ -142,6 +148,128 @@ def _queue_point_counts(
     return counts, blockers
 
 
+def inspect_v1_5_runtime_config(config_path: str | Path) -> dict[str, Any]:
+    """Inspect one runtime config without opening COM ports or changing it."""
+
+    path = Path(config_path).resolve()
+    blockers: list[str] = []
+    warnings: list[str] = []
+    result: dict[str, Any] = {
+        "schema": "v1_5_runtime_config_start_gate_v1",
+        "path": _path_text(path),
+        "exists": path.is_file(),
+        "readable": False,
+        "sha256": "",
+        "binding_mode": "unknown",
+        "status": "blocked",
+        "blockers": blockers,
+        "warnings": warnings,
+        "opens_com_ports": False,
+        "writes_config": False,
+    }
+    if not path.is_file():
+        blockers.append("runtime_config_missing")
+        return result
+
+    try:
+        result["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        cfg = load_config(path)
+    except Exception as exc:
+        blockers.append(f"runtime_config_invalid:{type(exc).__name__}")
+        return result
+    result["readable"] = True
+
+    devices = cfg.get("devices", {})
+    if not isinstance(devices, Mapping):
+        blockers.append("runtime_config_devices_invalid")
+        return result
+
+    reference_rows: dict[str, dict[str, Any]] = {}
+    for key in sorted(REFERENCE_DEVICE_KEYS):
+        item = devices.get(key)
+        if not isinstance(item, Mapping):
+            continue
+        runtime_port = normalize_com_port(item.get("port"))
+        configured_port = normalize_com_port(item.get("configured_port") or runtime_port)
+        reference_rows[key] = {
+            "configured_port": configured_port,
+            "runtime_port": runtime_port,
+            "changed": bool(configured_port and runtime_port and configured_port != runtime_port),
+            "binding_source": str(item.get("runtime_port_binding_source") or ""),
+            "binding_frozen": item.get("runtime_port_binding_frozen") is True,
+        }
+    device_rows = {
+        key: reference_rows.get(key, {})
+        for key in ("pressure_controller", "pressure_gauge")
+    }
+    for key, row in device_rows.items():
+        runtime_port = str(row.get("runtime_port") or "")
+        if not runtime_port:
+            blockers.append(f"{key}_runtime_port_missing")
+    result["pressure_devices"] = device_rows
+    result["reference_devices"] = reference_rows
+
+    runtime_ports = [
+        row["runtime_port"] for row in device_rows.values() if row["runtime_port"]
+    ]
+    if len(runtime_ports) != len(set(runtime_ports)):
+        blockers.append("pressure_runtime_ports_not_unique")
+
+    binding = cfg.get("v1_5_serial_port_binding")
+    if not isinstance(binding, Mapping):
+        result["binding_mode"] = "static_config"
+        result["status"] = "ready_static_runtime_config" if not blockers else "blocked"
+        return result
+
+    result["binding_mode"] = "evidence_bound_runtime_config"
+    result["binding_metadata"] = dict(binding)
+    if binding.get("enabled") is not True:
+        blockers.append("runtime_serial_port_binding_not_enabled")
+    try:
+        blocked_count = int(binding.get("blocked_count") or 0)
+    except (TypeError, ValueError):
+        blocked_count = -1
+    if blocked_count != 0:
+        blockers.append("runtime_serial_port_binding_has_blockers")
+    if binding.get("gas_analyzer_ports_protected") is not True:
+        blockers.append("runtime_serial_port_binding_analyzer_protection_missing")
+
+    allowed_map = allowed_bank_shift_map()
+    available_ports = {
+        normalize_com_port(port)
+        for port in list(binding.get("available_ports") or [])
+        if str(port or "").strip()
+    }
+    changed_rows = [row for row in reference_rows.values() if row["changed"]]
+    for key, row in reference_rows.items():
+        if not row["changed"]:
+            continue
+        configured_port = row["configured_port"]
+        runtime_port = row["runtime_port"]
+        if allowed_map.get(configured_port) != runtime_port:
+            blockers.append(f"{key}_runtime_port_shift_outside_allowlist")
+        if not row["binding_frozen"]:
+            blockers.append(f"{key}_runtime_port_binding_not_frozen")
+        both_bank_ports_present = (
+            configured_port in available_ports and runtime_port in available_ports
+        )
+        if both_bank_ports_present and (
+            binding.get("require_protocol_match") is not True
+            or row["binding_source"] != "v1_5_reference_bank_shift_protocol_identity"
+        ):
+            blockers.append(f"{key}_dual_bank_unique_protocol_identity_missing")
+
+    try:
+        changed_count = int(binding.get("changed_count") or 0)
+    except (TypeError, ValueError):
+        changed_count = -1
+    if changed_count != len(changed_rows):
+        blockers.append("runtime_serial_port_binding_changed_count_mismatch")
+
+    result["status"] = "ready_bound_runtime_config" if not blockers else "blocked"
+    return result
+
+
 def _route_plan(
     *,
     route_kind: str,
@@ -209,17 +337,13 @@ def build_v1_5_operator_workstation_plan(
 
     if not run_id or not _RUN_ID_PATTERN.fullmatch(run_id):
         blockers.append("run_id_must_use_ascii_letters_digits_dot_dash_or_underscore")
-    if not config.exists():
-        blockers.append("runtime_config_missing")
-    else:
-        try:
-            load_config(config)
-        except Exception as exc:
-            blockers.append(f"runtime_config_invalid:{type(exc).__name__}")
+    runtime_config_inspection = inspect_v1_5_runtime_config(config)
+    blockers.extend(runtime_config_inspection["blockers"])
 
     point_counts, queue_blockers = _queue_point_counts(co2_queue, h2o_queue)
     blockers.extend(queue_blockers)
     certificate, warnings = _inspect_certificate_registry(certificate_registry_json)
+    warnings.extend(runtime_config_inspection["warnings"])
 
     routes = [
         _route_plan(
@@ -250,6 +374,7 @@ def build_v1_5_operator_workstation_plan(
         "warnings": warnings,
         "run_id": run_id,
         "runtime_config": _path_text(config),
+        "runtime_config_inspection": runtime_config_inspection,
         "point_counts": point_counts,
         "expected_point_counts": dict(EXPECTED_POINT_COUNTS),
         "route_order": ["co2", "h2o"],
@@ -424,6 +549,7 @@ __all__ = [
     "PROFILE_ID",
     "build_v1_5_operator_workstation_plan",
     "execute_v1_5_operator_workstation_dry_run",
+    "inspect_v1_5_runtime_config",
     "run_v1_5_operator_workstation_application",
     "write_v1_5_operator_workstation_outputs",
 ]

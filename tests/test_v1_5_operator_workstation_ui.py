@@ -138,6 +138,11 @@ def test_operator_workstation_is_v1_5_first_chinese_and_1080p_ready() -> None:
         assert root.winfo_width() >= 1800
         assert root.winfo_height() >= 1000
         assert app.start_button.instate(["!disabled"])
+        aside_bottom = max(
+            child.winfo_y() + child.winfo_height()
+            for child in app.aside_frame.winfo_children()
+        )
+        assert aside_bottom <= app.aside_frame.winfo_height()
     finally:
         root.destroy()
 
@@ -155,6 +160,9 @@ def test_operator_workstation_settings_are_editable_and_certificate_optional() -
         assert app.settings["h2o"].get().endswith("h2o_runner_queue.csv")
         assert app.settings["runtime"].get().endswith("\\logs")
         assert app.settings["certificate"].get() == ""
+        assert "COM23" in app.config_gate_var.get()
+        assert "COM22" in app.config_gate_var.get()
+        assert app.config_hash_var.get().startswith("SHA256 ")
         app._settings_dialog.destroy()
     finally:
         root.destroy()

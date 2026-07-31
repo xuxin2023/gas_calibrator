@@ -8,6 +8,7 @@ from gas_calibrator.tools.run_v1_5_operator_workstation_dry_run import main as c
 from gas_calibrator.v1_5.orchestration.operator_workstation import (
     build_v1_5_operator_workstation_plan,
     execute_v1_5_operator_workstation_dry_run,
+    inspect_v1_5_runtime_config,
     run_v1_5_operator_workstation_application,
 )
 from gas_calibrator.validation.v1_5_algorithm_route_profiles import (
@@ -92,6 +93,92 @@ def test_operator_workstation_blocks_point_count_drift_before_runner_execution(
     assert "co2_legacy_point_count_mismatch:expected=45,observed=44" in plan["blockers"]
     assert result["execution_started"] is False
     assert result["route_results"] == []
+
+
+def test_runtime_config_gate_accepts_unique_protocol_bound_pressure_ports(
+    tmp_path: Path,
+) -> None:
+    payload = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    payload["devices"]["pressure_controller"].update(
+        {
+            "configured_port": "COM23",
+            "port": "COM31",
+            "runtime_port": "COM31",
+            "runtime_port_binding_source": "v1_5_reference_bank_shift_protocol_identity",
+            "runtime_port_binding_frozen": True,
+        }
+    )
+    payload["devices"]["pressure_gauge"].update(
+        {
+            "configured_port": "COM22",
+            "port": "COM30",
+            "runtime_port": "COM30",
+            "runtime_port_binding_source": "v1_5_reference_bank_shift_protocol_identity",
+            "runtime_port_binding_frozen": True,
+        }
+    )
+    payload["devices"]["dewpoint_meter"].update(
+        {
+            "configured_port": "COM17",
+            "port": "COM25",
+            "runtime_port": "COM25",
+            "runtime_port_binding_source": "v1_5_reference_bank_shift",
+            "runtime_port_binding_frozen": True,
+        }
+    )
+    payload["v1_5_serial_port_binding"] = {
+        "enabled": True,
+        "available_ports": ["COM22", "COM23", "COM30", "COM31"],
+        "changed_count": 3,
+        "blocked_count": 0,
+        "gas_analyzer_ports_protected": True,
+        "require_protocol_match": True,
+    }
+    config_path = tmp_path / "runtime_bound_config.json"
+    config_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    inspection = inspect_v1_5_runtime_config(config_path)
+
+    assert inspection["status"] == "ready_bound_runtime_config"
+    assert inspection["blockers"] == []
+    assert len(inspection["sha256"]) == 64
+    assert inspection["pressure_devices"]["pressure_controller"]["runtime_port"] == "COM31"
+    assert inspection["pressure_devices"]["pressure_gauge"]["runtime_port"] == "COM30"
+    assert inspection["reference_devices"]["dewpoint_meter"]["runtime_port"] == "COM25"
+    assert inspection["opens_com_ports"] is False
+    assert inspection["writes_config"] is False
+
+
+def test_runtime_config_gate_blocks_dual_bank_mapping_without_unique_identity(
+    tmp_path: Path,
+) -> None:
+    payload = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    payload["devices"]["pressure_controller"].update(
+        {
+            "configured_port": "COM23",
+            "port": "COM31",
+            "runtime_port_binding_source": "v1_5_reference_bank_shift",
+            "runtime_port_binding_frozen": True,
+        }
+    )
+    payload["v1_5_serial_port_binding"] = {
+        "enabled": True,
+        "available_ports": ["COM23", "COM31"],
+        "changed_count": 1,
+        "blocked_count": 0,
+        "gas_analyzer_ports_protected": True,
+        "require_protocol_match": False,
+    }
+    config_path = tmp_path / "unsafe_bound_config.json"
+    config_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    inspection = inspect_v1_5_runtime_config(config_path)
+
+    assert inspection["status"] == "blocked"
+    assert (
+        "pressure_controller_dual_bank_unique_protocol_identity_missing"
+        in inspection["blockers"]
+    )
 
 
 def test_application_service_executes_once_and_writes_once(
