@@ -112,7 +112,24 @@ _TEXT = {
         "aside.start": "开始演练",
         "aside.running": "正在演练…",
         "aside.settings": "运行设置",
+        "aside.handoff": "查看受控交接预览",
         "aside.open": "打开证据目录",
+        "handoff.title": "V1.5 受控执行交接预览",
+        "handoff.heading": "成熟运行器交接（只读）",
+        "handoff.notice": (
+            "此窗口不执行任何命令。真实 no-write 工程探针必须在执行时"
+            "重新提供操作员确认，当前仍被阻断。"
+        ),
+        "handoff.status.pending": "状态：等待显式双重解锁",
+        "handoff.status.gate_blocked": "状态：启动门禁未通过",
+        "handoff.safety": (
+            "执行权限：否｜系数写入：否｜设备 ID 写入：否｜"
+            "FTD 写入：否｜正式验收证据：否"
+        ),
+        "handoff.conditional": "若未来获准执行：会打开真实 COM，并控制对应气路 / 水路",
+        "handoff.hash": "绑定配置 SHA256：{sha}",
+        "handoff.command": "{route} 成熟运行器参数（仅预览）",
+        "handoff.close": "关闭",
         "config.title": "运行配置门禁",
         "config.static": "静态配置｜控制器 {controller}｜压力计 {gauge}",
         "config.bound": "现场绑定已核验｜控制器 {controller}｜压力计 {gauge}",
@@ -178,6 +195,25 @@ _TEXT = {
         "config.bound": "Evidence-bound | Controller {controller} | Gauge {gauge}",
         "config.blocked": "Config blocked | Review runtime settings",
         "config.hash": "SHA256 {sha}",
+        "aside.handoff": "View Controlled Handoff",
+        "handoff.title": "V1.5 Controlled Execution Handoff Preview",
+        "handoff.heading": "Mature runner handoff (read-only)",
+        "handoff.notice": (
+            "This window does not execute commands. A real no-write engineering probe "
+            "requires fresh operator confirmation at execution time and remains blocked."
+        ),
+        "handoff.status.pending": "Status: pending explicit double unlock",
+        "handoff.status.gate_blocked": "Status: startup gate blocked",
+        "handoff.safety": (
+            "Execution: no | coefficient write: no | device ID write: no | "
+            "FTD write: no | real acceptance evidence: no"
+        ),
+        "handoff.conditional": (
+            "If explicitly authorized later: opens real COM and controls the selected route"
+        ),
+        "handoff.hash": "Bound config SHA256: {sha}",
+        "handoff.command": "{route} mature runner arguments (preview only)",
+        "handoff.close": "Close",
     },
 }
 
@@ -254,6 +290,8 @@ class OperatorWorkstationApp:
         self.last_result: dict[str, Any] | None = None
         self._result_queue: queue.Queue[dict[str, Any]] = queue.Queue()
         self._settings_dialog: tk.Toplevel | None = None
+        self._handoff_dialog: tk.Toplevel | None = None
+        self._handoff_preview_widget: tk.Text | None = None
         self.pages: dict[str, tk.Widget] = {}
         self.nav_buttons: dict[str, ttk.Button] = {}
         self._presentation_active = False
@@ -1152,6 +1190,12 @@ class OperatorWorkstationApp:
         ).pack(fill="x", padx=16, pady=(0, 8))
         ttk.Button(
             action,
+            text=_t("aside.handoff", locale=self.locale),
+            style="Secondary.TButton",
+            command=self.open_controlled_handoff_preview,
+        ).pack(fill="x", padx=16, pady=(0, 8))
+        ttk.Button(
+            action,
             text=_t("aside.open", locale=self.locale),
             style="Secondary.TButton",
             command=self.open_output_directory,
@@ -1339,6 +1383,112 @@ class OperatorWorkstationApp:
         )
         self._refresh_config_gate(plan.get("runtime_config_inspection"))
         return plan
+
+    def _controlled_handoff_preview_text(
+        self,
+        handoff: Mapping[str, Any],
+    ) -> str:
+        status_key = (
+            "handoff.status.gate_blocked"
+            if handoff.get("status") == "blocked_by_startup_gate"
+            else "handoff.status.pending"
+        )
+        lines = [
+            _t(status_key, locale=self.locale),
+            _t("handoff.safety", locale=self.locale),
+            _t("handoff.conditional", locale=self.locale),
+            _t(
+                "handoff.hash",
+                locale=self.locale,
+                sha=str(handoff.get("runtime_config_sha256") or "--"),
+            ),
+        ]
+        blockers = list(handoff.get("blockers") or [])
+        if blockers:
+            lines.extend(["", *[f"- {reason}" for reason in blockers]])
+        for command in handoff.get("commands") or []:
+            route_kind = str(command.get("route_kind") or "")
+            route_key = "route.co2" if route_kind == "co2" else "route.h2o"
+            lines.extend(
+                [
+                    "",
+                    _t(
+                        "handoff.command",
+                        locale=self.locale,
+                        route=_t(route_key, locale=self.locale),
+                    ),
+                    str(command.get("runner_module") or ""),
+                    json.dumps(
+                        list(command.get("argv_template") or []),
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                ]
+            )
+        return "\n".join(lines)
+
+    def open_controlled_handoff_preview(self) -> None:
+        if self._handoff_dialog is not None and self._handoff_dialog.winfo_exists():
+            self._handoff_dialog.lift()
+            return
+        plan = self._plan()
+        handoff = dict(plan.get("controlled_execution_handoff") or {})
+        dialog = tk.Toplevel(self.root)
+        self._handoff_dialog = dialog
+        dialog.title(_t("handoff.title", locale=self.locale))
+        dialog.geometry("980x640")
+        dialog.minsize(760, 520)
+        dialog.configure(bg=_COLORS["surface"])
+        dialog.transient(self.root)
+
+        self._label(
+            dialog,
+            _t("handoff.heading", locale=self.locale),
+            size=16,
+            weight="bold",
+        ).pack(anchor="w", padx=20, pady=(18, 4))
+        self._label(
+            dialog,
+            _t("handoff.notice", locale=self.locale),
+            size=9,
+            color="amber",
+            wraplength=920,
+            justify="left",
+        ).pack(anchor="w", padx=20, pady=(0, 12))
+
+        preview_frame = tk.Frame(dialog, bg=_COLORS["surface"])
+        preview_frame.pack(fill="both", expand=True, padx=20, pady=(0, 12))
+        preview = tk.Text(
+            preview_frame,
+            bg=_COLORS["card"],
+            fg=_COLORS["text"],
+            insertbackground=_COLORS["text"],
+            selectbackground=_COLORS["blue_dark"],
+            relief="flat",
+            borderwidth=0,
+            font=("Cascadia Mono", 9),
+            padx=14,
+            pady=12,
+            wrap="word",
+        )
+        preview_scrollbar = ttk.Scrollbar(
+            preview_frame,
+            orient="vertical",
+            command=preview.yview,
+        )
+        preview.configure(yscrollcommand=preview_scrollbar.set)
+        preview.insert("1.0", self._controlled_handoff_preview_text(handoff))
+        preview.configure(state="disabled")
+        preview.pack(side="left", fill="both", expand=True)
+        preview_scrollbar.pack(side="right", fill="y")
+        self._handoff_preview_widget = preview
+
+        ttk.Button(
+            dialog,
+            text=_t("handoff.close", locale=self.locale),
+            style="Secondary.TButton",
+            command=dialog.destroy,
+        ).pack(anchor="e", padx=20, pady=(0, 18))
 
     def start_dry_run(self) -> None:
         plan = self._plan()

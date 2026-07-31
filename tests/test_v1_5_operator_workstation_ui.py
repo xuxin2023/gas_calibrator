@@ -149,6 +149,7 @@ def test_operator_workstation_is_v1_5_first_chinese_and_1080p_ready() -> None:
         assert "V2" not in joined
         assert "V2 驾驶舱" not in joined
         assert "开始演练" in joined
+        assert "查看受控交接预览" in joined
         assert "开始真实校准" not in joined
         assert root.winfo_width() >= 1800
         assert root.winfo_height() >= 1000
@@ -158,6 +159,61 @@ def test_operator_workstation_is_v1_5_first_chinese_and_1080p_ready() -> None:
             for child in app.aside_frame.winfo_children()
         )
         assert aside_bottom <= app.aside_frame.winfo_height()
+    finally:
+        root.destroy()
+
+
+def test_controlled_handoff_preview_is_read_only_and_keeps_double_unlock(
+    tmp_path,
+) -> None:
+    root = _root()
+    repository_root = Path(__file__).resolve().parents[1]
+    queues = build_v1_5_profile_queue_rows(
+        repository_root / "configs" / "v1_5_algorithm_route_profiles.json",
+        profile_id="legacy_ratio_production",
+    )
+    co2 = tmp_path / "co2.csv"
+    h2o = tmp_path / "h2o.csv"
+    _write_queue(co2, queues["co2_rows"])
+    _write_queue(h2o, queues["h2o_rows"])
+    try:
+        app = OperatorWorkstationApp(
+            root,
+            initial_settings={
+                "config": str(repository_root / "configs" / "default_config.json"),
+                "co2": str(co2),
+                "h2o": str(h2o),
+                "output": str(tmp_path / "output"),
+            },
+        )
+        app.open_controlled_handoff_preview()
+        root.update_idletasks()
+
+        assert app._handoff_dialog is not None
+        assert app._handoff_dialog.winfo_exists()
+        assert app._handoff_preview_widget is not None
+        assert str(app._handoff_preview_widget.cget("state")) == "disabled"
+        preview = app._handoff_preview_widget.get("1.0", "end")
+        assert "状态：等待显式双重解锁" in preview
+        assert "执行权限：否" in preview
+        assert "正式验收证据：否" in preview
+        assert "--engineering-probe-only" in preview
+        assert "--no-ftd-write" in preview
+        assert "<OPERATOR_CONFIRMATION_REQUIRED_AT_EXECUTION>" in preview
+
+        dialog_text = "\n".join(_texts(app._handoff_dialog))
+        assert "此窗口不执行任何命令" in dialog_text
+        assert "关闭" in dialog_text
+        assert any(
+            widget.winfo_class() == "TScrollbar"
+            for frame in app._handoff_dialog.winfo_children()
+            for widget in frame.winfo_children()
+        )
+        assert "执行" not in {
+            str(child.cget("text"))
+            for child in app._handoff_dialog.winfo_children()
+            if child.winfo_class() == "TButton"
+        }
     finally:
         root.destroy()
 
