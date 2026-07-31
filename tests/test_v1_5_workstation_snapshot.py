@@ -505,11 +505,148 @@ def test_snapshot_reads_only_fresh_mature_runtime_artifacts(tmp_path) -> None:
         "role": "existence_and_stability_monitoring_only",
         "used_for_concentration_fit": False,
     }
+    assert snapshot["physical_reference"]["pressure_chain"]["status"] == (
+        "controller_feedback_missing"
+    )
+    assert snapshot["physical_reference"]["pressure_chain"][
+        "calibration_ready"
+    ] is False
     serialized = json.dumps(snapshot, ensure_ascii=False)
     assert "COM35" not in serialized
     assert str(tmp_path) not in serialized
     assert snapshot["opens_com_ports"] is False
     assert snapshot["not_real_acceptance_evidence"] is True
+
+
+def test_snapshot_normalizes_bilingual_pressure_chain_fields(
+    tmp_path,
+) -> None:
+    _, site_profile = _write_mature_runtime_artifacts(tmp_path)
+    run_dir = tmp_path / "run_20260731_120000"
+    sample_path = run_dir / "samples_20260731_120000.csv"
+    sample_path.write_text(
+        "\n".join(
+            (
+                (
+                    "采样时间,数字温度计缓存采样时间,数字温度计温度C,"
+                    "数字压力计采样时间,数字压力计压力hPa,"
+                    "露点仪实时采样时间,露点仪实时露点C,"
+                    "露点仪实时流量(L/min),压力控制器采样时间,"
+                    "压力控制器压力hPa,压力控制器输出状态,"
+                    "压力控制器隔离状态,压力控制器通大气状态"
+                ),
+                (
+                    "2026-07-31T12:00:02.500,"
+                    "2026-07-31T12:00:02.000,0.0,"
+                    "2026-07-31T12:00:02.100,1000.2,"
+                    "2026-07-31T12:00:02.200,-44.8,1.25,"
+                    "2026-07-31T12:00:02.500,1000.7,1,0,0"
+                ),
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    config_path = run_dir / "runtime_config_snapshot.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["devices"].update(
+        {
+            "pressure_controller": {"enabled": True, "port": "COM23"},
+            "pressure_gauge": {"enabled": True, "port": "COM22"},
+        }
+    )
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+    io_path = run_dir / "io_20260731_120000.csv"
+    mtime = datetime.fromtimestamp(io_path.stat().st_mtime, timezone.utc)
+
+    snapshot = build_workstation_snapshot(
+        runtime_output_dir=tmp_path,
+        site_profile=site_profile,
+        now_utc=mtime + timedelta(seconds=5),
+    )
+
+    observations = snapshot["physical_reference"]["observations"]
+    pressure_chain = snapshot["physical_reference"]["pressure_chain"]
+    assert observations["temperature"]["value"] == 0.0
+    assert observations["pressure"]["value"] == 1000.2
+    assert observations["pressure"]["role"] == (
+        "metrological_truth_for_pressure_calibration"
+    )
+    assert observations["pressure_controller"]["value"] == 1000.7
+    assert observations["pressure_controller"]["used_as_pressure_truth"] is False
+    assert observations["dewpoint"]["value"] == -44.8
+    assert observations["flow"]["value"] == 1.25
+    assert pressure_chain["status"] == "fresh_coincident_observation"
+    assert pressure_chain["calibration_ready"] is True
+    assert pressure_chain["controller_configured"] is True
+    assert pressure_chain["reference_configured"] is True
+    assert pressure_chain["pair_timestamp_delta_ms"] == 400.0
+    assert pressure_chain["pair_age_seconds"] == 0.5
+    assert pressure_chain["pair_is_recent"] is True
+    assert round(
+        pressure_chain["controller_minus_reference_hpa"],
+        3,
+    ) == 0.5
+    assert pressure_chain["delta_role"] == (
+        "control_tracking_only_not_SENCO9_fit_residual"
+    )
+
+    sample_path.write_text(
+        sample_path.read_text(encoding="utf-8").replace(
+            ",2026-07-31T12:00:02.500,1000.7,",
+            ",2026-07-31T12:00:05.500,1000.7,",
+        ),
+        encoding="utf-8",
+    )
+    noncoincident = build_workstation_snapshot(
+        runtime_output_dir=tmp_path,
+        site_profile=site_profile,
+        now_utc=mtime + timedelta(seconds=5),
+    )
+    noncoincident_chain = noncoincident["physical_reference"][
+        "pressure_chain"
+    ]
+    assert noncoincident_chain["status"] == "pair_not_coincident"
+    assert noncoincident_chain["pair_is_coincident"] is False
+    assert noncoincident_chain["calibration_ready"] is False
+
+    sample_path.write_text(
+        sample_path.read_text(encoding="utf-8")
+        .replace(
+            "2026-07-31T12:00:02.500",
+            "2026-07-31T11:59:30.500",
+        )
+        .replace(
+            "2026-07-31T12:00:02.100",
+            "2026-07-31T11:59:30.100",
+        )
+        .replace(
+            "2026-07-31T12:00:02.000",
+            "2026-07-31T11:59:30.000",
+        )
+        .replace(
+            "2026-07-31T12:00:02.200",
+            "2026-07-31T11:59:30.200",
+        )
+        .replace(
+            "2026-07-31T12:00:05.500",
+            "2026-07-31T11:59:30.500",
+        ),
+        encoding="utf-8",
+    )
+    old_pair = build_workstation_snapshot(
+        runtime_output_dir=tmp_path,
+        site_profile=site_profile,
+        now_utc=mtime + timedelta(seconds=5),
+    )
+    old_pair_chain = old_pair["physical_reference"]["pressure_chain"]
+    assert old_pair_chain["status"] == "pair_stale"
+    assert old_pair_chain["pair_is_coincident"] is True
+    assert old_pair_chain["pair_is_recent"] is False
+    assert old_pair_chain["calibration_ready"] is False
+    assert old_pair["physical_reference"]["observations"]["pressure"][
+        "freshness_status"
+    ] == "stale"
 
 
 def test_snapshot_rejects_old_channel_frame_inside_fresh_artifact(

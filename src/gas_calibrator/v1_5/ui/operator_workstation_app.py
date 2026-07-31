@@ -81,12 +81,16 @@ _TEXT = {
         "channels.no_artifact": "无成熟运行工件",
         "channels.read_only": "只读工件 / NO COM",
         "evidence.temperature": "温度箱真值（箱内铂电阻数字测温仪）",
-        "evidence.reference": "独立压力 / 露点证据",
+        "evidence.reference": "压力链（数字压力计真值 / 控制器反馈）与露点",
         "evidence.source": "流量来源（露点仪输出）",
         "evidence.certificate": "证书资料不阻断启动",
         "evidence.release": "正式签发另行审核",
         "evidence.unknown": "未知｜未发现可信新鲜工件",
         "evidence.flow_unknown": "L/min｜未知｜仅监测存在性与稳定性",
+        "evidence.pressure_gauge_short": "表",
+        "evidence.pressure_controller_short": "控",
+        "evidence.pressure_delta_short": "Δ控-表",
+        "evidence.dewpoint_short": "露点",
         "aside.next": "下一步操作",
         "aside.heading": "成熟 V1.5 路径演练",
         "aside.step1": "1. 校验 45/13 canonical 队列",
@@ -135,6 +139,13 @@ _TEXT = {
         "mode": "Mode: simulation rehearsal",
         "offline": "No real devices connected",
         "nav.site": "Site Mapping",
+        "evidence.reference": (
+            "Pressure Chain (Gauge Truth / Controller Feedback) and Dew Point"
+        ),
+        "evidence.pressure_gauge_short": "Gauge",
+        "evidence.pressure_controller_short": "Controller",
+        "evidence.pressure_delta_short": "ΔCtrl-Gauge",
+        "evidence.dewpoint_short": "Dew Point",
     },
 }
 
@@ -905,13 +916,15 @@ class OperatorWorkstationApp:
             self._label(card, _t(key, locale=self.locale), size=9, weight="bold", bg="card_alt").pack(
                 anchor="w", padx=12, pady=(10, 4)
             )
-            self._label(
+            value_label = self._label(
                 card,
                 textvariable=variable,
                 size=8,
                 color="muted",
                 bg="card_alt",
-            ).pack(
+            )
+            value_label.configure(justify="left")
+            value_label.pack(
                 anchor="w", padx=12, pady=(0, 10)
             )
 
@@ -931,6 +944,16 @@ class OperatorWorkstationApp:
         except (TypeError, ValueError):
             number = str(value)
         return f"{number} {unit}｜{freshness}".strip()
+
+    @staticmethod
+    def _format_pressure_delta(pressure_chain: Mapping[str, Any]) -> str:
+        value = pressure_chain.get("controller_minus_reference_hpa")
+        if value is None:
+            return "-- hPa"
+        try:
+            return f"{float(value):+.1f} hPa"
+        except (TypeError, ValueError):
+            return f"{value} hPa"
 
     def _refresh_run_readback(self, snapshot: Mapping[str, Any]) -> None:
         """Render only normalized artifacts; never perform a hardware refresh."""
@@ -976,6 +999,10 @@ class OperatorWorkstationApp:
         observations = dict(reference.get("observations") or {})
         temperature = dict(observations.get("temperature") or {})
         pressure = dict(observations.get("pressure") or {})
+        pressure_controller = dict(
+            observations.get("pressure_controller") or {}
+        )
+        pressure_chain = dict(reference.get("pressure_chain") or {})
         dewpoint = dict(observations.get("dewpoint") or {})
         flow = dict(observations.get("flow") or {})
         if freshness_status == "unknown":
@@ -992,13 +1019,28 @@ class OperatorWorkstationApp:
         self.evidence_vars["temperature"].set(
             self._format_reference_observation(temperature, digits=2)
         )
-        self.evidence_vars["reference"].set(
-            " / ".join(
+        pressure_line = " · ".join(
+            (
                 (
-                    self._format_reference_observation(pressure, digits=1),
-                    self._format_reference_observation(dewpoint, digits=2),
-                )
+                    f"{_t('evidence.pressure_gauge_short', locale=self.locale)} "
+                    f"{self._format_reference_observation(pressure, digits=1)}"
+                ),
+                (
+                    f"{_t('evidence.pressure_controller_short', locale=self.locale)} "
+                    f"{self._format_reference_observation(pressure_controller, digits=1)}"
+                ),
+                (
+                    f"{_t('evidence.pressure_delta_short', locale=self.locale)} "
+                    f"{self._format_pressure_delta(pressure_chain)}"
+                ),
             )
+        )
+        dewpoint_line = (
+            f"{_t('evidence.dewpoint_short', locale=self.locale)} "
+            f"{self._format_reference_observation(dewpoint, digits=2)}"
+        )
+        self.evidence_vars["reference"].set(
+            f"{pressure_line}\n{dewpoint_line}"
         )
         flow_text = self._format_reference_observation(flow, digits=2)
         self.evidence_vars["flow"].set(

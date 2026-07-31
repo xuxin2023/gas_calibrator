@@ -203,6 +203,7 @@ def test_operator_workstation_navigation_opens_v1_5_certificate_and_visitor_page
         assert "0 / 6" in joined
         assert "1 Hz（校准）" in joined
         assert "A1=-- / A2=--" in joined
+        assert "表值为准 / 控制器调节" in joined
         assert "49 × 49" not in joined
         assert "非真机验收证据" in joined
         assert "V2" not in joined
@@ -296,6 +297,14 @@ def test_operator_workstation_summary_pages_share_one_read_only_snapshot() -> No
         )
         assert app.algorithm_page.metric_vars[2].get() == "legacy_ratio_R"
         assert app.algorithm_page.metric_vars[3].get() == "1"
+        algorithm_text = "\n".join(
+            widget.get("1.0", "end")
+            for widget in app.algorithm_page.readonly_widgets
+        )
+        assert "压力真值：数字压力计" in algorithm_text
+        assert "SENCO9拟合对象：分析仪内部压力相对数字压力计的偏差" in (
+            algorithm_text
+        )
         assert "设备身份与健康摘要" in device_labels
         assert "生产算法与候选边界" in "\n".join(_texts(app.algorithm_page))
         assert "开始真实校准" not in device_text
@@ -313,6 +322,11 @@ def test_operator_workstation_i18n_defaults_to_chinese_with_english_fallback() -
     assert _t("title") == "V1.5 气体分析仪校准工作站"
     assert _t("title", locale="en_US") == "V1.5 Gas Analyzer Calibration Workstation"
     assert _t("route.zero", locale="en_US") == "CO₂ 零气锚点"
+    assert _t("evidence.pressure_gauge_short") == "表"
+    assert OperatorWorkstationApp._format_pressure_delta(
+        {"controller_minus_reference_hpa": 0.46}
+    ) == "+0.5 hPa"
+    assert OperatorWorkstationApp._format_pressure_delta({}) == "-- hPa"
 
 
 def test_operator_workstation_start_button_wires_only_the_dry_run_executor(

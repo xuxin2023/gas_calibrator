@@ -268,6 +268,13 @@ _ZH_CN = {
         "{profile}｜{mode}｜promotion_state = {state}"
     ),
     "pages.readonly.value.pressure_contract": "压力顺序：{value}",
+    "pages.readonly.value.pressure_truth_contract": (
+        "压力真值：数字压力计；压力控制器只负责调节与跟踪，不能替代计量参考。"
+    ),
+    "pages.readonly.value.pressure_fit_contract": (
+        "SENCO9拟合对象：分析仪内部压力相对数字压力计的偏差；"
+        "控制器与数字压力计之差只用于控制跟踪诊断。"
+    ),
     "pages.readonly.value.temperature_contract": "温度系数：{value}",
     "pages.readonly.value.temperature_truth_contract": (
         "温度真值：放在温度箱内的铂电阻数字测温仪；温度箱控制器显示不替代真值。"
@@ -307,7 +314,7 @@ _ZH_CN = {
     ),
     "pages.visitor_showcase.process.reference": "参考标准",
     "pages.visitor_showcase.process.temperature": "温度稳定",
-    "pages.visitor_showcase.process.pressure": "压力调节",
+    "pages.visitor_showcase.process.pressure": "表值为准 / 控制器调节",
     "pages.visitor_showcase.process.sampling": "同步采样",
     "pages.visitor_showcase.process.qc": "质量判定",
     "pages.visitor_showcase.process.archive": "证据归档",
@@ -624,6 +631,14 @@ _EN_US = {
         "Temperature truth comes from the digital platinum-resistance "
         "thermometer inside the chamber; the chamber controller display is not truth."
     ),
+    "pages.readonly.value.pressure_truth_contract": (
+        "Pressure truth comes from the digital pressure gauge; the pressure "
+        "controller is an actuator and tracking signal, not the reference."
+    ),
+    "pages.readonly.value.pressure_fit_contract": (
+        "SENCO9 fits analyzer internal pressure against the digital gauge. "
+        "Controller-minus-gauge delta is control tracking only."
+    ),
     "pages.readonly.value.flow_source_contract": (
         "Flow comes from the dew-point meter output with unit, timestamp, "
         "channel, and freshness. It monitors presence/stability only and is "
@@ -668,7 +683,7 @@ _EN_US = {
     ),
     "pages.visitor_showcase.process.reference": "Reference",
     "pages.visitor_showcase.process.temperature": "Temperature",
-    "pages.visitor_showcase.process.pressure": "Pressure",
+    "pages.visitor_showcase.process.pressure": "Gauge Truth / Control",
     "pages.visitor_showcase.process.sampling": "Sampling",
     "pages.visitor_showcase.process.qc": "Quality",
     "pages.visitor_showcase.process.archive": "Evidence",

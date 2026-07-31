@@ -99,6 +99,8 @@ class ReadOnlySummaryPage(ttk.Frame):
                 column=index % 2,
                 title=self._t(key),
             )
+            if self.page_kind == "algorithm":
+                widget.configure(height=11)
             self.readonly_widgets.append(widget)
 
     def _metric_keys(self) -> tuple[str, ...]:
@@ -671,6 +673,8 @@ class ReadOnlySummaryPage(ttk.Frame):
                 "pages.readonly.value.pressure_contract",
                 value=str(physical.get("pressure_sequence") or "--"),
             ),
+            self._t("pages.readonly.value.pressure_truth_contract"),
+            self._t("pages.readonly.value.pressure_fit_contract"),
             self._t(
                 "pages.readonly.value.temperature_contract",
                 value=str(physical.get("temperature_coefficients") or "--"),

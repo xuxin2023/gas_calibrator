@@ -17,15 +17,75 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 
-SCHEMA_VERSION = "v1_5_workstation_snapshot_v2"
+SCHEMA_VERSION = "v1_5_workstation_snapshot_v3"
 EXPECTED_POINT_COUNTS = {"co2": 45, "h2o": 13}
 CONFIGURED_CHANNEL_COUNT = 6
 PRODUCTION_PROFILE_ID = "legacy_ratio_production"
 SHADOW_PROFILE_ID = "absorption_ratio_shadow"
 RUNTIME_FRESH_SECONDS = 20
 RUNTIME_STALE_SECONDS = 180
+PRESSURE_PAIR_MAX_DELTA_MS = 2_000
 _MATURE_IO_NAME = re.compile(r"^io_\d{8}_\d{6}\.csv$")
 _MATURE_SAMPLE_NAME = re.compile(r"^samples_\d{8}_\d{6}\.csv$")
+_SAMPLE_FIELD_ALIASES = {
+    "sample_ts": ("sample_ts", "采样时间"),
+    "thermometer_sample_ts": (
+        "thermometer_sample_ts",
+        "数字温度计缓存采样时间",
+    ),
+    "thermometer_temp_c": (
+        "thermometer_temp_c",
+        "数字温度计温度C",
+    ),
+    "pressure_gauge_sample_ts": (
+        "pressure_gauge_sample_ts",
+        "数字压力计采样时间",
+    ),
+    "pressure_gauge_hpa": (
+        "pressure_gauge_hpa",
+        "gauge_pressure",
+        "数字压力计压力hPa",
+    ),
+    "pace_sample_ts": (
+        "pace_sample_ts",
+        "压力控制器采样时间",
+    ),
+    "pace_pressure_hpa": (
+        "pace_pressure_hpa",
+        "controller_pressure",
+        "pressure_controller_hpa",
+        "压力控制器压力hPa",
+    ),
+    "pace_output_state": (
+        "pace_output_state",
+        "压力控制器输出状态",
+    ),
+    "pace_isolation_state": (
+        "pace_isolation_state",
+        "压力控制器隔离状态",
+    ),
+    "pace_vent_status": (
+        "pace_vent_status",
+        "压力控制器通大气状态",
+    ),
+    "dewpoint_sample_ts": (
+        "dewpoint_live_sample_ts",
+        "dewpoint_sample_ts",
+        "露点仪实时采样时间",
+    ),
+    "dewpoint_c": (
+        "dewpoint_live_c",
+        "dewpoint_c",
+        "露点仪实时露点C",
+        "露点仪露点C",
+    ),
+    "dewpoint_flow_lpm": (
+        "dewpoint_flow_lpm",
+        "flow_lpm",
+        "露点仪实时流量(L/min)",
+        "露点仪流量(L/min)",
+    ),
+}
 ARTIFACT_ROLES = (
     "execution_rows",
     "execution_summary",
@@ -73,6 +133,71 @@ def _as_float(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return result
+
+
+def _sample_value(row: Mapping[str, Any], field: str) -> Any:
+    for key in _SAMPLE_FIELD_ALIASES.get(field, (field,)):
+        value = row.get(key)
+        if value is not None and str(value).strip() != "":
+            return value
+    return None
+
+
+def _latest_sample_row(
+    rows: Iterable[Mapping[str, Any]],
+    *fields: str,
+    require_all: bool = False,
+) -> Mapping[str, Any]:
+    candidates = list(rows)
+    for row in reversed(candidates):
+        present = [
+            _sample_value(row, field) is not None
+            for field in fields
+        ]
+        if present and (all(present) if require_all else any(present)):
+            return row
+    return {}
+
+
+def _timestamp_delta_ms(left: Any, right: Any) -> float | None:
+    left_value = _parse_artifact_timestamp(left)
+    right_value = _parse_artifact_timestamp(right)
+    if left_value is None or right_value is None:
+        return None
+    return abs((left_value - right_value).total_seconds()) * 1_000
+
+
+def _sample_age_seconds(
+    row: Mapping[str, Any],
+    timestamp_field: str,
+    latest_artifact_timestamp: datetime | None,
+) -> float | None:
+    if latest_artifact_timestamp is None:
+        return None
+    sample_timestamp = _parse_artifact_timestamp(
+        _sample_value(row, timestamp_field)
+        or _sample_value(row, "sample_ts")
+    )
+    if sample_timestamp is None:
+        return None
+    return max(
+        0.0,
+        (latest_artifact_timestamp - sample_timestamp).total_seconds(),
+    )
+
+
+def _sample_freshness(
+    value: Any,
+    age_seconds: float | None,
+    runtime_freshness: str,
+) -> str:
+    if value is None:
+        return "unknown"
+    if runtime_freshness != "fresh":
+        return runtime_freshness
+    if age_seconds is None:
+        return "unknown"
+    return "fresh" if age_seconds <= RUNTIME_FRESH_SECONDS else "stale"
 
 
 def _tail_csv_rows(
@@ -301,6 +426,13 @@ def _runtime_observation(
             "source_files": [],
             "channel_observations": [],
             "reference_observations": {},
+            "pressure_chain": {
+                "status": "unavailable",
+                "calibration_ready": False,
+                "controller_role": "pressure_actuator_not_reference",
+                "reference_role": "digital_pressure_gauge_metrological_truth",
+                "fit_target": "analyzer_internal_pressure_via_SENCO9",
+            },
             "contains_paths": False,
             "read_only": True,
         }
@@ -442,11 +574,30 @@ def _runtime_observation(
 
     sample_path = _latest_matching_file(run_dir, _MATURE_SAMPLE_NAME)
     sample_rows = (
-        _tail_csv_rows(sample_path, row_limit=1, byte_limit=262_144)
+        _tail_csv_rows(sample_path, row_limit=200, byte_limit=524_288)
         if sample_path is not None
         else []
     )
-    sample = sample_rows[-1] if sample_rows else {}
+    temperature_sample = _latest_sample_row(
+        sample_rows,
+        "thermometer_temp_c",
+    )
+    pressure_gauge_sample = _latest_sample_row(
+        sample_rows,
+        "pressure_gauge_hpa",
+    )
+    pressure_controller_sample = _latest_sample_row(
+        sample_rows,
+        "pace_pressure_hpa",
+    )
+    pressure_pair_sample = _latest_sample_row(
+        sample_rows,
+        "pressure_gauge_hpa",
+        "pace_pressure_hpa",
+        require_all=True,
+    )
+    dewpoint_sample = _latest_sample_row(sample_rows, "dewpoint_c")
+    flow_sample = _latest_sample_row(sample_rows, "dewpoint_flow_lpm")
     reference_path = run_dir / "formal_reference_source_record.json"
     reference_record = _load_json_object(reference_path)
     concentration_reference = reference_record.get(
@@ -465,18 +616,21 @@ def _runtime_observation(
     )
     route_flow = reference_record.get("route_flow_evidence")
     route_flow = route_flow if isinstance(route_flow, Mapping) else {}
-    temperature = _as_float(sample.get("thermometer_temp_c"))
+    temperature = _as_float(
+        _sample_value(temperature_sample, "thermometer_temp_c")
+    )
     pressure = _as_float(
-        sample.get("pressure_gauge_hpa") or sample.get("pressure_hpa")
+        _sample_value(pressure_gauge_sample, "pressure_gauge_hpa")
+    )
+    pressure_controller = _as_float(
+        _sample_value(pressure_controller_sample, "pace_pressure_hpa")
     )
     dewpoint = _as_float(
-        sample.get("dewpoint_live_c")
-        or sample.get("dewpoint_c")
+        _sample_value(dewpoint_sample, "dewpoint_c")
         or dewpoint_snapshot.get("dewpoint_c")
     )
     flow = _as_float(
-        sample.get("dewpoint_flow_lpm")
-        or sample.get("flow_lpm")
+        _sample_value(flow_sample, "dewpoint_flow_lpm")
     )
     if (
         flow is None
@@ -486,6 +640,65 @@ def _runtime_observation(
             route_flow.get("dewpoint_meter_output_flow_lpm")
             or route_flow.get("observed_flow_lpm")
         )
+    paired_pressure_gauge = _as_float(
+        _sample_value(pressure_pair_sample, "pressure_gauge_hpa")
+    )
+    paired_pressure_controller = _as_float(
+        _sample_value(pressure_pair_sample, "pace_pressure_hpa")
+    )
+    pressure_pair_delta_ms = _timestamp_delta_ms(
+        _sample_value(pressure_pair_sample, "pressure_gauge_sample_ts"),
+        _sample_value(pressure_pair_sample, "pace_sample_ts"),
+    )
+    pressure_gauge_age_seconds = _sample_age_seconds(
+        pressure_gauge_sample,
+        "pressure_gauge_sample_ts",
+        latest_row_timestamp,
+    )
+    pressure_controller_age_seconds = _sample_age_seconds(
+        pressure_controller_sample,
+        "pace_sample_ts",
+        latest_row_timestamp,
+    )
+    pressure_pair_age_seconds = _sample_age_seconds(
+        pressure_pair_sample,
+        "sample_ts",
+        latest_row_timestamp,
+    )
+    pressure_pair_coincident = bool(
+        paired_pressure_gauge is not None
+        and paired_pressure_controller is not None
+        and pressure_pair_delta_ms is not None
+        and pressure_pair_delta_ms <= PRESSURE_PAIR_MAX_DELTA_MS
+    )
+    if freshness != "fresh":
+        pressure_chain_status = "stale_observation"
+    elif pressure is None:
+        pressure_chain_status = "reference_missing"
+    elif pressure_controller is None:
+        pressure_chain_status = "controller_feedback_missing"
+    elif not pressure_pair_sample:
+        pressure_chain_status = "coincident_pair_missing"
+    elif pressure_pair_delta_ms is None:
+        pressure_chain_status = "pair_timestamp_missing"
+    elif not pressure_pair_coincident:
+        pressure_chain_status = "pair_not_coincident"
+    elif pressure_pair_age_seconds is None:
+        pressure_chain_status = "pair_age_unknown"
+    elif pressure_pair_age_seconds > RUNTIME_FRESH_SECONDS:
+        pressure_chain_status = "pair_stale"
+    else:
+        pressure_chain_status = "fresh_coincident_observation"
+    runtime_devices = runtime_config.get("devices")
+    runtime_devices = (
+        runtime_devices if isinstance(runtime_devices, Mapping) else {}
+    )
+    controller_config = runtime_devices.get("pressure_controller")
+    controller_config = (
+        controller_config if isinstance(controller_config, Mapping) else {}
+    )
+    gauge_config = runtime_devices.get("pressure_gauge")
+    gauge_config = gauge_config if isinstance(gauge_config, Mapping) else {}
     reference_record_timestamp = (
         datetime.fromtimestamp(reference_path.stat().st_mtime, timezone.utc)
         .replace(microsecond=0)
@@ -517,6 +730,35 @@ def _runtime_observation(
         "latest_event": latest_event or "unknown",
         "source_contract": "mature_v1_v1_5_append_only_artifacts",
         "source_files": source_files,
+        "pressure_chain": {
+            "status": pressure_chain_status,
+            "calibration_ready": (
+                pressure_chain_status == "fresh_coincident_observation"
+            ),
+            "controller_configured": bool(controller_config)
+            and controller_config.get("enabled") is not False,
+            "reference_configured": bool(gauge_config)
+            and gauge_config.get("enabled") is not False,
+            "controller_role": "pressure_actuator_not_reference",
+            "controller_is_pressure_truth": False,
+            "reference_role": "digital_pressure_gauge_metrological_truth",
+            "fit_target": "analyzer_internal_pressure_via_SENCO9",
+            "pair_max_delta_ms": PRESSURE_PAIR_MAX_DELTA_MS,
+            "pair_timestamp_delta_ms": pressure_pair_delta_ms,
+            "pair_is_coincident": pressure_pair_coincident,
+            "pair_age_seconds": pressure_pair_age_seconds,
+            "pair_is_recent": (
+                pressure_pair_age_seconds is not None
+                and pressure_pair_age_seconds <= RUNTIME_FRESH_SECONDS
+            ),
+            "controller_minus_reference_hpa": (
+                paired_pressure_controller - paired_pressure_gauge
+                if paired_pressure_controller is not None
+                and paired_pressure_gauge is not None
+                else None
+            ),
+            "delta_role": "control_tracking_only_not_SENCO9_fit_residual",
+        },
         "channel_observations": channel_observations,
         "reference_observations": {
             "temperature": {
@@ -525,8 +767,11 @@ def _runtime_observation(
                 "source": "digital_platinum_resistance_thermometer_in_chamber",
                 "channel": "thermometer",
                 "sample_timestamp": str(
-                    sample.get("thermometer_sample_ts")
-                    or sample.get("sample_ts")
+                    _sample_value(
+                        temperature_sample,
+                        "thermometer_sample_ts",
+                    )
+                    or _sample_value(temperature_sample, "sample_ts")
                     or ""
                 ),
                 "freshness_status": freshness if temperature is not None else "unknown",
@@ -537,11 +782,55 @@ def _runtime_observation(
                 "source": "independent_pressure_reference",
                 "channel": "pressure_gauge",
                 "sample_timestamp": str(
-                    sample.get("pressure_gauge_sample_ts")
-                    or sample.get("sample_ts")
+                    _sample_value(
+                        pressure_gauge_sample,
+                        "pressure_gauge_sample_ts",
+                    )
+                    or _sample_value(pressure_gauge_sample, "sample_ts")
                     or ""
                 ),
-                "freshness_status": freshness if pressure is not None else "unknown",
+                "freshness_status": _sample_freshness(
+                    pressure,
+                    pressure_gauge_age_seconds,
+                    freshness,
+                ),
+                "age_seconds": pressure_gauge_age_seconds,
+                "role": "metrological_truth_for_pressure_calibration",
+                "controller_value_is_substitute": False,
+            },
+            "pressure_controller": {
+                "value": pressure_controller,
+                "unit": "hPa",
+                "source": "pressure_controller_feedback",
+                "channel": "pressure_controller",
+                "sample_timestamp": str(
+                    _sample_value(
+                        pressure_controller_sample,
+                        "pace_sample_ts",
+                    )
+                    or _sample_value(pressure_controller_sample, "sample_ts")
+                    or ""
+                ),
+                "freshness_status": _sample_freshness(
+                    pressure_controller,
+                    pressure_controller_age_seconds,
+                    freshness,
+                ),
+                "age_seconds": pressure_controller_age_seconds,
+                "role": "pressure_actuator_and_tracking_feedback_only",
+                "used_as_pressure_truth": False,
+                "output_state": _sample_value(
+                    pressure_controller_sample,
+                    "pace_output_state",
+                ),
+                "isolation_state": _sample_value(
+                    pressure_controller_sample,
+                    "pace_isolation_state",
+                ),
+                "vent_status": _sample_value(
+                    pressure_controller_sample,
+                    "pace_vent_status",
+                ),
             },
             "dewpoint": {
                 "value": dewpoint,
@@ -549,9 +838,8 @@ def _runtime_observation(
                 "source": "dewpoint_meter_output",
                 "channel": "dewpoint_meter",
                 "sample_timestamp": str(
-                    sample.get("dewpoint_live_sample_ts")
-                    or sample.get("dewpoint_sample_ts")
-                    or sample.get("sample_ts")
+                    _sample_value(dewpoint_sample, "dewpoint_sample_ts")
+                    or _sample_value(dewpoint_sample, "sample_ts")
                     or ""
                 ),
                 "freshness_status": freshness if dewpoint is not None else "unknown",
@@ -562,9 +850,8 @@ def _runtime_observation(
                 "source": "dewpoint_meter_output",
                 "channel": "dewpoint_meter_flow_output",
                 "sample_timestamp": str(
-                    sample.get("dewpoint_live_sample_ts")
-                    or sample.get("dewpoint_sample_ts")
-                    or sample.get("sample_ts")
+                    _sample_value(flow_sample, "dewpoint_sample_ts")
+                    or _sample_value(flow_sample, "sample_ts")
                     or reference_record_timestamp
                     or ""
                 ),
@@ -1301,6 +1588,16 @@ def build_workstation_snapshot(
             "chamber_controller_display_is_truth": False,
         },
         "pressure_sequence": "SENCO9_first",
+        "pressure": {
+            "truth_source": "digital_pressure_gauge",
+            "controller_role": "pressure_actuator_not_reference",
+            "controller_is_pressure_truth": False,
+            "fit_target": "analyzer_internal_pressure_via_SENCO9",
+            "controller_reference_delta_role": (
+                "control_tracking_only_not_SENCO9_fit_residual"
+            ),
+        },
+        "pressure_chain": dict(runtime_public.get("pressure_chain") or {}),
         "flow": {
             "source": "dewpoint_meter_output",
             "required_metadata": [
