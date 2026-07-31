@@ -53,6 +53,18 @@ FORMAL_INITIALIZATION_SUPPORT_TOOL_NAMES = (
     "run_v1_5_sn_identity_initialization",
 )
 
+CONTROLLED_PROTOCOL_IDENTITY_TOOL_NAMES = (
+    "run_v1_5_protocol_identity_controlled_write",
+)
+
+AUTHORITATIVE_IDENTITY_VALIDATION_TOOL_NAMES = (
+    "verify_v1_5_authoritative_identity_export",
+)
+
+AUTHORITATIVE_IDENTITY_NORMALIZATION_TOOL_NAMES = (
+    "normalize_v1_5_authoritative_identity_export",
+)
+
 FORMAL_PREFLIGHT_SUPPORT_TOOL_NAMES = (
     "run_v1_5_formal_route_readiness_probe",
 )
@@ -184,6 +196,10 @@ NON_START_HERE_GUARDRAILS: dict[str, dict[str, str]] = {
         "guardrail": "authorized_write_only",
         "allowed_use": "Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan.",
     },
+    "controlled_identity_write": {
+        "guardrail": "authorized_single_device_identity_write_only",
+        "allowed_use": "Use only for one FTDI/SN-bound analyzer after global ID uniqueness, GETCO1-9 backup, dual confirmation, and readback/rollback planning; it never writes SENCO.",
+    },
     "diagnostic_only": {
         "guardrail": "diagnostic_not_acceptance",
         "allowed_use": "Use for engineering investigation or replay evidence; exclude from formal CO2/H2O fitting by default.",
@@ -281,7 +297,11 @@ def _rel(path: Path, root: Path) -> str:
 
 def _stage_from_name(name: str) -> str:
     lower = name.lower()
-    if "serial_port" in lower:
+    if (
+        "serial_port" in lower
+        or "protocol_identity" in lower
+        or "authoritative_identity" in lower
+    ):
         return "identity_and_serial_binding"
     if "pressure" in lower or "senco9" in lower or "pace" in lower:
         return "pressure_channel"
@@ -299,7 +319,7 @@ def _stage_from_name(name: str) -> str:
         return "qc_review"
     if "operation_console" in lower or "workbench" in lower or "review_surface" in lower:
         return "ui_review"
-    if "full_flow" in lower or "formal_run_package" in lower:
+    if "full_flow" in lower or "formal_run_package" in lower or "operator_workstation" in lower:
         return "full_flow_orchestration"
     if "candidate" in lower or "coefficient" in lower or "fit" in lower:
         return "coefficient_review"
@@ -315,12 +335,18 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("pressure-channel no-write validation/calibration runner; separate from CO2/H2O fitting")
     if lower == "probe_v1_5_getco_component_snapshot":
         notes.append("subordinate initialization evidence tool; read-only GETCO1-9 and device-ID snapshot")
+    elif lower in CONTROLLED_PROTOCOL_IDENTITY_TOOL_NAMES:
+        notes.append(
+            "single-device protocol identity writer; requires FTDI/SN binding, global uniqueness, GETCO1-9 backup, dual confirmation, and readback; never writes SENCO"
+        )
     elif lower in FORMAL_INITIALIZATION_SUPPORT_TOOL_NAMES:
         notes.append("formal initialization support; use only through the initialization owner or explicit preflight")
     elif lower in FORMAL_PREFLIGHT_SUPPORT_TOOL_NAMES:
         notes.append("formal route-readiness preflight support; records readiness evidence before mature route runners")
     elif lower == "run_v1_5_formal_initialization_runner":
         notes.append("canonical initialization owner; offline planner, evidence indexer, and readiness gate")
+    elif lower == "run_v1_5_operator_workstation_dry_run":
+        notes.append("offline mature 45/13 workstation rehearsal; writes review artifacts without opening COM or controlling routes")
     elif lower == "export_v1_5_formal_initialization_executor_dry_run":
         notes.append("offline initialization executor dry-run review; classifies plan steps without executing COM or write commands")
     elif lower == "run_v1_5_formal_initialization_blocked_executor":
@@ -545,7 +571,10 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("pressure/route engineering probe; keep outside formal CO2/H2O fit")
     if (
         "controlled_write" in lower or "rollback" in lower
-    ) and lower != "export_v1_5_authoritative_resume_state_controlled_write_preflight":
+    ) and lower not in {
+        "export_v1_5_authoritative_resume_state_controlled_write_preflight",
+        *CONTROLLED_PROTOCOL_IDENTITY_TOOL_NAMES,
+    }:
         notes.append("requires explicit coefficient-write authorization and readback evidence")
     if lower in CANONICAL_FORMAL_WORKER_TOOL_NAMES:
         notes.append("canonical per-point sampling worker; invoked by the formal CO2/H2O queue runners")
@@ -608,7 +637,9 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
         controls_routes = any(
             token in lower for token in ("open_flow_sampling", "open_flow_queue", "h2o_open_flow", "co2_open_flow")
         )
-        writes_coefficients = any(token in lower for token in ("controlled_write", "rollback", "neutral_controlled"))
+        writes_coefficients = lower not in CONTROLLED_PROTOCOL_IDENTITY_TOOL_NAMES and any(
+            token in lower for token in ("controlled_write", "rollback", "neutral_controlled")
+        )
         opens_com_ports = lower.startswith("run_v1_5_") or lower.startswith("probe_v1_5_")
 
         if lower in LEGACY_V1_REFERENCE_TOOL_NAMES:
@@ -649,6 +680,13 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             risk_level = "offline"
             opens_com_ports = False
             controls_routes = False
+        elif lower == "run_v1_5_operator_workstation_dry_run":
+            category = "full_flow_orchestration"
+            formal_status = "offline_mature_queue_dry_run"
+            risk_level = "offline_artifact_write_risk"
+            opens_com_ports = False
+            controls_routes = False
+            writes_coefficients = False
         elif lower == "run_v1_5_web_console":
             category = "ui_review"
             formal_status = "local_read_only_web_console"
@@ -813,6 +851,27 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             opens_com_ports = False
             controls_routes = False
             writes_coefficients = False
+        elif lower in AUTHORITATIVE_IDENTITY_NORMALIZATION_TOOL_NAMES:
+            category = "formal_review_evidence"
+            formal_status = "read_only_authority_normalization"
+            risk_level = "offline"
+            opens_com_ports = False
+            controls_routes = False
+            writes_coefficients = False
+        elif lower in AUTHORITATIVE_IDENTITY_VALIDATION_TOOL_NAMES:
+            category = "formal_review_evidence"
+            formal_status = "read_only_authority_validation"
+            risk_level = "offline"
+            opens_com_ports = False
+            controls_routes = False
+            writes_coefficients = False
+        elif lower in CONTROLLED_PROTOCOL_IDENTITY_TOOL_NAMES:
+            category = "identity_and_serial_binding"
+            formal_status = "manual_authorized_single_device_identity_write"
+            risk_level = "writes_device_identity"
+            opens_com_ports = True
+            controls_routes = False
+            writes_coefficients = False
         elif lower in FORMAL_INITIALIZATION_SUPPORT_TOOL_NAMES:
             category = "identity_and_serial_binding"
             formal_status = "formal_initialization_support"
@@ -957,6 +1016,8 @@ def guardrailed_entrypoint_rows(entries: Iterable[V15Entrypoint]) -> list[dict[s
     rows: list[dict[str, str]] = []
     for entry in entries:
         rule_key = entry.category
+        if entry.name in CONTROLLED_PROTOCOL_IDENTITY_TOOL_NAMES:
+            rule_key = "controlled_identity_write"
         if entry.category == "formal_runner" and entry.path not in canonical_paths:
             rule_key = "noncanonical_formal_runner"
         rule = NON_START_HERE_GUARDRAILS.get(rule_key)

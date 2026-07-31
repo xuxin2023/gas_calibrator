@@ -1,0 +1,3 @@
+asset_key,sn_code,protocol_device_id,lifecycle_status
+TEST-ASSET-01,99000001,091,active
+TEST-ASSET-02,99000002,092,retired

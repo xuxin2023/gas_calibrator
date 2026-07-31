@@ -106,14 +106,16 @@ def test_entrypoint_classifier_keeps_offline_sidecars_out_of_real_com_risk(tmp_p
     sidecar = root / "src/gas_calibrator/tools/run_v1_5_formal_evidence_sidecar.py"
     offline_chain = root / "src/gas_calibrator/tools/run_v1_5_formal_offline_review_chain.py"
     full_chain = root / "src/gas_calibrator/tools/run_v1_5_full_calibration_chain.py"
+    workstation = root / "src/gas_calibrator/tools/run_v1_5_operator_workstation_dry_run.py"
     archive_closure = root / "src/gas_calibrator/tools/run_v1_5_formal_archive_closure.py"
-    for path in (sidecar, offline_chain, full_chain, archive_closure):
+    for path in (sidecar, offline_chain, full_chain, workstation, archive_closure):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("", encoding="utf-8")
 
     sidecar_entry = classify_v1_5_entrypoint(sidecar, root=root)
     offline_entry = classify_v1_5_entrypoint(offline_chain, root=root)
     full_chain_entry = classify_v1_5_entrypoint(full_chain, root=root)
+    workstation_entry = classify_v1_5_entrypoint(workstation, root=root)
     archive_entry = classify_v1_5_entrypoint(archive_closure, root=root)
 
     assert sidecar_entry.category == "formal_review_evidence"
@@ -122,6 +124,12 @@ def test_entrypoint_classifier_keeps_offline_sidecars_out_of_real_com_risk(tmp_p
     assert offline_entry.risk_level == "offline"
     assert full_chain_entry.category == "full_flow_orchestration"
     assert full_chain_entry.controls_routes is False
+    assert workstation_entry.category == "full_flow_orchestration"
+    assert workstation_entry.stage == "full_flow_orchestration"
+    assert workstation_entry.formal_status == "offline_mature_queue_dry_run"
+    assert workstation_entry.risk_level == "offline_artifact_write_risk"
+    assert workstation_entry.opens_com_ports is False
+    assert workstation_entry.controls_routes is False
     assert archive_entry.category == "formal_review_evidence"
     assert archive_entry.risk_level == "offline"
     assert archive_entry.opens_com_ports is False
@@ -1113,6 +1121,26 @@ def test_canonical_formal_path_flags_writes_and_route_runners() -> None:
     assert write_tool.writes_coefficients is True
     assert full_flow.category == "full_flow_orchestration"
     assert full_flow.opens_com_ports is False
+
+
+def test_protocol_identity_writer_is_not_misclassified_as_coefficient_write() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    path = (
+        repo_root
+        / "src/gas_calibrator/tools/run_v1_5_protocol_identity_controlled_write.py"
+    )
+
+    entry = inventory_validation.classify_v1_5_entrypoint(path, root=repo_root)
+    rows = inventory_validation.guardrailed_entrypoint_rows([entry])
+
+    assert entry.category == "identity_and_serial_binding"
+    assert entry.stage == "identity_and_serial_binding"
+    assert entry.formal_status == "manual_authorized_single_device_identity_write"
+    assert entry.risk_level == "writes_device_identity"
+    assert entry.opens_com_ports is True
+    assert entry.controls_routes is False
+    assert entry.writes_coefficients is False
+    assert rows[0]["guardrail"] == "authorized_single_device_identity_write_only"
 
 
 def test_guardrailed_entrypoints_collect_diagnostics_writes_and_queue_workers(tmp_path: Path) -> None:
