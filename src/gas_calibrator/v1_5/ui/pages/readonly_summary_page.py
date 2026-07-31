@@ -558,18 +558,46 @@ class ReadOnlySummaryPage(ttk.Frame):
             for row in channels
         ] or [self._t("pages.readonly.value.none")]
         identity_lines = [
-            self._t("pages.readonly.value.device_slots_not_devices"),
-            self._t("pages.readonly.value.device_identity_not_evaluated"),
+            self._t(
+                "pages.readonly.value.device_mapping_counts",
+                configured=int(devices.get("configured_channel_count") or 0),
+                reported=int(devices.get("reported_connected_count") or 0),
+                mapped=int(devices.get("mapped_connected_count") or 0),
+                powered=int(devices.get("powered_count") or 0),
+            ),
+            self._t(
+                "pages.readonly.value.device_identity_count",
+                count=int(devices.get("identity_evaluated_count") or 0),
+            ),
         ]
+        freshness = dict(devices.get("runtime_freshness") or {})
         health_lines = [
-            self._t("pages.readonly.value.device_health_not_evaluated"),
-            self._t("pages.readonly.value.device_frames_not_evaluated"),
+            self._t(
+                "pages.readonly.value.device_runtime_freshness",
+                status=str(freshness.get("status") or "unknown"),
+                age=(
+                    str(freshness.get("age_seconds"))
+                    if freshness.get("age_seconds") is not None
+                    else "--"
+                ),
+            ),
+            self._t(
+                "pages.readonly.value.device_health_count",
+                count=int(devices.get("health_evaluated_count") or 0),
+                unknown=int(devices.get("unknown_health_count") or 0),
+            ),
         ]
         initialization = dict(
             devices.get("initialization_contract") or {}
         )
         boundary_lines = [
-            self._t("pages.readonly.value.device_simulation_only"),
+            self._t(
+                "pages.readonly.value.device_read_only_mode",
+                mode=str(devices.get("ui_mode") or "read_only"),
+                observed=int(devices.get("connected_count") or 0),
+                mapped=int(devices.get("mapped_connected_count") or 0),
+                powered=int(devices.get("powered_count") or 0),
+            ),
             self._t(
                 "pages.readonly.value.device_runtime_authority",
                 authority=str(
@@ -584,7 +612,13 @@ class ReadOnlySummaryPage(ttk.Frame):
                     or "mature_v1_5_initialization_flow"
                 ),
                 mode=str(initialization.get("runtime_mode") or "MODE2"),
-                rate=int(initialization.get("upload_rate_hz") or 1),
+                rate=str(initialization.get("upload_rate_hz") or 1),
+                rate_scope=str(
+                    initialization.get("upload_rate_scope")
+                    or "calibration_upload_timebase"
+                ),
+                average1=str(initialization.get("average1") or "--"),
+                average2=str(initialization.get("average2") or "--"),
                 temperature=str(
                     initialization.get("temperature_coefficients")
                     or "SENCO7_SENCO8_neutral"
@@ -641,6 +675,10 @@ class ReadOnlySummaryPage(ttk.Frame):
                 "pages.readonly.value.temperature_contract",
                 value=str(physical.get("temperature_coefficients") or "--"),
             ),
+            self._t("pages.readonly.value.temperature_truth_contract"),
+            self._t("pages.readonly.value.flow_source_contract"),
+            self._t("pages.readonly.value.sampling_timebase_contract"),
+            self._t("pages.readonly.value.average_contract"),
             self._t("pages.readonly.value.co2_anchor"),
             self._t("pages.readonly.value.h2o_anchor"),
         ]

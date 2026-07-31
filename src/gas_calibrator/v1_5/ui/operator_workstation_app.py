@@ -71,18 +71,22 @@ _TEXT = {
         "value.not_started": "尚未启动",
         "value.dry_run": "仅 dry-run",
         "value.not_applicable": "--",
-        "channels.title": "六通道分析仪",
+        "channels.title": "分析仪只读状态（最多显示六个通道）",
         "channels.waiting": "等待仿真演练",
-        "channels.co2": "CO₂ 读数（仿真）",
-        "channels.h2o": "H₂O 读数（仿真）",
+        "channels.co2": "CO₂ 只读值",
+        "channels.h2o": "H₂O 只读值",
         "channels.status": "状态",
         "channels.trend": "趋势",
         "channels.note": "备注",
-        "evidence.temperature": "温度稳定",
-        "evidence.reference": "压力与露点证据",
-        "evidence.source": "气体源状态（仿真）",
+        "channels.no_artifact": "无成熟运行工件",
+        "channels.read_only": "只读工件 / NO COM",
+        "evidence.temperature": "温度箱真值（箱内铂电阻数字测温仪）",
+        "evidence.reference": "独立压力 / 露点证据",
+        "evidence.source": "流量来源（露点仪输出）",
         "evidence.certificate": "证书资料不阻断启动",
         "evidence.release": "正式签发另行审核",
+        "evidence.unknown": "未知｜未发现可信新鲜工件",
+        "evidence.flow_unknown": "L/min｜未知｜仅监测存在性与稳定性",
         "aside.next": "下一步操作",
         "aside.heading": "成熟 V1.5 路径演练",
         "aside.step1": "1. 校验 45/13 canonical 队列",
@@ -115,6 +119,7 @@ _TEXT = {
         "dialog.co2": "CO₂ 45 点队列",
         "dialog.h2o": "H₂O 13 点队列",
         "dialog.output": "证据输出目录",
+        "dialog.runtime": "成熟运行工件根目录（只读）",
         "dialog.certificate": "证书资料（可选，不阻断）",
         "dialog.browse": "浏览",
         "dialog.save": "保存",
@@ -174,6 +179,7 @@ def _default_paths() -> dict[str, str]:
         "co2": str(queue_root / "co2_runner_queue.csv"),
         "h2o": str(queue_root / "h2o_runner_queue.csv"),
         "output": str(root / "output" / "v1_5_operator_workstation_ui"),
+        "runtime": str(root / "logs"),
         "certificate": "",
     }
 
@@ -204,7 +210,8 @@ class OperatorWorkstationApp:
         self.nav_buttons: dict[str, ttk.Button] = {}
         self._presentation_active = False
         self.current_snapshot = build_workstation_snapshot(
-            output_dir=self.settings["output"].get()
+            output_dir=self.settings["output"].get(),
+            runtime_output_dir=self.settings["runtime"].get(),
         )
         self.status_var = tk.StringVar(master=root, value=_t("status.ready", locale=locale))
         self.route_var = tk.StringVar(master=root, value=_t("value.not_started", locale=locale))
@@ -321,6 +328,16 @@ class OperatorWorkstationApp:
             fieldbackground=_COLORS["card"],
             background=_COLORS["card"],
             foreground=_COLORS["text"],
+            arrowcolor=_COLORS["muted"],
+            bordercolor=_COLORS["border"],
+            padding=(7, 5),
+        )
+        style.configure(
+            "Site.TSpinbox",
+            fieldbackground=_COLORS["card"],
+            background=_COLORS["card"],
+            foreground=_COLORS["text"],
+            insertcolor=_COLORS["text"],
             arrowcolor=_COLORS["muted"],
             bordercolor=_COLORS["border"],
             padding=(7, 5),
@@ -639,6 +656,8 @@ class OperatorWorkstationApp:
         snapshot = build_workstation_snapshot(
             execution=self.last_result,
             output_dir=self.settings["output"].get(),
+            runtime_output_dir=self.settings["runtime"].get(),
+            site_profile=self.site_profile_page.profile,
             certificate_records=certificate_records,
             certificate_error=certificate_error,
         )
@@ -652,6 +671,7 @@ class OperatorWorkstationApp:
         self.site_profile_page.render(snapshot)
         self.algorithm_page.render(snapshot)
         self.visitor_page.render(snapshot)
+        self._refresh_run_readback(snapshot)
         return snapshot
 
     def enter_visitor_presentation(self) -> None:
@@ -777,23 +797,54 @@ class OperatorWorkstationApp:
         grid = tk.Frame(panel, bg=_COLORS["surface"])
         grid.pack(fill="both", expand=True, padx=12, pady=(0, 12))
         grid.grid_rowconfigure(0, weight=1)
+        self.channel_card_vars: list[dict[str, tk.StringVar]] = []
         for index in range(6):
             grid.grid_columnconfigure(index, weight=1, uniform="channel")
+            variables = {
+                "name": tk.StringVar(master=self.root, value=f"通道 {index + 1:02d}"),
+                "co2": tk.StringVar(master=self.root, value="--"),
+                "h2o": tk.StringVar(master=self.root, value="--"),
+                "status": tk.StringVar(
+                    master=self.root,
+                    value=_t("channels.no_artifact", locale=self.locale),
+                ),
+                "trend": tk.StringVar(master=self.root, value="—"),
+                "note": tk.StringVar(master=self.root, value="freshness = unknown"),
+                "tag": tk.StringVar(
+                    master=self.root,
+                    value=_t("channels.read_only", locale=self.locale),
+                ),
+            }
+            self.channel_card_vars.append(variables)
             card = self._panel(grid, bg="card")
             card.grid(row=0, column=index, sticky="nsew", padx=3)
-            self._label(card, f"通道 {index + 1:02d}", size=11, weight="bold", bg="card").pack(
+            self._label(
+                card,
+                textvariable=variables["name"],
+                size=11,
+                weight="bold",
+                bg="card",
+            ).pack(
                 anchor="w", padx=14, pady=(14, 12)
             )
-            for key in ("channels.co2", "channels.h2o"):
+            for key, variable in (
+                ("channels.co2", variables["co2"]),
+                ("channels.h2o", variables["h2o"]),
+            ):
                 self._label(card, _t(key, locale=self.locale), size=9, color="muted", bg="card").pack(
                     anchor="w", padx=14
                 )
-                self._label(card, "--", size=12, bg="card").pack(anchor="w", padx=14, pady=(0, 10))
+                self._label(
+                    card,
+                    textvariable=variable,
+                    size=12,
+                    bg="card",
+                ).pack(anchor="w", padx=14, pady=(0, 10))
             tk.Frame(card, bg=_COLORS["border"], height=1).pack(fill="x", padx=14, pady=5)
-            for key, value in (
-                ("channels.status", _t("channels.waiting", locale=self.locale)),
-                ("channels.trend", "— — —"),
-                ("channels.note", "—"),
+            for key, variable in (
+                ("channels.status", variables["status"]),
+                ("channels.trend", variables["trend"]),
+                ("channels.note", variables["note"]),
             ):
                 row = tk.Frame(card, bg=_COLORS["card"])
                 row.pack(fill="x", padx=14, pady=4)
@@ -806,14 +857,14 @@ class OperatorWorkstationApp:
                 ).pack(side="left")
                 self._label(
                     row,
-                    value,
+                    textvariable=variable,
                     size=8,
                     color="green" if key == "channels.status" else "muted",
                     bg="card",
                 ).pack(side="right")
             self._label(
                 card,
-                "SIMULATION / NO COM",
+                textvariable=variables["tag"],
                 size=8,
                 color="blue",
                 bg="card",
@@ -822,12 +873,30 @@ class OperatorWorkstationApp:
     def _build_evidence(self, main: tk.Frame) -> None:
         grid = tk.Frame(main, bg=_COLORS["bg"])
         grid.grid(row=3, column=0, sticky="ew")
-        for index, (key, value) in enumerate(
+        self.evidence_vars = {
+            "temperature": tk.StringVar(
+                master=self.root,
+                value=_t("evidence.unknown", locale=self.locale),
+            ),
+            "reference": tk.StringVar(
+                master=self.root,
+                value=_t("evidence.unknown", locale=self.locale),
+            ),
+            "flow": tk.StringVar(
+                master=self.root,
+                value=_t("evidence.flow_unknown", locale=self.locale),
+            ),
+            "certificate": tk.StringVar(
+                master=self.root,
+                value=_t("evidence.release", locale=self.locale),
+            ),
+        }
+        for index, (key, variable) in enumerate(
             (
-                ("evidence.temperature", "24.9 °C / 等待"),
-                ("evidence.reference", "1000 hPa / -45 °C"),
-                ("evidence.source", "零气 / 干气 / 标气"),
-                ("evidence.certificate", _t("evidence.release", locale=self.locale)),
+                ("evidence.temperature", self.evidence_vars["temperature"]),
+                ("evidence.reference", self.evidence_vars["reference"]),
+                ("evidence.source", self.evidence_vars["flow"]),
+                ("evidence.certificate", self.evidence_vars["certificate"]),
             )
         ):
             grid.grid_columnconfigure(index, weight=1, uniform="evidence")
@@ -836,9 +905,105 @@ class OperatorWorkstationApp:
             self._label(card, _t(key, locale=self.locale), size=9, weight="bold", bg="card_alt").pack(
                 anchor="w", padx=12, pady=(10, 4)
             )
-            self._label(card, value, size=8, color="muted", bg="card_alt").pack(
+            self._label(
+                card,
+                textvariable=variable,
+                size=8,
+                color="muted",
+                bg="card_alt",
+            ).pack(
                 anchor="w", padx=12, pady=(0, 10)
             )
+
+    @staticmethod
+    def _format_reference_observation(
+        observation: Mapping[str, Any],
+        *,
+        digits: int,
+    ) -> str:
+        value = observation.get("value")
+        unit = str(observation.get("unit") or "")
+        freshness = str(observation.get("freshness_status") or "unknown")
+        if value is None:
+            return f"-- {unit}｜{freshness}".strip()
+        try:
+            number = f"{float(value):.{digits}f}"
+        except (TypeError, ValueError):
+            number = str(value)
+        return f"{number} {unit}｜{freshness}".strip()
+
+    def _refresh_run_readback(self, snapshot: Mapping[str, Any]) -> None:
+        """Render only normalized artifacts; never perform a hardware refresh."""
+
+        devices = dict(snapshot.get("devices") or {})
+        channels = [
+            dict(item) for item in devices.get("channels") or ()
+            if isinstance(item, Mapping)
+        ]
+        freshness = dict(devices.get("runtime_freshness") or {})
+        freshness_status = str(freshness.get("status") or "unknown")
+        for index, variables in enumerate(self.channel_card_vars):
+            if index >= len(channels):
+                variables["name"].set(f"通道 {index + 1:02d}")
+                variables["co2"].set("--")
+                variables["h2o"].set("--")
+                variables["status"].set(
+                    _t("channels.no_artifact", locale=self.locale)
+                )
+                variables["trend"].set("—")
+                variables["note"].set("freshness = unknown")
+                continue
+            row = channels[index]
+            variables["name"].set(
+                str(row.get("display_name") or f"通道 {index + 1:02d}")
+            )
+            variables["co2"].set("--")
+            variables["h2o"].set("--")
+            variables["status"].set(
+                str(row.get("connection_status") or "unknown")
+            )
+            variables["trend"].set(
+                str(row.get("health_status") or "not_evaluated")
+            )
+            variables["note"].set(
+                f"frame={row.get('last_frame_status') or 'unknown'}"
+            )
+            variables["tag"].set(
+                _t("channels.read_only", locale=self.locale)
+            )
+
+        reference = dict(snapshot.get("physical_reference") or {})
+        observations = dict(reference.get("observations") or {})
+        temperature = dict(observations.get("temperature") or {})
+        pressure = dict(observations.get("pressure") or {})
+        dewpoint = dict(observations.get("dewpoint") or {})
+        flow = dict(observations.get("flow") or {})
+        if freshness_status == "unknown":
+            self.evidence_vars["temperature"].set(
+                _t("evidence.unknown", locale=self.locale)
+            )
+            self.evidence_vars["reference"].set(
+                _t("evidence.unknown", locale=self.locale)
+            )
+            self.evidence_vars["flow"].set(
+                _t("evidence.flow_unknown", locale=self.locale)
+            )
+            return
+        self.evidence_vars["temperature"].set(
+            self._format_reference_observation(temperature, digits=2)
+        )
+        self.evidence_vars["reference"].set(
+            " / ".join(
+                (
+                    self._format_reference_observation(pressure, digits=1),
+                    self._format_reference_observation(dewpoint, digits=2),
+                )
+            )
+        )
+        flow_text = self._format_reference_observation(flow, digits=2)
+        self.evidence_vars["flow"].set(
+            f"{flow_text}｜仅监测存在性与稳定性"
+        )
 
     def _build_aside(self, body: tk.Frame) -> None:
         aside = tk.Frame(body, bg=_COLORS["bg"], width=294)
@@ -942,7 +1107,7 @@ class OperatorWorkstationApp:
         dialog = tk.Toplevel(self.root)
         self._settings_dialog = dialog
         dialog.title(_t("dialog.title", locale=self.locale))
-        dialog.geometry("860x330")
+        dialog.geometry("860x390")
         dialog.configure(bg=_COLORS["surface"])
         dialog.transient(self.root)
         dialog.grab_set()
@@ -951,6 +1116,7 @@ class OperatorWorkstationApp:
             ("co2", "dialog.co2", False),
             ("h2o", "dialog.h2o", False),
             ("output", "dialog.output", True),
+            ("runtime", "dialog.runtime", True),
             ("certificate", "dialog.certificate", False),
         )
         dialog.grid_columnconfigure(1, weight=1)

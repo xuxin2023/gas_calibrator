@@ -151,15 +151,35 @@ class VisitorShowcasePage(tk.Frame):
         point_counts = dict(self.snapshot.get("point_counts") or {})
         co2_points = int(point_counts.get("co2", 45) or 45)
         h2o_points = int(point_counts.get("h2o", 13) or 13)
+        devices = dict(self.snapshot.get("devices") or {})
+        initialization = dict(devices.get("initialization_contract") or {})
+        powered = int(devices.get("powered_count") or 0)
+        configured = int(devices.get("configured_channel_count") or 0)
+        upload_rate = initialization.get("upload_rate_hz")
+        average1 = initialization.get("average1")
+        average2 = initialization.get("average2")
+        rate_text = (
+            f"{upload_rate} Hz（校准）"
+            if upload_rate not in (None, "")
+            else "-- Hz（校准）"
+        )
+        average_text = (
+            f"A1={average1 if average1 not in (None, '') else '--'} / "
+            f"A2={average2 if average2 not in (None, '') else '--'}"
+        )
         metrics = (
             (
-                f"{co2_points} + {h2o_points}",
+                f"{co2_points} / {h2o_points} + 干气锚",
                 "pages.visitor_showcase.metric.calibration_points",
                 self.CYAN,
             ),
-            ("6", "pages.visitor_showcase.metric.analyzers", self.TEAL),
-            ("1 Hz", "pages.visitor_showcase.metric.sample_rate", self.BLUE),
-            ("49 × 49", "pages.visitor_showcase.metric.filter", self.AMBER),
+            (
+                f"{powered} / {configured}",
+                "pages.visitor_showcase.metric.analyzers",
+                self.TEAL,
+            ),
+            (rate_text, "pages.visitor_showcase.metric.sample_rate", self.BLUE),
+            (average_text, "pages.visitor_showcase.metric.filter", self.AMBER),
         )
         for index, (value, key, color) in enumerate(metrics):
             x = margin + index * (card_width + gap)

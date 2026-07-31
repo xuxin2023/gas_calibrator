@@ -128,6 +128,9 @@ def test_operator_workstation_is_v1_5_first_chinese_and_1080p_ready() -> None:
         assert "H₂O 干气锚点" in joined
         assert "证书资料不阻断启动" in joined
         assert "分析、报告与证据" in joined
+        assert "24.9 °C / 等待" not in joined
+        assert "1000 hPa / -45 °C" not in joined
+        assert "未知｜未发现可信新鲜工件" in joined
         assert "V2" not in joined
         assert "V2 驾驶舱" not in joined
         assert "开始演练" in joined
@@ -150,6 +153,7 @@ def test_operator_workstation_settings_are_editable_and_certificate_optional() -
         assert app.settings["config"].get().endswith("configs\\default_config.json")
         assert app.settings["co2"].get().endswith("co2_runner_queue.csv")
         assert app.settings["h2o"].get().endswith("h2o_runner_queue.csv")
+        assert app.settings["runtime"].get().endswith("\\logs")
         assert app.settings["certificate"].get() == ""
         app._settings_dialog.destroy()
     finally:
@@ -195,7 +199,11 @@ def test_operator_workstation_navigation_opens_v1_5_certificate_and_visitor_page
         ]
         joined = "\n".join(texts)
         assert "V1.5 气体分析仪智能校准中心" in joined
-        assert "45 + 13" in joined
+        assert "45 / 13 + 干气锚" in joined
+        assert "0 / 6" in joined
+        assert "1 Hz（校准）" in joined
+        assert "A1=-- / A2=--" in joined
+        assert "49 × 49" not in joined
         assert "非真机验收证据" in joined
         assert "V2" not in joined
         assert "开始校准" not in joined
@@ -273,8 +281,10 @@ def test_operator_workstation_summary_pages_share_one_read_only_snapshot() -> No
             for widget in app.devices_page.readonly_widgets
         )
         device_labels = "\n".join(_texts(app.devices_page))
-        assert "mature_v1_5_runner_only" in device_text
+        assert "mature_v1_v1_5_artifacts_only" in device_text
         assert "SENCO7_SENCO8_neutral" in device_text
+        assert "1 Hz 仅指 calibration_upload_timebase" in device_text
+        assert "AVERAGE1=--、AVERAGE2=-- 为独立参数" in device_text
         assert "V2 仿真预设、故障注入和第二套设备状态源不进入" in (
             device_text
         )

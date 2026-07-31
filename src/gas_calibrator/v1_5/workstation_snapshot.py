@@ -7,17 +7,25 @@ coefficients, mutates a database, or promotes dry-run evidence.
 
 from __future__ import annotations
 
+import csv
+import io
+import json
+import re
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 
-SCHEMA_VERSION = "v1_5_workstation_snapshot_v1"
+SCHEMA_VERSION = "v1_5_workstation_snapshot_v2"
 EXPECTED_POINT_COUNTS = {"co2": 45, "h2o": 13}
 CONFIGURED_CHANNEL_COUNT = 6
 PRODUCTION_PROFILE_ID = "legacy_ratio_production"
 SHADOW_PROFILE_ID = "absorption_ratio_shadow"
+RUNTIME_FRESH_SECONDS = 20
+RUNTIME_STALE_SECONDS = 180
+_MATURE_IO_NAME = re.compile(r"^io_\d{8}_\d{6}\.csv$")
+_MATURE_SAMPLE_NAME = re.compile(r"^samples_\d{8}_\d{6}\.csv$")
 ARTIFACT_ROLES = (
     "execution_rows",
     "execution_summary",
@@ -50,6 +58,524 @@ SAFETY_FLAGS = (
 
 def _now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _as_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_float(value: Any) -> float | None:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result
+
+
+def _tail_csv_rows(
+    path: Path,
+    *,
+    row_limit: int = 800,
+    byte_limit: int = 1_048_576,
+) -> list[dict[str, str]]:
+    """Read a bounded tail of an append-only CSV without following the file."""
+
+    if row_limit <= 0 or not path.is_file():
+        return []
+    with path.open("rb") as handle:
+        header = handle.readline().decode("utf-8-sig", errors="replace").rstrip(
+            "\r\n"
+        )
+        handle.seek(0, 2)
+        size = handle.tell()
+        start = max(0, size - max(1, byte_limit))
+        handle.seek(start)
+        if start:
+            handle.readline()
+        tail = handle.read(max(1, byte_limit)).decode(
+            "utf-8",
+            errors="replace",
+        )
+    if not header or not tail.strip():
+        return []
+    rows = [
+        dict(row)
+        for row in csv.DictReader(io.StringIO(f"{header}\n{tail}"))
+        if any(str(value or "").strip() for value in row.values())
+    ]
+    return rows[-row_limit:]
+
+
+def _load_json_object(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {}
+    return dict(payload) if isinstance(payload, Mapping) else {}
+
+
+def _latest_matching_file(
+    directory: Path,
+    pattern: re.Pattern[str],
+) -> Path | None:
+    try:
+        candidates = []
+        for path in directory.iterdir():
+            if not path.is_file() or not pattern.fullmatch(path.name):
+                continue
+            try:
+                candidates.append((path.stat().st_mtime, path))
+            except OSError:
+                continue
+    except OSError:
+        return None
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: item[0])[1]
+
+
+def _latest_mature_run(
+    output_root: str | Path | None,
+) -> tuple[Path | None, Path | None]:
+    """Locate a mature V1/V1.5 run without accepting V2 ``io_log.csv``."""
+
+    if not output_root:
+        return None, None
+    root = Path(output_root)
+    if not root.is_dir():
+        return None, None
+    direct_io = _latest_matching_file(root, _MATURE_IO_NAME)
+    candidates: list[tuple[float, Path, Path]] = []
+    if direct_io is not None:
+        candidates.append((direct_io.stat().st_mtime, root, direct_io))
+    try:
+        run_dirs = [
+            path
+            for path in root.iterdir()
+            if path.is_dir()
+            and (path.name.startswith("run_") or path.name.startswith("rerun_"))
+        ]
+    except OSError:
+        run_dirs = []
+    for run_dir in run_dirs:
+        io_path = _latest_matching_file(run_dir, _MATURE_IO_NAME)
+        if io_path is not None:
+            candidates.append((io_path.stat().st_mtime, run_dir, io_path))
+    if not candidates:
+        return None, None
+    _mtime, run_dir, io_path = max(candidates, key=lambda item: item[0])
+    return run_dir, io_path
+
+
+def _parse_event_payload(row: Mapping[str, Any]) -> dict[str, Any]:
+    response = str(row.get("response") or "").strip()
+    if not response.startswith("{"):
+        return {}
+    try:
+        payload = json.loads(response)
+    except json.JSONDecodeError:
+        return {}
+    return dict(payload) if isinstance(payload, Mapping) else {}
+
+
+def _parse_artifact_timestamp(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
+
+
+def _common_value(values: Iterable[Any]) -> Any:
+    cleaned = [
+        value
+        for value in values
+        if value is not None and str(value).strip() != ""
+    ]
+    if not cleaned:
+        return None
+    normalized = {str(value).strip() for value in cleaned}
+    return cleaned[0] if len(normalized) == 1 else "mixed"
+
+
+def _configured_analyzers(
+    runtime_config: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    devices = runtime_config.get("devices")
+    devices = devices if isinstance(devices, Mapping) else {}
+    rows = devices.get("gas_analyzers")
+    output: list[dict[str, Any]] = []
+    if isinstance(rows, list):
+        for index, raw in enumerate(rows, start=1):
+            if not isinstance(raw, Mapping) or raw.get("enabled") is False:
+                continue
+            output.append(
+                {
+                    "display_name": str(
+                        raw.get("name") or f"GA{index:02d}"
+                    ).upper(),
+                    "port": str(raw.get("port") or "").strip().upper(),
+                    "operator_confirmed": False,
+                    "connected": True,
+                    "powered": True,
+                    "runtime_evidence": {
+                        "ftd_hz": raw.get("ftd_hz"),
+                        "average1": raw.get("average1")
+                        or raw.get("average_co2"),
+                        "average2": raw.get("average2")
+                        or raw.get("average_h2o"),
+                    },
+                }
+            )
+    return output
+
+
+def _site_analyzers(
+    site_profile: Mapping[str, Any] | None,
+) -> list[dict[str, Any]]:
+    profile = site_profile if isinstance(site_profile, Mapping) else {}
+    rows = profile.get("candidate_analyzers")
+    if not isinstance(rows, list):
+        return []
+    output: list[dict[str, Any]] = []
+    for index, raw in enumerate(rows, start=1):
+        if not isinstance(raw, Mapping):
+            continue
+        identity = raw.get("identity_evidence")
+        identity = identity if isinstance(identity, Mapping) else {}
+        runtime = raw.get("runtime_evidence")
+        runtime = runtime if isinstance(runtime, Mapping) else {}
+        output.append(
+            {
+                "display_name": str(
+                    raw.get("ga_label") or f"候选 {index:02d}"
+                ),
+                "port": str(raw.get("port") or "").strip().upper(),
+                "operator_confirmed": raw.get("operator_confirmed") is True,
+                "connected": raw.get("connected") is True,
+                "powered": raw.get("powered") is True,
+                "identity_scope": str(identity.get("scope") or ""),
+                "has_bound_identity": bool(
+                    str(raw.get("protocol_device_id") or "").strip()
+                    and str(raw.get("sn_code") or "").strip()
+                ),
+                "runtime_evidence": dict(runtime),
+            }
+        )
+    return output
+
+
+def _runtime_observation(
+    *,
+    runtime_output_dir: str | Path | None,
+    site_profile: Mapping[str, Any] | None,
+    now_utc: datetime | None = None,
+) -> dict[str, Any]:
+    """Normalize mature append-only artifacts into a fail-closed read model."""
+
+    now_value = now_utc or datetime.now(timezone.utc)
+    if now_value.tzinfo is None:
+        now_value = now_value.replace(tzinfo=timezone.utc)
+    run_dir, io_path = _latest_mature_run(runtime_output_dir)
+    if run_dir is None or io_path is None:
+        return {
+            "status": "unavailable",
+            "freshness_status": "unknown",
+            "age_seconds": None,
+            "run_id": "",
+            "current_stage": "unknown",
+            "route_group": "unknown",
+            "sample_progress": "unknown",
+            "latest_event": "unknown",
+            "source_contract": "mature_v1_v1_5_append_only_artifacts",
+            "source_files": [],
+            "channel_observations": [],
+            "reference_observations": {},
+            "contains_paths": False,
+            "read_only": True,
+        }
+
+    io_mtime = io_path.stat().st_mtime
+    age_seconds = max(0, int(now_value.timestamp() - io_mtime))
+    if age_seconds <= RUNTIME_FRESH_SECONDS:
+        freshness = "fresh"
+    elif age_seconds <= RUNTIME_STALE_SECONDS:
+        freshness = "aging"
+    else:
+        freshness = "stale"
+
+    rows = _tail_csv_rows(io_path)
+    runtime_config = _load_json_object(run_dir / "runtime_config_snapshot.json")
+    analyzers = _site_analyzers(site_profile) or _configured_analyzers(
+        runtime_config
+    )
+
+    latest_stage: dict[str, Any] = {}
+    latest_progress: dict[str, Any] = {}
+    latest_event = ""
+    run_state = "observed"
+    latest_rx_by_port: dict[str, tuple[Mapping[str, Any], datetime | None]] = {}
+    latest_row_timestamp: datetime | None = None
+    for row in rows:
+        row_timestamp = _parse_artifact_timestamp(
+            row.get("timestamp") or row.get("ts")
+        )
+        if (
+            row_timestamp is not None
+            and (
+                latest_row_timestamp is None
+                or row_timestamp > latest_row_timestamp
+            )
+        ):
+            latest_row_timestamp = row_timestamp
+        port = str(row.get("port") or "").strip().upper()
+        direction = str(row.get("direction") or "").strip().upper()
+        if port and direction == "RX":
+            latest_rx_by_port[port] = (row, row_timestamp)
+        if (
+            port == "RUN"
+            and str(row.get("device") or "").strip().lower() == "runner"
+            and direction == "EVENT"
+        ):
+            command = str(row.get("command") or "").strip()
+            payload = _parse_event_payload(row)
+            if command == "stage" and payload:
+                latest_stage = payload
+            elif command == "sample-progress" and payload:
+                latest_progress = payload
+            if command:
+                latest_event = command
+            if command == "run-finished":
+                run_state = "completed"
+            elif command == "run-aborted":
+                run_state = "aborted"
+            elif command == "run-start":
+                run_state = "running"
+
+    channel_observations: list[dict[str, Any]] = []
+    for index, analyzer in enumerate(analyzers, start=1):
+        port = str(analyzer.get("port") or "").strip().upper()
+        last_rx_record = latest_rx_by_port.get(port)
+        last_rx = last_rx_record[0] if last_rx_record is not None else None
+        last_rx_timestamp = (
+            last_rx_record[1] if last_rx_record is not None else None
+        )
+        frame_age_seconds = (
+            max(
+                0,
+                int(
+                    (latest_row_timestamp - last_rx_timestamp).total_seconds()
+                ),
+            )
+            if latest_row_timestamp is not None
+            and last_rx_timestamp is not None
+            else None
+        )
+        has_frame = bool(
+            last_rx
+            and str(last_rx.get("response") or "").strip()
+            and not str(last_rx.get("error") or "").strip()
+        )
+        frame_error = bool(last_rx and str(last_rx.get("error") or "").strip())
+        if (
+            freshness == "fresh"
+            and has_frame
+            and (
+                frame_age_seconds is None
+                or frame_age_seconds <= RUNTIME_FRESH_SECONDS
+            )
+        ):
+            frame_status = "fresh"
+            connection_status = "recent_frame"
+            health_status = "frame_observed"
+        elif last_rx is not None:
+            frame_status = "stale"
+            connection_status = "stale_frame"
+            health_status = "warning_observed" if frame_error else "stale"
+        elif analyzer.get("connected") is True:
+            frame_status = "missing"
+            connection_status = "mapped_not_observed"
+            health_status = "not_evaluated"
+        else:
+            frame_status = "not_evaluated"
+            connection_status = "not_selected"
+            health_status = "not_evaluated"
+        if (
+            analyzer.get("operator_confirmed") is True
+            and analyzer.get("has_bound_identity") is True
+        ):
+            identity_status = "operator_confirmed"
+        elif str(analyzer.get("identity_scope") or "").startswith(
+            "historical_"
+        ):
+            identity_status = "historical_unconfirmed"
+        else:
+            identity_status = "not_evaluated"
+        channel_observations.append(
+            {
+                "channel_id": f"CH{index:02d}",
+                "display_name": str(
+                    analyzer.get("display_name") or f"通道 {index:02d}"
+                ),
+                "connection_status": connection_status,
+                "identity_status": identity_status,
+                "health_status": health_status,
+                "last_frame_status": frame_status,
+                "last_frame_age_seconds": frame_age_seconds,
+                "selected": analyzer.get("connected") is True,
+                "powered": analyzer.get("powered") is True,
+                "runtime_evidence": dict(
+                    analyzer.get("runtime_evidence") or {}
+                ),
+            }
+        )
+
+    sample_path = _latest_matching_file(run_dir, _MATURE_SAMPLE_NAME)
+    sample_rows = (
+        _tail_csv_rows(sample_path, row_limit=1, byte_limit=262_144)
+        if sample_path is not None
+        else []
+    )
+    sample = sample_rows[-1] if sample_rows else {}
+    reference_path = run_dir / "formal_reference_source_record.json"
+    reference_record = _load_json_object(reference_path)
+    concentration_reference = reference_record.get(
+        "h2o_concentration_reference"
+    )
+    concentration_reference = (
+        concentration_reference
+        if isinstance(concentration_reference, Mapping)
+        else {}
+    )
+    dewpoint_snapshot = concentration_reference.get("dewpoint_snapshot")
+    dewpoint_snapshot = (
+        dewpoint_snapshot
+        if isinstance(dewpoint_snapshot, Mapping)
+        else {}
+    )
+    route_flow = reference_record.get("route_flow_evidence")
+    route_flow = route_flow if isinstance(route_flow, Mapping) else {}
+    temperature = _as_float(sample.get("thermometer_temp_c"))
+    pressure = _as_float(
+        sample.get("pressure_gauge_hpa") or sample.get("pressure_hpa")
+    )
+    dewpoint = _as_float(
+        sample.get("dewpoint_live_c")
+        or sample.get("dewpoint_c")
+        or dewpoint_snapshot.get("dewpoint_c")
+    )
+    flow = _as_float(
+        sample.get("dewpoint_flow_lpm")
+        or sample.get("flow_lpm")
+    )
+    if (
+        flow is None
+        and str(route_flow.get("source") or "") == "dewpoint_meter_output"
+    ):
+        flow = _as_float(
+            route_flow.get("dewpoint_meter_output_flow_lpm")
+            or route_flow.get("observed_flow_lpm")
+        )
+    reference_record_timestamp = (
+        datetime.fromtimestamp(reference_path.stat().st_mtime, timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        if reference_path.is_file()
+        else ""
+    )
+    source_files = [io_path.name]
+    if (run_dir / "runtime_config_snapshot.json").is_file():
+        source_files.append("runtime_config_snapshot.json")
+    if sample_path is not None:
+        source_files.append(sample_path.name)
+    if reference_path.is_file():
+        source_files.append(reference_path.name)
+    return {
+        "status": run_state,
+        "freshness_status": freshness,
+        "age_seconds": age_seconds,
+        "run_id": run_dir.name,
+        "current_stage": str(
+            latest_stage.get("current") or "unknown"
+        ),
+        "route_group": str(
+            latest_stage.get("route_group") or "unknown"
+        ),
+        "sample_progress": str(
+            latest_progress.get("text") or "unknown"
+        ),
+        "latest_event": latest_event or "unknown",
+        "source_contract": "mature_v1_v1_5_append_only_artifacts",
+        "source_files": source_files,
+        "channel_observations": channel_observations,
+        "reference_observations": {
+            "temperature": {
+                "value": temperature,
+                "unit": "degC",
+                "source": "digital_platinum_resistance_thermometer_in_chamber",
+                "channel": "thermometer",
+                "sample_timestamp": str(
+                    sample.get("thermometer_sample_ts")
+                    or sample.get("sample_ts")
+                    or ""
+                ),
+                "freshness_status": freshness if temperature is not None else "unknown",
+            },
+            "pressure": {
+                "value": pressure,
+                "unit": "hPa",
+                "source": "independent_pressure_reference",
+                "channel": "pressure_gauge",
+                "sample_timestamp": str(
+                    sample.get("pressure_gauge_sample_ts")
+                    or sample.get("sample_ts")
+                    or ""
+                ),
+                "freshness_status": freshness if pressure is not None else "unknown",
+            },
+            "dewpoint": {
+                "value": dewpoint,
+                "unit": "degC",
+                "source": "dewpoint_meter_output",
+                "channel": "dewpoint_meter",
+                "sample_timestamp": str(
+                    sample.get("dewpoint_live_sample_ts")
+                    or sample.get("dewpoint_sample_ts")
+                    or sample.get("sample_ts")
+                    or ""
+                ),
+                "freshness_status": freshness if dewpoint is not None else "unknown",
+            },
+            "flow": {
+                "value": flow,
+                "unit": "L/min",
+                "source": "dewpoint_meter_output",
+                "channel": "dewpoint_meter_flow_output",
+                "sample_timestamp": str(
+                    sample.get("dewpoint_live_sample_ts")
+                    or sample.get("dewpoint_sample_ts")
+                    or sample.get("sample_ts")
+                    or reference_record_timestamp
+                    or ""
+                ),
+                "freshness_status": freshness if flow is not None else "unknown",
+                "role": "existence_and_stability_monitoring_only",
+                "used_for_concentration_fit": False,
+            },
+        },
+        "contains_paths": False,
+        "read_only": True,
+    }
 
 
 def _clean_list(values: Iterable[Any] | None) -> list[str]:
@@ -342,31 +868,148 @@ def _qc_summary(
     }
 
 
-def _device_summary() -> dict[str, Any]:
-    channels = [
-        {
-            "channel_id": f"CH{index:02d}",
-            "display_name": f"通道 {index:02d}",
-            "mode": "simulation_only",
-            "connection_status": "not_connected",
-            "identity_status": "not_evaluated",
-            "health_status": "not_evaluated",
-            "last_frame_status": "not_evaluated",
-        }
-        for index in range(1, CONFIGURED_CHANNEL_COUNT + 1)
+def _device_summary(
+    *,
+    site_profile: Mapping[str, Any] | None,
+    runtime: Mapping[str, Any],
+) -> dict[str, Any]:
+    site_rows = _site_analyzers(site_profile)
+    runtime_channels = [
+        dict(item)
+        for item in runtime.get("channel_observations") or ()
+        if isinstance(item, Mapping)
     ]
+    if runtime_channels:
+        channels = runtime_channels
+    elif site_rows:
+        channels = []
+        for index, row in enumerate(site_rows, start=1):
+            if (
+                row.get("operator_confirmed") is True
+                and row.get("has_bound_identity") is True
+            ):
+                identity_status = "operator_confirmed"
+            elif str(row.get("identity_scope") or "").startswith("historical_"):
+                identity_status = "historical_unconfirmed"
+            else:
+                identity_status = "not_evaluated"
+            channels.append(
+                {
+                    "channel_id": f"CH{index:02d}",
+                    "display_name": str(
+                        row.get("display_name") or f"通道 {index:02d}"
+                    ),
+                    "connection_status": (
+                        "mapped_not_observed"
+                        if row.get("connected") is True
+                        else "not_selected"
+                    ),
+                    "identity_status": identity_status,
+                    "health_status": "not_evaluated",
+                    "last_frame_status": "not_evaluated",
+                    "selected": row.get("connected") is True,
+                    "powered": row.get("powered") is True,
+                    "runtime_evidence": dict(
+                        row.get("runtime_evidence") or {}
+                    ),
+                }
+            )
+    else:
+        channels = [
+            {
+                "channel_id": f"CH{index:02d}",
+                "display_name": f"通道 {index:02d}",
+                "connection_status": "not_connected",
+                "identity_status": "not_evaluated",
+                "health_status": "not_evaluated",
+                "last_frame_status": "not_evaluated",
+                "selected": False,
+                "powered": False,
+                "runtime_evidence": {},
+            }
+            for index in range(1, CONFIGURED_CHANNEL_COUNT + 1)
+        ]
+
+    runtime_available = str(runtime.get("freshness_status") or "unknown") != "unknown"
+    mapped_connected = sum(bool(row.get("connected")) for row in site_rows)
+    powered_count = sum(bool(row.get("powered")) for row in site_rows)
+    observed_connected = sum(
+        str(row.get("connection_status") or "") == "recent_frame"
+        for row in channels
+    )
+    identity_count = sum(
+        str(row.get("identity_status") or "") == "operator_confirmed"
+        for row in channels
+    )
+    health_count = sum(
+        str(row.get("health_status") or "") == "frame_observed"
+        for row in channels
+    )
+    runtime_values = [
+        dict(row.get("runtime_evidence") or {})
+        for row in channels
+        if row.get("powered") is True
+    ]
+    upload_rate = _common_value(
+        row.get("ftd_hz") for row in runtime_values
+    )
+    average1 = _common_value(
+        row.get("average1") for row in runtime_values
+    )
+    average2 = _common_value(
+        row.get("average2") for row in runtime_values
+    )
+    if runtime_available:
+        overall_status = (
+            "runtime_artifact_fresh"
+            if runtime.get("freshness_status") == "fresh"
+            else "runtime_artifact_stale"
+        )
+        ui_mode = "mature_runtime_artifact_read_only"
+    elif site_rows:
+        overall_status = "site_mapping_read_only"
+        ui_mode = "site_mapping_read_only"
+    else:
+        overall_status = "simulation_only"
+        ui_mode = "read_only_configured_slots"
+    for row in channels:
+        row["mode"] = ui_mode
     return {
-        "overall_status": "simulation_only",
-        "ui_mode": "read_only_configured_slots",
-        "runtime_state_authority": "mature_v1_5_runner_only",
-        "real_device_state": "not_evaluated",
+        "overall_status": overall_status,
+        "ui_mode": ui_mode,
+        "runtime_state_authority": "mature_v1_v1_5_artifacts_only",
+        "real_device_state": (
+            str(runtime.get("freshness_status") or "not_evaluated")
+            if runtime_available
+            else "not_evaluated"
+        ),
         "connection_policy": "no_com_no_scan",
-        "configured_channel_count": CONFIGURED_CHANNEL_COUNT,
-        "connected_count": 0,
-        "identity_evaluated_count": 0,
-        "health_evaluated_count": 0,
-        "unknown_health_count": CONFIGURED_CHANNEL_COUNT,
+        "configured_channel_count": len(channels),
+        "reported_connected_count": _as_int(
+            (site_profile or {}).get("reported_connected_count")
+            if isinstance(site_profile, Mapping)
+            else None,
+            mapped_connected,
+        ),
+        "reported_powered_count": _as_int(
+            (site_profile or {}).get("reported_powered_count")
+            if isinstance(site_profile, Mapping)
+            else None,
+            powered_count,
+        ),
+        "mapped_connected_count": mapped_connected,
+        "powered_count": powered_count,
+        "connected_count": observed_connected,
+        "identity_evaluated_count": identity_count,
+        "health_evaluated_count": health_count,
+        "unknown_health_count": max(0, len(channels) - health_count),
         "channels": channels,
+        "runtime_freshness": {
+            "status": str(runtime.get("freshness_status") or "unknown"),
+            "age_seconds": runtime.get("age_seconds"),
+            "stale_after_seconds": RUNTIME_STALE_SECONDS,
+            "run_id": str(runtime.get("run_id") or ""),
+        },
         "device_control_actions_available": False,
         "hardware_refresh_actions_available": False,
         "simulation_preset_actions_available": False,
@@ -376,7 +1019,11 @@ def _device_summary() -> dict[str, Any]:
         "initialization_contract": {
             "owner": "mature_v1_5_initialization_flow",
             "runtime_mode": "MODE2",
-            "upload_rate_hz": 1,
+            "upload_rate_hz": upload_rate if upload_rate is not None else 1,
+            "upload_rate_scope": "calibration_upload_timebase",
+            "average1": average1,
+            "average2": average2,
+            "averages_are_independent": True,
             "temperature_coefficients": "SENCO7_SENCO8_neutral",
             "neutralization_evidence_required": True,
             "readback_verification_required": True,
@@ -384,8 +1031,14 @@ def _device_summary() -> dict[str, Any]:
         },
         "contains_ports": False,
         "contains_serial_numbers": False,
-        "contains_runtime_device_data": False,
-        "evidence_source": "simulated",
+        "contains_runtime_device_data": runtime_available,
+        "evidence_source": (
+            "mature_runner_artifact_read_only"
+            if runtime_available
+            else "site_mapping_read_only"
+            if site_rows
+            else "simulated"
+        ),
         "not_real_acceptance_evidence": True,
     }
 
@@ -588,8 +1241,11 @@ def build_workstation_snapshot(
     *,
     execution: Mapping[str, Any] | None = None,
     output_dir: str | Path | None = None,
+    runtime_output_dir: str | Path | None = None,
+    site_profile: Mapping[str, Any] | None = None,
     certificate_records: Iterable[Mapping[str, Any]] | None = None,
     certificate_error: str = "",
+    now_utc: datetime | None = None,
 ) -> dict[str, Any]:
     """Build the one read model consumed by V1.5 result/review surfaces."""
 
@@ -625,7 +1281,51 @@ def build_workstation_snapshot(
         safety=safety,
         blockers=blockers,
     )
-    devices = _device_summary()
+    runtime = _runtime_observation(
+        runtime_output_dir=runtime_output_dir,
+        site_profile=site_profile,
+        now_utc=now_utc,
+    )
+    devices = _device_summary(
+        site_profile=site_profile,
+        runtime=runtime,
+    )
+    runtime_public = dict(runtime)
+    runtime_public.pop("channel_observations", None)
+    runtime_freshness = str(
+        runtime_public.get("freshness_status") or "unknown"
+    )
+    physical_reference = {
+        "temperature_truth": {
+            "source": "digital_platinum_resistance_thermometer_in_chamber",
+            "chamber_controller_display_is_truth": False,
+        },
+        "pressure_sequence": "SENCO9_first",
+        "flow": {
+            "source": "dewpoint_meter_output",
+            "required_metadata": [
+                "unit",
+                "sample_timestamp",
+                "channel",
+                "freshness_status",
+            ],
+            "role": "existence_and_stability_monitoring_only",
+            "used_for_concentration_fit": False,
+        },
+        "sampling": {
+            "calibration_upload_timebase_hz": 1,
+            "raw_device_internal_acquisition_rate_claimed": False,
+            "average1_average2_are_independent": True,
+        },
+        "anchors": {
+            "co2": "co2_zero_gas",
+            "h2o_wet_point_count": 13,
+            "h2o_dry_anchor": "h2o_dry_gas",
+            "h2o_dry_anchor_is_additional": True,
+            "anchors_are_distinct": True,
+        },
+        "observations": dict(runtime_public.get("reference_observations") or {}),
+    }
     algorithm = _algorithm_summary(
         execution=payload,
         point_counts=point_counts,
@@ -641,10 +1341,16 @@ def build_workstation_snapshot(
         "generated_at": _now(),
         "product_name": "V1.5 气体分析仪校准工作站",
         "product_version": "V1.5",
-        "display_mode": "simulated_read_only",
-        "channel_count": CONFIGURED_CHANNEL_COUNT,
+        "display_mode": (
+            "mature_runtime_artifact_read_only"
+            if runtime_freshness != "unknown"
+            else "simulated_read_only"
+        ),
+        "channel_count": int(devices["configured_channel_count"]),
         "overall_status": execution_status,
         "point_counts": point_counts,
+        "runtime": runtime_public,
+        "physical_reference": physical_reference,
         "run": {
             "run_id": str(payload.get("run_id") or ""),
             "status": execution_status,
@@ -687,7 +1393,11 @@ def build_workstation_snapshot(
         "review": review,
         "certificate": certificate,
         "safety": safety,
-        "evidence_source": "simulated",
+        "evidence_source": (
+            "mature_runner_artifact_read_only"
+            if runtime_freshness != "unknown"
+            else "simulated"
+        ),
         "not_real_acceptance_evidence": True,
         "opens_com_ports": safety["opens_com_ports"],
         "controls_water_or_gas_routes": safety[
@@ -707,6 +1417,8 @@ __all__ = [
     "EXPECTED_POINT_COUNTS",
     "PRODUCTION_PROFILE_ID",
     "REPORT_AUTHORITY",
+    "RUNTIME_FRESH_SECONDS",
+    "RUNTIME_STALE_SECONDS",
     "SCHEMA_VERSION",
     "SHADOW_PROFILE_ID",
     "build_workstation_snapshot",
