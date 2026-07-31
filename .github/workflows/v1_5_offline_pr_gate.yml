@@ -135,8 +135,13 @@ jobs:
             tests/test_v2_has_no_v1_runtime_imports.py `
             tests/test_v1_5_operator_workstation.py `
             tests/test_v1_5_operator_workstation_ui.py `
+            --deselect=tests/test_v1_5_site_profile_page.py::test_operator_workstation_exposes_site_mapping_without_replacing_devices_page `
+            --deselect=tests/test_v1_5_operator_workstation_ui.py::test_v1_5_visitor_showcase_is_read_only_and_1080p_ready `
+            --deselect=tests/test_v1_5_operator_workstation_ui.py::test_operator_workstation_is_v1_5_first_chinese_and_1080p_ready `
             --junitxml=artifacts/v1_5_offline_pr_gate.xml `
             -q
+          "Windows critical-path coverage complete; three unchanged 1080p geometry checks run in the dedicated Xvfb job." |
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
 
       - name: Verify Excel worksheet compatibility
         shell: pwsh
@@ -149,5 +154,85 @@ jobs:
         with:
           name: v1-5-offline-pr-gate-${{ github.run_id }}
           path: artifacts/v1_5_offline_pr_gate.xml
+          if-no-files-found: warn
+          retention-days: 14
+
+  ui-geometry-1080p:
+    name: UI geometry 1920x1080
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: "true"
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      PYTHONPATH: ${{ github.workspace }}/src
+
+    steps:
+      - name: Check out reviewed branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Confirm offline execution boundary
+        shell: bash
+        run: |
+          forbidden=(
+            ALLOW_REAL_DEVICE_WRITE
+            GAS_CAL_ALLOW_REAL_DEVICE_WRITE
+            GAS_CAL_V2_QUERY_ONLY_REAL_COM
+            GAS_CAL_DB_DSN
+            V1_5_POSTGRES_DSN
+            V1_5_POSTGRES_STAGING_DSN
+            V1_5_POSTGRES_STAGING_DSN_TEST
+          )
+          for name in "${forbidden[@]}"; do
+            if [[ -n "${!name:-}" ]]; then
+              echo "::error::Forbidden live/write environment variable is set: $name"
+              exit 1
+            fi
+          done
+          echo "Offline boundary confirmed: no real-COM, device-write, or formal-DSN unlock is present." \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install UI test dependencies
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install --yes --no-install-recommends xvfb xauth python3-tk
+          python -m pip install --disable-pip-version-check --upgrade pip
+          python -m pip install --disable-pip-version-check -r requirements.txt pytest==9.0.3
+          python -m pip check
+
+      - name: Verify 1920x1080 virtual display
+        shell: bash
+        run: |
+          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24 -nolisten tcp" \
+            python -c "import tkinter as tk; root = tk.Tk(); width, height = root.winfo_screenwidth(), root.winfo_screenheight(); print(f'Xvfb screen: {width}x{height}'); root.destroy(); assert (width, height) == (1920, 1080)"
+          echo "UI geometry checks use an isolated 1920x1080 Xvfb display; no physical display or device is accessed." \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run unchanged 1080p geometry checks
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24 -nolisten tcp" \
+            python -m pytest \
+              tests/test_v1_5_site_profile_page.py::test_operator_workstation_exposes_site_mapping_without_replacing_devices_page \
+              tests/test_v1_5_operator_workstation_ui.py::test_v1_5_visitor_showcase_is_read_only_and_1080p_ready \
+              tests/test_v1_5_operator_workstation_ui.py::test_operator_workstation_is_v1_5_first_chinese_and_1080p_ready \
+              --junitxml=artifacts/v1_5_ui_geometry_1080p.xml \
+              -q
+
+      - name: Publish 1080p geometry evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v1-5-ui-geometry-1080p-${{ github.run_id }}
+          path: artifacts/v1_5_ui_geometry_1080p.xml
           if-no-files-found: warn
           retention-days: 14
