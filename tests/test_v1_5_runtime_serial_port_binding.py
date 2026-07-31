@@ -136,6 +136,70 @@ def test_reference_bank_shift_blocks_when_both_paired_ports_are_present() -> Non
     assert any(row["status"] == "blocked_both_bank_ports_present" for row in result.evidence_rows)
 
 
+def test_reference_bank_shift_uses_unique_protocol_match_when_both_banks_are_present() -> None:
+    cfg = _cfg_with_reference_bank()
+    cfg["devices"]["pressure_controller"]["port"] = "COM23"
+    cfg["devices"]["pressure_gauge"]["port"] = "COM22"
+
+    result = resolve_reference_port_bank_shift(
+        cfg,
+        enabled=True,
+        available_ports="COM22,COM23,COM30,COM31",
+        protocol_inventory={
+            "COM31": {"observed_role": "pressure_controller"},
+            "COM30": {"observed_role": "pressure_gauge"},
+        },
+        require_protocol_match=True,
+        device_keys="pressure_controller,pressure_gauge",
+    )
+
+    assert result.status == "pass"
+    assert result.changed_count == 2
+    assert result.config["devices"]["pressure_controller"]["port"] == "COM31"
+    assert result.config["devices"]["pressure_gauge"]["port"] == "COM30"
+    assert result.config["devices"]["dewpoint_meter"]["port"] == "COM25"
+    assert any(row["status"] == "not_selected_unchanged" for row in result.evidence_rows)
+    assert all(
+        row["status"] == "mapped_by_unique_protocol_match"
+        for row in result.evidence_rows
+        if row["device_key"] in {"pressure_controller", "pressure_gauge"}
+    )
+
+
+def test_reference_bank_shift_blocks_duplicate_protocol_identity_across_banks() -> None:
+    cfg = _cfg_with_reference_bank()
+    cfg["devices"]["pressure_controller"]["port"] = "COM23"
+
+    result = resolve_reference_port_bank_shift(
+        cfg,
+        enabled=True,
+        available_ports="COM23,COM31",
+        protocol_inventory={
+            "COM23": {"observed_role": "pressure_controller"},
+            "COM31": {"observed_role": "pressure_controller"},
+        },
+        require_protocol_match=True,
+        device_keys="pressure_controller",
+    )
+
+    assert result.status == "blocked"
+    assert result.changed_count == 0
+    assert result.config["devices"]["pressure_controller"]["port"] == "COM23"
+    assert any(row["status"] == "blocked_both_bank_protocol_match" for row in result.evidence_rows)
+
+
+def test_reference_bank_shift_blocks_unknown_selected_device() -> None:
+    result = resolve_reference_port_bank_shift(
+        _cfg_with_reference_bank(),
+        enabled=True,
+        available_ports="COM23,COM31",
+        device_keys="pressure_controller,not_a_device",
+    )
+
+    assert result.status == "blocked"
+    assert result.reason == "unknown_reference_device_keys"
+
+
 def test_runtime_serial_port_binding_cli_default_is_noop(tmp_path) -> None:
     cfg_path = tmp_path / "config.json"
     cfg_path.write_text(json.dumps(_cfg_with_reference_bank(), ensure_ascii=False), encoding="utf-8")
@@ -268,3 +332,64 @@ def test_runtime_serial_port_binding_cli_accepts_port_inventory_json(tmp_path) -
     bound = json.loads((out / "runtime_serial_port_bound_config.json").read_text(encoding="utf-8"))
     assert bound["devices"]["pressure_controller"]["port"] == "COM23"
     assert bound["devices"]["gas_analyzers"][1]["port"] == "COM42"
+
+
+def test_runtime_serial_port_binding_cli_accepts_query_only_pressure_probe(tmp_path) -> None:
+    cfg = _cfg_with_reference_bank()
+    cfg["devices"]["pressure_controller"]["port"] = "COM23"
+    cfg["devices"]["pressure_gauge"]["port"] = "COM22"
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+    probe_path = tmp_path / "pressure_probe.json"
+    probe_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "v1_5_pressure_old_bank_readonly_probe_v1",
+                "safety": {
+                    "query_only": True,
+                    "state_changing_commands_sent": False,
+                    "configuration_modified": False,
+                },
+                "no_write_evidence": {"whitelist_pass": True},
+                "pressure_controller": {
+                    "port": "COM31",
+                    "response_detected": True,
+                    "identity": "GE Druck,Pace5000 User Interface",
+                },
+                "pressure_gauge": {
+                    "port": "COM30",
+                    "response_detected": True,
+                    "pressure_hpa": 998.286,
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    out = tmp_path / "binding"
+
+    rc = cli_main(
+        [
+            "--config",
+            str(cfg_path),
+            "--output-dir",
+            str(out),
+            "--enable-reference-bank-shift",
+            "--available-ports",
+            "COM22,COM23,COM30,COM31",
+            "--protocol-inventory-json",
+            str(probe_path),
+            "--require-protocol-match",
+            "--only-devices",
+            "pressure_controller,pressure_gauge",
+        ]
+    )
+
+    assert rc == 0
+    summary = json.loads((out / "runtime_serial_port_binding_summary.json").read_text(encoding="utf-8"))
+    bound = json.loads((out / "runtime_serial_port_bound_config.json").read_text(encoding="utf-8"))
+    assert summary["status"] == "pass"
+    assert summary["changed_count"] == 2
+    assert summary["selected_devices"] == "pressure_controller,pressure_gauge"
+    assert bound["devices"]["pressure_controller"]["port"] == "COM31"
+    assert bound["devices"]["pressure_gauge"]["port"] == "COM30"

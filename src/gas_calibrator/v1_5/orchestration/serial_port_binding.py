@@ -123,6 +123,16 @@ def _parse_ports(values: Iterable[Any] | str | None) -> set[str] | None:
     return out
 
 
+def _parse_device_keys(values: Iterable[Any] | str | None) -> set[str] | None:
+    if values is None:
+        return None
+    if isinstance(values, str):
+        parts: Iterable[Any] = values.replace(";", ",").split(",")
+    else:
+        parts = values
+    return {_normalize_role(item) for item in parts if str(item or "").strip()}
+
+
 def _iter_inventory_ports(values: Any) -> Iterable[str]:
     if values is None:
         return ()
@@ -368,6 +378,7 @@ def resolve_reference_port_bank_shift(
     available_ports: Iterable[Any] | str | None = None,
     protocol_inventory: Any = None,
     require_protocol_match: bool = False,
+    device_keys: Iterable[Any] | str | None = None,
 ) -> RuntimeSerialPortBindingResult:
     """Resolve the optional COM24-COM31 <-> COM16-COM23 bank shift.
 
@@ -388,6 +399,29 @@ def resolve_reference_port_bank_shift(
             evidence_rows=(),
             changed_count=0,
             blocked_count=1,
+            enabled=bool(enabled),
+        )
+
+    selected_device_keys = _parse_device_keys(device_keys)
+    unknown_device_keys = (
+        selected_device_keys - REFERENCE_DEVICE_KEYS if selected_device_keys is not None else set()
+    )
+    if unknown_device_keys:
+        return RuntimeSerialPortBindingResult(
+            status="blocked",
+            reason="unknown_reference_device_keys",
+            config=payload,
+            evidence_rows=tuple(
+                {
+                    "device_key": key,
+                    "status": "blocked_unknown_reference_device_key",
+                    "changed": False,
+                    "blocked": True,
+                }
+                for key in sorted(unknown_device_keys)
+            ),
+            changed_count=0,
+            blocked_count=len(unknown_device_keys),
             enabled=bool(enabled),
         )
 
@@ -453,6 +487,19 @@ def resolve_reference_port_bank_shift(
     if available is None:
         blocked_count = 1
         for key, item in _iter_device_entries(devices):
+            if selected_device_keys is not None and key not in selected_device_keys:
+                rows.append(
+                    {
+                        "device_key": key,
+                        "device_name": item.get("name", key),
+                        "configured_port": normalize_com_port(item.get("port")),
+                        "runtime_port": normalize_com_port(item.get("port")),
+                        "status": "not_selected_unchanged",
+                        "changed": False,
+                        "blocked": False,
+                    }
+                )
+                continue
             rows.append(
                 {
                     "device_key": key,
@@ -487,13 +534,55 @@ def resolve_reference_port_bank_shift(
             "changed": False,
             "blocked": False,
         }
+        if selected_device_keys is not None and key not in selected_device_keys:
+            row["status"] = "not_selected_unchanged"
+            rows.append(row)
+            continue
         if configured in mapping:
             configured_present = configured in available
             candidate_present = candidate in available
             if configured_present and candidate_present:
-                row["status"] = "blocked_both_bank_ports_present"
-                row["blocked"] = True
-                blocked_count += 1
+                configured_entry = protocol_ports.get(configured) if protocol_ports else None
+                candidate_entry = protocol_ports.get(candidate) if protocol_ports else None
+                configured_role = _entry_observed_role(configured_entry)
+                candidate_role = _entry_observed_role(candidate_entry)
+                configured_match = expected_reference_role_matches(key, configured_role)
+                candidate_match = expected_reference_role_matches(key, candidate_role)
+                row.update(
+                    {
+                        "configured_observed_role": configured_role,
+                        "candidate_observed_role": candidate_role,
+                        "configured_protocol_match": configured_match,
+                        "candidate_protocol_match": candidate_match,
+                    }
+                )
+                if configured_match == candidate_match:
+                    row["status"] = (
+                        "blocked_both_bank_protocol_match"
+                        if configured_match
+                        else "blocked_both_bank_ports_present"
+                    )
+                    row["protocol_status"] = "ambiguous" if configured_match else "no_unique_match"
+                    row["blocked"] = True
+                    blocked_count += 1
+                elif configured_match:
+                    row["status"] = "unchanged_configured_port_protocol_match"
+                    row["protocol_status"] = "matched"
+                    row["observed_runtime_role"] = configured_role
+                    row["protocol_match"] = True
+                else:
+                    row["runtime_port"] = candidate
+                    row["status"] = "mapped_by_unique_protocol_match"
+                    row["protocol_status"] = "matched"
+                    row["observed_runtime_role"] = candidate_role
+                    row["protocol_match"] = True
+                    row["changed"] = True
+                    item["configured_port"] = configured
+                    item["port"] = candidate
+                    item["runtime_port"] = candidate
+                    item["runtime_port_binding_source"] = "v1_5_reference_bank_shift_protocol_identity"
+                    item["runtime_port_binding_frozen"] = True
+                    changed_count += 1
             elif candidate_present and not configured_present:
                 row["runtime_port"] = candidate
                 if _apply_protocol_guard(
@@ -547,6 +636,9 @@ def resolve_reference_port_bank_shift(
         "gas_analyzer_ports_protected": True,
         "protocol_inventory_checked": protocol_ports is not None,
         "require_protocol_match": bool(require_protocol_match),
+        "selected_device_keys": (
+            sorted(selected_device_keys) if selected_device_keys is not None else "all_reference_devices"
+        ),
         "created_at": datetime.now().isoformat(timespec="seconds"),
     }
     status = "blocked" if blocked_count else "pass"

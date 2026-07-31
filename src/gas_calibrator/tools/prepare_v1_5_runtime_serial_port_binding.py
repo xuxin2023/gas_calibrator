@@ -50,7 +50,48 @@ def _config_default_require_protocol_match(cfg: Mapping[str, Any]) -> bool:
 def _load_protocol_inventory(path: str | None) -> Any:
     if not path:
         return None
-    return json.loads(Path(path).resolve().read_text(encoding="utf-8"))
+    payload = json.loads(Path(path).resolve().read_text(encoding="utf-8"))
+    if not isinstance(payload, Mapping):
+        return payload
+    if payload.get("schema_version") != "v1_5_pressure_old_bank_readonly_probe_v1":
+        return payload
+
+    safety = payload.get("safety", {})
+    no_write = payload.get("no_write_evidence", {})
+    if not (
+        isinstance(safety, Mapping)
+        and safety.get("query_only") is True
+        and safety.get("state_changing_commands_sent") is False
+        and safety.get("configuration_modified") is False
+        and isinstance(no_write, Mapping)
+        and no_write.get("whitelist_pass") is True
+    ):
+        raise ValueError("pressure probe is not valid query-only no-write evidence")
+
+    out: dict[str, dict[str, Any]] = {}
+    controller = payload.get("pressure_controller", {})
+    if isinstance(controller, Mapping) and controller.get("response_detected") is True:
+        port = str(controller.get("port") or "").strip()
+        if port:
+            out[port] = {
+                "port": port,
+                "observed_role": "pressure_controller",
+                "identity": controller.get("identity", ""),
+                "source_schema": payload.get("schema_version"),
+            }
+    gauge = payload.get("pressure_gauge", {})
+    if isinstance(gauge, Mapping) and gauge.get("response_detected") is True:
+        port = str(gauge.get("port") or "").strip()
+        if port:
+            out[port] = {
+                "port": port,
+                "observed_role": "pressure_gauge",
+                "pressure_hpa": gauge.get("pressure_hpa"),
+                "source_schema": payload.get("schema_version"),
+            }
+    if not out:
+        raise ValueError("pressure probe contains no confirmed device responses")
+    return out
 
 
 def _load_port_inventory(path: str | None) -> Any:
@@ -139,6 +180,14 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Require runtime ports to match expected reference-device roles from protocol inventory.",
     )
+    parser.add_argument(
+        "--only-devices",
+        default=None,
+        help=(
+            "Optional comma-separated reference-device keys to bind. "
+            "Unselected reference devices remain unchanged."
+        ),
+    )
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -162,6 +211,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         available_ports=available_ports,
         protocol_inventory=protocol_inventory,
         require_protocol_match=require_protocol_match,
+        device_keys=args.only_devices,
     )
 
     config_path = destination / "runtime_serial_port_bound_config.json"
@@ -174,6 +224,12 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             "input_config": str(cfg_path),
             "runtime_config": str(config_path),
             "evidence_csv": str(evidence_path),
+            "selected_devices": args.only_devices or "all_reference_devices",
+            "protocol_inventory_json": (
+                str(Path(args.protocol_inventory_json).resolve())
+                if args.protocol_inventory_json
+                else ""
+            ),
         }
     )
     summary_path = destination / "runtime_serial_port_binding_summary.json"
