@@ -183,6 +183,13 @@ _ZH_CN = {
     ),
     "pages.readonly.value.no_approval": "工作站当前不提供批准动作。",
     "pages.readonly.value.not_released": "未放行",
+    "pages.readonly.value.unified_decision": "{label}：{status}｜{reasons}",
+    "pages.readonly.value.decision.start_simulation": "仿真演练启动",
+    "pages.readonly.value.decision.start_real_execution": "真实执行启动",
+    "pages.readonly.value.decision.write_coefficients": "受控系数写入",
+    "pages.readonly.value.decision.issue_formal_certificate": "正式证书签发",
+    "pages.readonly.value.decision.allowed": "允许",
+    "pages.readonly.value.decision.blocked": "锁定",
     "pages.readonly.value.plan_route": (
         "{route}：{status}，{count} 点，{mode}"
     ),
@@ -218,7 +225,7 @@ _ZH_CN = {
         "{channel}：连接 {connection}；身份 {identity}；健康 {health}"
     ),
     "pages.readonly.value.device_slots_not_devices": (
-        "六个槽位来自工作站通道合同，不等同于六台设备当前在线。"
+        "八个槽位来自工作站通道合同，不等同于八台设备当前在线。"
     ),
     "pages.readonly.value.device_mapping_counts": (
         "配置 {configured}；报告接入 {reported}；已映射 {mapped}；报告通电 {powered}。"
@@ -558,6 +565,13 @@ _EN_US = {
     "pages.readonly.value.report_release": (
         "Formal release state: {status}; independent review is still required."
     ),
+    "pages.readonly.value.unified_decision": "{label}: {status} | {reasons}",
+    "pages.readonly.value.decision.start_simulation": "Simulation start",
+    "pages.readonly.value.decision.start_real_execution": "Real execution start",
+    "pages.readonly.value.decision.write_coefficients": "Controlled coefficient write",
+    "pages.readonly.value.decision.issue_formal_certificate": "Formal certificate issue",
+    "pages.readonly.value.decision.allowed": "allowed",
+    "pages.readonly.value.decision.blocked": "locked",
     "pages.readonly.review.title": "Review and Safety Summary",
     "pages.readonly.review.boundary": (
         "Read-only certificate, safety-boundary, and review-next-step summary."

@@ -7,43 +7,30 @@ import gas_calibrator.v1_5.orchestration.operator_workstation as workstation_mod
 import pytest
 from gas_calibrator.tools.run_v1_5_operator_workstation_dry_run import main as cli_main
 from gas_calibrator.v1_5.orchestration.operator_workstation import (
+    ARCHIVE_AUTHORITY_CONFIRMATION_RECEIPT_SCHEMA,
     STARTUP_RECEIPT_SCHEMA,
+    V1_5_ARCHIVE_AUTHORITY_CONFIRMATION_TEXT,
+    build_v1_5_archive_authority_confirmation_receipt,
     build_v1_5_operator_workstation_plan,
     build_v1_5_operator_workstation_startup_receipt,
+    build_v1_5_workstation_decision_model,
     execute_v1_5_operator_workstation_dry_run,
+    execute_v1_5_response_only_simulation,
     inspect_v1_5_runtime_config,
+    load_v1_5_decision_authorities,
     run_v1_5_operator_workstation_application,
+    write_v1_5_archive_authority_confirmation_receipt,
     write_v1_5_operator_workstation_startup_receipt,
 )
-from gas_calibrator.validation.v1_5_algorithm_route_profiles import (
-    build_v1_5_profile_queue_rows,
+from v1_5_workstation_test_support import (
+    write_csv_rows as _write_csv,
+    write_decision_authority_archive,
+    write_legacy_profile_queues as _legacy_queues,
 )
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PROFILE_PATH = ROOT / "configs" / "v1_5_algorithm_route_profiles.json"
 CONFIG_PATH = ROOT / "configs" / "default_config.json"
-
-
-def _write_csv(path: Path, rows: list[dict]) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fields = list(rows[0])
-    with path.open("w", encoding="utf-8-sig", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
-        writer.writeheader()
-        writer.writerows(rows)
-    return path
-
-
-def _legacy_queues(tmp_path: Path) -> tuple[Path, Path]:
-    queues = build_v1_5_profile_queue_rows(
-        PROFILE_PATH,
-        profile_id="legacy_ratio_production",
-    )
-    return (
-        _write_csv(tmp_path / "co2_runner_queue.csv", queues["co2_rows"]),
-        _write_csv(tmp_path / "h2o_runner_queue.csv", queues["h2o_rows"]),
-    )
 
 
 def test_operator_workstation_locks_mature_v1_5_and_keeps_certificate_non_blocking(
@@ -85,12 +72,469 @@ def test_operator_workstation_locks_mature_v1_5_and_keeps_certificate_non_blocki
     assert all("--engineering-probe-only" in row["argv_template"] for row in handoff["commands"])
     assert handoff["operator_confirmation_required_sha256"]
     assert all(row["queue_csv_sha256"] for row in handoff["commands"])
+    assert handoff["default_scope"] == "response_only"
+    response_scope = next(
+        row
+        for row in handoff["available_scopes"]
+        if row["scope_id"] == "response_only"
+    )
+    assert response_scope["simulation_executor_available"] is True
+    assert response_scope["real_execution_allowed"] is False
+    assert response_scope["allowed_actions"] == [
+        "passive_listen",
+        "identity_query",
+        "status_query",
+    ]
+    assert response_scope["controls_water_or_gas_routes"] is False
+    assert response_scope["changes_analyzer_mode"] is False
+    assert response_scope["runs_calibration_sampling"] is False
+    decision_model = plan["decision_model"]
+    assert decision_model["aggregate_status"] == "simulation_ready_real_locked"
+    assert decision_model["can_start_simulation"] is True
+    assert decision_model["can_start_real_execution"] is False
+    assert decision_model["can_write_coefficients"] is False
+    assert decision_model["can_issue_formal_certificate"] is False
+    assert decision_model["decisions"]["start_simulation"]["authority"] == (
+        "v1_5_operator_workstation_start_gate"
+    )
+    assert "formal_run_status_missing" in decision_model["decisions"][
+        "write_coefficients"
+    ]["reason_codes"]
     assert all(
         row["runner_confirmation_record_expectation"][
             "written_by_mature_runner_before_device_construction"
         ]
         is True
         for row in handoff["commands"]
+    )
+
+
+def test_response_only_simulation_accepts_only_read_contract(tmp_path: Path) -> None:
+    co2_queue, h2o_queue = _legacy_queues(tmp_path)
+    plan = build_v1_5_operator_workstation_plan(
+        config_path=CONFIG_PATH,
+        co2_queue_csv=co2_queue,
+        h2o_queue_csv=h2o_queue,
+        output_dir=tmp_path / "workstation",
+        run_id="response_only_simulation",
+    )
+    seen: list[dict] = []
+
+    def simulated_client(request):
+        seen.append(dict(request))
+        return {
+            "ok": True,
+            "protocol_device_id": request.get("expected_protocol_id"),
+            "response_kind": "simulated_identity",
+        }
+
+    result = execute_v1_5_response_only_simulation(
+        plan,
+        [
+            {
+                "request_id": "ga01_identity",
+                "device_key": "GA01",
+                "port": "COM35",
+                "action": "identity_query",
+                "expected_protocol_id": "079",
+            },
+            {
+                "request_id": "gauge_status",
+                "device_key": "pressure_gauge",
+                "port": "COM30",
+                "action": "passive_listen",
+            },
+        ],
+        client=simulated_client,
+    )
+
+    assert result["overall_status"] == "pass"
+    assert result["execution_scope"] == "response_only"
+    assert result["request_count"] == 2
+    assert result["completed_request_count"] == 2
+    assert len(seen) == 2
+    assert result["evidence_source"] == "simulated"
+    assert result["opens_com_ports"] is False
+    assert result["controls_water_or_gas_routes"] is False
+    assert result["changes_analyzer_mode"] is False
+    assert result["runs_calibration_sampling"] is False
+    assert result["writes_serial_configuration"] is False
+    assert result["not_real_acceptance_evidence"] is True
+
+
+def test_response_only_simulation_rejects_command_or_setpoint_before_client(
+    tmp_path: Path,
+) -> None:
+    co2_queue, h2o_queue = _legacy_queues(tmp_path)
+    plan = build_v1_5_operator_workstation_plan(
+        config_path=CONFIG_PATH,
+        co2_queue_csv=co2_queue,
+        h2o_queue_csv=h2o_queue,
+        output_dir=tmp_path / "workstation",
+        run_id="response_only_reject_write_shape",
+    )
+    calls: list[dict] = []
+
+    result = execute_v1_5_response_only_simulation(
+        plan,
+        [
+            {
+                "device_key": "pressure_controller",
+                "port": "COM31",
+                "action": "status_query",
+                "command": "OUTP 1",
+                "setpoint": 1000,
+            }
+        ],
+        client=lambda request: calls.append(dict(request)) or {"ok": True},
+    )
+
+    assert result["overall_status"] == "blocked"
+    assert result["execution_started"] is False
+    assert result["request_results"] == []
+    assert calls == []
+    assert result["blockers"] == [
+        "request_0_fields_not_response_only:command,setpoint"
+    ]
+
+
+def test_response_only_simulation_fails_closed_without_shared_handoff_scope() -> None:
+    calls: list[dict] = []
+
+    result = execute_v1_5_response_only_simulation(
+        {
+            "overall_status": "ready_for_v1_5_dry_run",
+            "blockers": [],
+            "controlled_execution_handoff": {"available_scopes": []},
+        },
+        [{"device_key": "GA01", "action": "passive_listen"}],
+        client=lambda request: calls.append(dict(request)) or {"ok": True},
+    )
+
+    assert result["overall_status"] == "blocked"
+    assert result["execution_started"] is False
+    assert result["request_results"] == []
+    assert calls == []
+    assert result["blockers"] == [
+        "response_only_scope_missing_from_controlled_handoff"
+    ]
+
+
+def test_unified_decision_model_requires_both_formal_authorities_for_issue(
+    tmp_path: Path,
+) -> None:
+    co2_queue, h2o_queue = _legacy_queues(tmp_path)
+    plan = build_v1_5_operator_workstation_plan(
+        config_path=CONFIG_PATH,
+        co2_queue_csv=co2_queue,
+        h2o_queue_csv=h2o_queue,
+        output_dir=tmp_path / "workstation",
+        run_id="unified_decision_ready",
+    )
+    unlocked_plan = json.loads(json.dumps(plan))
+    for scope in unlocked_plan["controlled_execution_handoff"]["available_scopes"]:
+        if scope["scope_id"] == "response_only":
+            scope["real_execution_allowed"] = True
+    model = build_v1_5_workstation_decision_model(
+        unlocked_plan,
+        formal_run_status={
+            "can_continue_physical_flow": True,
+            "formal_release_allowed": True,
+            "senco_artifact_authorization": {
+                "controlled_write_authorization_ready": True,
+            },
+        },
+        report_release_decision={"formal_issue_allowed": True},
+    )
+
+    assert model["aggregate_status"] == "formal_issue_ready"
+    assert model["can_start_simulation"] is True
+    assert model["can_start_real_execution"] is True
+    assert model["can_write_coefficients"] is True
+    assert model["can_issue_formal_certificate"] is True
+    assert all(
+        decision["reason_codes"] == ["all_required_gates_passed"]
+        for key, decision in model["decisions"].items()
+        if key != "start_simulation"
+    )
+
+
+def test_unified_decision_model_does_not_trust_report_decision_alone(
+    tmp_path: Path,
+) -> None:
+    co2_queue, h2o_queue = _legacy_queues(tmp_path)
+    plan = build_v1_5_operator_workstation_plan(
+        config_path=CONFIG_PATH,
+        co2_queue_csv=co2_queue,
+        h2o_queue_csv=h2o_queue,
+        output_dir=tmp_path / "workstation",
+        run_id="unified_decision_fail_closed",
+    )
+
+    model = build_v1_5_workstation_decision_model(
+        plan,
+        report_release_decision={"formal_issue_allowed": True},
+    )
+
+    assert model["can_start_simulation"] is True
+    assert model["can_start_real_execution"] is False
+    assert model["can_write_coefficients"] is False
+    assert model["can_issue_formal_certificate"] is False
+    assert "formal_run_status_missing" in model["decisions"][
+        "issue_formal_certificate"
+    ]["reason_codes"]
+
+
+def test_hash_bound_archive_loads_existing_authorities_without_unlocking_real_scope(
+    tmp_path: Path,
+) -> None:
+    archive_path, _, _ = write_decision_authority_archive(tmp_path)
+    loaded = load_v1_5_decision_authorities(
+        archive_path,
+        expected_run_id="formal_batch_001",
+        expected_device_ids="001,002",
+        expected_runtime_config_sha256=hashlib.sha256(
+            CONFIG_PATH.read_bytes()
+        ).hexdigest(),
+    )
+
+    assert loaded["status"] == "ready"
+    assert loaded["blockers"] == []
+    assert loaded["archive_index"]["sha256"]
+    assert loaded["artifacts"]["formal_run_status"]["status"] == "bound"
+    assert loaded["artifacts"]["report_model"]["status"] == "bound"
+    assert loaded["artifacts"]["evidence_bundle"]["status"] == "bound"
+    assert loaded["identity_binding"]["status"] == "ready"
+    assert all(loaded["identity_binding"]["checks"].values())
+    assert loaded["opens_com_ports"] is False
+    assert loaded["writes_coefficients"] is False
+
+    co2_queue, h2o_queue = _legacy_queues(tmp_path)
+    plan = build_v1_5_operator_workstation_plan(
+        config_path=CONFIG_PATH,
+        co2_queue_csv=co2_queue,
+        h2o_queue_csv=h2o_queue,
+        output_dir=tmp_path / "workstation",
+        run_id="hash_bound_authorities",
+        decision_authority_archive_json=archive_path,
+        expected_authority_run_id="formal_batch_001",
+        expected_authority_device_ids="001,002",
+    )
+
+    assert plan["overall_status"] == "ready_for_v1_5_dry_run"
+    assert plan["decision_authority_binding"]["status"] == "ready"
+    assert "payloads" not in plan["decision_authority_binding"]
+    assert plan["decision_model"]["can_start_simulation"] is True
+    assert plan["decision_model"]["can_start_real_execution"] is False
+    assert plan["decision_model"]["can_write_coefficients"] is True
+    assert plan["decision_model"]["can_issue_formal_certificate"] is True
+    receipt = build_v1_5_operator_workstation_startup_receipt(plan)
+    assert receipt["decision_authority_binding"] == plan[
+        "decision_authority_binding"
+    ]
+    assert receipt["opens_com_ports"] is False
+
+
+def test_decision_authority_requires_independent_batch_confirmation(
+    tmp_path: Path,
+) -> None:
+    archive_path, _, _ = write_decision_authority_archive(tmp_path)
+    config_sha = hashlib.sha256(CONFIG_PATH.read_bytes()).hexdigest()
+
+    missing_confirmation = load_v1_5_decision_authorities(
+        archive_path,
+        expected_runtime_config_sha256=config_sha,
+    )
+    assert missing_confirmation["status"] == "blocked"
+    assert "decision_authority_expected_run_id_missing" in missing_confirmation[
+        "blockers"
+    ]
+    assert "decision_authority_expected_device_ids_missing" in missing_confirmation[
+        "blockers"
+    ]
+
+    wrong_run = load_v1_5_decision_authorities(
+        archive_path,
+        expected_run_id="another_batch",
+        expected_device_ids="001,002",
+        expected_runtime_config_sha256=config_sha,
+    )
+    assert "decision_authority_expected_run_id_mismatch" in wrong_run["blockers"]
+
+    wrong_devices = load_v1_5_decision_authorities(
+        archive_path,
+        expected_run_id="formal_batch_001",
+        expected_device_ids="001,003",
+        expected_runtime_config_sha256=config_sha,
+    )
+    assert "decision_authority_expected_device_ids_mismatch" in wrong_devices[
+        "blockers"
+    ]
+
+
+def test_decision_authority_blocks_config_drift_without_blocking_simulation(
+    tmp_path: Path,
+) -> None:
+    archive_path, _, _ = write_decision_authority_archive(
+        tmp_path,
+        config_sha256="d" * 64,
+    )
+    co2_queue, h2o_queue = _legacy_queues(tmp_path)
+
+    plan = build_v1_5_operator_workstation_plan(
+        config_path=CONFIG_PATH,
+        co2_queue_csv=co2_queue,
+        h2o_queue_csv=h2o_queue,
+        output_dir=tmp_path / "workstation",
+        run_id="config_drift_authority",
+        decision_authority_archive_json=archive_path,
+        expected_authority_run_id="formal_batch_001",
+        expected_authority_device_ids="001,002",
+    )
+
+    assert plan["overall_status"] == "ready_for_v1_5_dry_run"
+    assert plan["decision_authority_binding"]["status"] == "blocked"
+    assert "decision_authority_runtime_config_sha256_mismatch" in plan[
+        "decision_authority_binding"
+    ]["blockers"]
+    assert plan["decision_model"]["can_start_simulation"] is True
+    assert plan["decision_model"]["can_write_coefficients"] is False
+    assert plan["decision_model"]["can_issue_formal_certificate"] is False
+
+
+def test_decision_authority_rejects_mixed_internal_batch_sources(
+    tmp_path: Path,
+) -> None:
+    archive_path, _, _ = write_decision_authority_archive(
+        tmp_path,
+        report_overrides={"run_id": "mixed_report_batch"},
+    )
+
+    loaded = load_v1_5_decision_authorities(
+        archive_path,
+        expected_run_id="formal_batch_001",
+        expected_device_ids="001,002",
+        expected_runtime_config_sha256=hashlib.sha256(
+            CONFIG_PATH.read_bytes()
+        ).hexdigest(),
+    )
+
+    assert loaded["status"] == "blocked"
+    assert loaded["payloads"] == {}
+    assert "decision_authority_run_id_source_mismatch" in loaded["blockers"]
+
+    device_archive, _, _ = write_decision_authority_archive(
+        tmp_path / "device_source_mismatch",
+        formal_overrides={
+            "senco_artifact_authorization": {
+                "controlled_write_authorization_ready": True,
+                "authorized_device_ids": ["001", "003"],
+            }
+        },
+    )
+    device_loaded = load_v1_5_decision_authorities(
+        device_archive,
+        expected_run_id="formal_batch_001",
+        expected_device_ids="001,002",
+        expected_runtime_config_sha256=hashlib.sha256(
+            CONFIG_PATH.read_bytes()
+        ).hexdigest(),
+    )
+    assert device_loaded["status"] == "blocked"
+    assert "decision_authority_device_code_source_mismatch" in device_loaded[
+        "blockers"
+    ]
+
+
+def test_decision_authority_bundle_fails_atomically_after_hash_tamper(
+    tmp_path: Path,
+) -> None:
+    archive_path, _, report_path = write_decision_authority_archive(tmp_path)
+    report_path.write_text("{}", encoding="utf-8")
+
+    loaded = load_v1_5_decision_authorities(archive_path)
+
+    assert loaded["status"] == "blocked"
+    assert loaded["payloads"] == {}
+    assert "decision_authority_report_model_sha256_mismatch" in loaded["blockers"]
+
+    co2_queue, h2o_queue = _legacy_queues(tmp_path)
+    plan = build_v1_5_operator_workstation_plan(
+        config_path=CONFIG_PATH,
+        co2_queue_csv=co2_queue,
+        h2o_queue_csv=h2o_queue,
+        output_dir=tmp_path / "workstation",
+        run_id="tampered_authorities",
+        decision_authority_archive_json=archive_path,
+    )
+    assert plan["overall_status"] == "ready_for_v1_5_dry_run"
+    assert plan["decision_authority_binding"]["status"] == "blocked"
+    assert plan["decision_model"]["can_start_simulation"] is True
+    assert plan["decision_model"]["can_write_coefficients"] is False
+    assert plan["decision_model"]["can_issue_formal_certificate"] is False
+
+
+def test_decision_authority_rejects_simulated_or_malformed_release_evidence(
+    tmp_path: Path,
+) -> None:
+    archive_path, _, _ = write_decision_authority_archive(
+        tmp_path,
+        report_overrides={
+            "evidence_source": "simulated",
+            "not_real_acceptance_evidence": True,
+        },
+    )
+
+    loaded = load_v1_5_decision_authorities(archive_path)
+
+    assert loaded["status"] == "blocked"
+    assert loaded["payloads"] == {}
+    assert (
+        "decision_authority_report_model_simulated_evidence_forbidden"
+        in loaded["blockers"]
+    )
+
+
+def test_decision_authority_distinguishes_optional_absence_from_broken_binding(
+    tmp_path: Path,
+) -> None:
+    not_configured = load_v1_5_decision_authorities(None)
+    assert not_configured["status"] == "not_configured"
+    assert not_configured["blockers"] == []
+
+    missing = load_v1_5_decision_authorities(tmp_path / "missing.json")
+    assert missing["status"] == "blocked"
+    assert missing["blockers"] == ["decision_authority_archive_index_missing"]
+
+    archive_path, _, _ = write_decision_authority_archive(tmp_path)
+    archive = json.loads(archive_path.read_text(encoding="utf-8"))
+    archive["artifacts"] = [
+        row
+        for row in archive["artifacts"]
+        if row["role"] != "report_report_model"
+    ]
+    archive_path.write_text(json.dumps(archive), encoding="utf-8")
+    incomplete = load_v1_5_decision_authorities(archive_path)
+    assert incomplete["status"] == "blocked"
+    assert incomplete["payloads"] == {}
+    assert "decision_authority_report_model_role_count_invalid:0" in incomplete[
+        "blockers"
+    ]
+
+
+def test_decision_authority_rejects_non_boolean_formal_fields(tmp_path: Path) -> None:
+    archive_path, _, _ = write_decision_authority_archive(
+        tmp_path,
+        formal_overrides={"formal_release_allowed": "yes"},
+    )
+
+    loaded = load_v1_5_decision_authorities(archive_path)
+
+    assert loaded["status"] == "blocked"
+    assert loaded["payloads"] == {}
+    assert (
+        "decision_authority_formal_run_status_shape_invalid"
+        in loaded["blockers"]
     )
 
 
@@ -124,6 +568,7 @@ def test_startup_receipt_binds_inputs_but_keeps_operator_record_blank(
     )
     assert receipt["opens_com_ports"] is False
     assert receipt["not_real_acceptance_evidence"] is True
+    assert receipt["decision_model"] == plan["decision_model"]
 
 
 def test_startup_receipt_writer_is_immutable(tmp_path: Path) -> None:
@@ -146,6 +591,187 @@ def test_startup_receipt_writer_is_immutable(tmp_path: Path) -> None:
     assert written["probe_execution_allowed"] is False
     with pytest.raises(FileExistsError):
         write_v1_5_operator_workstation_startup_receipt(plan, path)
+
+
+def test_archive_confirmation_receipt_binds_operator_and_identity_without_authority(
+    tmp_path: Path,
+) -> None:
+    archive_path, _, _ = write_decision_authority_archive(tmp_path)
+    co2_queue, h2o_queue = _legacy_queues(tmp_path)
+    plan = build_v1_5_operator_workstation_plan(
+        config_path=CONFIG_PATH,
+        co2_queue_csv=co2_queue,
+        h2o_queue_csv=h2o_queue,
+        output_dir=tmp_path / "workstation",
+        run_id="archive_confirmation",
+        decision_authority_archive_json=archive_path,
+        expected_authority_run_id="formal_batch_001",
+        expected_authority_device_ids="001,002",
+    )
+
+    receipt = build_v1_5_archive_authority_confirmation_receipt(
+        plan,
+        operator_name="operator-a",
+        confirmation_text=V1_5_ARCHIVE_AUTHORITY_CONFIRMATION_TEXT,
+    )
+
+    assert receipt["schema"] == ARCHIVE_AUTHORITY_CONFIRMATION_RECEIPT_SCHEMA
+    assert receipt["status"] == "confirmed"
+    assert receipt["blockers"] == []
+    assert receipt["operator_confirmation"]["operator_name"] == "operator-a"
+    assert receipt["operator_confirmation"]["confirmation_text_matches"] is True
+    assert receipt["archive_selection"]["expected_identity"]["run_id"] == (
+        "formal_batch_001"
+    )
+    assert receipt["archive_selection"]["expected_identity"]["device_ids"] == [
+        "001",
+        "002",
+    ]
+    assert all(receipt["archive_selection"]["identity_checks"].values())
+    assert receipt["decision_model_at_confirmation"] == plan["decision_model"]
+    assert receipt["formal_actions_unlocked_by_receipt"] is False
+    assert receipt["probe_execution_allowed"] is False
+    assert receipt["opens_com_ports"] is False
+    assert receipt["writes_coefficients"] is False
+    assert receipt["formal_certificate_issue_performed"] is False
+    assert receipt["not_real_acceptance_evidence"] is True
+
+
+@pytest.mark.parametrize(
+    ("operator_name", "confirmation_text", "expected_blocker"),
+    [
+        (
+            "",
+            V1_5_ARCHIVE_AUTHORITY_CONFIRMATION_TEXT,
+            "authority_confirmation_operator_missing",
+        ),
+        (
+            "operator-a",
+            "CONFIRM",
+            "authority_confirmation_text_mismatch",
+        ),
+    ],
+)
+def test_archive_confirmation_receipt_fails_closed_on_human_confirmation(
+    tmp_path: Path,
+    operator_name: str,
+    confirmation_text: str,
+    expected_blocker: str,
+) -> None:
+    archive_path, _, _ = write_decision_authority_archive(tmp_path)
+    co2_queue, h2o_queue = _legacy_queues(tmp_path)
+    plan = build_v1_5_operator_workstation_plan(
+        config_path=CONFIG_PATH,
+        co2_queue_csv=co2_queue,
+        h2o_queue_csv=h2o_queue,
+        output_dir=tmp_path / "workstation",
+        run_id="blocked_archive_confirmation",
+        decision_authority_archive_json=archive_path,
+        expected_authority_run_id="formal_batch_001",
+        expected_authority_device_ids="001,002",
+    )
+
+    receipt = build_v1_5_archive_authority_confirmation_receipt(
+        plan,
+        operator_name=operator_name,
+        confirmation_text=confirmation_text,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert expected_blocker in receipt["blockers"]
+    assert receipt["formal_actions_unlocked_by_receipt"] is False
+
+
+def test_archive_confirmation_receipt_fails_closed_without_bound_archive(
+    tmp_path: Path,
+) -> None:
+    co2_queue, h2o_queue = _legacy_queues(tmp_path)
+    plan = build_v1_5_operator_workstation_plan(
+        config_path=CONFIG_PATH,
+        co2_queue_csv=co2_queue,
+        h2o_queue_csv=h2o_queue,
+        output_dir=tmp_path / "workstation",
+        run_id="missing_archive_confirmation",
+    )
+
+    receipt = build_v1_5_archive_authority_confirmation_receipt(
+        plan,
+        operator_name="operator-a",
+        confirmation_text=V1_5_ARCHIVE_AUTHORITY_CONFIRMATION_TEXT,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert "authority_confirmation_binding_not_ready" in receipt["blockers"]
+    assert "authority_confirmation_identity_not_ready" in receipt["blockers"]
+    assert receipt["opens_com_ports"] is False
+
+
+def test_archive_confirmation_receipt_rehashes_sources_at_confirmation_time(
+    tmp_path: Path,
+) -> None:
+    archive_path, _, report_path = write_decision_authority_archive(tmp_path)
+    co2_queue, h2o_queue = _legacy_queues(tmp_path)
+    plan = build_v1_5_operator_workstation_plan(
+        config_path=CONFIG_PATH,
+        co2_queue_csv=co2_queue,
+        h2o_queue_csv=h2o_queue,
+        output_dir=tmp_path / "workstation",
+        run_id="rehash_archive_confirmation",
+        decision_authority_archive_json=archive_path,
+        expected_authority_run_id="formal_batch_001",
+        expected_authority_device_ids="001,002",
+    )
+    assert plan["decision_authority_binding"]["status"] == "ready"
+    report_path.write_text("{}", encoding="utf-8")
+
+    receipt = build_v1_5_archive_authority_confirmation_receipt(
+        plan,
+        operator_name="operator-a",
+        confirmation_text=V1_5_ARCHIVE_AUTHORITY_CONFIRMATION_TEXT,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert (
+        "authority_confirmation_report_model_hash_binding_invalid"
+        in receipt["blockers"]
+    )
+    assert receipt["formal_actions_unlocked_by_receipt"] is False
+
+
+def test_archive_confirmation_receipt_writer_is_immutable(tmp_path: Path) -> None:
+    archive_path, _, _ = write_decision_authority_archive(tmp_path)
+    co2_queue, h2o_queue = _legacy_queues(tmp_path)
+    plan = build_v1_5_operator_workstation_plan(
+        config_path=CONFIG_PATH,
+        co2_queue_csv=co2_queue,
+        h2o_queue_csv=h2o_queue,
+        output_dir=tmp_path / "workstation",
+        run_id="immutable_archive_confirmation",
+        decision_authority_archive_json=archive_path,
+        expected_authority_run_id="formal_batch_001",
+        expected_authority_device_ids="001,002",
+    )
+    path = tmp_path / "archive_confirmation.json"
+
+    written = write_v1_5_archive_authority_confirmation_receipt(
+        plan,
+        path,
+        operator_name="operator-a",
+        confirmation_text=V1_5_ARCHIVE_AUTHORITY_CONFIRMATION_TEXT,
+    )
+
+    assert written["path"] == str(path.resolve())
+    assert written["status"] == "confirmed"
+    assert written["confirmation_valid"] is True
+    assert written["sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert b"\r\n" not in path.read_bytes()
+    with pytest.raises(FileExistsError):
+        write_v1_5_archive_authority_confirmation_receipt(
+            plan,
+            path,
+            operator_name="operator-a",
+            confirmation_text=V1_5_ARCHIVE_AUTHORITY_CONFIRMATION_TEXT,
+        )
 
 
 def test_operator_workstation_blocks_point_count_drift_before_runner_execution(

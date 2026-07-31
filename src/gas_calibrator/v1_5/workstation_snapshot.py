@@ -20,7 +20,7 @@ from typing import Any, Iterable, Mapping
 
 SCHEMA_VERSION = "v1_5_workstation_snapshot_v3"
 EXPECTED_POINT_COUNTS = {"co2": 45, "h2o": 13}
-CONFIGURED_CHANNEL_COUNT = 6
+CONFIGURED_CHANNEL_COUNT = 8
 PRODUCTION_PROFILE_ID = "legacy_ratio_production"
 SHADOW_PROFILE_ID = "absorption_ratio_shadow"
 RUNTIME_FRESH_SECONDS = 20
@@ -1551,6 +1551,8 @@ def build_workstation_snapshot(
     site_profile: Mapping[str, Any] | None = None,
     certificate_records: Iterable[Mapping[str, Any]] | None = None,
     certificate_error: str = "",
+    decision_model: Mapping[str, Any] | None = None,
+    decision_authority_binding: Mapping[str, Any] | None = None,
     now_utc: datetime | None = None,
 ) -> dict[str, Any]:
     """Build the one read model consumed by V1.5 result/review surfaces."""
@@ -1707,6 +1709,8 @@ def build_workstation_snapshot(
         "algorithm": algorithm,
         "reports": reports,
         "review": review,
+        "decision_model": dict(decision_model or {}),
+        "decision_authority_binding": dict(decision_authority_binding or {}),
         "certificate": certificate,
         "safety": safety,
         "evidence_source": (

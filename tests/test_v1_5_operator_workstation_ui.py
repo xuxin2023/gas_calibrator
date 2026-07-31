@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import tkinter as tk
 import time
-import csv
 import json
 from pathlib import Path
 
@@ -14,12 +13,13 @@ from gas_calibrator.v1_5.ui.operator_workstation_app import (
     _t,
     main as workstation_main,
 )
-from gas_calibrator.validation.v1_5_algorithm_route_profiles import (
-    build_v1_5_profile_queue_rows,
-)
 from gas_calibrator.v1_5.ui.pages.visitor_showcase_page import VisitorShowcasePage
 from gas_calibrator.v1_5.ui.screenshot import export_widget_screenshot
 from gas_calibrator.v1_5.ui.scrollable_page_frame import ScrollablePageFrame
+from v1_5_workstation_test_support import (
+    write_decision_authority_archive,
+    write_legacy_profile_queues,
+)
 
 
 def _root() -> tk.Tk:
@@ -42,14 +42,6 @@ def _texts(widget: tk.Misc) -> list[str]:
             values.append(text)
         values.extend(_texts(child))
     return values
-
-
-def _write_queue(path, rows) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8-sig", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
-        writer.writeheader()
-        writer.writerows(rows)
 
 
 def test_v1_5_visitor_showcase_is_read_only_and_1080p_ready() -> None:
@@ -159,6 +151,13 @@ def test_operator_workstation_is_v1_5_first_chinese_and_1080p_ready() -> None:
             for child in app.aside_frame.winfo_children()
         )
         assert aside_bottom <= app.aside_frame.winfo_height()
+        app.open_settings()
+        root.update_idletasks()
+        assert app._settings_dialog is not None
+        settings_text = _texts(app._settings_dialog)
+        assert _t("dialog.authority_operator") in settings_text
+        assert settings_text.count(_t("dialog.browse")) == 7
+        assert app._settings_dialog.winfo_height() <= 1080
     finally:
         root.destroy()
 
@@ -168,14 +167,7 @@ def test_controlled_handoff_preview_is_read_only_and_keeps_double_unlock(
 ) -> None:
     root = _root()
     repository_root = Path(__file__).resolve().parents[1]
-    queues = build_v1_5_profile_queue_rows(
-        repository_root / "configs" / "v1_5_algorithm_route_profiles.json",
-        profile_id="legacy_ratio_production",
-    )
-    co2 = tmp_path / "co2.csv"
-    h2o = tmp_path / "h2o.csv"
-    _write_queue(co2, queues["co2_rows"])
-    _write_queue(h2o, queues["h2o_rows"])
+    co2, h2o = write_legacy_profile_queues(tmp_path)
     try:
         app = OperatorWorkstationApp(
             root,
@@ -194,9 +186,16 @@ def test_controlled_handoff_preview_is_read_only_and_keeps_double_unlock(
         assert app._handoff_preview_widget is not None
         assert str(app._handoff_preview_widget.cget("state")) == "disabled"
         preview = app._handoff_preview_widget.get("1.0", "end")
+        assert _t("handoff.authority.not_configured") in preview
         assert "状态：等待显式双重解锁" in preview
         assert "执行权限：否" in preview
         assert "正式验收证据：否" in preview
+        assert "可选范围：仅响应检查｜仿真已就绪，真实执行锁定" in preview
+        assert "不切气路、不设压力、不改变 MODE、不采校准点、不写设备" in preview
+        assert "仿真演练启动：允许" in preview
+        assert "真实执行启动：锁定" in preview
+        assert "受控系数写入：锁定" in preview
+        assert "正式证书签发：锁定" in preview
         assert "--engineering-probe-only" in preview
         assert "--no-ftd-write" in preview
         assert "<OPERATOR_CONFIRMATION_REQUIRED_AT_EXECUTION>" in preview
@@ -231,6 +230,18 @@ def test_operator_workstation_settings_are_editable_and_certificate_optional() -
         assert app.settings["h2o"].get().endswith("h2o_runner_queue.csv")
         assert app.settings["runtime"].get().endswith("\\logs")
         assert app.settings["certificate"].get() == ""
+        assert app.settings["authority_archive"].get() == ""
+        assert app.settings["authority_run_id"].get() == ""
+        assert app.settings["authority_device_ids"].get() == ""
+        assert _t("dialog.authority_archive") in "\n".join(
+            _texts(app._settings_dialog)
+        )
+        assert _t("dialog.authority_run_id") in "\n".join(
+            _texts(app._settings_dialog)
+        )
+        assert _t("dialog.authority_device_ids") in "\n".join(
+            _texts(app._settings_dialog)
+        )
         assert "COM23" in app.config_gate_var.get()
         assert "COM22" in app.config_gate_var.get()
         assert app.config_hash_var.get().startswith("SHA256 ")
@@ -244,14 +255,7 @@ def test_fixed_startup_preflight_accepts_config_and_45_13_queues(
     capsys,
 ) -> None:
     root = Path(__file__).resolve().parents[1]
-    queues = build_v1_5_profile_queue_rows(
-        root / "configs" / "v1_5_algorithm_route_profiles.json",
-        profile_id="legacy_ratio_production",
-    )
-    co2 = tmp_path / "co2.csv"
-    h2o = tmp_path / "h2o.csv"
-    _write_queue(co2, queues["co2_rows"])
-    _write_queue(h2o, queues["h2o_rows"])
+    co2, h2o = write_legacy_profile_queues(tmp_path)
 
     rc = workstation_main(
         [
@@ -276,6 +280,51 @@ def test_fixed_startup_preflight_accepts_config_and_45_13_queues(
         payload["controlled_execution_handoff"]["status"]
         == "blocked_pending_explicit_double_unlock"
     )
+    assert payload["controlled_execution_handoff"]["default_scope"] == "response_only"
+    assert payload["decision_model"]["aggregate_status"] == (
+        "simulation_ready_real_locked"
+    )
+    assert payload["decision_model"]["can_start_simulation"] is True
+    assert payload["decision_model"]["can_start_real_execution"] is False
+    assert payload["decision_authority_binding"]["status"] == "not_configured"
+
+
+def test_fixed_startup_preflight_binds_authorities_by_archive_hash(
+    tmp_path,
+    capsys,
+) -> None:
+    root = Path(__file__).resolve().parents[1]
+    co2, h2o = write_legacy_profile_queues(tmp_path)
+    archive, _, _ = write_decision_authority_archive(tmp_path)
+
+    rc = workstation_main(
+        [
+            "--config",
+            str(root / "configs" / "default_config.json"),
+            "--co2-queue-csv",
+            str(co2),
+            "--h2o-queue-csv",
+            str(h2o),
+            "--decision-authority-archive-json",
+            str(archive),
+            "--expected-authority-run-id",
+            "formal_batch_001",
+            "--expected-authority-device-ids",
+            "001,002",
+            "--validate-startup-only",
+        ]
+    )
+
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["decision_authority_binding"]["status"] == "ready"
+    assert payload["decision_authority_binding"]["identity_binding"][
+        "status"
+    ] == "ready"
+    assert payload["decision_model"]["can_start_real_execution"] is False
+    assert payload["decision_model"]["can_write_coefficients"] is True
+    assert payload["decision_model"]["can_issue_formal_certificate"] is True
+    assert payload["opens_com_ports"] is False
 
 
 def test_fixed_startup_preflight_writes_locked_receipt(
@@ -283,15 +332,8 @@ def test_fixed_startup_preflight_writes_locked_receipt(
     capsys,
 ) -> None:
     root = Path(__file__).resolve().parents[1]
-    queues = build_v1_5_profile_queue_rows(
-        root / "configs" / "v1_5_algorithm_route_profiles.json",
-        profile_id="legacy_ratio_production",
-    )
-    co2 = tmp_path / "co2.csv"
-    h2o = tmp_path / "h2o.csv"
+    co2, h2o = write_legacy_profile_queues(tmp_path)
     receipt_path = tmp_path / "startup_receipt.json"
-    _write_queue(co2, queues["co2_rows"])
-    _write_queue(h2o, queues["h2o_rows"])
 
     rc = workstation_main(
         [
@@ -343,6 +385,145 @@ def test_fixed_startup_preflight_refuses_receipt_overwrite(
     assert receipt_path.read_text(encoding="utf-8") == "preserve-me"
 
 
+def test_fixed_startup_preflight_writes_confirmed_archive_receipt(
+    tmp_path,
+    capsys,
+) -> None:
+    root = Path(__file__).resolve().parents[1]
+    co2, h2o = write_legacy_profile_queues(tmp_path)
+    archive, _, _ = write_decision_authority_archive(tmp_path)
+    receipt_path = tmp_path / "archive_confirmation.json"
+
+    rc = workstation_main(
+        [
+            "--config",
+            str(root / "configs" / "default_config.json"),
+            "--co2-queue-csv",
+            str(co2),
+            "--h2o-queue-csv",
+            str(h2o),
+            "--decision-authority-archive-json",
+            str(archive),
+            "--expected-authority-run-id",
+            "formal_batch_001",
+            "--expected-authority-device-ids",
+            "001,002",
+            "--authority-confirmation-receipt-json",
+            str(receipt_path),
+            "--authority-confirmation-operator",
+            "operator-cli",
+            "--authority-confirmation-text",
+            workstation_ui.V1_5_ARCHIVE_AUTHORITY_CONFIRMATION_TEXT,
+            "--validate-startup-only",
+        ]
+    )
+
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    summary = payload["authority_confirmation_receipt"]
+    assert summary["status"] == "confirmed"
+    assert summary["confirmation_valid"] is True
+    assert summary["opens_com_ports"] is False
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["operator_confirmation"]["operator_name"] == "operator-cli"
+    assert receipt["formal_actions_unlocked_by_receipt"] is False
+    assert receipt["not_real_acceptance_evidence"] is True
+
+
+def test_fixed_startup_preflight_writes_blocked_archive_receipt_on_bad_text(
+    tmp_path,
+    capsys,
+) -> None:
+    root = Path(__file__).resolve().parents[1]
+    co2, h2o = write_legacy_profile_queues(tmp_path)
+    archive, _, _ = write_decision_authority_archive(tmp_path)
+    receipt_path = tmp_path / "blocked_archive_confirmation.json"
+
+    rc = workstation_main(
+        [
+            "--config",
+            str(root / "configs" / "default_config.json"),
+            "--co2-queue-csv",
+            str(co2),
+            "--h2o-queue-csv",
+            str(h2o),
+            "--decision-authority-archive-json",
+            str(archive),
+            "--expected-authority-run-id",
+            "formal_batch_001",
+            "--expected-authority-device-ids",
+            "001,002",
+            "--authority-confirmation-receipt-json",
+            str(receipt_path),
+            "--authority-confirmation-operator",
+            "operator-cli",
+            "--authority-confirmation-text",
+            "CONFIRM",
+            "--validate-startup-only",
+        ]
+    )
+
+    assert rc == 2
+    payload = json.loads(capsys.readouterr().err)
+    assert payload["authority_confirmation_receipt"]["status"] == "blocked"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "blocked"
+    assert "authority_confirmation_text_mismatch" in receipt["blockers"]
+    assert receipt["opens_com_ports"] is False
+
+
+def test_operator_workstation_saves_archive_confirmation_receipt_from_handoff(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    root = _root()
+    repository_root = Path(__file__).resolve().parents[1]
+    co2, h2o = write_legacy_profile_queues(tmp_path)
+    archive, _, _ = write_decision_authority_archive(tmp_path)
+    receipt_path = tmp_path / "ui_archive_confirmation.json"
+    info_messages: list[str] = []
+    try:
+        app = OperatorWorkstationApp(
+            root,
+            initial_settings={
+                "config": str(repository_root / "configs" / "default_config.json"),
+                "co2": str(co2),
+                "h2o": str(h2o),
+                "output": str(tmp_path),
+                "authority_archive": str(archive),
+                "authority_run_id": "formal_batch_001",
+                "authority_device_ids": "001,002",
+                "authority_operator": "operator-ui",
+            },
+        )
+        monkeypatch.setattr(workstation_ui.messagebox, "askyesno", lambda *a, **k: True)
+        monkeypatch.setattr(
+            workstation_ui.filedialog,
+            "asksaveasfilename",
+            lambda *a, **k: str(receipt_path),
+        )
+        monkeypatch.setattr(
+            workstation_ui.messagebox,
+            "showinfo",
+            lambda _title, message, **_kwargs: info_messages.append(str(message)),
+        )
+        monkeypatch.setattr(
+            workstation_ui.messagebox,
+            "showerror",
+            lambda *_args, **_kwargs: pytest.fail("unexpected confirmation error"),
+        )
+
+        app.save_authority_confirmation_receipt()
+
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        assert receipt["status"] == "confirmed"
+        assert receipt["operator_confirmation"]["operator_name"] == "operator-ui"
+        assert receipt["opens_com_ports"] is False
+        assert info_messages and str(receipt_path.resolve()) in info_messages[0]
+    finally:
+        root.destroy()
+
+
 def test_fixed_startup_preflight_blocks_invalid_config_before_tk(
     tmp_path,
     capsys,
@@ -373,6 +554,7 @@ def test_operator_workstation_navigation_opens_v1_5_certificate_and_visitor_page
     root = _root()
     try:
         app = OperatorWorkstationApp(root)
+        assert len(app.channel_card_vars) == 8
         app.certificate_page.registry = (
             workstation_ui.CertificateMetricsRegistry(
                 tmp_path / "certificate_metrics_registry.json"
@@ -407,7 +589,7 @@ def test_operator_workstation_navigation_opens_v1_5_certificate_and_visitor_page
         joined = "\n".join(texts)
         assert "V1.5 气体分析仪智能校准中心" in joined
         assert "45 / 13 + 干气锚" in joined
-        assert "0 / 6" in joined
+        assert "0 / 8" in joined
         assert "1 Hz（校准）" in joined
         assert "A1=-- / A2=--" in joined
         assert "表值为准 / 控制器调节" in joined
@@ -481,13 +663,23 @@ def test_operator_workstation_summary_pages_share_one_read_only_snapshot() -> No
         assert "threshold_profile_hash" in qc_text
         assert "UI 可编辑：false" in qc_text
         assert app.devices_page.metric_vars[0].get() == "simulation_only"
-        assert app.devices_page.metric_vars[1].get() == "6"
+        assert app.devices_page.metric_vars[1].get() == "8"
         assert app.devices_page.metric_vars[2].get() == "0"
-        assert app.devices_page.metric_vars[3].get() == "6"
+        assert app.devices_page.metric_vars[3].get() == "8"
+        review_text = "\n".join(
+            widget.get("1.0", "end")
+            for widget in app.review_page.readonly_widgets
+        )
+        assert "仿真演练启动：允许" in review_text
+        assert "真实执行启动：锁定" in review_text
+        assert "受控系数写入：锁定" in review_text
+        assert "正式证书签发：锁定" in review_text
         device_text = "\n".join(
             widget.get("1.0", "end")
             for widget in app.devices_page.readonly_widgets
         )
+        assert "八个槽位来自工作站通道合同" in device_text
+        assert "六个槽位" not in device_text
         device_labels = "\n".join(_texts(app.devices_page))
         assert "mature_v1_v1_5_artifacts_only" in device_text
         assert "SENCO7_SENCO8_neutral" in device_text

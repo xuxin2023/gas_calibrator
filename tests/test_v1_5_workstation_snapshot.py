@@ -85,9 +85,9 @@ def test_snapshot_preserves_45_13_and_distinct_physical_anchors(tmp_path) -> Non
     )
     assert snapshot["devices"]["real_device_state"] == "not_evaluated"
     assert snapshot["devices"]["connection_policy"] == "no_com_no_scan"
-    assert snapshot["devices"]["configured_channel_count"] == 6
+    assert snapshot["devices"]["configured_channel_count"] == 8
     assert snapshot["devices"]["connected_count"] == 0
-    assert snapshot["devices"]["unknown_health_count"] == 6
+    assert snapshot["devices"]["unknown_health_count"] == 8
     assert snapshot["devices"]["initialization_contract"] == {
         "owner": "mature_v1_5_initialization_flow",
         "runtime_mode": "MODE2",
@@ -140,6 +140,42 @@ def test_snapshot_preserves_45_13_and_distinct_physical_anchors(tmp_path) -> Non
         "source": "digital_platinum_resistance_thermometer_in_chamber",
         "chamber_controller_display_is_truth": False,
     }
+
+
+def test_snapshot_carries_one_unified_decision_model_without_recomputing(
+    tmp_path,
+) -> None:
+    decision_model = {
+        "schema": "v1_5_workstation_decision_model_v1",
+        "aggregate_status": "simulation_ready_real_locked",
+        "can_start_simulation": True,
+        "can_start_real_execution": False,
+        "can_write_coefficients": False,
+        "can_issue_formal_certificate": False,
+        "decisions": {
+            "start_simulation": {"status": "allowed"},
+            "start_real_execution": {"status": "blocked"},
+        },
+    }
+    authority_binding = {
+        "status": "ready",
+        "archive_index": {"sha256": "a" * 64},
+        "artifacts": {
+            "formal_run_status": {"actual_sha256": "b" * 64},
+            "report_model": {"actual_sha256": "c" * 64},
+        },
+        "opens_com_ports": False,
+        "writes_coefficients": False,
+    }
+
+    snapshot = build_workstation_snapshot(
+        output_dir=tmp_path,
+        decision_model=decision_model,
+        decision_authority_binding=authority_binding,
+    )
+
+    assert snapshot["decision_model"] == decision_model
+    assert snapshot["decision_authority_binding"] == authority_binding
     assert snapshot["physical_reference"]["flow"][
         "used_for_concentration_fit"
     ] is False

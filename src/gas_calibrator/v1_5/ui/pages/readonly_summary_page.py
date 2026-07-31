@@ -36,6 +36,7 @@ class ReadOnlySummaryPage(ttk.Frame):
             raise ValueError(f"unsupported read-only page kind: {page_kind}")
         super().__init__(parent, style="Card.TFrame")
         self.page_kind = page_kind
+        self.locale = locale
         self._t = translate or translator_for(locale)
         self.last_snapshot: Mapping[str, Any] | None = None
         self.metric_vars = [
@@ -388,10 +389,43 @@ class ReadOnlySummaryPage(ttk.Frame):
             ),
             self._t("pages.readonly.value.certificate_isolated"),
         ]
-        release_lines = [
-            self._t("pages.readonly.value.not_acceptance"),
-            self._t("pages.readonly.value.no_approval"),
-        ]
+        decision_model = dict(snapshot.get("decision_model") or {})
+        decisions = dict(decision_model.get("decisions") or {})
+        release_lines: list[str] = []
+        for decision_key in (
+            "start_simulation",
+            "start_real_execution",
+            "write_coefficients",
+            "issue_formal_certificate",
+        ):
+            decision = dict(decisions.get(decision_key) or {})
+            if not decision:
+                continue
+            reason_key = "reasons_zh" if self.locale == "zh_CN" else "reasons_en"
+            release_lines.append(
+                self._t(
+                    "pages.readonly.value.unified_decision",
+                    label=self._t(
+                        f"pages.readonly.value.decision.{decision_key}"
+                    ),
+                    status=self._t(
+                        "pages.readonly.value.decision."
+                        f"{decision.get('status') or 'blocked'}"
+                    ),
+                    reasons="；".join(
+                        str(reason) for reason in decision.get(reason_key) or []
+                    )
+                    or "--",
+                )
+            )
+        if not release_lines:
+            release_lines.append(self._t("pages.readonly.value.not_released"))
+        release_lines.extend(
+            [
+                self._t("pages.readonly.value.not_acceptance"),
+                self._t("pages.readonly.value.no_approval"),
+            ]
+        )
         actions = [
             f"• {item}" for item in review.get("next_actions") or ()
         ] or [self._t("pages.readonly.value.none")]
@@ -400,7 +434,11 @@ class ReadOnlySummaryPage(ttk.Frame):
                 str(review.get("overall_status") or "pending"),
                 str(safety.get("status") or "pending"),
                 str(int(certificate.get("record_count") or 0)),
-                self._t("pages.readonly.value.not_released"),
+                self._t(
+                    "pages.readonly.value.decision.allowed"
+                    if decision_model.get("can_issue_formal_certificate") is True
+                    else "pages.readonly.value.decision.blocked"
+                ),
             ],
             [safety_lines, cert_lines, release_lines, actions],
         )
@@ -560,6 +598,7 @@ class ReadOnlySummaryPage(ttk.Frame):
             for row in channels
         ] or [self._t("pages.readonly.value.none")]
         identity_lines = [
+            self._t("pages.readonly.value.device_slots_not_devices"),
             self._t(
                 "pages.readonly.value.device_mapping_counts",
                 configured=int(devices.get("configured_channel_count") or 0),

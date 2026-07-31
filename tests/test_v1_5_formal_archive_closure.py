@@ -4,6 +4,9 @@ import json
 import pytest
 
 from gas_calibrator.tools.run_v1_5_formal_archive_closure import main as closure_main
+from gas_calibrator.v1_5.orchestration.operator_workstation import (
+    load_v1_5_decision_authorities,
+)
 from gas_calibrator.validation.v1_5_canonical_evidence import write_canonical_v1_5_evidence_package
 from gas_calibrator.validation.v1_5_formal_archive_closure import build_v1_5_formal_archive_closure
 from gas_calibrator.validation.v1_5_formal_database_import_evidence_bundle import (
@@ -301,6 +304,19 @@ def test_formal_archive_closure_indexes_authorization_manifest_and_write_readbac
     assert "senco_artifact_hash_manifest" in artifact_roles
     assert "senco_write_001_co2_senco13_pair_metadata" in artifact_roles
     assert "senco_write_001_co2_senco13_pair_readback_rows" in artifact_roles
+    evidence_bundle = json.loads(
+        result["paths"]["evidence_bundle"].read_text(encoding="utf-8")
+    )
+    run_row = evidence_bundle["tables"]["runs"][0]
+    loaded = load_v1_5_decision_authorities(
+        result["paths"]["archive_index_json"],
+        expected_run_id=index["run_id"],
+        expected_device_ids="001",
+        expected_runtime_config_sha256=run_row["config_hash"],
+    )
+    assert loaded["status"] == "ready", loaded["blockers"]
+    assert loaded["identity_binding"]["status"] == "ready"
+    assert all(loaded["identity_binding"]["checks"].values())
 
 
 def test_formal_archive_closure_refuses_database_import_when_senco_binding_is_blocked(tmp_path):
