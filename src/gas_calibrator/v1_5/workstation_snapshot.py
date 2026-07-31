@@ -10,6 +10,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 import re
 from collections import Counter
 from datetime import datetime, timezone
@@ -132,7 +133,13 @@ def _as_float(value: Any) -> float | None:
         result = float(value)
     except (TypeError, ValueError):
         return None
-    return result
+    return result if math.isfinite(result) else None
+
+
+def _device_readback_configured(value: Any) -> bool:
+    if not isinstance(value, Mapping) or value.get("enabled") is False:
+        return False
+    return bool(str(value.get("port") or "").strip())
 
 
 def _sample_value(row: Mapping[str, Any], field: str) -> Any:
@@ -671,6 +678,20 @@ def _runtime_observation(
         and pressure_pair_delta_ms is not None
         and pressure_pair_delta_ms <= PRESSURE_PAIR_MAX_DELTA_MS
     )
+    runtime_devices = runtime_config.get("devices")
+    runtime_devices = (
+        runtime_devices if isinstance(runtime_devices, Mapping) else {}
+    )
+    controller_config = runtime_devices.get("pressure_controller")
+    gauge_config = runtime_devices.get("pressure_gauge")
+    controller_configured = _device_readback_configured(controller_config)
+    reference_configured = _device_readback_configured(gauge_config)
+    pressure_pair_readback_ready = bool(
+        freshness == "fresh"
+        and pressure_pair_coincident
+        and pressure_pair_age_seconds is not None
+        and pressure_pair_age_seconds <= RUNTIME_FRESH_SECONDS
+    )
     if freshness != "fresh":
         pressure_chain_status = "stale_observation"
     elif pressure is None:
@@ -687,18 +708,12 @@ def _runtime_observation(
         pressure_chain_status = "pair_age_unknown"
     elif pressure_pair_age_seconds > RUNTIME_FRESH_SECONDS:
         pressure_chain_status = "pair_stale"
+    elif not reference_configured:
+        pressure_chain_status = "reference_not_configured"
+    elif not controller_configured:
+        pressure_chain_status = "controller_not_configured"
     else:
         pressure_chain_status = "fresh_coincident_observation"
-    runtime_devices = runtime_config.get("devices")
-    runtime_devices = (
-        runtime_devices if isinstance(runtime_devices, Mapping) else {}
-    )
-    controller_config = runtime_devices.get("pressure_controller")
-    controller_config = (
-        controller_config if isinstance(controller_config, Mapping) else {}
-    )
-    gauge_config = runtime_devices.get("pressure_gauge")
-    gauge_config = gauge_config if isinstance(gauge_config, Mapping) else {}
     reference_record_timestamp = (
         datetime.fromtimestamp(reference_path.stat().st_mtime, timezone.utc)
         .replace(microsecond=0)
@@ -734,11 +749,15 @@ def _runtime_observation(
             "status": pressure_chain_status,
             "calibration_ready": (
                 pressure_chain_status == "fresh_coincident_observation"
+                and controller_configured
+                and reference_configured
             ),
-            "controller_configured": bool(controller_config)
-            and controller_config.get("enabled") is not False,
-            "reference_configured": bool(gauge_config)
-            and gauge_config.get("enabled") is not False,
+            "configuration_ready": (
+                controller_configured and reference_configured
+            ),
+            "readback_ready": pressure_pair_readback_ready,
+            "controller_configured": controller_configured,
+            "reference_configured": reference_configured,
             "controller_role": "pressure_actuator_not_reference",
             "controller_is_pressure_truth": False,
             "reference_role": "digital_pressure_gauge_metrological_truth",

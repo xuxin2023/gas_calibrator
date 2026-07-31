@@ -327,6 +327,13 @@ def test_operator_workstation_i18n_defaults_to_chinese_with_english_fallback() -
         {"controller_minus_reference_hpa": 0.46}
     ) == "+0.5 hPa"
     assert OperatorWorkstationApp._format_pressure_delta({}) == "-- hPa"
+    assert OperatorWorkstationApp._format_pressure_chain_status(
+        {"status": "controller_feedback_missing"}
+    ) == "压力链：未就绪｜压力控制器无有效反馈"
+    assert OperatorWorkstationApp._format_pressure_chain_status(
+        {"status": "fresh_coincident_observation"},
+        locale="en_US",
+    ) == "Pressure chain: readback timing ready"
 
 
 def test_operator_workstation_start_button_wires_only_the_dry_run_executor(

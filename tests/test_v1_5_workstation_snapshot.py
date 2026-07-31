@@ -649,6 +649,94 @@ def test_snapshot_normalizes_bilingual_pressure_chain_fields(
     ] == "stale"
 
 
+def test_snapshot_requires_configured_pressure_roles_for_calibration_ready(
+    tmp_path,
+) -> None:
+    mtime, site_profile = _write_mature_runtime_artifacts(tmp_path)
+    run_dir = tmp_path / "run_20260731_120000"
+    sample_path = run_dir / "samples_20260731_120000.csv"
+    sample_path.write_text(
+        "\n".join(
+            (
+                (
+                    "sample_ts,pressure_gauge_sample_ts,pressure_gauge_hpa,"
+                    "pace_sample_ts,pace_pressure_hpa"
+                ),
+                (
+                    "2026-07-31T12:00:02.500,2026-07-31T12:00:02.100,"
+                    "1000.2,2026-07-31T12:00:02.200,1000.7"
+                ),
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    snapshot = build_workstation_snapshot(
+        runtime_output_dir=tmp_path,
+        site_profile=site_profile,
+        now_utc=mtime + timedelta(seconds=5),
+    )
+    pressure_chain = snapshot["physical_reference"]["pressure_chain"]
+
+    assert pressure_chain["status"] == "reference_not_configured"
+    assert pressure_chain["readback_ready"] is True
+    assert pressure_chain["configuration_ready"] is False
+    assert pressure_chain["reference_configured"] is False
+    assert pressure_chain["controller_configured"] is False
+    assert pressure_chain["calibration_ready"] is False
+
+
+def test_snapshot_rejects_nonfinite_pressure_readbacks(tmp_path) -> None:
+    mtime, site_profile = _write_mature_runtime_artifacts(tmp_path)
+    run_dir = tmp_path / "run_20260731_120000"
+    sample_path = run_dir / "samples_20260731_120000.csv"
+    sample_path.write_text(
+        "\n".join(
+            (
+                (
+                    "sample_ts,pressure_gauge_sample_ts,pressure_gauge_hpa,"
+                    "pace_sample_ts,pace_pressure_hpa"
+                ),
+                (
+                    "2026-07-31T12:00:02.500,2026-07-31T12:00:02.100,"
+                    "NaN,2026-07-31T12:00:02.200,Infinity"
+                ),
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    config_path = run_dir / "runtime_config_snapshot.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["devices"].update(
+        {
+            "pressure_controller": {
+                "enabled": True,
+                "port": "COM23",
+            },
+            "pressure_gauge": {
+                "enabled": True,
+                "port": "COM22",
+            },
+        }
+    )
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    snapshot = build_workstation_snapshot(
+        runtime_output_dir=tmp_path,
+        site_profile=site_profile,
+        now_utc=mtime + timedelta(seconds=5),
+    )
+    pressure_chain = snapshot["physical_reference"]["pressure_chain"]
+
+    assert pressure_chain["status"] == "reference_missing"
+    assert pressure_chain["readback_ready"] is False
+    assert pressure_chain["configuration_ready"] is True
+    assert pressure_chain["controller_minus_reference_hpa"] is None
+    assert pressure_chain["calibration_ready"] is False
+
+
 def test_snapshot_rejects_old_channel_frame_inside_fresh_artifact(
     tmp_path,
 ) -> None:

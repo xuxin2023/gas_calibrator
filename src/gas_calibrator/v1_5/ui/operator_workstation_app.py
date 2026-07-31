@@ -91,6 +91,15 @@ _TEXT = {
         "evidence.pressure_controller_short": "控",
         "evidence.pressure_delta_short": "Δ控-表",
         "evidence.dewpoint_short": "露点",
+        "evidence.pressure_chain_ready": "压力链：读数与时序就绪",
+        "evidence.pressure_chain_reference_missing": "压力链：未就绪｜数字压力计无有效读数",
+        "evidence.pressure_chain_controller_missing": "压力链：未就绪｜压力控制器无有效反馈",
+        "evidence.pressure_chain_pair_missing": "压力链：未就绪｜缺少同帧双设备读数",
+        "evidence.pressure_chain_timing_invalid": "压力链：未就绪｜双设备读数时序不一致",
+        "evidence.pressure_chain_stale": "压力链：未就绪｜读数工件已过期",
+        "evidence.pressure_chain_reference_unconfigured": "压力链：未就绪｜数字压力计未配置",
+        "evidence.pressure_chain_controller_unconfigured": "压力链：未就绪｜压力控制器未配置",
+        "evidence.pressure_chain_unknown": "压力链：未就绪｜缺少可信读回证据",
         "aside.next": "下一步操作",
         "aside.heading": "成熟 V1.5 路径演练",
         "aside.step1": "1. 校验 45/13 canonical 队列",
@@ -146,6 +155,15 @@ _TEXT = {
         "evidence.pressure_controller_short": "Controller",
         "evidence.pressure_delta_short": "ΔCtrl-Gauge",
         "evidence.dewpoint_short": "Dew Point",
+        "evidence.pressure_chain_ready": "Pressure chain: readback timing ready",
+        "evidence.pressure_chain_reference_missing": "Pressure chain: gauge readback missing",
+        "evidence.pressure_chain_controller_missing": "Pressure chain: controller feedback missing",
+        "evidence.pressure_chain_pair_missing": "Pressure chain: paired readback missing",
+        "evidence.pressure_chain_timing_invalid": "Pressure chain: readback timing invalid",
+        "evidence.pressure_chain_stale": "Pressure chain: readback artifact stale",
+        "evidence.pressure_chain_reference_unconfigured": "Pressure chain: gauge not configured",
+        "evidence.pressure_chain_controller_unconfigured": "Pressure chain: controller not configured",
+        "evidence.pressure_chain_unknown": "Pressure chain: trusted readback unavailable",
     },
 }
 
@@ -955,6 +973,34 @@ class OperatorWorkstationApp:
         except (TypeError, ValueError):
             return f"{value} hPa"
 
+    @staticmethod
+    def _format_pressure_chain_status(
+        pressure_chain: Mapping[str, Any],
+        *,
+        locale: str = "zh_CN",
+    ) -> str:
+        status = str(pressure_chain.get("status") or "unknown")
+        key = {
+            "fresh_coincident_observation": "evidence.pressure_chain_ready",
+            "reference_missing": "evidence.pressure_chain_reference_missing",
+            "controller_feedback_missing": (
+                "evidence.pressure_chain_controller_missing"
+            ),
+            "coincident_pair_missing": "evidence.pressure_chain_pair_missing",
+            "pair_timestamp_missing": "evidence.pressure_chain_timing_invalid",
+            "pair_age_unknown": "evidence.pressure_chain_timing_invalid",
+            "pair_not_coincident": "evidence.pressure_chain_timing_invalid",
+            "stale_observation": "evidence.pressure_chain_stale",
+            "pair_stale": "evidence.pressure_chain_stale",
+            "reference_not_configured": (
+                "evidence.pressure_chain_reference_unconfigured"
+            ),
+            "controller_not_configured": (
+                "evidence.pressure_chain_controller_unconfigured"
+            ),
+        }.get(status, "evidence.pressure_chain_unknown")
+        return _t(key, locale=locale)
+
     def _refresh_run_readback(self, snapshot: Mapping[str, Any]) -> None:
         """Render only normalized artifacts; never perform a hardware refresh."""
 
@@ -1040,7 +1086,10 @@ class OperatorWorkstationApp:
             f"{self._format_reference_observation(dewpoint, digits=2)}"
         )
         self.evidence_vars["reference"].set(
-            f"{pressure_line}\n{dewpoint_line}"
+            (
+                f"{pressure_line}\n{dewpoint_line}\n"
+                f"{self._format_pressure_chain_status(pressure_chain, locale=self.locale)}"
+            )
         )
         flow_text = self._format_reference_observation(flow, digits=2)
         self.evidence_vars["flow"].set(
