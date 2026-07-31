@@ -1,5 +1,6 @@
 """Launch the final-product V1.5 dry-run operator workstation.
 
+Optional command-line paths provide a fixed, fail-closed startup configuration.
 This explicit entry does not replace ``run_app.py`` or the V1 fallback.
 """
 

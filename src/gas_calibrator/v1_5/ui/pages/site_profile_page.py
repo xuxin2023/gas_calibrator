@@ -53,6 +53,10 @@ class SiteProfilePage(ttk.Frame):
         self.last_snapshot: Mapping[str, Any] | None = None
         self.status_var = tk.StringVar(master=self, value=self._t("pages.site_profile.status.empty"))
         self.metric_vars = [tk.StringVar(master=self, value="--") for _ in range(4)]
+        self.reported_count_vars = {
+            "connected": tk.StringVar(master=self, value="4"),
+            "powered": tk.StringVar(master=self, value="4"),
+        }
         self.form_vars = {
             key: tk.StringVar(master=self, value="")
             for key in (
@@ -129,18 +133,32 @@ class SiteProfilePage(ttk.Frame):
             card = ttk.Frame(metrics, style="Card.TFrame", padding=10)
             card.grid(row=0, column=index, sticky="nsew", padx=4)
             ttk.Label(card, text=self._t(key), style="Muted.TLabel").pack(anchor="w")
-            ttk.Label(card, textvariable=self.metric_vars[index], style="Title.TLabel").pack(
-                anchor="w", pady=(5, 0)
-            )
+            if index < 2:
+                count_key = "connected" if index == 0 else "powered"
+                ttk.Spinbox(
+                    card,
+                    from_=0,
+                    to=len(ANALYZER_BANK),
+                    textvariable=self.reported_count_vars[count_key],
+                    width=6,
+                    style="Site.TSpinbox",
+                ).pack(anchor="w", pady=(5, 0))
+            else:
+                ttk.Label(
+                    card,
+                    textvariable=self.metric_vars[index],
+                    style="Title.TLabel",
+                ).pack(anchor="w", pady=(5, 0))
 
         actions = ttk.Frame(body, style="Card.TFrame")
         actions.grid(row=3, column=0, sticky="ew", pady=(0, 10))
-        for index in range(6):
+        for index in range(7):
             actions.columnconfigure(index, weight=1)
         for index, (key, command, accent) in enumerate(
             (
                 ("load_profile", self._choose_profile, False),
                 ("new_from_inventory", self._choose_inventory, False),
+                ("apply_reported_counts", self.apply_reported_counts, False),
                 (
                     "attach_runtime_setup",
                     self._choose_runtime_setup_result,
@@ -389,8 +407,15 @@ class SiteProfilePage(ttk.Frame):
         rows = self._rows()
         connected = sum(row.get("connected") is True for row in rows)
         powered = sum(row.get("powered") is True for row in rows)
-        self.metric_vars[0].set(str(self.profile.get("reported_connected_count", 4)))
-        self.metric_vars[1].set(str(self.profile.get("reported_powered_count", 2)))
+        if self.profile:
+            self.reported_count_vars["connected"].set(
+                str(self.profile.get("reported_connected_count", 4))
+            )
+            self.reported_count_vars["powered"].set(
+                str(self.profile.get("reported_powered_count", 4))
+            )
+        self.metric_vars[0].set(self.reported_count_vars["connected"].get())
+        self.metric_vars[1].set(self.reported_count_vars["powered"].get())
         self.metric_vars[2].set(f"{connected} / {powered}")
         self.metric_vars[3].set(
             self._t("pages.site_profile.value.ready")
@@ -585,14 +610,61 @@ class SiteProfilePage(ttk.Frame):
             }
         else:
             row["algorithm_evidence"] = {}
+        self._invalidate_confirmation()
+        self.validate_profile(show_dialog=False)
+        self.status_var.set(self._t("pages.site_profile.status.row_applied", port=port))
+
+    def _invalidate_confirmation(self) -> None:
         confirmation = self.profile.get("current_site_confirmation")
         if isinstance(confirmation, dict) and confirmation.get("status") == "confirmed":
             confirmation["status"] = "stale_after_mapping_edit"
             self.confirmation_status_var.set(
                 self._t("pages.site_profile.confirmation.status.stale")
             )
+
+    def apply_reported_counts(self) -> None:
+        """Apply operator-reported counts without scanning or opening COM."""
+
+        try:
+            connected = int(self.reported_count_vars["connected"].get())
+            powered = int(self.reported_count_vars["powered"].get())
+        except ValueError:
+            self.status_var.set(
+                self._t("pages.site_profile.status.reported_counts_invalid")
+            )
+            return
+        if (
+            connected < 0
+            or connected > len(ANALYZER_BANK)
+            or powered < 0
+            or powered > connected
+        ):
+            self.status_var.set(
+                self._t("pages.site_profile.status.reported_counts_invalid")
+            )
+            return
+        if not self.profile:
+            self.metric_vars[0].set(str(connected))
+            self.metric_vars[1].set(str(powered))
+            self.status_var.set(
+                self._t(
+                    "pages.site_profile.status.reported_counts_staged",
+                    connected=connected,
+                    powered=powered,
+                )
+            )
+            return
+        self.profile["reported_connected_count"] = connected
+        self.profile["reported_powered_count"] = powered
+        self._invalidate_confirmation()
         self.validate_profile(show_dialog=False)
-        self.status_var.set(self._t("pages.site_profile.status.row_applied", port=port))
+        self.status_var.set(
+            self._t(
+                "pages.site_profile.status.reported_counts_applied",
+                connected=connected,
+                powered=powered,
+            )
+        )
 
     def attach_runtime_setup_result(self, path: str | Path) -> None:
         self.profile = bind_v1_5_runtime_setup_result(
@@ -633,6 +705,12 @@ class SiteProfilePage(ttk.Frame):
             raise ValueError("site profile JSON must be an object")
         self.profile_path = source
         self.profile = payload
+        self.reported_count_vars["connected"].set(
+            str(payload.get("reported_connected_count", 4))
+        )
+        self.reported_count_vars["powered"].set(
+            str(payload.get("reported_powered_count", 4))
+        )
         confirmation = payload.get("current_site_confirmation")
         confirmation = confirmation if isinstance(confirmation, Mapping) else {}
         self.confirmation_vars["operator_name"].set(
@@ -651,6 +729,8 @@ class SiteProfilePage(ttk.Frame):
                     "pages.site_profile.status.loaded_historical",
                     path=source.name,
                     count=prefill["applied_count"],
+                    connected=payload.get("reported_connected_count", 0),
+                    powered=payload.get("reported_powered_count", 0),
                 )
             )
         else:
@@ -659,10 +739,21 @@ class SiteProfilePage(ttk.Frame):
             )
 
     def create_from_inventory(self, path: str | Path) -> None:
+        try:
+            connected = int(self.reported_count_vars["connected"].get())
+            powered = int(self.reported_count_vars["powered"].get())
+        except ValueError:
+            connected, powered = 4, 4
+        if connected < 0 or connected > len(ANALYZER_BANK):
+            connected = 4
+        if powered < 0 or powered > connected:
+            powered = connected
+        self.reported_count_vars["connected"].set(str(connected))
+        self.reported_count_vars["powered"].set(str(powered))
         self.profile = build_v1_5_real_acceptance_site_profile_template(
             runtime_port_inventory_json=path,
-            reported_connected_count=4,
-            reported_powered_count=2,
+            reported_connected_count=connected,
+            reported_powered_count=powered,
             observation_id="operator_site_mapping_draft",
         )
         self.validation = {}
@@ -672,7 +763,13 @@ class SiteProfilePage(ttk.Frame):
         self._refresh_table()
         self._refresh_metrics()
         self._set_reasons(["operator_mapping_required"])
-        self.status_var.set(self._t("pages.site_profile.status.template_created"))
+        self.status_var.set(
+            self._t(
+                "pages.site_profile.status.template_created",
+                connected=connected,
+                powered=powered,
+            )
+        )
 
     def _refresh_confirmation_status(self) -> None:
         confirmation = self.profile.get("current_site_confirmation")
@@ -702,11 +799,21 @@ class SiteProfilePage(ttk.Frame):
                 observation_basis=self.confirmation_vars["observation_basis"].get(),
             )
         except ValueError:
+            connected = self.profile.get("reported_connected_count", 0)
+            powered = self.profile.get("reported_powered_count", 0)
             self.confirmation_status_var.set(
-                self._t("pages.site_profile.confirmation.status.failed")
+                self._t(
+                    "pages.site_profile.confirmation.status.failed",
+                    connected=connected,
+                    powered=powered,
+                )
             )
             self.status_var.set(
-                self._t("pages.site_profile.status.confirmation_failed")
+                self._t(
+                    "pages.site_profile.status.confirmation_failed",
+                    connected=connected,
+                    powered=powered,
+                )
             )
             if show_dialog:
                 messagebox.showerror(

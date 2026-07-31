@@ -98,8 +98,8 @@ _ZH_CN = {
     ),
     "pages.readonly.devices.title": "设备身份与健康摘要",
     "pages.readonly.devices.boundary": (
-        "只读设备页：六个位置仅代表 V1.5 配置通道槽位，不代表当前在线真机；"
-        "不扫描端口、不连接设备，也不提供设备控制。"
+        "只读设备页：现场映射与成熟运行工件来自统一快照；"
+        "不扫描端口、不连接设备，也不提供设备控制。过期工件不解释为当前在线。"
     ),
     "pages.readonly.algorithm.title": "生产算法与候选边界",
     "pages.readonly.algorithm.boundary": (
@@ -125,7 +125,7 @@ _ZH_CN = {
     "pages.readonly.metric.real_samples": "真实样本",
     "pages.readonly.metric.device_status": "设备模式",
     "pages.readonly.metric.configured_channels": "配置通道",
-    "pages.readonly.metric.connected_channels": "当前连接",
+    "pages.readonly.metric.connected_channels": "新鲜工件观察连接",
     "pages.readonly.metric.unknown_health": "健康未评估",
     "pages.readonly.metric.algorithm_status": "算法状态",
     "pages.readonly.metric.production_profile": "生产配置",
@@ -183,6 +183,13 @@ _ZH_CN = {
     ),
     "pages.readonly.value.no_approval": "工作站当前不提供批准动作。",
     "pages.readonly.value.not_released": "未放行",
+    "pages.readonly.value.unified_decision": "{label}：{status}｜{reasons}",
+    "pages.readonly.value.decision.start_simulation": "仿真演练启动",
+    "pages.readonly.value.decision.start_real_execution": "真实执行启动",
+    "pages.readonly.value.decision.write_coefficients": "受控系数写入",
+    "pages.readonly.value.decision.issue_formal_certificate": "正式证书签发",
+    "pages.readonly.value.decision.allowed": "允许",
+    "pages.readonly.value.decision.blocked": "锁定",
     "pages.readonly.value.plan_route": (
         "{route}：{status}，{count} 点，{mode}"
     ),
@@ -218,7 +225,19 @@ _ZH_CN = {
         "{channel}：连接 {connection}；身份 {identity}；健康 {health}"
     ),
     "pages.readonly.value.device_slots_not_devices": (
-        "六个槽位来自工作站通道合同，不等同于六台设备当前在线。"
+        "八个槽位来自工作站通道合同，不等同于八台设备当前在线。"
+    ),
+    "pages.readonly.value.device_mapping_counts": (
+        "配置 {configured}；报告接入 {reported}；已映射 {mapped}；报告通电 {powered}。"
+    ),
+    "pages.readonly.value.device_identity_count": (
+        "经操作员确认且身份绑定完整：{count} 台；历史身份不自动算当前身份。"
+    ),
+    "pages.readonly.value.device_runtime_freshness": (
+        "成熟运行工件新鲜度：{status}；距最后写入 {age} 秒。"
+    ),
+    "pages.readonly.value.device_health_count": (
+        "仅按新鲜帧观察：{count} 台；健康未评估或不可判定：{unknown} 台。"
     ),
     "pages.readonly.value.device_identity_not_evaluated": (
         "未读取序列号、设备ID或固件身份，identity_status = not_evaluated。"
@@ -232,12 +251,16 @@ _ZH_CN = {
     "pages.readonly.value.device_simulation_only": (
         "mode = simulation_only；connected_count = 0。"
     ),
+    "pages.readonly.value.device_read_only_mode": (
+        "mode = {mode}；新鲜帧观察 {observed}；映射接入 {mapped}；报告通电 {powered}。"
+    ),
     "pages.readonly.value.device_runtime_authority": (
         "真实运行状态权威来源：{authority}；本页不扫描 COM。"
     ),
     "pages.readonly.value.device_initialization_contract": (
-        "初始化合同：{owner} 负责 {mode}、{rate} Hz 上传及 "
-        "{temperature}；必须保留中性化与读回证据。"
+        "初始化合同：{owner} 负责 {mode}；{rate} Hz 仅指 {rate_scope}；"
+        "AVERAGE1={average1}、AVERAGE2={average2} 为独立参数；"
+        "{temperature} 必须保留中性化与读回证据。"
     ),
     "pages.readonly.value.device_no_v2_workbench": (
         "V2 仿真预设、故障注入和第二套设备状态源不进入 V1.5 产品。"
@@ -252,7 +275,27 @@ _ZH_CN = {
         "{profile}｜{mode}｜promotion_state = {state}"
     ),
     "pages.readonly.value.pressure_contract": "压力顺序：{value}",
+    "pages.readonly.value.pressure_truth_contract": (
+        "压力真值：数字压力计；压力控制器只负责调节与跟踪，不能替代计量参考。"
+    ),
+    "pages.readonly.value.pressure_fit_contract": (
+        "SENCO9拟合对象：分析仪内部压力相对数字压力计的偏差；"
+        "控制器与数字压力计之差只用于控制跟踪诊断。"
+    ),
     "pages.readonly.value.temperature_contract": "温度系数：{value}",
+    "pages.readonly.value.temperature_truth_contract": (
+        "温度真值：放在温度箱内的铂电阻数字测温仪；温度箱控制器显示不替代真值。"
+    ),
+    "pages.readonly.value.flow_source_contract": (
+        "流量来源：露点仪输出；必须带单位、时间戳、通道和新鲜度，"
+        "仅用于存在性/稳定性监测，不进入浓度拟合。"
+    ),
+    "pages.readonly.value.sampling_timebase_contract": (
+        "1 Hz 表示校准上传时间基，不宣称是分析仪内部原始采集率。"
+    ),
+    "pages.readonly.value.average_contract": (
+        "AVERAGE1 与 AVERAGE2 是两个独立运行参数，不作 49×49 单一滤波器解释。"
+    ),
     "pages.readonly.value.algorithm_no_auto_select": (
         "auto_select = false；不根据单次指标自动选出生产算法。"
     ),
@@ -267,27 +310,29 @@ _ZH_CN = {
     "pages.visitor_showcase.badge.simulated": "仿真展示基线",
     "pages.visitor_showcase.badge.read_only": "只读参观模式",
     "pages.visitor_showcase.badge.not_acceptance": "非真机验收证据",
-    "pages.visitor_showcase.metric.calibration_points": "成熟 CO₂ / H₂O 校准点",
-    "pages.visitor_showcase.metric.analyzers": "历史多通道分析仪",
-    "pages.visitor_showcase.metric.sample_rate": "正式采样口径",
-    "pages.visitor_showcase.metric.filter": "双通道平均参数",
+    "pages.visitor_showcase.metric.calibration_points": (
+        "CO₂ 点 / H₂O 湿点 + 独立干气锚"
+    ),
+    "pages.visitor_showcase.metric.analyzers": "映射通电 / 配置通道",
+    "pages.visitor_showcase.metric.sample_rate": "校准上传时间基（非内部采集率）",
+    "pages.visitor_showcase.metric.filter": "AVERAGE1 / AVERAGE2 独立参数",
     "pages.visitor_showcase.process.title": (
         "一条可解释、可复核、可回放的校准证据链"
     ),
     "pages.visitor_showcase.process.reference": "参考标准",
     "pages.visitor_showcase.process.temperature": "温度稳定",
-    "pages.visitor_showcase.process.pressure": "压力调节",
+    "pages.visitor_showcase.process.pressure": "表值为准 / 控制器调节",
     "pages.visitor_showcase.process.sampling": "同步采样",
     "pages.visitor_showcase.process.qc": "质量判定",
     "pages.visitor_showcase.process.archive": "证据归档",
-    "pages.visitor_showcase.chart.title": "六通道响应一致性",
+    "pages.visitor_showcase.chart.title": "多通道响应一致性",
     "pages.visitor_showcase.chart.caption": "仿真示意曲线 · 非实时设备数据",
     "pages.visitor_showcase.chart.axis_start": "气体切换",
     "pages.visitor_showcase.chart.axis_end": "稳定窗口",
     "pages.visitor_showcase.traceability.title": "五层计量溯源",
     "pages.visitor_showcase.traceability.certificate": "证书值与不确定度",
     "pages.visitor_showcase.traceability.environment": "温度、压力与露点真值",
-    "pages.visitor_showcase.traceability.frames": "原始帧与 1 Hz 时间轴",
+    "pages.visitor_showcase.traceability.frames": "原始帧与 1 Hz 校准上传时间基",
     "pages.visitor_showcase.traceability.qc": "稳定性、完整性与异常判定",
     "pages.visitor_showcase.traceability.artifacts": "报告、哈希与审阅记录",
     "pages.visitor_showcase.actions.enter": "进入全屏展示",
@@ -306,6 +351,7 @@ _ZH_CN = {
     "pages.site_profile.metric.status": "只读准备状态",
     "pages.site_profile.actions.load_profile": "载入现场配置",
     "pages.site_profile.actions.new_from_inventory": "从端口清单新建",
+    "pages.site_profile.actions.apply_reported_counts": "应用报告台数",
     "pages.site_profile.actions.attach_runtime_setup": "载入运行设置证据",
     "pages.site_profile.actions.apply_row": "应用当前设备",
     "pages.site_profile.actions.validate": "校验全部映射",
@@ -345,11 +391,13 @@ _ZH_CN = {
     "pages.site_profile.confirmation.title": "当前现场状态确认（与本次映射哈希绑定）",
     "pages.site_profile.confirmation.operator_name": "确认人",
     "pages.site_profile.confirmation.observation_basis": "观察依据",
-    "pages.site_profile.confirmation.action": "确认并绑定当前4/2映射",
+    "pages.site_profile.confirmation.action": "确认并绑定当前映射",
     "pages.site_profile.confirmation.status.pending": "状态：待确认；历史身份不能代替当前接线与通电观察。",
     "pages.site_profile.confirmation.status.confirmed": "状态：已确认；任何映射修改都会使本确认失效。",
     "pages.site_profile.confirmation.status.stale": "状态：映射已修改，原确认失效，请重新核对并确认。",
-    "pages.site_profile.confirmation.status.failed": "状态：确认失败；请先完成4台接入、2台通电及逐台确认。",
+    "pages.site_profile.confirmation.status.failed": (
+        "状态：确认失败；请先完成 {connected} 台接入、{powered} 台通电及逐台确认。"
+    ),
     "pages.site_profile.value.ready": "就绪",
     "pages.site_profile.value.review": "待完善",
     "pages.site_profile.value.historical_prefill": "历史身份待确认",
@@ -370,11 +418,28 @@ _ZH_CN = {
     ),
     "pages.site_profile.status.loaded": "已载入 {path}，并完成离线校验。",
     "pages.site_profile.status.loaded_historical": (
-        "已载入 {path}；其中 {count} 台为历史身份预填，仍需确认当前4台接入和2台通电状态。"
+        "已载入 {path}；其中 {count} 台为历史身份预填，仍需确认当前 "
+        "{connected} 台接入和 {powered} 台通电状态。"
     ),
-    "pages.site_profile.status.template_created": "已从端口清单建立4台接入/2台通电模板，请逐台确认。",
+    "pages.site_profile.status.template_created": (
+        "已从端口清单建立 {connected} 台接入 / {powered} 台通电模板，请逐台确认。"
+    ),
+    "pages.site_profile.status.reported_counts_invalid": (
+        "报告台数无效；必须满足 0 ≤ 通电台数 ≤ 接入台数 ≤ 8。"
+    ),
+    "pages.site_profile.status.reported_counts_staged": (
+        "已暂存报告台数：接入 {connected} 台、通电 {powered} 台；"
+        "从端口清单新建后生效。"
+    ),
+    "pages.site_profile.status.reported_counts_applied": (
+        "已应用报告台数：接入 {connected} 台、通电 {powered} 台；"
+        "原现场确认（如有）已失效，尚未执行设备操作。"
+    ),
     "pages.site_profile.status.confirmation_saved": "当前现场状态已确认，并与这一本映射逐字段哈希绑定。",
-    "pages.site_profile.status.confirmation_failed": "当前映射尚不满足确认条件；请核对4台接入、2台通电、逐台确认和确认人信息。",
+    "pages.site_profile.status.confirmation_failed": (
+        "当前映射尚不满足确认条件；请核对 {connected} 台接入、"
+        "{powered} 台通电、逐台确认和确认人信息。"
+    ),
     "pages.site_profile.status.valid": "现场映射校验通过；只读执行仍需独立授权。",
     "pages.site_profile.status.invalid": "现场映射仍有 {count} 项需要处理。",
     "pages.site_profile.status.saved_ready": "已保存 {path}，并生成经哈希绑定的只读输入清单。",
@@ -389,7 +454,9 @@ _ZH_CN = {
     "pages.site_profile.reason.inventory_changed": "端口清单在建档后发生变化，请重新从清单新建现场配置。",
     "pages.site_profile.reason.bank_invalid": "现场配置必须完整包含 COM35 至 COM42 八个候选端口。",
     "pages.site_profile.reason.reported_counts_invalid": "报告的接入台数或通电台数不是有效整数。",
-    "pages.site_profile.reason.confirmation_missing": "缺少当前现场确认；历史6台身份记录不能证明本次4台接入、2台通电状态。",
+    "pages.site_profile.reason.confirmation_missing": (
+        "缺少当前现场确认；历史身份记录不能证明本次接线与通电状态。"
+    ),
     "pages.site_profile.reason.confirmation_not_confirmed": "当前现场确认已失效或尚未完成，请核对映射后重新确认。",
     "pages.site_profile.reason.confirmation_operator_missing": "当前现场确认缺少确认人。",
     "pages.site_profile.reason.confirmation_time_missing": "当前现场确认缺少确认时间。",
@@ -498,6 +565,13 @@ _EN_US = {
     "pages.readonly.value.report_release": (
         "Formal release state: {status}; independent review is still required."
     ),
+    "pages.readonly.value.unified_decision": "{label}: {status} | {reasons}",
+    "pages.readonly.value.decision.start_simulation": "Simulation start",
+    "pages.readonly.value.decision.start_real_execution": "Real execution start",
+    "pages.readonly.value.decision.write_coefficients": "Controlled coefficient write",
+    "pages.readonly.value.decision.issue_formal_certificate": "Formal certificate issue",
+    "pages.readonly.value.decision.allowed": "allowed",
+    "pages.readonly.value.decision.blocked": "locked",
     "pages.readonly.review.title": "Review and Safety Summary",
     "pages.readonly.review.boundary": (
         "Read-only certificate, safety-boundary, and review-next-step summary."
@@ -532,19 +606,65 @@ _EN_US = {
     ),
     "pages.readonly.devices.title": "Device Identity and Health Summary",
     "pages.readonly.devices.boundary": (
-        "Read-only configured channel slots; no port scan, device connection, "
-        "or hardware control."
+        "Site mappings and mature runtime artifacts share one read model. "
+        "There is no port scan, device connection, or hardware control, and "
+        "stale artifacts are never presented as currently online."
     ),
     "pages.readonly.value.device_runtime_authority": (
         "Real runtime authority: {authority}; this page does not scan COM."
     ),
+    "pages.readonly.value.device_mapping_counts": (
+        "Configured {configured}; reported connected {reported}; mapped "
+        "{mapped}; reported powered {powered}."
+    ),
+    "pages.readonly.value.device_identity_count": (
+        "Operator-confirmed identities with complete bindings: {count}; "
+        "historical identity is not promoted automatically."
+    ),
+    "pages.readonly.value.device_runtime_freshness": (
+        "Mature runtime artifact freshness: {status}; last write {age} seconds ago."
+    ),
+    "pages.readonly.value.device_health_count": (
+        "Fresh-frame observations: {count}; health unknown or not evaluated: "
+        "{unknown}."
+    ),
+    "pages.readonly.value.device_read_only_mode": (
+        "mode = {mode}; fresh-frame observed {observed}; mapped connected "
+        "{mapped}; reported powered {powered}."
+    ),
     "pages.readonly.value.device_initialization_contract": (
-        "Initialization contract: {owner} owns {mode}, {rate} Hz upload, and "
-        "{temperature}; neutralization and readback evidence are required."
+        "Initialization contract: {owner} owns {mode}; {rate} Hz means "
+        "{rate_scope}; AVERAGE1={average1} and AVERAGE2={average2} are "
+        "independent; {temperature} requires neutralization and readback evidence."
     ),
     "pages.readonly.value.device_no_v2_workbench": (
         "V2 simulation presets, fault injection, and a second device-state "
         "source are excluded from the V1.5 product."
+    ),
+    "pages.readonly.value.temperature_truth_contract": (
+        "Temperature truth comes from the digital platinum-resistance "
+        "thermometer inside the chamber; the chamber controller display is not truth."
+    ),
+    "pages.readonly.value.pressure_truth_contract": (
+        "Pressure truth comes from the digital pressure gauge; the pressure "
+        "controller is an actuator and tracking signal, not the reference."
+    ),
+    "pages.readonly.value.pressure_fit_contract": (
+        "SENCO9 fits analyzer internal pressure against the digital gauge. "
+        "Controller-minus-gauge delta is control tracking only."
+    ),
+    "pages.readonly.value.flow_source_contract": (
+        "Flow comes from the dew-point meter output with unit, timestamp, "
+        "channel, and freshness. It monitors presence/stability only and is "
+        "not used for concentration fitting."
+    ),
+    "pages.readonly.value.sampling_timebase_contract": (
+        "1 Hz is the calibration-upload timebase, not a claim about the "
+        "analyzer's internal raw acquisition rate."
+    ),
+    "pages.readonly.value.average_contract": (
+        "AVERAGE1 and AVERAGE2 are independent runtime parameters, not one "
+        "49x49 filter."
     ),
     "pages.readonly.algorithm.title": "Production Algorithm Boundary",
     "pages.readonly.algorithm.boundary": (
@@ -563,21 +683,25 @@ _EN_US = {
     "pages.visitor_showcase.badge.read_only": "Read-only Visitor Mode",
     "pages.visitor_showcase.badge.not_acceptance": "Not Real Acceptance Evidence",
     "pages.visitor_showcase.metric.calibration_points": (
-        "Mature CO₂ / H₂O Calibration Points"
+        "CO₂ points / H₂O wet points + separate dry-gas anchor"
     ),
-    "pages.visitor_showcase.metric.analyzers": "Historical Analyzer Channels",
-    "pages.visitor_showcase.metric.sample_rate": "Formal Sampling Cadence",
-    "pages.visitor_showcase.metric.filter": "Dual-channel Averaging",
+    "pages.visitor_showcase.metric.analyzers": "Mapped Powered / Configured",
+    "pages.visitor_showcase.metric.sample_rate": (
+        "Calibration Upload Timebase (Not Internal Acquisition Rate)"
+    ),
+    "pages.visitor_showcase.metric.filter": (
+        "Independent AVERAGE1 / AVERAGE2 Parameters"
+    ),
     "pages.visitor_showcase.process.title": (
         "An explainable, reviewable, replayable calibration evidence chain"
     ),
     "pages.visitor_showcase.process.reference": "Reference",
     "pages.visitor_showcase.process.temperature": "Temperature",
-    "pages.visitor_showcase.process.pressure": "Pressure",
+    "pages.visitor_showcase.process.pressure": "Gauge Truth / Control",
     "pages.visitor_showcase.process.sampling": "Sampling",
     "pages.visitor_showcase.process.qc": "Quality",
     "pages.visitor_showcase.process.archive": "Evidence",
-    "pages.visitor_showcase.chart.title": "Six-channel Response Consistency",
+    "pages.visitor_showcase.chart.title": "Multi-channel Response Consistency",
     "pages.visitor_showcase.chart.caption": (
         "Simulated illustration · not live device data"
     ),
@@ -592,7 +716,9 @@ _EN_US = {
     "pages.visitor_showcase.traceability.environment": (
         "Temperature, pressure, and dew-point truth"
     ),
-    "pages.visitor_showcase.traceability.frames": "Raw frames and 1 Hz timebase",
+    "pages.visitor_showcase.traceability.frames": (
+        "Raw frames and 1 Hz calibration-upload timebase"
+    ),
     "pages.visitor_showcase.traceability.qc": (
         "Stability, completeness, and anomaly decisions"
     ),
@@ -620,6 +746,7 @@ _EN_US = {
     "pages.site_profile.metric.status": "Read-only Readiness",
     "pages.site_profile.actions.load_profile": "Load Site Profile",
     "pages.site_profile.actions.new_from_inventory": "New from Port Inventory",
+    "pages.site_profile.actions.apply_reported_counts": "Apply Reported Counts",
     "pages.site_profile.actions.attach_runtime_setup": "Load Runtime Setup Evidence",
     "pages.site_profile.actions.apply_row": "Apply Selected Device",
     "pages.site_profile.actions.validate": "Validate All Mappings",
@@ -660,7 +787,7 @@ _EN_US = {
     "pages.site_profile.confirmation.title": "Current Site Confirmation (hash-bound to this mapping)",
     "pages.site_profile.confirmation.operator_name": "Confirmed by",
     "pages.site_profile.confirmation.observation_basis": "Observation basis",
-    "pages.site_profile.confirmation.action": "Confirm and Bind Current 4/2 Mapping",
+    "pages.site_profile.confirmation.action": "Confirm and Bind Current Mapping",
     "pages.site_profile.confirmation.status.pending": (
         "Status: pending. Historical identity cannot prove current cabling and power."
     ),
@@ -671,7 +798,8 @@ _EN_US = {
         "Status: mapping changed. Recheck and confirm the current site state."
     ),
     "pages.site_profile.confirmation.status.failed": (
-        "Status: failed. Complete four connected, two powered, and row confirmations."
+        "Status: failed. Complete {connected} connected, {powered} powered, "
+        "and row confirmations."
     ),
     "pages.site_profile.value.ready": "Ready",
     "pages.site_profile.value.review": "Review Required",
@@ -697,18 +825,30 @@ _EN_US = {
     ),
     "pages.site_profile.status.loaded": "Loaded and validated {path} offline.",
     "pages.site_profile.status.loaded_historical": (
-        "Loaded {path}; {count} historical identities were prefilled. Confirm the current "
-        "four connected and two powered analyzers."
+        "Loaded {path}; {count} historical identities were prefilled. Confirm "
+        "the current {connected} connected and {powered} powered analyzers."
     ),
     "pages.site_profile.status.template_created": (
-        "Created the four-connected/two-powered template; confirm each device."
+        "Created the {connected}-connected/{powered}-powered template; "
+        "confirm each device."
+    ),
+    "pages.site_profile.status.reported_counts_invalid": (
+        "Reported counts are invalid; require 0 <= powered <= connected <= 8."
+    ),
+    "pages.site_profile.status.reported_counts_staged": (
+        "Staged {connected} connected and {powered} powered; the values apply "
+        "when a profile is created from inventory."
+    ),
+    "pages.site_profile.status.reported_counts_applied": (
+        "Applied {connected} connected and {powered} powered. Any prior "
+        "confirmation is stale; no device action was performed."
     ),
     "pages.site_profile.status.confirmation_saved": (
         "Current site state confirmed and field-by-field hash-bound to this mapping."
     ),
     "pages.site_profile.status.confirmation_failed": (
-        "The mapping is not confirmable yet; verify four connected, two powered, "
-        "each row, and the confirmer information."
+        "The mapping is not confirmable yet; verify {connected} connected, "
+        "{powered} powered, each row, and the confirmer information."
     ),
     "pages.site_profile.status.valid": "Site mapping passed; read-only execution still requires authorization.",
     "pages.site_profile.status.invalid": "{count} site-mapping items still require review.",
@@ -729,8 +869,8 @@ _EN_US = {
     "pages.site_profile.reason.bank_invalid": "The profile must contain all eight candidate ports from COM35 through COM42.",
     "pages.site_profile.reason.reported_counts_invalid": "The reported connected or powered count is not a valid integer.",
     "pages.site_profile.reason.confirmation_missing": (
-        "Current-site confirmation is missing. Historical six-unit identities do not "
-        "prove the current four-connected/two-powered state."
+        "Current-site confirmation is missing. Historical identities do not "
+        "prove the current cabling and powered state."
     ),
     "pages.site_profile.reason.confirmation_not_confirmed": (
         "The current-site confirmation is stale or incomplete; recheck and confirm."

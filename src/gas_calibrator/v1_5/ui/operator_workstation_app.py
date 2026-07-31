@@ -7,22 +7,33 @@ and never changes ``run_app.py`` or the V1 fallback.
 
 from __future__ import annotations
 
+import argparse
+import json
 import os
 import queue
+import re
+import sys
 import threading
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from ..certificate_metrics_registry import CertificateMetricsRegistry
 from ..orchestration.operator_workstation import (
+    V1_5_ARCHIVE_AUTHORITY_CONFIRMATION_TEXT,
     build_v1_5_operator_workstation_plan,
     execute_v1_5_operator_workstation_dry_run,
+    inspect_v1_5_runtime_config,
     run_v1_5_operator_workstation_application,
+    write_v1_5_archive_authority_confirmation_receipt,
+    write_v1_5_operator_workstation_startup_receipt,
 )
-from ..workstation_snapshot import build_workstation_snapshot
+from ..workstation_snapshot import (
+    CONFIGURED_CHANNEL_COUNT,
+    build_workstation_snapshot,
+)
 from .pages import (
     CertificateMetricsPage,
     ReadOnlySummaryPage,
@@ -33,6 +44,22 @@ from .pages import (
 
 _TEXT = {
     "zh_CN": {
+        "dialog.authority_archive": "正式归档索引（可选，只读）",
+        "dialog.authority_run_id": "期望正式批次号（绑定归档时必填）",
+        "dialog.authority_device_ids": "期望设备编号（逗号分隔，绑定归档时必填）",
+        "dialog.authority_operator": "归档确认操作员（生成回执时必填）",
+        "handoff.authority": (
+            "决策权威归档：{status}｜索引 {index_sha}｜运行状态 {formal_sha}｜报告 {report_sha}"
+        ),
+        "handoff.authority.not_configured": "未配置（写入与签发保持锁定）",
+        "handoff.authority.ready": "已按归档哈希绑定",
+        "handoff.authority.blocked": "校验失败（写入与签发锁定）",
+        "handoff.identity": (
+            "归档批次身份：{status}｜批次 {run_id}｜设备 {device_ids}｜配置 {config_sha}"
+        ),
+        "handoff.identity.not_configured": "未配置",
+        "handoff.identity.ready": "四层一致性已通过",
+        "handoff.identity.blocked": "不一致或确认信息不足",
         "title": "V1.5 气体分析仪校准工作站",
         "kernel": "生产校准内核：0613 / 0620 / 0621",
         "coverage": "成熟流程 45 CO₂ 点 + 13 H₂O 点",
@@ -71,18 +98,35 @@ _TEXT = {
         "value.not_started": "尚未启动",
         "value.dry_run": "仅 dry-run",
         "value.not_applicable": "--",
-        "channels.title": "六通道分析仪",
+        "channels.title": "分析仪只读状态（COM35–COM42，共八个通道）",
         "channels.waiting": "等待仿真演练",
-        "channels.co2": "CO₂ 读数（仿真）",
-        "channels.h2o": "H₂O 读数（仿真）",
+        "channels.co2": "CO₂ 只读值",
+        "channels.h2o": "H₂O 只读值",
         "channels.status": "状态",
         "channels.trend": "趋势",
         "channels.note": "备注",
-        "evidence.temperature": "温度稳定",
-        "evidence.reference": "压力与露点证据",
-        "evidence.source": "气体源状态（仿真）",
+        "channels.no_artifact": "无成熟运行工件",
+        "channels.read_only": "只读工件 / NO COM",
+        "evidence.temperature": "温度箱真值（箱内铂电阻数字测温仪）",
+        "evidence.reference": "压力链（数字压力计真值 / 控制器反馈）与露点",
+        "evidence.source": "流量来源（露点仪输出）",
         "evidence.certificate": "证书资料不阻断启动",
         "evidence.release": "正式签发另行审核",
+        "evidence.unknown": "未知｜未发现可信新鲜工件",
+        "evidence.flow_unknown": "L/min｜未知｜仅监测存在性与稳定性",
+        "evidence.pressure_gauge_short": "表",
+        "evidence.pressure_controller_short": "控",
+        "evidence.pressure_delta_short": "Δ控-表",
+        "evidence.dewpoint_short": "露点",
+        "evidence.pressure_chain_ready": "压力链：读数与时序就绪",
+        "evidence.pressure_chain_reference_missing": "压力链：未就绪｜数字压力计无有效读数",
+        "evidence.pressure_chain_controller_missing": "压力链：未就绪｜压力控制器无有效反馈",
+        "evidence.pressure_chain_pair_missing": "压力链：未就绪｜缺少同帧双设备读数",
+        "evidence.pressure_chain_timing_invalid": "压力链：未就绪｜双设备读数时序不一致",
+        "evidence.pressure_chain_stale": "压力链：未就绪｜读数工件已过期",
+        "evidence.pressure_chain_reference_unconfigured": "压力链：未就绪｜数字压力计未配置",
+        "evidence.pressure_chain_controller_unconfigured": "压力链：未就绪｜压力控制器未配置",
+        "evidence.pressure_chain_unknown": "压力链：未就绪｜缺少可信读回证据",
         "aside.next": "下一步操作",
         "aside.heading": "成熟 V1.5 路径演练",
         "aside.step1": "1. 校验 45/13 canonical 队列",
@@ -91,7 +135,59 @@ _TEXT = {
         "aside.start": "开始演练",
         "aside.running": "正在演练…",
         "aside.settings": "运行设置",
+        "aside.handoff": "查看受控交接预览",
         "aside.open": "打开证据目录",
+        "handoff.title": "V1.5 受控执行交接预览",
+        "handoff.heading": "成熟运行器交接（只读）",
+        "handoff.notice": (
+            "此窗口不执行任何命令。真实 no-write 工程探针必须在执行时"
+            "重新提供操作员确认，当前仍被阻断。"
+        ),
+        "handoff.status.pending": "状态：等待显式双重解锁",
+        "handoff.status.gate_blocked": "状态：启动门禁未通过",
+        "handoff.safety": (
+            "执行权限：否｜系数写入：否｜设备 ID 写入：否｜"
+            "FTD 写入：否｜正式验收证据：否"
+        ),
+        "handoff.conditional": (
+            "若未来另行获准：仅响应检查会打开 COM 但不控制气路；"
+            "路由采样才会控制对应气路 / 水路"
+        ),
+        "handoff.hash": "绑定配置 SHA256：{sha}",
+        "handoff.scope": "可选范围：{scope}｜{status}",
+        "handoff.scope.simulation_ready_real_locked": "仿真已就绪，真实执行锁定",
+        "handoff.scope.blocked_pending_explicit_double_unlock": "等待显式双重解锁",
+        "handoff.scope.blocked_by_startup_gate": "启动门禁未通过",
+        "handoff.response_boundary": (
+            "仅响应边界：不切气路、不设压力、不改变 MODE、不采校准点、不写设备"
+        ),
+        "handoff.decision": "{label}：{status}｜{reasons}",
+        "handoff.decision.start_simulation": "仿真演练启动",
+        "handoff.decision.start_real_execution": "真实执行启动",
+        "handoff.decision.write_coefficients": "受控系数写入",
+        "handoff.decision.issue_formal_certificate": "正式证书签发",
+        "handoff.decision.allowed": "允许",
+        "handoff.decision.blocked": "锁定",
+        "handoff.command": "{route} 成熟运行器参数（仅预览）",
+        "handoff.close": "关闭",
+        "handoff.save_confirmation": "保存批次确认回执",
+        "handoff.confirmation_title": "V1.5 归档批次确认",
+        "handoff.confirmation_prompt": (
+            "请确认：已选正式归档与当前批次号、设备编号和配置哈希一致。\n\n"
+            "本回执只记录归档选择，不授权打开 COM、不授权写设备或系数、"
+            "不执行正式证书签发。是否继续？"
+        ),
+        "handoff.confirmation_binding_blocked": (
+            "归档批次身份核验未通过，不能生成 confirmed 回执。\n{reasons}"
+        ),
+        "handoff.confirmation_operator_missing": "请先在设置中填写归档确认操作员。",
+        "handoff.confirmation_saved": "批次确认回执已不可覆盖地保存：\n{path}\nSHA-256: {sha}",
+        "handoff.confirmation_failed": "批次确认回执保存失败：\n{reason}",
+        "config.title": "运行配置门禁",
+        "config.static": "静态配置｜控制器 {controller}｜压力计 {gauge}",
+        "config.bound": "现场绑定已核验｜控制器 {controller}｜压力计 {gauge}",
+        "config.blocked": "配置被阻断｜请检查运行设置",
+        "config.hash": "SHA256 {sha}",
         "boundary.title": "安全边界（仿真模式）",
         "boundary.com": "真实 COM",
         "boundary.route": "气路 / 水路控制",
@@ -115,6 +211,7 @@ _TEXT = {
         "dialog.co2": "CO₂ 45 点队列",
         "dialog.h2o": "H₂O 13 点队列",
         "dialog.output": "证据输出目录",
+        "dialog.runtime": "成熟运行工件根目录（只读）",
         "dialog.certificate": "证书资料（可选，不阻断）",
         "dialog.browse": "浏览",
         "dialog.save": "保存",
@@ -124,12 +221,110 @@ _TEXT = {
         "info.pass": "成熟 V1.5 路径演练通过：CO₂ 45 点，H₂O 13 点。",
     },
     "en_US": {
+        "dialog.authority_archive": "Formal archive index (optional, read-only)",
+        "dialog.authority_run_id": "Expected formal batch ID (required with archive)",
+        "dialog.authority_device_ids": "Expected device IDs (comma-separated, required)",
+        "dialog.authority_operator": "Archive confirmation operator",
+        "handoff.authority": (
+            "Decision authority archive: {status} | index {index_sha} | "
+            "run status {formal_sha} | report {report_sha}"
+        ),
+        "handoff.authority.not_configured": "not configured; write and issue stay locked",
+        "handoff.authority.ready": "bound by archive hashes",
+        "handoff.authority.blocked": "validation failed; write and issue locked",
+        "handoff.identity": (
+            "Archive batch identity: {status} | batch {run_id} | devices {device_ids} | "
+            "config {config_sha}"
+        ),
+        "handoff.identity.not_configured": "not configured",
+        "handoff.identity.ready": "four-source identity matched",
+        "handoff.identity.blocked": "mismatch or confirmation incomplete",
         "title": "V1.5 Gas Analyzer Calibration Workstation",
         "kernel": "Production kernel: 0613 / 0620 / 0621",
         "coverage": "Mature route: 45 CO₂ + 13 H₂O points",
         "mode": "Mode: simulation rehearsal",
         "offline": "No real devices connected",
         "nav.site": "Site Mapping",
+        "evidence.reference": (
+            "Pressure Chain (Gauge Truth / Controller Feedback) and Dew Point"
+        ),
+        "evidence.pressure_gauge_short": "Gauge",
+        "evidence.pressure_controller_short": "Controller",
+        "evidence.pressure_delta_short": "ΔCtrl-Gauge",
+        "evidence.dewpoint_short": "Dew Point",
+        "evidence.pressure_chain_ready": "Pressure chain: readback timing ready",
+        "evidence.pressure_chain_reference_missing": "Pressure chain: gauge readback missing",
+        "evidence.pressure_chain_controller_missing": "Pressure chain: controller feedback missing",
+        "evidence.pressure_chain_pair_missing": "Pressure chain: paired readback missing",
+        "evidence.pressure_chain_timing_invalid": "Pressure chain: readback timing invalid",
+        "evidence.pressure_chain_stale": "Pressure chain: readback artifact stale",
+        "evidence.pressure_chain_reference_unconfigured": "Pressure chain: gauge not configured",
+        "evidence.pressure_chain_controller_unconfigured": "Pressure chain: controller not configured",
+        "evidence.pressure_chain_unknown": "Pressure chain: trusted readback unavailable",
+        "config.title": "Runtime Config Gate",
+        "config.static": "Static config | Controller {controller} | Gauge {gauge}",
+        "config.bound": "Evidence-bound | Controller {controller} | Gauge {gauge}",
+        "config.blocked": "Config blocked | Review runtime settings",
+        "config.hash": "SHA256 {sha}",
+        "aside.handoff": "View Controlled Handoff",
+        "handoff.title": "V1.5 Controlled Execution Handoff Preview",
+        "handoff.heading": "Mature runner handoff (read-only)",
+        "handoff.notice": (
+            "This window does not execute commands. A real no-write engineering probe "
+            "requires fresh operator confirmation at execution time and remains blocked."
+        ),
+        "handoff.status.pending": "Status: pending explicit double unlock",
+        "handoff.status.gate_blocked": "Status: startup gate blocked",
+        "handoff.safety": (
+            "Execution: no | coefficient write: no | device ID write: no | "
+            "FTD write: no | real acceptance evidence: no"
+        ),
+        "handoff.conditional": (
+            "If separately authorized later, response-only opens COM without route control; "
+            "route sampling may control the selected route"
+        ),
+        "handoff.hash": "Bound config SHA256: {sha}",
+        "handoff.scope": "Available scope: {scope} | {status}",
+        "handoff.scope.simulation_ready_real_locked": (
+            "simulation ready, real execution locked"
+        ),
+        "handoff.scope.blocked_pending_explicit_double_unlock": (
+            "pending explicit double unlock"
+        ),
+        "handoff.scope.blocked_by_startup_gate": "startup gate blocked",
+        "handoff.response_boundary": (
+            "Response-only boundary: no route, pressure, mode, sampling, or device write"
+        ),
+        "handoff.decision": "{label}: {status} | {reasons}",
+        "handoff.decision.start_simulation": "Simulation start",
+        "handoff.decision.start_real_execution": "Real execution start",
+        "handoff.decision.write_coefficients": "Controlled coefficient write",
+        "handoff.decision.issue_formal_certificate": "Formal certificate issue",
+        "handoff.decision.allowed": "allowed",
+        "handoff.decision.blocked": "locked",
+        "handoff.command": "{route} mature runner arguments (preview only)",
+        "handoff.close": "Close",
+        "handoff.save_confirmation": "Save batch confirmation receipt",
+        "handoff.confirmation_title": "V1.5 archive batch confirmation",
+        "handoff.confirmation_prompt": (
+            "Confirm that the selected formal archive matches the current batch ID, "
+            "device IDs, and configuration hash.\n\nThis receipt records archive "
+            "selection only. It does not authorize COM access, device or coefficient "
+            "writes, or formal certificate issue. Continue?"
+        ),
+        "handoff.confirmation_binding_blocked": (
+            "Archive batch identity validation is not ready; a confirmed receipt "
+            "cannot be created.\n{reasons}"
+        ),
+        "handoff.confirmation_operator_missing": (
+            "Enter the archive confirmation operator in Settings first."
+        ),
+        "handoff.confirmation_saved": (
+            "Immutable batch confirmation receipt saved:\n{path}\nSHA-256: {sha}"
+        ),
+        "handoff.confirmation_failed": (
+            "Batch confirmation receipt could not be saved:\n{reason}"
+        ),
     },
 }
 
@@ -174,7 +369,12 @@ def _default_paths() -> dict[str, str]:
         "co2": str(queue_root / "co2_runner_queue.csv"),
         "h2o": str(queue_root / "h2o_runner_queue.csv"),
         "output": str(root / "output" / "v1_5_operator_workstation_ui"),
+        "runtime": str(root / "logs"),
         "certificate": "",
+        "authority_archive": "",
+        "authority_run_id": "",
+        "authority_device_ids": "",
+        "authority_operator": "",
     }
 
 
@@ -186,6 +386,7 @@ class OperatorWorkstationApp:
         root: tk.Tk,
         *,
         locale: str = "zh_CN",
+        initial_settings: Mapping[str, str] | None = None,
         executor: Callable[[Mapping[str, Any]], dict[str, Any]] = (
             execute_v1_5_operator_workstation_dry_run
         ),
@@ -193,27 +394,37 @@ class OperatorWorkstationApp:
         self.root = root
         self.locale = locale
         self.executor = executor
+        paths = _default_paths()
+        for key, value in dict(initial_settings or {}).items():
+            if key in paths and str(value or "").strip():
+                paths[key] = str(value)
         self.settings = {
             key: tk.StringVar(master=root, value=value)
-            for key, value in _default_paths().items()
+            for key, value in paths.items()
         }
         self.last_result: dict[str, Any] | None = None
         self._result_queue: queue.Queue[dict[str, Any]] = queue.Queue()
         self._settings_dialog: tk.Toplevel | None = None
+        self._handoff_dialog: tk.Toplevel | None = None
+        self._handoff_preview_widget: tk.Text | None = None
         self.pages: dict[str, tk.Widget] = {}
         self.nav_buttons: dict[str, ttk.Button] = {}
         self._presentation_active = False
         self.current_snapshot = build_workstation_snapshot(
-            output_dir=self.settings["output"].get()
+            output_dir=self.settings["output"].get(),
+            runtime_output_dir=self.settings["runtime"].get(),
         )
         self.status_var = tk.StringVar(master=root, value=_t("status.ready", locale=locale))
         self.route_var = tk.StringVar(master=root, value=_t("value.not_started", locale=locale))
         self.point_var = tk.StringVar(master=root, value=_t("value.waiting", locale=locale))
         self.judgement_var = tk.StringVar(master=root, value=_t("value.dry_run", locale=locale))
         self.dwell_var = tk.StringVar(master=root, value="0 / 58")
+        self.config_gate_var = tk.StringVar(master=root, value="")
+        self.config_hash_var = tk.StringVar(master=root, value="")
         self._configure_root()
         self._configure_styles()
         self._build()
+        self._refresh_config_gate()
 
     def _configure_root(self) -> None:
         self.root.title(_t("title", locale=self.locale))
@@ -325,6 +536,16 @@ class OperatorWorkstationApp:
             bordercolor=_COLORS["border"],
             padding=(7, 5),
         )
+        style.configure(
+            "Site.TSpinbox",
+            fieldbackground=_COLORS["card"],
+            background=_COLORS["card"],
+            foreground=_COLORS["text"],
+            insertcolor=_COLORS["text"],
+            arrowcolor=_COLORS["muted"],
+            bordercolor=_COLORS["border"],
+            padding=(7, 5),
+        )
         style.map(
             "Site.TCombobox",
             fieldbackground=[("readonly", _COLORS["card"])],
@@ -358,6 +579,8 @@ class OperatorWorkstationApp:
         weight: str = "normal",
         bg: str = "surface",
         anchor: str = "w",
+        justify: str = "left",
+        wraplength: int = 0,
     ) -> tk.Label:
         return tk.Label(
             parent,
@@ -367,6 +590,8 @@ class OperatorWorkstationApp:
             fg=_COLORS[color],
             font=("Microsoft YaHei UI", size, weight),
             anchor=anchor,
+            justify=justify,
+            wraplength=wraplength,
         )
 
     def _panel(self, parent: tk.Misc, *, bg: str = "surface") -> tk.Frame:
@@ -636,11 +861,37 @@ class OperatorWorkstationApp:
         except Exception as exc:
             certificate_records = []
             certificate_error = f"{type(exc).__name__}: {exc}"
+        try:
+            plan = self._plan()
+            decision_model = dict(plan.get("decision_model") or {})
+            decision_authority_binding = dict(
+                plan.get("decision_authority_binding") or {}
+            )
+        except Exception as exc:  # pragma: no cover - defensive UI boundary
+            decision_model = {
+                "schema": "v1_5_workstation_decision_model_v1",
+                "aggregate_status": "blocked",
+                "decisions": {},
+                "fail_closed": True,
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+            decision_authority_binding = {
+                "status": "blocked",
+                "blockers": [
+                    f"decision_authority_preview_failed:{type(exc).__name__}"
+                ],
+                "opens_com_ports": False,
+                "writes_coefficients": False,
+            }
         snapshot = build_workstation_snapshot(
             execution=self.last_result,
             output_dir=self.settings["output"].get(),
+            runtime_output_dir=self.settings["runtime"].get(),
+            site_profile=self.site_profile_page.profile,
             certificate_records=certificate_records,
             certificate_error=certificate_error,
+            decision_model=decision_model,
+            decision_authority_binding=decision_authority_binding,
         )
         self.current_snapshot = snapshot
         self.results_page.render(snapshot)
@@ -652,6 +903,7 @@ class OperatorWorkstationApp:
         self.site_profile_page.render(snapshot)
         self.algorithm_page.render(snapshot)
         self.visitor_page.render(snapshot)
+        self._refresh_run_readback(snapshot)
         return snapshot
 
     def enter_visitor_presentation(self) -> None:
@@ -777,23 +1029,54 @@ class OperatorWorkstationApp:
         grid = tk.Frame(panel, bg=_COLORS["surface"])
         grid.pack(fill="both", expand=True, padx=12, pady=(0, 12))
         grid.grid_rowconfigure(0, weight=1)
-        for index in range(6):
+        self.channel_card_vars: list[dict[str, tk.StringVar]] = []
+        for index in range(CONFIGURED_CHANNEL_COUNT):
             grid.grid_columnconfigure(index, weight=1, uniform="channel")
+            variables = {
+                "name": tk.StringVar(master=self.root, value=f"通道 {index + 1:02d}"),
+                "co2": tk.StringVar(master=self.root, value="--"),
+                "h2o": tk.StringVar(master=self.root, value="--"),
+                "status": tk.StringVar(
+                    master=self.root,
+                    value=_t("channels.no_artifact", locale=self.locale),
+                ),
+                "trend": tk.StringVar(master=self.root, value="—"),
+                "note": tk.StringVar(master=self.root, value="freshness = unknown"),
+                "tag": tk.StringVar(
+                    master=self.root,
+                    value=_t("channels.read_only", locale=self.locale),
+                ),
+            }
+            self.channel_card_vars.append(variables)
             card = self._panel(grid, bg="card")
             card.grid(row=0, column=index, sticky="nsew", padx=3)
-            self._label(card, f"通道 {index + 1:02d}", size=11, weight="bold", bg="card").pack(
+            self._label(
+                card,
+                textvariable=variables["name"],
+                size=11,
+                weight="bold",
+                bg="card",
+            ).pack(
                 anchor="w", padx=14, pady=(14, 12)
             )
-            for key in ("channels.co2", "channels.h2o"):
+            for key, variable in (
+                ("channels.co2", variables["co2"]),
+                ("channels.h2o", variables["h2o"]),
+            ):
                 self._label(card, _t(key, locale=self.locale), size=9, color="muted", bg="card").pack(
                     anchor="w", padx=14
                 )
-                self._label(card, "--", size=12, bg="card").pack(anchor="w", padx=14, pady=(0, 10))
+                self._label(
+                    card,
+                    textvariable=variable,
+                    size=12,
+                    bg="card",
+                ).pack(anchor="w", padx=14, pady=(0, 10))
             tk.Frame(card, bg=_COLORS["border"], height=1).pack(fill="x", padx=14, pady=5)
-            for key, value in (
-                ("channels.status", _t("channels.waiting", locale=self.locale)),
-                ("channels.trend", "— — —"),
-                ("channels.note", "—"),
+            for key, variable in (
+                ("channels.status", variables["status"]),
+                ("channels.trend", variables["trend"]),
+                ("channels.note", variables["note"]),
             ):
                 row = tk.Frame(card, bg=_COLORS["card"])
                 row.pack(fill="x", padx=14, pady=4)
@@ -806,14 +1089,14 @@ class OperatorWorkstationApp:
                 ).pack(side="left")
                 self._label(
                     row,
-                    value,
+                    textvariable=variable,
                     size=8,
                     color="green" if key == "channels.status" else "muted",
                     bg="card",
                 ).pack(side="right")
             self._label(
                 card,
-                "SIMULATION / NO COM",
+                textvariable=variables["tag"],
                 size=8,
                 color="blue",
                 bg="card",
@@ -822,12 +1105,30 @@ class OperatorWorkstationApp:
     def _build_evidence(self, main: tk.Frame) -> None:
         grid = tk.Frame(main, bg=_COLORS["bg"])
         grid.grid(row=3, column=0, sticky="ew")
-        for index, (key, value) in enumerate(
+        self.evidence_vars = {
+            "temperature": tk.StringVar(
+                master=self.root,
+                value=_t("evidence.unknown", locale=self.locale),
+            ),
+            "reference": tk.StringVar(
+                master=self.root,
+                value=_t("evidence.unknown", locale=self.locale),
+            ),
+            "flow": tk.StringVar(
+                master=self.root,
+                value=_t("evidence.flow_unknown", locale=self.locale),
+            ),
+            "certificate": tk.StringVar(
+                master=self.root,
+                value=_t("evidence.release", locale=self.locale),
+            ),
+        }
+        for index, (key, variable) in enumerate(
             (
-                ("evidence.temperature", "24.9 °C / 等待"),
-                ("evidence.reference", "1000 hPa / -45 °C"),
-                ("evidence.source", "零气 / 干气 / 标气"),
-                ("evidence.certificate", _t("evidence.release", locale=self.locale)),
+                ("evidence.temperature", self.evidence_vars["temperature"]),
+                ("evidence.reference", self.evidence_vars["reference"]),
+                ("evidence.source", self.evidence_vars["flow"]),
+                ("evidence.certificate", self.evidence_vars["certificate"]),
             )
         ):
             grid.grid_columnconfigure(index, weight=1, uniform="evidence")
@@ -836,12 +1137,171 @@ class OperatorWorkstationApp:
             self._label(card, _t(key, locale=self.locale), size=9, weight="bold", bg="card_alt").pack(
                 anchor="w", padx=12, pady=(10, 4)
             )
-            self._label(card, value, size=8, color="muted", bg="card_alt").pack(
+            value_label = self._label(
+                card,
+                textvariable=variable,
+                size=8,
+                color="muted",
+                bg="card_alt",
+            )
+            value_label.configure(justify="left")
+            value_label.pack(
                 anchor="w", padx=12, pady=(0, 10)
             )
 
+    @staticmethod
+    def _format_reference_observation(
+        observation: Mapping[str, Any],
+        *,
+        digits: int,
+    ) -> str:
+        value = observation.get("value")
+        unit = str(observation.get("unit") or "")
+        freshness = str(observation.get("freshness_status") or "unknown")
+        if value is None:
+            return f"-- {unit}｜{freshness}".strip()
+        try:
+            number = f"{float(value):.{digits}f}"
+        except (TypeError, ValueError):
+            number = str(value)
+        return f"{number} {unit}｜{freshness}".strip()
+
+    @staticmethod
+    def _format_pressure_delta(pressure_chain: Mapping[str, Any]) -> str:
+        value = pressure_chain.get("controller_minus_reference_hpa")
+        if value is None:
+            return "-- hPa"
+        try:
+            return f"{float(value):+.1f} hPa"
+        except (TypeError, ValueError):
+            return f"{value} hPa"
+
+    @staticmethod
+    def _format_pressure_chain_status(
+        pressure_chain: Mapping[str, Any],
+        *,
+        locale: str = "zh_CN",
+    ) -> str:
+        status = str(pressure_chain.get("status") or "unknown")
+        key = {
+            "fresh_coincident_observation": "evidence.pressure_chain_ready",
+            "reference_missing": "evidence.pressure_chain_reference_missing",
+            "controller_feedback_missing": (
+                "evidence.pressure_chain_controller_missing"
+            ),
+            "coincident_pair_missing": "evidence.pressure_chain_pair_missing",
+            "pair_timestamp_missing": "evidence.pressure_chain_timing_invalid",
+            "pair_age_unknown": "evidence.pressure_chain_timing_invalid",
+            "pair_not_coincident": "evidence.pressure_chain_timing_invalid",
+            "stale_observation": "evidence.pressure_chain_stale",
+            "pair_stale": "evidence.pressure_chain_stale",
+            "reference_not_configured": (
+                "evidence.pressure_chain_reference_unconfigured"
+            ),
+            "controller_not_configured": (
+                "evidence.pressure_chain_controller_unconfigured"
+            ),
+        }.get(status, "evidence.pressure_chain_unknown")
+        return _t(key, locale=locale)
+
+    def _refresh_run_readback(self, snapshot: Mapping[str, Any]) -> None:
+        """Render only normalized artifacts; never perform a hardware refresh."""
+
+        devices = dict(snapshot.get("devices") or {})
+        channels = [
+            dict(item) for item in devices.get("channels") or ()
+            if isinstance(item, Mapping)
+        ]
+        freshness = dict(devices.get("runtime_freshness") or {})
+        freshness_status = str(freshness.get("status") or "unknown")
+        for index, variables in enumerate(self.channel_card_vars):
+            if index >= len(channels):
+                variables["name"].set(f"通道 {index + 1:02d}")
+                variables["co2"].set("--")
+                variables["h2o"].set("--")
+                variables["status"].set(
+                    _t("channels.no_artifact", locale=self.locale)
+                )
+                variables["trend"].set("—")
+                variables["note"].set("freshness = unknown")
+                continue
+            row = channels[index]
+            variables["name"].set(
+                str(row.get("display_name") or f"通道 {index + 1:02d}")
+            )
+            variables["co2"].set("--")
+            variables["h2o"].set("--")
+            variables["status"].set(
+                str(row.get("connection_status") or "unknown")
+            )
+            variables["trend"].set(
+                str(row.get("health_status") or "not_evaluated")
+            )
+            variables["note"].set(
+                f"frame={row.get('last_frame_status') or 'unknown'}"
+            )
+            variables["tag"].set(
+                _t("channels.read_only", locale=self.locale)
+            )
+
+        reference = dict(snapshot.get("physical_reference") or {})
+        observations = dict(reference.get("observations") or {})
+        temperature = dict(observations.get("temperature") or {})
+        pressure = dict(observations.get("pressure") or {})
+        pressure_controller = dict(
+            observations.get("pressure_controller") or {}
+        )
+        pressure_chain = dict(reference.get("pressure_chain") or {})
+        dewpoint = dict(observations.get("dewpoint") or {})
+        flow = dict(observations.get("flow") or {})
+        if freshness_status == "unknown":
+            self.evidence_vars["temperature"].set(
+                _t("evidence.unknown", locale=self.locale)
+            )
+            self.evidence_vars["reference"].set(
+                _t("evidence.unknown", locale=self.locale)
+            )
+            self.evidence_vars["flow"].set(
+                _t("evidence.flow_unknown", locale=self.locale)
+            )
+            return
+        self.evidence_vars["temperature"].set(
+            self._format_reference_observation(temperature, digits=2)
+        )
+        pressure_line = " · ".join(
+            (
+                (
+                    f"{_t('evidence.pressure_gauge_short', locale=self.locale)} "
+                    f"{self._format_reference_observation(pressure, digits=1)}"
+                ),
+                (
+                    f"{_t('evidence.pressure_controller_short', locale=self.locale)} "
+                    f"{self._format_reference_observation(pressure_controller, digits=1)}"
+                ),
+                (
+                    f"{_t('evidence.pressure_delta_short', locale=self.locale)} "
+                    f"{self._format_pressure_delta(pressure_chain)}"
+                ),
+            )
+        )
+        dewpoint_line = (
+            f"{_t('evidence.dewpoint_short', locale=self.locale)} "
+            f"{self._format_reference_observation(dewpoint, digits=2)}"
+        )
+        self.evidence_vars["reference"].set(
+            (
+                f"{pressure_line}\n{dewpoint_line}\n"
+                f"{self._format_pressure_chain_status(pressure_chain, locale=self.locale)}"
+            )
+        )
+        flow_text = self._format_reference_observation(flow, digits=2)
+        self.evidence_vars["flow"].set(
+            f"{flow_text}｜仅监测存在性与稳定性"
+        )
+
     def _build_aside(self, body: tk.Frame) -> None:
         aside = tk.Frame(body, bg=_COLORS["bg"], width=294)
+        self.aside_frame = aside
         aside.grid(row=0, column=2, sticky="nse", padx=(0, 14), pady=14)
         aside.grid_propagate(False)
         action = self._panel(aside)
@@ -869,10 +1329,34 @@ class OperatorWorkstationApp:
         ).pack(fill="x", padx=16, pady=(0, 8))
         ttk.Button(
             action,
+            text=_t("aside.handoff", locale=self.locale),
+            style="Secondary.TButton",
+            command=self.open_controlled_handoff_preview,
+        ).pack(fill="x", padx=16, pady=(0, 8))
+        ttk.Button(
+            action,
             text=_t("aside.open", locale=self.locale),
             style="Secondary.TButton",
             command=self.open_output_directory,
         ).pack(fill="x", padx=16, pady=(0, 16))
+
+        config_gate = self._panel(aside)
+        config_gate.pack(fill="x", pady=(0, 12))
+        self._section_title(config_gate, "config.title")
+        self._label(
+            config_gate,
+            textvariable=self.config_gate_var,
+            size=8,
+            color="text",
+            wraplength=250,
+            justify="left",
+        ).pack(anchor="w", padx=16, pady=(0, 6))
+        self._label(
+            config_gate,
+            textvariable=self.config_hash_var,
+            size=8,
+            color="muted",
+        ).pack(anchor="w", padx=16, pady=(0, 14))
 
         boundary = self._panel(aside)
         boundary.pack(fill="x")
@@ -898,23 +1382,6 @@ class OperatorWorkstationApp:
             size=8,
             color="muted",
         ).pack(anchor="w", padx=16, pady=(10, 16))
-
-        note = self._panel(aside)
-        note.pack(fill="x", pady=(12, 0))
-        self._section_title(note, "note.title")
-        for key in (
-            "note.simulation",
-            "note.kernel",
-            "note.certificate",
-            "note.auxiliary",
-        ):
-            self._label(
-                note,
-                f"• {_t(key, locale=self.locale)}",
-                size=8,
-                color="muted",
-            ).pack(anchor="w", padx=16, pady=5)
-        tk.Frame(note, bg=_COLORS["surface"], height=7).pack()
 
     def _build_footer(self) -> None:
         footer = tk.Frame(self.root, bg=_COLORS["nav"], height=38)
@@ -942,33 +1409,55 @@ class OperatorWorkstationApp:
         dialog = tk.Toplevel(self.root)
         self._settings_dialog = dialog
         dialog.title(_t("dialog.title", locale=self.locale))
-        dialog.geometry("860x330")
+        dialog.geometry("900x760")
+        dialog.minsize(820, 700)
         dialog.configure(bg=_COLORS["surface"])
         dialog.transient(self.root)
         dialog.grab_set()
         rows = (
-            ("config", "dialog.config", False),
-            ("co2", "dialog.co2", False),
-            ("h2o", "dialog.h2o", False),
-            ("output", "dialog.output", True),
-            ("certificate", "dialog.certificate", False),
+            ("config", "dialog.config", "file"),
+            ("co2", "dialog.co2", "file"),
+            ("h2o", "dialog.h2o", "file"),
+            ("output", "dialog.output", "directory"),
+            ("runtime", "dialog.runtime", "directory"),
+            ("certificate", "dialog.certificate", "file"),
+            ("authority_archive", "dialog.authority_archive", "file"),
+            ("authority_run_id", "dialog.authority_run_id", None),
+            ("authority_device_ids", "dialog.authority_device_ids", None),
+            ("authority_operator", "dialog.authority_operator", None),
         )
         dialog.grid_columnconfigure(1, weight=1)
-        for index, (setting, label_key, directory) in enumerate(rows):
+        for index, (setting, label_key, browse_mode) in enumerate(rows):
             self._label(dialog, _t(label_key, locale=self.locale), size=9).grid(
                 row=index, column=0, sticky="w", padx=(18, 10), pady=10
             )
             ttk.Entry(dialog, textvariable=self.settings[setting]).grid(
                 row=index, column=1, sticky="ew", pady=10
             )
-            ttk.Button(
-                dialog,
-                text=_t("dialog.browse", locale=self.locale),
-                style="Secondary.TButton",
-                command=lambda key=setting, is_directory=directory: self._browse(key, is_directory),
-            ).grid(row=index, column=2, padx=12, pady=8)
+            if browse_mode is not None:
+                ttk.Button(
+                    dialog,
+                    text=_t("dialog.browse", locale=self.locale),
+                    style="Secondary.TButton",
+                    command=lambda key=setting, mode=browse_mode: self._browse(
+                        key,
+                        mode == "directory",
+                    ),
+                ).grid(row=index, column=2, padx=12, pady=8)
+        self._label(
+            dialog,
+            textvariable=self.config_gate_var,
+            size=8,
+            color="text",
+        ).grid(row=len(rows), column=0, columnspan=3, sticky="w", padx=18, pady=(8, 2))
+        self._label(
+            dialog,
+            textvariable=self.config_hash_var,
+            size=8,
+            color="muted",
+        ).grid(row=len(rows) + 1, column=0, columnspan=3, sticky="w", padx=18, pady=(0, 8))
         actions = tk.Frame(dialog, bg=_COLORS["surface"])
-        actions.grid(row=len(rows), column=0, columnspan=3, sticky="e", padx=18, pady=14)
+        actions.grid(row=len(rows) + 2, column=0, columnspan=3, sticky="e", padx=18, pady=14)
         ttk.Button(
             actions,
             text=_t("dialog.cancel", locale=self.locale),
@@ -979,7 +1468,7 @@ class OperatorWorkstationApp:
             actions,
             text=_t("dialog.save", locale=self.locale),
             style="Primary.TButton",
-            command=dialog.destroy,
+            command=lambda: self._save_settings(dialog),
         ).pack(side="right")
 
     def _browse(self, key: str, directory: bool) -> None:
@@ -990,17 +1479,381 @@ class OperatorWorkstationApp:
         )
         if selected:
             self.settings[key].set(selected)
+            if key == "config":
+                self._refresh_config_gate()
+
+    def _save_settings(self, dialog: tk.Toplevel) -> None:
+        self._refresh_config_gate()
+        dialog.destroy()
+
+    def _refresh_config_gate(self, inspection: Mapping[str, Any] | None = None) -> None:
+        current = dict(
+            inspection
+            or inspect_v1_5_runtime_config(self.settings["config"].get())
+        )
+        devices = current.get("pressure_devices", {})
+        controller = str(
+            (devices.get("pressure_controller") or {}).get("runtime_port") or "--"
+        )
+        gauge = str(
+            (devices.get("pressure_gauge") or {}).get("runtime_port") or "--"
+        )
+        status = str(current.get("status") or "blocked")
+        if status == "ready_bound_runtime_config":
+            key = "config.bound"
+        elif status == "ready_static_runtime_config":
+            key = "config.static"
+        else:
+            key = "config.blocked"
+        self.config_gate_var.set(
+            _t(
+                key,
+                locale=self.locale,
+                controller=controller,
+                gauge=gauge,
+            )
+        )
+        sha = str(current.get("sha256") or "")
+        self.config_hash_var.set(
+            _t("config.hash", locale=self.locale, sha=sha[:12] if sha else "--")
+        )
 
     def _plan(self) -> dict[str, Any]:
         run_id = f"operator_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         certificate = self.settings["certificate"].get().strip() or None
-        return build_v1_5_operator_workstation_plan(
+        authority_archive = (
+            self.settings["authority_archive"].get().strip() or None
+        )
+        authority_run_id = self.settings["authority_run_id"].get().strip() or None
+        authority_device_ids = (
+            self.settings["authority_device_ids"].get().strip() or None
+        )
+        plan = build_v1_5_operator_workstation_plan(
             config_path=self.settings["config"].get(),
             co2_queue_csv=self.settings["co2"].get(),
             h2o_queue_csv=self.settings["h2o"].get(),
             output_dir=self.settings["output"].get(),
             run_id=run_id,
             certificate_registry_json=certificate,
+            decision_authority_archive_json=authority_archive,
+            expected_authority_run_id=authority_run_id,
+            expected_authority_device_ids=authority_device_ids,
+        )
+        self._refresh_config_gate(plan.get("runtime_config_inspection"))
+        return plan
+
+    def _controlled_handoff_preview_text(
+        self,
+        handoff: Mapping[str, Any],
+        decision_model: Mapping[str, Any] | None = None,
+        authority_binding: Mapping[str, Any] | None = None,
+    ) -> str:
+        status_key = (
+            "handoff.status.gate_blocked"
+            if handoff.get("status") == "blocked_by_startup_gate"
+            else "handoff.status.pending"
+        )
+        lines = [
+            _t(status_key, locale=self.locale),
+            _t("handoff.safety", locale=self.locale),
+            _t("handoff.conditional", locale=self.locale),
+            _t(
+                "handoff.hash",
+                locale=self.locale,
+                sha=str(handoff.get("runtime_config_sha256") or "--"),
+            ),
+        ]
+        blockers = list(handoff.get("blockers") or [])
+        if blockers:
+            lines.extend(["", *[f"- {reason}" for reason in blockers]])
+        authority = dict(authority_binding or {})
+        if authority:
+            authority_status = str(authority.get("status") or "blocked")
+            archive = dict(authority.get("archive_index") or {})
+            artifacts = dict(authority.get("artifacts") or {})
+            formal = dict(artifacts.get("formal_run_status") or {})
+            report = dict(artifacts.get("report_model") or {})
+            lines.append(
+                _t(
+                    "handoff.authority",
+                    locale=self.locale,
+                    status=_t(
+                        f"handoff.authority.{authority_status}",
+                        locale=self.locale,
+                    ),
+                    index_sha=str(archive.get("sha256") or "--")[:12],
+                    formal_sha=str(formal.get("actual_sha256") or "--")[:12],
+                    report_sha=str(report.get("actual_sha256") or "--")[:12],
+                )
+            )
+            identity = dict(authority.get("identity_binding") or {})
+            identity_status = str(identity.get("status") or "blocked")
+            expected = dict(identity.get("expected") or {})
+            observed = dict(identity.get("observed") or {})
+            observed_run_ids = dict(observed.get("run_ids") or {})
+            display_run_id = str(
+                expected.get("run_id")
+                or observed_run_ids.get("archive_index")
+                or "--"
+            )
+            display_devices = list(expected.get("device_ids") or [])
+            display_config_sha = str(
+                expected.get("runtime_config_sha256")
+                or observed.get("runtime_config_sha256")
+                or "--"
+            )
+            lines.append(
+                _t(
+                    "handoff.identity",
+                    locale=self.locale,
+                    status=_t(
+                        f"handoff.identity.{identity_status}",
+                        locale=self.locale,
+                    ),
+                    run_id=display_run_id,
+                    device_ids=",".join(str(item) for item in display_devices)
+                    or "--",
+                    config_sha=display_config_sha[:12],
+                )
+            )
+        decisions = dict((decision_model or {}).get("decisions") or {})
+        for decision_key in (
+            "start_simulation",
+            "start_real_execution",
+            "write_coefficients",
+            "issue_formal_certificate",
+        ):
+            decision = dict(decisions.get(decision_key) or {})
+            if not decision:
+                continue
+            reason_key = "reasons_zh" if self.locale == "zh_CN" else "reasons_en"
+            lines.append(
+                _t(
+                    "handoff.decision",
+                    locale=self.locale,
+                    label=_t(
+                        f"handoff.decision.{decision_key}",
+                        locale=self.locale,
+                    ),
+                    status=_t(
+                        f"handoff.decision.{decision.get('status') or 'blocked'}",
+                        locale=self.locale,
+                    ),
+                    reasons="；".join(
+                        str(reason) for reason in decision.get(reason_key) or []
+                    )
+                    or "--",
+                )
+            )
+        for scope in handoff.get("available_scopes") or []:
+            label_key = "label_zh" if self.locale == "zh_CN" else "label_en"
+            label = str(scope.get(label_key) or scope.get("scope_id") or "--")
+            scope_status = str(scope.get("status") or "blocked_by_startup_gate")
+            status = _t(
+                f"handoff.scope.{scope_status}",
+                locale=self.locale,
+            )
+            lines.extend(
+                [
+                    "",
+                    _t(
+                        "handoff.scope",
+                        locale=self.locale,
+                        scope=label,
+                        status=status,
+                    ),
+                ]
+            )
+            if scope.get("scope_id") == "response_only":
+                lines.append(_t("handoff.response_boundary", locale=self.locale))
+        for command in handoff.get("commands") or []:
+            route_kind = str(command.get("route_kind") or "")
+            route_key = "route.co2" if route_kind == "co2" else "route.h2o"
+            lines.extend(
+                [
+                    "",
+                    _t(
+                        "handoff.command",
+                        locale=self.locale,
+                        route=_t(route_key, locale=self.locale),
+                    ),
+                    str(command.get("runner_module") or ""),
+                    json.dumps(
+                        list(command.get("argv_template") or []),
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                ]
+            )
+        return "\n".join(lines)
+
+    def open_controlled_handoff_preview(self) -> None:
+        if self._handoff_dialog is not None and self._handoff_dialog.winfo_exists():
+            self._handoff_dialog.lift()
+            return
+        plan = self._plan()
+        handoff = dict(plan.get("controlled_execution_handoff") or {})
+        dialog = tk.Toplevel(self.root)
+        self._handoff_dialog = dialog
+        dialog.title(_t("handoff.title", locale=self.locale))
+        dialog.geometry("980x640")
+        dialog.minsize(760, 520)
+        dialog.configure(bg=_COLORS["surface"])
+        dialog.transient(self.root)
+
+        self._label(
+            dialog,
+            _t("handoff.heading", locale=self.locale),
+            size=16,
+            weight="bold",
+        ).pack(anchor="w", padx=20, pady=(18, 4))
+        self._label(
+            dialog,
+            _t("handoff.notice", locale=self.locale),
+            size=9,
+            color="amber",
+            wraplength=920,
+            justify="left",
+        ).pack(anchor="w", padx=20, pady=(0, 12))
+
+        preview_frame = tk.Frame(dialog, bg=_COLORS["surface"])
+        preview_frame.pack(fill="both", expand=True, padx=20, pady=(0, 12))
+        preview = tk.Text(
+            preview_frame,
+            bg=_COLORS["card"],
+            fg=_COLORS["text"],
+            insertbackground=_COLORS["text"],
+            selectbackground=_COLORS["blue_dark"],
+            relief="flat",
+            borderwidth=0,
+            font=("Cascadia Mono", 9),
+            padx=14,
+            pady=12,
+            wrap="word",
+        )
+        preview_scrollbar = ttk.Scrollbar(
+            preview_frame,
+            orient="vertical",
+            command=preview.yview,
+        )
+        preview.configure(yscrollcommand=preview_scrollbar.set)
+        preview.insert(
+            "1.0",
+            self._controlled_handoff_preview_text(
+                handoff,
+                dict(plan.get("decision_model") or {}),
+                dict(plan.get("decision_authority_binding") or {}),
+            ),
+        )
+        preview.configure(state="disabled")
+        preview.pack(side="left", fill="both", expand=True)
+        preview_scrollbar.pack(side="right", fill="y")
+        self._handoff_preview_widget = preview
+
+        actions = tk.Frame(dialog, bg=_COLORS["surface"])
+        actions.pack(fill="x", padx=20, pady=(0, 18))
+        ttk.Button(
+            actions,
+            text=_t("handoff.save_confirmation", locale=self.locale),
+            style="Primary.TButton",
+            command=self.save_authority_confirmation_receipt,
+        ).pack(side="left")
+        ttk.Button(
+            actions,
+            text=_t("handoff.close", locale=self.locale),
+            style="Secondary.TButton",
+            command=dialog.destroy,
+        ).pack(side="right")
+
+    def save_authority_confirmation_receipt(self) -> None:
+        """Save an immutable archive-selection receipt after explicit confirmation."""
+
+        plan = self._plan()
+        binding = dict(plan.get("decision_authority_binding") or {})
+        identity = dict(binding.get("identity_binding") or {})
+        if binding.get("status") != "ready" or identity.get("status") != "ready":
+            reasons = list(binding.get("blockers") or []) or [
+                "decision_authority_binding_not_ready"
+            ]
+            messagebox.showerror(
+                _t("handoff.confirmation_title", locale=self.locale),
+                _t(
+                    "handoff.confirmation_binding_blocked",
+                    locale=self.locale,
+                    reasons="\n".join(str(item) for item in reasons),
+                ),
+                parent=self._handoff_dialog or self.root,
+            )
+            return
+        operator_name = self.settings["authority_operator"].get().strip()
+        if not operator_name:
+            messagebox.showerror(
+                _t("handoff.confirmation_title", locale=self.locale),
+                _t("handoff.confirmation_operator_missing", locale=self.locale),
+                parent=self._handoff_dialog or self.root,
+            )
+            return
+        confirmed = messagebox.askyesno(
+            _t("handoff.confirmation_title", locale=self.locale),
+            _t("handoff.confirmation_prompt", locale=self.locale),
+            parent=self._handoff_dialog or self.root,
+        )
+        if not confirmed:
+            return
+        expected_run_id = str(
+            (identity.get("expected") or {}).get("run_id") or "batch"
+        )
+        safe_run_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", expected_run_id).strip("_")
+        output_path = filedialog.asksaveasfilename(
+            parent=self._handoff_dialog or self.root,
+            title=_t("handoff.confirmation_title", locale=self.locale),
+            defaultextension=".json",
+            filetypes=(("JSON", "*.json"), ("All files", "*.*")),
+            initialdir=self.settings["output"].get(),
+            initialfile=(
+                f"v1_5_archive_authority_confirmation_{safe_run_id or 'batch'}.json"
+            ),
+        )
+        if not output_path:
+            return
+        try:
+            result = write_v1_5_archive_authority_confirmation_receipt(
+                plan,
+                output_path,
+                operator_name=operator_name,
+                confirmation_text=V1_5_ARCHIVE_AUTHORITY_CONFIRMATION_TEXT,
+            )
+        except OSError as exc:
+            messagebox.showerror(
+                _t("handoff.confirmation_title", locale=self.locale),
+                _t(
+                    "handoff.confirmation_failed",
+                    locale=self.locale,
+                    reason=f"{type(exc).__name__}: {exc}",
+                ),
+                parent=self._handoff_dialog or self.root,
+            )
+            return
+        if result.get("status") != "confirmed":
+            messagebox.showerror(
+                _t("handoff.confirmation_title", locale=self.locale),
+                _t(
+                    "handoff.confirmation_failed",
+                    locale=self.locale,
+                    reason=str(result.get("status") or "blocked"),
+                ),
+                parent=self._handoff_dialog or self.root,
+            )
+            return
+        messagebox.showinfo(
+            _t("handoff.confirmation_title", locale=self.locale),
+            _t(
+                "handoff.confirmation_saved",
+                locale=self.locale,
+                path=result["path"],
+                sha=result["sha256"],
+            ),
+            parent=self._handoff_dialog or self.root,
         )
 
     def start_dry_run(self) -> None:
@@ -1091,13 +1944,223 @@ def build_application(
     *,
     root: tk.Tk | None = None,
     locale: str = "zh_CN",
+    initial_settings: Mapping[str, str] | None = None,
 ) -> tuple[tk.Tk, OperatorWorkstationApp]:
     active_root = root or tk.Tk()
-    return active_root, OperatorWorkstationApp(active_root, locale=locale)
+    return active_root, OperatorWorkstationApp(
+        active_root,
+        locale=locale,
+        initial_settings=initial_settings,
+    )
 
 
-def main() -> int:
-    root, _ = build_application()
+def _parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Launch the V1.5 dry-run workstation with a fixed runtime configuration."
+    )
+    parser.add_argument("--config", default=None)
+    parser.add_argument("--co2-queue-csv", default=None)
+    parser.add_argument("--h2o-queue-csv", default=None)
+    parser.add_argument("--output-dir", default=None)
+    parser.add_argument("--runtime-dir", default=None)
+    parser.add_argument("--certificate", default=None)
+    parser.add_argument(
+        "--decision-authority-archive-json",
+        default=None,
+        help=(
+            "Read an existing V1.5 formal archive closure index and bind its "
+            "decision authorities by SHA-256."
+        ),
+    )
+    parser.add_argument(
+        "--expected-authority-run-id",
+        default=None,
+        help="Expected formal batch run ID; required when an authority archive is configured.",
+    )
+    parser.add_argument(
+        "--expected-authority-device-ids",
+        default=None,
+        help=(
+            "Comma-separated expected analyzer device IDs; required when an authority "
+            "archive is configured."
+        ),
+    )
+    parser.add_argument(
+        "--startup-receipt-json",
+        default=None,
+        help=(
+            "Write one immutable no-COM startup receipt. Existing files are never "
+            "overwritten."
+        ),
+    )
+    parser.add_argument(
+        "--authority-confirmation-receipt-json",
+        default=None,
+        help=(
+            "Write one immutable archive batch confirmation receipt. Existing "
+            "files are never overwritten."
+        ),
+    )
+    parser.add_argument(
+        "--authority-confirmation-operator",
+        default=None,
+        help="Operator name recorded in the archive batch confirmation receipt.",
+    )
+    parser.add_argument(
+        "--authority-confirmation-text",
+        default=None,
+        help="Exact acknowledgement required for a confirmed archive receipt.",
+    )
+    parser.add_argument(
+        "--validate-startup-only",
+        action="store_true",
+        help="Validate config and 45/13 queues without constructing Tk or opening COM.",
+    )
+    return parser.parse_args(list(argv) if argv is not None else None)
+
+
+def _initial_settings_from_args(args: argparse.Namespace) -> dict[str, str]:
+    values = {
+        "config": args.config,
+        "co2": args.co2_queue_csv,
+        "h2o": args.h2o_queue_csv,
+        "output": args.output_dir,
+        "runtime": args.runtime_dir,
+        "certificate": args.certificate,
+        "authority_archive": args.decision_authority_archive_json,
+        "authority_run_id": args.expected_authority_run_id,
+        "authority_device_ids": args.expected_authority_device_ids,
+        "authority_operator": args.authority_confirmation_operator,
+    }
+    return {
+        key: str(value)
+        for key, value in values.items()
+        if str(value or "").strip()
+    }
+
+
+def _startup_preflight(settings: Mapping[str, str]) -> dict[str, Any]:
+    paths = _default_paths()
+    paths.update(dict(settings))
+    certificate = str(paths.get("certificate") or "").strip() or None
+    authority_archive = str(paths.get("authority_archive") or "").strip() or None
+    authority_run_id = str(paths.get("authority_run_id") or "").strip() or None
+    authority_device_ids = (
+        str(paths.get("authority_device_ids") or "").strip() or None
+    )
+    return build_v1_5_operator_workstation_plan(
+        config_path=paths["config"],
+        co2_queue_csv=paths["co2"],
+        h2o_queue_csv=paths["h2o"],
+        output_dir=paths["output"],
+        run_id="v1_5_workstation_startup_preflight",
+        certificate_registry_json=certificate,
+        decision_authority_archive_json=authority_archive,
+        expected_authority_run_id=authority_run_id,
+        expected_authority_device_ids=authority_device_ids,
+    )
+
+
+def _print_receipt_write_error(
+    *,
+    receipt_key: str,
+    output_path: str | Path,
+    exc: OSError,
+) -> None:
+    print(
+        json.dumps(
+            {
+                "status": "blocked",
+                "blockers": [
+                    f"{receipt_key}_write_failed:{type(exc).__name__}"
+                ],
+                receipt_key: {
+                    "path": str(Path(output_path).resolve()),
+                    "written": False,
+                },
+                "opens_com_ports": False,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        file=sys.stderr,
+    )
+
+
+def main(argv: Iterable[str] | None = None) -> int:
+    args = _parse_args(argv)
+    initial_settings = _initial_settings_from_args(args)
+    fixed_start_requested = bool(
+        initial_settings
+        or args.validate_startup_only
+        or args.startup_receipt_json
+        or args.authority_confirmation_receipt_json
+    )
+    if fixed_start_requested:
+        plan = _startup_preflight(initial_settings)
+        receipt = None
+        authority_confirmation_receipt = None
+        if str(args.startup_receipt_json or "").strip():
+            try:
+                receipt = write_v1_5_operator_workstation_startup_receipt(
+                    plan,
+                    args.startup_receipt_json,
+                )
+            except OSError as exc:
+                _print_receipt_write_error(
+                    receipt_key="startup_receipt",
+                    output_path=args.startup_receipt_json,
+                    exc=exc,
+                )
+                return 2
+        if str(args.authority_confirmation_receipt_json or "").strip():
+            try:
+                authority_confirmation_receipt = (
+                    write_v1_5_archive_authority_confirmation_receipt(
+                        plan,
+                        args.authority_confirmation_receipt_json,
+                        operator_name=str(
+                            args.authority_confirmation_operator or ""
+                        ),
+                        confirmation_text=str(args.authority_confirmation_text or ""),
+                    )
+                )
+            except OSError as exc:
+                _print_receipt_write_error(
+                    receipt_key="authority_confirmation_receipt",
+                    output_path=args.authority_confirmation_receipt_json,
+                    exc=exc,
+                )
+                return 2
+        summary = {
+            "status": plan.get("overall_status"),
+            "blockers": list(plan.get("blockers") or []),
+            "warnings": list(plan.get("warnings") or []),
+            "runtime_config": plan.get("runtime_config"),
+            "runtime_config_inspection": plan.get("runtime_config_inspection"),
+            "point_counts": plan.get("point_counts"),
+            "controlled_execution_handoff": plan.get(
+                "controlled_execution_handoff"
+            ),
+            "decision_model": plan.get("decision_model"),
+            "decision_authority_binding": plan.get(
+                "decision_authority_binding"
+            ),
+            "opens_com_ports": False,
+            "startup_receipt": receipt,
+            "authority_confirmation_receipt": authority_confirmation_receipt,
+        }
+        if plan.get("blockers") or (
+            authority_confirmation_receipt is not None
+            and authority_confirmation_receipt.get("status") != "confirmed"
+        ):
+            print(json.dumps(summary, ensure_ascii=False, indent=2), file=sys.stderr)
+            return 2
+        if args.validate_startup_only:
+            print(json.dumps(summary, ensure_ascii=False, indent=2))
+            return 0
+
+    root, _ = build_application(initial_settings=initial_settings)
     root.mainloop()
     return 0
 
@@ -1106,4 +2169,8 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-__all__ = ["OperatorWorkstationApp", "build_application", "main"]
+__all__ = [
+    "OperatorWorkstationApp",
+    "build_application",
+    "main",
+]

@@ -54,6 +54,10 @@ def _complete_four_connected_two_powered(
     page: SiteProfilePage,
     tmp_path: Path,
 ) -> None:
+    page.profile["reported_connected_count"] = 4
+    page.profile["reported_powered_count"] = 2
+    page.reported_count_vars["connected"].set("4")
+    page.reported_count_vars["powered"].set("2")
     for index, row in enumerate(page.profile["candidate_analyzers"], start=1):
         row["connected"] = index <= 4
         row["powered"] = index <= 2
@@ -115,7 +119,7 @@ def test_site_profile_page_saves_hash_bound_four_two_readonly_inputs(
 
         assert len(page.profile["candidate_analyzers"]) == 8
         assert page.metric_vars[0].get() == "4"
-        assert page.metric_vars[1].get() == "2"
+        assert page.metric_vars[1].get() == "4"
         assert page.validation == {}
         assert page.profile["opens_com_ports"] is False
         assert page.profile["sends_device_commands"] is False
@@ -290,7 +294,7 @@ def test_site_profile_page_clears_derived_lists_when_mapping_is_blocked(
         assert active["blocked_reasons"] == validation["reasons"]
         display_reasons = page.reason_text.get("1.0", "end")
         assert "报告接入 4 台，当前只确认 0 台" in display_reasons
-        assert "报告通电 2 台，当前只确认 0 台" in display_reasons
+        assert "报告通电 4 台，当前只确认 0 台" in display_reasons
         assert "connected_count_expected" not in display_reasons
         assert "powered_count_expected" not in display_reasons
     finally:
@@ -387,8 +391,8 @@ def test_site_profile_page_i18n_is_chinese_first_with_english_fallback() -> None
     assert zh("pages.site_profile.actions.save") == "保存配置与清单"
     assert zh("pages.site_profile.value.historical_prefill") == "历史身份待确认"
     assert zh("pages.site_profile.value.current_probe") == "当前通电身份已读，待人工确认"
-    assert zh("pages.site_profile.confirmation.action") == "确认并绑定当前4/2映射"
-    assert "历史6台身份记录不能证明" in zh(
+    assert zh("pages.site_profile.confirmation.action") == "确认并绑定当前映射"
+    assert "历史身份记录不能证明" in zh(
         "pages.site_profile.reason.confirmation_missing"
     )
     assert "探针证据" in zh("pages.site_profile.reason.probe_invalid")
@@ -406,9 +410,40 @@ def test_site_profile_page_i18n_is_chinese_first_with_english_fallback() -> None
         "Current Powered Identity Read - Confirm"
     )
     assert en("pages.site_profile.confirmation.action") == (
-        "Confirm and Bind Current 4/2 Mapping"
+        "Confirm and Bind Current Mapping"
     )
     assert "probe evidence" in en("pages.site_profile.reason.probe_invalid")
     assert en("pages.site_profile.field.algorithm_evidence_type") == (
         "Algorithm Evidence Type"
     )
+
+
+def test_site_profile_page_applies_current_four_powered_report_offline(
+    tmp_path: Path,
+) -> None:
+    root = _root()
+    try:
+        inventory = _write_inventory(tmp_path)
+        page = SiteProfilePage(
+            root,
+            profile_path=tmp_path / "site_profile.json",
+        )
+        page.create_from_inventory(inventory)
+
+        assert page.profile["reported_connected_count"] == 4
+        assert page.profile["reported_powered_count"] == 4
+        assert all(
+            row.get("powered") is not True
+            for row in page.profile["candidate_analyzers"]
+        )
+
+        page.reported_count_vars["connected"].set("4")
+        page.reported_count_vars["powered"].set("3")
+        page.apply_reported_counts()
+        assert page.profile["reported_connected_count"] == 4
+        assert page.profile["reported_powered_count"] == 3
+        assert "接入 4 台、通电 3 台" in page.status_var.get()
+        assert page.profile["opens_com_ports"] is False
+        assert page.profile["sends_device_commands"] is False
+    finally:
+        root.destroy()

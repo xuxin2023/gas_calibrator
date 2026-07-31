@@ -1,0 +1,40 @@
+{
+  "schema_version": "v1_5_protocol_identity_global_uniqueness_evidence_v1",
+  "overall_status": "ready_global_scope_complete",
+  "candidate_sn": "01260716",
+  "candidate_protocol_device_id": "016",
+  "candidate_sn_absent": true,
+  "candidate_protocol_id_absent": true,
+  "scope_complete": true,
+  "test_fixture_only": true,
+  "not_real_acceptance_evidence": true,
+  "authority": {
+    "source_type": "controlled_asset_registry_readonly_export",
+    "source_system": "test_fleet_asset_registry",
+    "exported_at": "2026-07-31T21:00:00+08:00",
+    "exported_by": "test_registry_operator",
+    "read_only_export": true,
+    "database_written": false
+  },
+  "scope": {
+    "scope_complete": true,
+    "includes_powered_devices": true,
+    "includes_unpowered_devices": true,
+    "includes_silent_ports": true,
+    "record_count": 2
+  },
+  "records": [
+    {
+      "asset_key": "fixture-analyzer-01",
+      "sn_code": "01260712",
+      "protocol_device_id": "001",
+      "lifecycle_status": "active"
+    },
+    {
+      "asset_key": "fixture-analyzer-02",
+      "sn_code": "01260713",
+      "protocol_device_id": "064",
+      "lifecycle_status": "active"
+    }
+  ]
+}

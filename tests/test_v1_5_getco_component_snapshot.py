@@ -123,6 +123,25 @@ class _RuntimeRebindGasAnalyzer(_FakeGasAnalyzer):
         self.ser = _RuntimeRebindSerial()
 
 
+class _RuntimeDuplicateSerial(_FakeSerial):
+    def exchange_readlines(self, command, *, response_timeout_s, read_timeout_s=0.1, clear_input=False):
+        stripped = command.strip()
+        self.commands.append(("exchange", stripped, response_timeout_s, clear_input))
+        if stripped == "GETCO,YGAS,FFF,1":
+            return ["YGAS,090,2,900.0,0.0", "<C0:10,C1:20,C2:30,C3:40,C4:0,C5:0>"]
+        return ["YGAS,090,2,900.0,0.0"]
+
+    def drain_input_nonblock(self, drain_s=0.35, read_timeout_s=0.05):
+        self.commands.append(("drain", drain_s, read_timeout_s))
+        return ["YGAS,090,2,900.0,0.0"]
+
+
+class _RuntimeDuplicateGasAnalyzer(_FakeGasAnalyzer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.ser = _RuntimeDuplicateSerial()
+
+
 def test_component_getco_snapshot_captures_old_groups_without_runtime_writes(monkeypatch, tmp_path):
     _FakeGasAnalyzer.instances = []
     monkeypatch.setattr(probe, "GasAnalyzer", _FakeGasAnalyzer)
@@ -192,6 +211,92 @@ def test_component_getco_snapshot_rejects_subsecond_command_gap(monkeypatch, tmp
 
     assert rc == 2
     assert _FakeGasAnalyzer.instances == []
+
+
+def test_component_getco_snapshot_blocks_duplicate_ids_before_com_open(monkeypatch, tmp_path):
+    _FakeGasAnalyzer.instances = []
+    monkeypatch.setattr(probe, "GasAnalyzer", _FakeGasAnalyzer)
+    cfg = _config(tmp_path)
+    cfg["devices"]["gas_analyzers"].append(
+        {
+            "name": "ga02",
+            "enabled": True,
+            "port": "COM36",
+            "baud": 115200,
+            "device_id": "023",
+            "mode": 2,
+            "active_send": True,
+        }
+    )
+    cfg_path = tmp_path / "cfg.json"
+    _write_json(cfg_path, cfg)
+
+    rc = probe.main(
+        [
+            "--config",
+            str(cfg_path),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--groups",
+            "1,3",
+            "--command-gap-s",
+            "1",
+        ]
+    )
+
+    assert rc == 2
+    assert _FakeGasAnalyzer.instances == []
+
+
+def test_component_getco_snapshot_blocks_duplicate_runtime_id_without_borrowing_rows(
+    monkeypatch, tmp_path
+):
+    _FakeGasAnalyzer.instances = []
+    monkeypatch.setattr(probe, "GasAnalyzer", _RuntimeDuplicateGasAnalyzer)
+    cfg = _config(tmp_path)
+    cfg["devices"]["gas_analyzers"].append(
+        {
+            "name": "ga02",
+            "enabled": True,
+            "port": "COM36",
+            "baud": 115200,
+            "device_id": "024",
+            "mode": 2,
+            "active_send": True,
+        }
+    )
+    cfg_path = tmp_path / "cfg.json"
+    out_dir = tmp_path / "out"
+    _write_json(cfg_path, cfg)
+
+    rc = probe.main(
+        [
+            "--config",
+            str(cfg_path),
+            "--output-dir",
+            str(out_dir),
+            "--groups",
+            "1",
+            "--command-gap-s",
+            "1",
+            "--pre-drain-s",
+            "0",
+            "--allow-runtime-identity-rebind",
+        ]
+    )
+
+    assert rc == 1
+    identity_rows = _read_csv(out_dir / "getco_component_snapshot_identity.csv")
+    assert identity_rows[0]["all_groups_found"] == "True"
+    assert identity_rows[1]["all_groups_found"] == "False"
+    assert identity_rows[1]["identity_verified"] == "False"
+    assert "duplicate_runtime_analyzer_device_id" in identity_rows[1]["error"]
+    second_commands = [
+        item[1]
+        for item in _FakeGasAnalyzer.instances[1].ser.commands
+        if item[0] == "exchange"
+    ]
+    assert not any(command.startswith("GETCO") for command in second_commands)
 
 
 def test_component_getco_snapshot_accepts_senco5_and_senco6_two_value_groups(monkeypatch, tmp_path):
