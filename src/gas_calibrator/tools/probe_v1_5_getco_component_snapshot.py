@@ -54,6 +54,21 @@ def _select_analyzers(cfg: Mapping[str, Any], selected_device_ids: Sequence[str]
     return [item for item in analyzers if _device_id(item.get("device_id")) in wanted]
 
 
+def _duplicate_configured_device_ids(
+    analyzers: Sequence[Mapping[str, Any]],
+) -> Dict[str, List[str]]:
+    ports_by_id: Dict[str, List[str]] = {}
+    for analyzer in analyzers:
+        device_id = _device_id(analyzer.get("device_id"))
+        if device_id:
+            ports_by_id.setdefault(device_id, []).append(str(analyzer.get("port") or ""))
+    return {
+        device_id: sorted(set(ports))
+        for device_id, ports in ports_by_id.items()
+        if len(set(ports)) > 1
+    }
+
+
 def _parse_groups(value: str) -> List[int]:
     groups: List[int] = []
     for item in str(value or "").replace(";", ",").split(","):
@@ -555,6 +570,13 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     if not analyzers:
         _log("No enabled analyzers selected for component GETCO snapshot.")
         return 2
+    duplicate_configured_ids = _duplicate_configured_device_ids(analyzers)
+    if duplicate_configured_ids:
+        _log(
+            "GETCO snapshot blocked before COM open: duplicate configured analyzer device ID(s): "
+            + json.dumps(duplicate_configured_ids, ensure_ascii=False, sort_keys=True)
+        )
+        return 2
 
     destination = Path(args.output_dir).resolve()
     destination.mkdir(parents=True, exist_ok=True)
@@ -562,6 +584,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     rows: List[Dict[str, Any]] = []
     identity_rows: List[Dict[str, Any]] = []
     comm_rows: List[Dict[str, Any]] = []
+    runtime_identity_ports: Dict[str, str] = {}
 
     for analyzer_cfg in analyzers:
         configured_device_id = _device_id(analyzer_cfg.get("device_id"))
@@ -578,6 +601,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         error = ""
         identity_before: Dict[str, Any] = {}
         identity_after: Dict[str, Any] = {}
+        probe_rows: List[Dict[str, Any]] = []
         try:
             ga.open()
             identity_before = _read_identity_snapshot(
@@ -609,6 +633,14 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 raise RuntimeError(
                     f"identity_mismatch expected={device_id} observed={identity_before.get('id') or '<missing>'}"
                 )
+            current_port = str(analyzer_cfg.get("port") or "")
+            duplicate_port = runtime_identity_ports.get(device_id)
+            if duplicate_port and duplicate_port != current_port:
+                raise RuntimeError(
+                    "duplicate_runtime_analyzer_device_id "
+                    f"device_id={device_id} first_port={duplicate_port} current_port={current_port}"
+                )
+            runtime_identity_ports[device_id] = current_port
             probe_rows, tail = _probe_one(
                 ga,
                 analyzer_cfg,
@@ -658,9 +690,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         found_groups = sorted(
             {
                 int(row.get("getco_group") or 0)
-                for row in rows
-                if row.get("analyzer_device_id") == device_id and row.get("coefficient_found")
-                and row.get("coefficient_valid")
+                for row in probe_rows
+                if row.get("coefficient_found") and row.get("coefficient_valid")
             }
         )
         identity_rows.append(
@@ -680,7 +711,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 "identity_after": identity_after.get("id", ""),
                 "identity_after_raw": identity_after.get("raw", ""),
                 "identity_after_source": identity_after.get("source", ""),
-                "identity_verified": _device_id(identity_before.get("id")) == device_id
+                "identity_verified": not error
+                and _device_id(identity_before.get("id")) == device_id
                 and (not identity_after or _device_id(identity_after.get("id")) == device_id),
                 "error": error,
                 "writes_senco": False,
