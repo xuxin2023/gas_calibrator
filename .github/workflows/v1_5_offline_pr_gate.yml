@@ -1,0 +1,234 @@
+name: V1.5 Offline PR Gate
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v1-5-offline-pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline-no-com-gate:
+    name: Offline no-COM gate
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      CI: "true"
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      PYTHONPATH: ${{ github.workspace }}\src
+
+    steps:
+      - name: Check out reviewed branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Confirm offline execution boundary
+        shell: pwsh
+        run: |
+          $forbidden = @(
+            "ALLOW_REAL_DEVICE_WRITE",
+            "GAS_CAL_ALLOW_REAL_DEVICE_WRITE",
+            "GAS_CAL_V2_QUERY_ONLY_REAL_COM",
+            "GAS_CAL_DB_DSN",
+            "V1_5_POSTGRES_DSN",
+            "V1_5_POSTGRES_STAGING_DSN",
+            "V1_5_POSTGRES_STAGING_DSN_TEST"
+          )
+          foreach ($name in $forbidden) {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            if (-not [string]::IsNullOrWhiteSpace($value)) {
+              throw "Forbidden live/write environment variable is set: $name"
+            }
+          }
+          "Offline boundary confirmed: no real-COM, device-write, or formal-DSN unlock is present." |
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+
+      - name: Install offline test dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check --upgrade pip
+          python -m pip install --disable-pip-version-check -r requirements.txt pytest==9.0.3 ruff==0.15.12
+          python -m pip check
+
+      - name: Resolve pull-request base
+        id: base
+        shell: pwsh
+        run: |
+          $baseSha = "${{ github.event.pull_request.base.sha }}"
+          if ([string]::IsNullOrWhiteSpace($baseSha)) {
+            git fetch --no-tags origin main
+            $baseSha = (git rev-parse origin/main).Trim()
+          }
+          "sha=$baseSha" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+          "Reviewed base: ``$baseSha``" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+
+      - name: Check diff hygiene and protected paths
+        shell: pwsh
+        run: |
+          $baseSha = "${{ steps.base.outputs.sha }}"
+          git diff --check "$baseSha...HEAD"
+          if ($LASTEXITCODE -ne 0) {
+            throw "git diff --check failed"
+          }
+
+          $protected = @(
+            "run_app.py",
+            "src/gas_calibrator/workflow/runner.py",
+            "src/gas_calibrator/v1_5/orchestration/operator_workstation.py",
+            "src/gas_calibrator/tools/run_v1_5_operator_workstation.py",
+            "configs/default_config.json"
+          )
+          $changedProtected = @(git diff --name-only "$baseSha...HEAD" -- $protected)
+          if ($changedProtected.Count -gt 0) {
+            $changedProtected | ForEach-Object { Write-Error "Protected path changed: $_" }
+            throw "V1/V1.5 protected production paths must remain unchanged"
+          }
+
+      - name: Ruff changed Python files
+        shell: pwsh
+        run: |
+          $baseSha = "${{ steps.base.outputs.sha }}"
+          $changedPython = @(git diff --name-only "$baseSha...HEAD" -- "*.py")
+          if ($changedPython.Count -eq 0) {
+            Write-Host "No changed Python files."
+            exit 0
+          }
+          python -m ruff check $changedPython
+
+      - name: Run V1.5 offline critical-path tests
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          python -m pytest `
+            tests/test_v1_5_real_acceptance_control_pack.py `
+            tests/test_v1_5_analyzer_runtime_setup.py `
+            tests/v2/test_v1_5_runtime_setup_import.py `
+            tests/test_v1_5_formal_readonly_com_execution_plan_preview.py `
+            tests/test_v1_5_formal_readonly_com_minimal_executor.py `
+            tests/test_v1_5_getco_component_snapshot.py `
+            tests/test_v1_5_initialization_db_preflight.py `
+            tests/test_v1_5_entrypoint_inventory.py `
+            tests/test_v1_5_mature_route_contract.py `
+            tests/test_v1_5_mature_route_continuity_gate.py `
+            tests/test_v1_has_no_v2_runtime_imports.py `
+            tests/test_v2_has_no_v1_runtime_imports.py `
+            tests/test_v1_5_operator_workstation.py `
+            tests/test_v1_5_operator_workstation_ui.py::test_operator_workstation_settings_are_editable_and_certificate_optional `
+            --junitxml=artifacts/v1_5_offline_pr_gate.xml `
+            -q
+          "Windows critical-path coverage complete, including the Windows-path settings assertion; the other Tk UI checks run under Xvfb." |
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+
+      - name: Verify Excel worksheet compatibility
+        shell: pwsh
+        run: |
+          python -m pytest tests/test_v1_5_co2_senco_pair_model_scope.py -q -W error::UserWarning
+
+      - name: Publish offline gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v1-5-offline-pr-gate-${{ github.run_id }}
+          path: artifacts/v1_5_offline_pr_gate.xml
+          if-no-files-found: warn
+          retention-days: 14
+
+  ui-xvfb-1080p:
+    name: UI Tk/Xvfb 1920x1080
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: "true"
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      PYTHONPATH: ${{ github.workspace }}/src
+
+    steps:
+      - name: Check out reviewed branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Confirm offline execution boundary
+        shell: bash
+        run: |
+          forbidden=(
+            ALLOW_REAL_DEVICE_WRITE
+            GAS_CAL_ALLOW_REAL_DEVICE_WRITE
+            GAS_CAL_V2_QUERY_ONLY_REAL_COM
+            GAS_CAL_DB_DSN
+            V1_5_POSTGRES_DSN
+            V1_5_POSTGRES_STAGING_DSN
+            V1_5_POSTGRES_STAGING_DSN_TEST
+          )
+          for name in "${forbidden[@]}"; do
+            if [[ -n "${!name:-}" ]]; then
+              echo "::error::Forbidden live/write environment variable is set: $name"
+              exit 1
+            fi
+          done
+          echo "Offline boundary confirmed: no real-COM, device-write, or formal-DSN unlock is present." \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install UI test dependencies
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install --yes --no-install-recommends xvfb xauth python3-tk
+          python -m pip install --disable-pip-version-check --upgrade pip
+          python -m pip install --disable-pip-version-check -r requirements.txt pytest==9.0.3
+          python -m pip check
+
+      - name: Verify 1920x1080 virtual display
+        shell: bash
+        run: |
+          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24 -nolisten tcp" \
+            python -c "import tkinter as tk; root = tk.Tk(); width, height = root.winfo_screenwidth(), root.winfo_screenheight(); print(f'Xvfb screen: {width}x{height}'); root.destroy(); assert (width, height) == (1920, 1080)"
+          echo "UI Tk checks use an isolated 1920x1080 Xvfb display; no physical display or device is accessed." \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run complete Tk UI test modules
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24 -nolisten tcp" \
+            python -m pytest \
+              tests/test_v1_5_site_profile_page.py \
+              tests/test_v1_5_operator_workstation_ui.py \
+              --deselect=tests/test_v1_5_operator_workstation_ui.py::test_operator_workstation_settings_are_editable_and_certificate_optional \
+              --junitxml=artifacts/v1_5_ui_xvfb_1080p.xml \
+              -q
+
+      - name: Publish Tk UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v1-5-ui-xvfb-1080p-${{ github.run_id }}
+          path: artifacts/v1_5_ui_xvfb_1080p.xml
+          if-no-files-found: warn
+          retention-days: 14

@@ -204,6 +204,20 @@ def test_build_plan_lists_only_runtime_setup_commands():
     ]
     assert "set_senco" in plan["forbidden_actions"]
     assert "sampling" in plan["forbidden_actions"]
+    assert plan["status"] == "preview_only"
+    assert plan["boundary"]["opens_com_ports"] is False
+    assert plan["boundary"]["sends_device_commands"] is False
+    assert plan["boundary"]["writes_runtime_settings"] is False
+    assert all(row["ack_required"] is True for row in plan["commands"])
+    assert (
+        plan["execution_contract"]["failure_recovery"]
+        == "restore_active_send_with_ack"
+    )
+    device_plan = plan["identity_bound_command_plans"][0]
+    assert device_plan["port"] == "COM36"
+    assert device_plan["protocol_device_id"] == "047"
+    assert device_plan["sn_code"] == "01260601"
+    assert device_plan["command_steps"] == plan["commands"]
 
 
 def test_build_plan_accepts_mature_devices_gas_analyzers_shape():
@@ -340,6 +354,10 @@ def test_execute_runtime_setup_uses_identity_bound_order_and_no_write_commands(t
     )
 
     assert result["status"] == "ready"
+    assert result["evidence_source"] == "real_device_runtime_setup"
+    assert result["execution_mode"] == "controlled_real_com"
+    assert result["engineering_setup_only"] is True
+    assert result["not_real_acceptance_evidence"] is True
     assert result["results"][0]["status"] == "ready"
     assert result["results"][0]["sn_readback"] == "01260601"
     analyzer = fake_analyzers[0]
@@ -359,12 +377,22 @@ def test_execute_runtime_setup_uses_identity_bound_order_and_no_write_commands(t
         "read_latest_data",
         "close",
     ]
-    assert ("set_average_filter_channel_with_ack", 1, 49, False) in analyzer.calls
-    assert ("set_average_filter_channel_with_ack", 2, 49, False) in analyzer.calls
+    assert ("set_average_filter_channel_with_ack", 1, 49, True) in analyzer.calls
+    assert ("set_average_filter_channel_with_ack", 2, 49, True) in analyzer.calls
     assert analyzer.ser.writes == ["SN,YGAS,FFF\r\n"]
     assert result["results"][0]["active_upload_rate"]["ok"] is True
     assert result["results"][0]["active_upload_rate"]["approx_hz"] == 1.0
     assert result["results"][0]["runtime_setup_attempt_count"] == 1
+    assert result["results"][0]["identity_after"] == {
+        "mode": 2,
+        "id": "047",
+        "source": "verified_mode2_frame_after_runtime_setup",
+    }
+    assert all(
+        event["ack_required"] is True and event["ack_received"] is True
+        for event in result["results"][0]["runtime_setup_events"]
+    )
+    assert result["boundary"]["all_configuration_commands_require_ack"] is True
     assert any(seconds >= 1.0 for seconds in sleeps)
     assert (tmp_path / "v1_5_analyzer_runtime_setup_result.json").exists()
 
@@ -512,4 +540,89 @@ def test_execute_runtime_setup_blocks_when_command_fails(tmp_path, monkeypatch):
     row = result["results"][0]
     assert row["status"] == "error"
     assert "set_active_frequency" in row["error"]
+    assert (
+        row["failure_status"]
+        == "runtime_setup_command_failed_recovered_active_send"
+    )
+    assert [event["action"] for event in row["runtime_setup_events"]] == [
+        "set_comm_way_inactive",
+        "set_mode2",
+        "set_active_frequency",
+    ]
+    assert row["failure_recovery_events"] == [
+        {
+            "action": "restore_comm_way_active_after_failure",
+            "command_preview": "SETCOMWAY,YGAS,FFF,1",
+            "ack_required": True,
+            "ack_received": True,
+            "ok": True,
+            "category": "failure_recovery",
+        }
+    ]
     assert not row["mode2_frames"]
+
+
+def test_execute_runtime_setup_preflights_required_methods_before_open(
+    tmp_path,
+    monkeypatch,
+):
+    _sleeps, sleep_fn = _patch_runtime_sleep(monkeypatch)
+    fake_analyzers = []
+
+    def factory(item):
+        analyzer = _FakeAnalyzer(item)
+        analyzer.set_average_filter_channel_with_ack = None
+        fake_analyzers.append(analyzer)
+        return analyzer
+
+    result = runtime_setup.execute_runtime_setup(
+        _config(),
+        output_dir=tmp_path,
+        analyzer_factory=factory,
+        sleep_fn=sleep_fn,
+    )
+
+    row = result["results"][0]
+    analyzer = fake_analyzers[0]
+    assert result["status"] == "partial"
+    assert row["status"] == "error"
+    assert "methods missing before COM open" in row["error"]
+    assert "set_average_filter_channel_with_ack" in row["error"]
+    assert analyzer.opened is False
+    assert row["runtime_setup_events"] == []
+
+
+def test_execute_runtime_setup_records_failed_active_send_recovery(
+    tmp_path,
+    monkeypatch,
+):
+    _sleeps, sleep_fn = _patch_runtime_sleep(monkeypatch)
+
+    class FailingRecoveryAnalyzer(_FakeAnalyzer):
+        def set_comm_way_with_ack(self, active, require_ack=False):
+            self.calls.append(
+                ("set_comm_way_with_ack", bool(active), bool(require_ack))
+            )
+            return not bool(active)
+
+        def set_active_freq_with_ack(self, ftd_hz, require_ack=False):
+            self.calls.append(
+                ("set_active_freq_with_ack", int(ftd_hz), bool(require_ack))
+            )
+            return False
+
+    result = runtime_setup.execute_runtime_setup(
+        _config(),
+        output_dir=tmp_path,
+        analyzer_factory=FailingRecoveryAnalyzer,
+        sleep_fn=sleep_fn,
+    )
+
+    row = result["results"][0]
+    assert result["status"] == "partial"
+    assert row["status"] == "error"
+    assert (
+        row["failure_status"]
+        == "runtime_setup_command_failed_recovery_failed"
+    )
+    assert row["failure_recovery_events"][0]["ack_received"] is False

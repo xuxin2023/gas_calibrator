@@ -8,6 +8,7 @@ never treats a valid packet as permission to execute the real reader.
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import re
 from dataclasses import asdict, dataclass
@@ -62,6 +63,12 @@ def _load_json(path: str | Path | None) -> dict[str, Any]:
         return {}
     payload = json.loads(source.read_text(encoding="utf-8-sig"))
     return payload if isinstance(payload, dict) else {}
+
+
+def _sha256(path: Path | None) -> str:
+    if path is None or not path.is_file():
+        return ""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
@@ -459,9 +466,13 @@ def build_v1_5_formal_readonly_com_execution_packet_validator(
         "packet_validated_offline": packet_validated,
         "production_state": "offline_packet_validator_only",
         "formal_readonly_com_execution_blocked_executor_json": str(blocked_path) if blocked_path else "",
+        "formal_readonly_com_execution_blocked_executor_sha256": _sha256(blocked_path),
         "authorization_packet_json": str(authorization_path) if authorization_path else "",
+        "authorization_packet_sha256": _sha256(authorization_path),
         "reviewed_port_inventory_json": str(inventory_path) if inventory_path else "",
+        "reviewed_port_inventory_sha256": _sha256(inventory_path),
         "active_analyzer_list_json": str(active_path) if active_path else "",
+        "active_analyzer_list_sha256": _sha256(active_path),
         "execution_supported": False,
         "execution_requested": False,
         "live_execution_allowed": False,

@@ -170,6 +170,9 @@ def _runtime_contract(config: Mapping[str, Any]) -> dict[str, Any]:
         "read_sn_before_setup": bool(contract.get("read_sn_before_setup", True)),
         "read_identity_before_setup": bool(contract.get("read_identity_before_setup", True)),
         "read_mode2_frames_after_setup": bool(contract.get("read_mode2_frames_after_setup", True)),
+        "restore_active_send_on_command_failure": bool(
+            contract.get("restore_active_send_on_command_failure", True)
+        ),
     }
 
 
@@ -182,6 +185,7 @@ def _planned_commands(contract: Mapping[str, Any]) -> list[dict[str, Any]]:
             "args": [False],
             "command_preview": "SETCOMWAY,YGAS,FFF,0",
             "category": "runtime_setup",
+            "ack_required": True,
         },
         {
             "step": 2,
@@ -190,6 +194,7 @@ def _planned_commands(contract: Mapping[str, Any]) -> list[dict[str, Any]]:
             "args": [int(contract["mode"])],
             "command_preview": f"MODE,YGAS,FFF,{int(contract['mode'])}",
             "category": "runtime_setup",
+            "ack_required": True,
         },
         {
             "step": 3,
@@ -198,6 +203,7 @@ def _planned_commands(contract: Mapping[str, Any]) -> list[dict[str, Any]]:
             "args": [int(contract["ftd_hz"])],
             "command_preview": f"FTD,YGAS,FFF,{max(1, int(contract['ftd_hz'])):02d}",
             "category": "runtime_setup",
+            "ack_required": True,
         },
         {
             "step": 4,
@@ -207,6 +213,7 @@ def _planned_commands(contract: Mapping[str, Any]) -> list[dict[str, Any]]:
             "command_preview": f"AVERAGE1,YGAS,FFF,{int(contract['average1_target'])}",
             "category": "runtime_setup",
             "physical_channel": "H2O",
+            "ack_required": True,
         },
         {
             "step": 5,
@@ -216,6 +223,7 @@ def _planned_commands(contract: Mapping[str, Any]) -> list[dict[str, Any]]:
             "command_preview": f"AVERAGE2,YGAS,FFF,{int(contract['average2_target'])}",
             "category": "runtime_setup",
             "physical_channel": "CO2",
+            "ack_required": True,
         },
     ]
     if bool(contract["active_send"]):
@@ -227,6 +235,7 @@ def _planned_commands(contract: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "args": [True],
                 "command_preview": "SETCOMWAY,YGAS,FFF,1",
                 "category": "runtime_setup",
+                "ack_required": True,
             }
         )
     return commands
@@ -237,15 +246,51 @@ def build_plan(config: Mapping[str, Any]) -> dict[str, Any]:
     contract = _runtime_contract(config)
     analyzers = _enabled_analyzers(config)
     commands = _planned_commands(contract)
+    identity_bound_command_plans = [
+        {
+            "slot": analyzer["slot"],
+            "port": analyzer["port"],
+            "protocol_device_id": analyzer["protocol_device_id"],
+            "sn_code": analyzer["sn_code"],
+            "command_steps": [dict(command) for command in commands],
+        }
+        for analyzer in analyzers
+    ]
     return {
         "schema_version": "v1_5_analyzer_runtime_setup_plan_v0",
         "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "status": "preview_only",
         "source_schema_version": config.get("schema_version"),
+        "planning_context": dict(config.get("planning_context") or {}),
         "safety": dict(config.get("safety") or {}),
         "contract": contract,
         "analyzer_count": len(analyzers),
         "analyzers": analyzers,
         "commands": commands,
+        "identity_bound_command_plans": identity_bound_command_plans,
+        "execution_contract": {
+            "requires_explicit_operator_authorization": True,
+            "authorization_phrase": AUTHORIZATION_PHRASE,
+            "all_configuration_commands_require_ack": True,
+            "minimum_inter_command_gap_s": contract["command_gap_s"],
+            "failure_recovery": (
+                "restore_active_send_with_ack"
+                if contract["restore_active_send_on_command_failure"]
+                and contract["active_send"]
+                else "no_active_send_recovery"
+            ),
+        },
+        "boundary": {
+            "opens_com_ports": False,
+            "sends_device_commands": False,
+            "writes_runtime_settings": False,
+            "writes_senco": False,
+            "writes_device_id": False,
+            "writes_sn": False,
+            "runs_sampling": False,
+            "runs_fitting": False,
+            "not_real_acceptance_evidence": True,
+        },
         "forbidden_actions": [
             "set_senco",
             "set_device_id",
@@ -282,6 +327,7 @@ def _write_outputs(plan: Mapping[str, Any], output_dir: str | Path) -> dict[str,
                     "action": command.get("action", ""),
                     "method": command.get("method", ""),
                     "command_preview": command.get("command_preview", ""),
+                    "ack_required": command.get("ack_required", ""),
                     "category": command.get("category", ""),
                     "writes_senco": False,
                     "writes_device_id": False,
@@ -298,6 +344,7 @@ def _write_outputs(plan: Mapping[str, Any], output_dir: str | Path) -> dict[str,
         "action",
         "method",
         "command_preview",
+        "ack_required",
         "category",
         "writes_senco",
         "writes_device_id",
@@ -442,6 +489,7 @@ def _read_identity_snapshot(analyzer: Any, *, prefer_stream: bool = False) -> Op
 
 
 def _call_optional_ack(method: Any, *args: Any) -> bool:
+    """Preserve the legacy helper used by SN identity initialization."""
     if not callable(method):
         return False
     try:
@@ -450,27 +498,94 @@ def _call_optional_ack(method: Any, *args: Any) -> bool:
         return bool(method(*args))
 
 
+def _call_required_ack(method: Any, *args: Any) -> bool:
+    if not callable(method):
+        return False
+    try:
+        return bool(method(*args, require_ack=True))
+    except TypeError:
+        return False
+
+
+def _missing_runtime_setup_methods(
+    analyzer: Any,
+) -> list[str]:
+    required = [
+        "set_comm_way_with_ack",
+        "set_mode_with_ack",
+        "set_active_freq_with_ack",
+        "set_average_filter_channel_with_ack",
+    ]
+    return [
+        method_name
+        for method_name in required
+        if not callable(getattr(analyzer, method_name, None))
+    ]
+
+
 def _apply_runtime_commands(analyzer: Any, contract: Mapping[str, Any]) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     gap = _coerce_serial_command_gap(contract["command_gap_s"])
+    command_by_action = {
+        str(command["action"]): command
+        for command in _planned_commands(contract)
+    }
 
-    def record(action: str, ok: bool) -> None:
-        events.append({"action": action, "ok": bool(ok), "category": "runtime_setup"})
+    def record(action: str, ok: bool) -> bool:
+        planned = command_by_action[action]
+        events.append(
+            {
+                "step": planned["step"],
+                "action": action,
+                "command_preview": planned["command_preview"],
+                "ack_required": True,
+                "ack_received": bool(ok),
+                "ok": bool(ok),
+                "category": "runtime_setup",
+            }
+        )
         if gap > 0:
             time.sleep(gap)
+        return bool(ok)
 
-    record("set_comm_way_inactive", _call_optional_ack(getattr(analyzer, "set_comm_way_with_ack", None), False))
-    record("set_mode2", _call_optional_ack(getattr(analyzer, "set_mode_with_ack", None), int(contract["mode"])))
-    record("set_active_frequency", _call_optional_ack(getattr(analyzer, "set_active_freq_with_ack", None), int(contract["ftd_hz"])))
+    if not record("set_comm_way_inactive", _call_required_ack(getattr(analyzer, "set_comm_way_with_ack", None), False)):
+        return events
+    if not record("set_mode2", _call_required_ack(getattr(analyzer, "set_mode_with_ack", None), int(contract["mode"]))):
+        return events
+    if not record(
+        "set_active_frequency",
+        _call_required_ack(
+            getattr(analyzer, "set_active_freq_with_ack", None),
+            int(contract["ftd_hz"]),
+        ),
+    ):
+        return events
     set_channel = getattr(analyzer, "set_average_filter_channel_with_ack", None)
     if callable(set_channel):
-        record("set_average1_filter", _call_optional_ack(set_channel, 1, int(contract["average1_target"])))
-        record("set_average2_filter", _call_optional_ack(set_channel, 2, int(contract["average2_target"])))
+        if not record(
+            "set_average1_filter",
+            _call_required_ack(
+                set_channel,
+                1,
+                int(contract["average1_target"]),
+            ),
+        ):
+            return events
+        if not record(
+            "set_average2_filter",
+            _call_required_ack(
+                set_channel,
+                2,
+                int(contract["average2_target"]),
+            ),
+        ):
+            return events
     else:
-        set_filter = getattr(analyzer, "set_average_filter_with_ack", None)
-        record("set_average_filter", _call_optional_ack(set_filter, int(contract["average1_target"])))
+        raise RuntimeSetupError(
+            "runtime setup analyzer does not support identity-preserving AVERAGE1/AVERAGE2 ACK commands"
+        )
     if bool(contract["active_send"]):
-        record("set_comm_way_active", _call_optional_ack(getattr(analyzer, "set_comm_way_with_ack", None), True))
+        record("set_comm_way_active", _call_required_ack(getattr(analyzer, "set_comm_way_with_ack", None), True))
     return events
 
 
@@ -582,6 +697,31 @@ def _is_retryable_runtime_setup_status(status: str) -> bool:
     }
 
 
+def _restore_active_send_after_command_failure(
+    analyzer: Any,
+    contract: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    if not (
+        bool(contract.get("active_send", True))
+        and bool(contract.get("restore_active_send_on_command_failure", True))
+    ):
+        return []
+    ok = _call_required_ack(
+        getattr(analyzer, "set_comm_way_with_ack", None),
+        True,
+    )
+    return [
+        {
+            "action": "restore_comm_way_active_after_failure",
+            "command_preview": "SETCOMWAY,YGAS,FFF,1",
+            "ack_required": True,
+            "ack_received": bool(ok),
+            "ok": bool(ok),
+            "category": "failure_recovery",
+        }
+    ]
+
+
 def _run_runtime_setup_attempt(analyzer: Any, contract: Mapping[str, Any], *, attempt: int) -> dict[str, Any]:
     attempt_row: dict[str, Any] = {
         "attempt": int(attempt),
@@ -591,7 +731,24 @@ def _run_runtime_setup_attempt(analyzer: Any, contract: Mapping[str, Any], *, at
     failed_events = [event for event in attempt_row["runtime_setup_events"] if not event.get("ok")]
     if failed_events:
         failed_actions = ", ".join(str(event.get("action")) for event in failed_events)
-        attempt_row["status"] = "runtime_setup_command_failed"
+        recovery_events = _restore_active_send_after_command_failure(
+            analyzer,
+            contract,
+        )
+        attempt_row["failure_recovery_events"] = recovery_events
+        recovery_ok = bool(recovery_events) and all(
+            event.get("ok") is True for event in recovery_events
+        )
+        if recovery_ok:
+            attempt_row["status"] = (
+                "runtime_setup_command_failed_recovered_active_send"
+            )
+        elif recovery_events:
+            attempt_row["status"] = (
+                "runtime_setup_command_failed_recovery_failed"
+            )
+        else:
+            attempt_row["status"] = "runtime_setup_command_failed_no_recovery"
         attempt_row["error"] = f"runtime setup command failed: {failed_actions}"
         return attempt_row
 
@@ -634,9 +791,35 @@ def _copy_attempt_summary_to_row(row: dict[str, Any], attempt_row: Mapping[str, 
         row["post_enable_stream_ack_wait_s"] = attempt_row.get("post_enable_stream_ack_wait_s")
     if "active_upload_rate" in attempt_row:
         row["active_upload_rate"] = dict(attempt_row.get("active_upload_rate") or {})
+    if "failure_recovery_events" in attempt_row:
+        row["failure_recovery_events"] = list(
+            attempt_row.get("failure_recovery_events") or []
+        )
     row["status"] = str(attempt_row.get("status") or "unknown")
     if attempt_row.get("error"):
         row["error"] = str(attempt_row.get("error"))
+
+
+def _verified_identity_after(row: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Derive post-setup identity from the final verified MODE2 frame."""
+
+    for key in ("mode2_frames_after_ack_wait", "mode2_frames"):
+        frames = row.get(key)
+        if not isinstance(frames, list):
+            continue
+        for frame in reversed(frames):
+            parsed = frame.get("parsed") if isinstance(frame, Mapping) else None
+            if (
+                isinstance(parsed, Mapping)
+                and parsed.get("mode") == 2
+                and str(parsed.get("id") or "").strip()
+            ):
+                return {
+                    "mode": 2,
+                    "id": str(parsed["id"]),
+                    "source": "verified_mode2_frame_after_runtime_setup",
+                }
+    return None
 
 
 def execute_runtime_setup(
@@ -668,6 +851,12 @@ def execute_runtime_setup(
             "mode2_frames": [],
         }
         try:
+            missing_methods = _missing_runtime_setup_methods(analyzer)
+            if missing_methods:
+                raise RuntimeSetupError(
+                    f"{slot}: runtime setup methods missing before COM open: "
+                    + ", ".join(missing_methods)
+                )
             opener = getattr(analyzer, "open", None)
             if callable(opener):
                 opener()
@@ -708,7 +897,9 @@ def execute_runtime_setup(
                     attempt_row = _run_runtime_setup_attempt(analyzer, contract, attempt=attempt_idx)
                     attempts.append(attempt_row)
                     _copy_attempt_summary_to_row(row, attempt_row)
-                    if row["status"] == "runtime_setup_command_failed":
+                    if str(row["status"]).startswith(
+                        "runtime_setup_command_failed"
+                    ):
                         raise RuntimeSetupError(f"{slot}: {attempt_row.get('error')}")
                     if row["status"] == "ready":
                         break
@@ -718,7 +909,23 @@ def execute_runtime_setup(
                         time.sleep(retry_delay_s)
                 row["runtime_setup_attempts"] = attempts
                 row["runtime_setup_attempt_count"] = len(attempts)
+                if row["status"] == "ready":
+                    row["identity_after"] = _verified_identity_after(row)
+                    if not row["identity_after"]:
+                        raise RuntimeSetupError(
+                            f"{slot}: post-setup MODE2 identity evidence missing"
+                        )
+                    if str(row["identity_after"]["id"]) != str(
+                        item.get("protocol_device_id")
+                    ):
+                        raise RuntimeSetupError(
+                            f"{slot}: post-setup protocol id mismatch "
+                            f"read={row['identity_after']['id']} "
+                            f"expected={item.get('protocol_device_id')}"
+                        )
         except Exception as exc:
+            if row.get("status") not in {"started", "error"}:
+                row["failure_status"] = row["status"]
             row["status"] = "error"
             row["error"] = str(exc)
         finally:
@@ -734,6 +941,10 @@ def execute_runtime_setup(
         "schema_version": "v1_5_analyzer_runtime_setup_result_v0",
         "generated_at": generated_at,
         "run_id": resolved_run_id,
+        "evidence_source": "real_device_runtime_setup",
+        "execution_mode": "controlled_real_com",
+        "engineering_setup_only": True,
+        "not_real_acceptance_evidence": True,
         "status": "ready" if all(row.get("status") == "ready" for row in results) else "partial",
         "results": results,
         "plan": plan,
@@ -743,6 +954,10 @@ def execute_runtime_setup(
             "writes_device_id": False,
             "writes_sn": False,
             "opens_com": True,
+            "opens_com_ports": True,
+            "sends_device_commands": True,
+            "writes_runtime_settings": True,
+            "all_configuration_commands_require_ack": True,
             "serial_command_min_gap_s": MIN_ANALYZER_SERIAL_COMMAND_GAP_S,
         },
     }

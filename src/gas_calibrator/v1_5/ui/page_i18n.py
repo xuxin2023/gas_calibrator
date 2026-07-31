@@ -294,6 +294,147 @@ _ZH_CN = {
     "pages.visitor_showcase.actions.exit": "退出展示  Esc",
     "pages.visitor_showcase.footer": "V1.5 最终产品 · 中文默认 · 1920×1080 优化",
     "pages.visitor_showcase.footer_boundary": "只读展示 · 无设备控制 · 无系数写入",
+    "pages.site_profile.title": "现场设备配置与只读初始化准备",
+    "pages.site_profile.boundary": (
+        "本页只填写和校验现场映射，不扫描、不打开串口、不发送命令。"
+        "只有已通电且经操作员确认的分析仪才会进入只读初始化清单；信息不完整时保持阻断。"
+    ),
+    "pages.site_profile.status.empty": "尚未载入现场配置；请导入端口清单新建模板，或载入已有配置。",
+    "pages.site_profile.metric.expected_connected": "报告接入台数",
+    "pages.site_profile.metric.expected_powered": "报告通电台数",
+    "pages.site_profile.metric.mapped": "已映射 接入/通电",
+    "pages.site_profile.metric.status": "只读准备状态",
+    "pages.site_profile.actions.load_profile": "载入现场配置",
+    "pages.site_profile.actions.new_from_inventory": "从端口清单新建",
+    "pages.site_profile.actions.attach_runtime_setup": "载入运行设置证据",
+    "pages.site_profile.actions.apply_row": "应用当前设备",
+    "pages.site_profile.actions.validate": "校验全部映射",
+    "pages.site_profile.actions.save": "保存配置与清单",
+    "pages.site_profile.column.port": "端口",
+    "pages.site_profile.column.visible": "系统可见",
+    "pages.site_profile.column.connected": "已接入",
+    "pages.site_profile.column.powered": "已通电",
+    "pages.site_profile.column.ga": "通道标签",
+    "pages.site_profile.column.protocol": "协议ID",
+    "pages.site_profile.column.sn": "8位SN",
+    "pages.site_profile.column.algorithm": "算法",
+    "pages.site_profile.column.state": "状态",
+    "pages.site_profile.editor.title": "选中设备的现场映射",
+    "pages.site_profile.field.port": "端口",
+    "pages.site_profile.field.ga_label": "GA标签",
+    "pages.site_profile.field.protocol_device_id": "协议ID",
+    "pages.site_profile.field.sn_code": "8位SN",
+    "pages.site_profile.field.algorithm": "算法类型",
+    "pages.site_profile.field.ftd_hz": "上传频率 Hz",
+    "pages.site_profile.field.average1": "AVERAGE1",
+    "pages.site_profile.field.average2": "AVERAGE2",
+    "pages.site_profile.field.algorithm_evidence_type": "算法证据类型",
+    "pages.site_profile.field.algorithm_evidence_reference": "算法证据编号或说明",
+    "pages.site_profile.algorithm_evidence.production_batch": "生产或批次记录",
+    "pages.site_profile.algorithm_evidence.firmware_manifest": "固件清单",
+    "pages.site_profile.algorithm_evidence.manufacturer_record": "厂家设备档案",
+    "pages.site_profile.algorithm_evidence.boundary": (
+        "算法类别必须来自与当前端口、协议 ID 和 SN 一致的设备记录；"
+        "不得按 COM 端口、协议 ID 或系数形状猜测。"
+    ),
+    "pages.site_profile.field.connected": "已接入",
+    "pages.site_profile.field.powered": "已通电",
+    "pages.site_profile.field.operator_confirmed": "操作员已确认",
+    "pages.site_profile.field.check_capable": "支持CHECK",
+    "pages.site_profile.field.check_required": "要求CHECK",
+    "pages.site_profile.confirmation.title": "当前现场状态确认（与本次映射哈希绑定）",
+    "pages.site_profile.confirmation.operator_name": "确认人",
+    "pages.site_profile.confirmation.observation_basis": "观察依据",
+    "pages.site_profile.confirmation.action": "确认并绑定当前4/2映射",
+    "pages.site_profile.confirmation.status.pending": "状态：待确认；历史身份不能代替当前接线与通电观察。",
+    "pages.site_profile.confirmation.status.confirmed": "状态：已确认；任何映射修改都会使本确认失效。",
+    "pages.site_profile.confirmation.status.stale": "状态：映射已修改，原确认失效，请重新核对并确认。",
+    "pages.site_profile.confirmation.status.failed": "状态：确认失败；请先完成4台接入、2台通电及逐台确认。",
+    "pages.site_profile.value.ready": "就绪",
+    "pages.site_profile.value.review": "待完善",
+    "pages.site_profile.value.historical_prefill": "历史身份待确认",
+    "pages.site_profile.value.current_probe": "当前通电身份已读，待人工确认",
+    "pages.site_profile.value.not_selected": "未用于本次",
+    "pages.site_profile.value.not_loaded": "未载入",
+    "pages.site_profile.value.yes": "是",
+    "pages.site_profile.value.no": "否",
+    "pages.site_profile.value.unknown": "待确认",
+    "pages.site_profile.reasons.none": "现场映射完整，可生成只读初始化输入；仍需另行明确授权才能打开真实COM。",
+    "pages.site_profile.status.select_row": "请先在表格中选择一个端口。",
+    "pages.site_profile.status.row_applied": "已应用 {port} 的编辑内容；尚未执行任何设备操作。",
+    "pages.site_profile.status.runtime_setup_attached": (
+        "已载入 {path}；FTD 与 AVERAGE 值从受控运行设置结果提取，需重新确认现场映射。"
+    ),
+    "pages.site_profile.status.runtime_setup_attach_failed": (
+        "运行设置证据未载入：{error}"
+    ),
+    "pages.site_profile.status.loaded": "已载入 {path}，并完成离线校验。",
+    "pages.site_profile.status.loaded_historical": (
+        "已载入 {path}；其中 {count} 台为历史身份预填，仍需确认当前4台接入和2台通电状态。"
+    ),
+    "pages.site_profile.status.template_created": "已从端口清单建立4台接入/2台通电模板，请逐台确认。",
+    "pages.site_profile.status.confirmation_saved": "当前现场状态已确认，并与这一本映射逐字段哈希绑定。",
+    "pages.site_profile.status.confirmation_failed": "当前映射尚不满足确认条件；请核对4台接入、2台通电、逐台确认和确认人信息。",
+    "pages.site_profile.status.valid": "现场映射校验通过；只读执行仍需独立授权。",
+    "pages.site_profile.status.invalid": "现场映射仍有 {count} 项需要处理。",
+    "pages.site_profile.status.saved_ready": "已保存 {path}，并生成经哈希绑定的只读输入清单。",
+    "pages.site_profile.status.saved_blocked": "已保存阻断版 {path}；派生清单已清空，不能用于执行。",
+    "pages.site_profile.dialog.validation": "现场映射校验",
+    "pages.site_profile.dialog.json": "JSON 文件",
+    "pages.site_profile.dialog.runtime_setup_result": "选择受控运行设置结果 JSON",
+    "pages.site_profile.dialog.load_failed": "载入现场配置失败",
+    "pages.site_profile.dialog.save_failed": "保存现场配置失败",
+    "pages.site_profile.dialog.confirmation_failed": "当前现场确认失败",
+    "pages.site_profile.reason.inventory_missing": "端口清单缺失，请重新选择有效的端口清单。",
+    "pages.site_profile.reason.inventory_changed": "端口清单在建档后发生变化，请重新从清单新建现场配置。",
+    "pages.site_profile.reason.bank_invalid": "现场配置必须完整包含 COM35 至 COM42 八个候选端口。",
+    "pages.site_profile.reason.reported_counts_invalid": "报告的接入台数或通电台数不是有效整数。",
+    "pages.site_profile.reason.confirmation_missing": "缺少当前现场确认；历史6台身份记录不能证明本次4台接入、2台通电状态。",
+    "pages.site_profile.reason.confirmation_not_confirmed": "当前现场确认已失效或尚未完成，请核对映射后重新确认。",
+    "pages.site_profile.reason.confirmation_operator_missing": "当前现场确认缺少确认人。",
+    "pages.site_profile.reason.confirmation_time_missing": "当前现场确认缺少确认时间。",
+    "pages.site_profile.reason.confirmation_basis_missing": "当前现场确认缺少物理观察依据。",
+    "pages.site_profile.reason.confirmation_connected_ports_mismatch": "当前接入端口与已确认记录不一致，请重新确认。",
+    "pages.site_profile.reason.confirmation_powered_ports_mismatch": "当前通电端口与已确认记录不一致，请重新确认。",
+    "pages.site_profile.reason.confirmation_connected_count_mismatch": "报告接入台数与已确认记录不一致，请重新确认。",
+    "pages.site_profile.reason.confirmation_powered_count_mismatch": "报告通电台数与已确认记录不一致，请重新确认。",
+    "pages.site_profile.reason.confirmation_state_changed": "现场映射内容在确认后发生变化，原确认哈希已失效。",
+    "pages.site_profile.reason.probe_invalid": "当前现场探针证据、文件哈希或逐端口身份不一致；已阻断并要求工程复核。",
+    "pages.site_profile.reason.connected_count": "报告接入 {expected} 台，当前只确认 {actual} 台。",
+    "pages.site_profile.reason.powered_count": "报告通电 {expected} 台，当前只确认 {actual} 台。",
+    "pages.site_profile.reason.active_count": "当前通电分析仪为 {actual} 台；只读初始化要求 1 至 6 台。",
+    "pages.site_profile.reason.schema": "现场配置格式不正确（当前版本：{value}）。",
+    "pages.site_profile.reason.duplicate_ga": "GA 标签重复：{value}。",
+    "pages.site_profile.reason.duplicate_sn": "8 位 SN 重复：{value}。",
+    "pages.site_profile.reason.powered_without_connected": "{port} 已标记通电，但尚未标记接入。",
+    "pages.site_profile.reason.not_confirmed": "{port} 已接入，但操作员尚未确认。",
+    "pages.site_profile.reason.not_visible": "{port} 已接入，但端口清单中不可见。",
+    "pages.site_profile.reason.ga_missing": "{port} 已接入，但未填写 GA 标签。",
+    "pages.site_profile.reason.protocol_missing": "{port} 已通电，但未填写协议 ID。",
+    "pages.site_profile.reason.sn_invalid": "{port} 的 SN 必须是 8 位数字。",
+    "pages.site_profile.reason.algorithm_invalid": "{port} 尚未选择有效算法类型。",
+    "pages.site_profile.reason.algorithm_evidence_missing": (
+        "{port} 已选择算法，但尚未填写与当前 SN 绑定的生产、固件或厂家记录。"
+    ),
+    "pages.site_profile.reason.algorithm_evidence_invalid": (
+        "{port} 的算法证据类型、编号或算法类别不完整，不能用于放行。"
+    ),
+    "pages.site_profile.reason.algorithm_evidence_identity": (
+        "{port} 的算法证据与当前端口、协议 ID 或 SN 不一致。"
+    ),
+    "pages.site_profile.reason.algorithm_evidence_file": (
+        "{port} 的算法证据文件路径与 SHA-256 不完整或文件已发生变化。"
+    ),
+    "pages.site_profile.reason.legacy_check": "{port} 使用旧算法时，支持 CHECK 和要求 CHECK 必须均不勾选。",
+    "pages.site_profile.reason.new_check": "{port} 使用新算法时，支持 CHECK 和要求 CHECK 必须均勾选。",
+    "pages.site_profile.reason.runtime_1hz": "{port} 缺少经确认的 1 Hz 上传频率。",
+    "pages.site_profile.reason.average": (
+        "{port} 缺少由受控运行设置结果提供的 AVERAGE1/AVERAGE2 证据。"
+    ),
+    "pages.site_profile.reason.runtime_setup": (
+        "{port} 的运行设置结果、身份绑定、命令顺序或 ACK 证据无效。"
+    ),
+    "pages.site_profile.reason.unknown": "存在未识别的现场映射问题，请由工程师查看验证 JSON。",
 }
 
 _EN_US = {
@@ -466,6 +607,198 @@ _EN_US = {
     "pages.visitor_showcase.footer_boundary": (
         "Read-only · no device control or coefficient writeback"
     ),
+    "pages.site_profile.title": "Site Device Mapping and Read-only Initialization",
+    "pages.site_profile.boundary": (
+        "This page only edits and validates site mappings. It never scans or opens serial ports "
+        "and never sends commands. Only powered, operator-confirmed analyzers may enter the "
+        "read-only initialization list; incomplete mappings remain blocked."
+    ),
+    "pages.site_profile.status.empty": "No site profile loaded. Import a port inventory or load a profile.",
+    "pages.site_profile.metric.expected_connected": "Reported Connected",
+    "pages.site_profile.metric.expected_powered": "Reported Powered",
+    "pages.site_profile.metric.mapped": "Mapped Connected / Powered",
+    "pages.site_profile.metric.status": "Read-only Readiness",
+    "pages.site_profile.actions.load_profile": "Load Site Profile",
+    "pages.site_profile.actions.new_from_inventory": "New from Port Inventory",
+    "pages.site_profile.actions.attach_runtime_setup": "Load Runtime Setup Evidence",
+    "pages.site_profile.actions.apply_row": "Apply Selected Device",
+    "pages.site_profile.actions.validate": "Validate All Mappings",
+    "pages.site_profile.actions.save": "Save Profile and Lists",
+    "pages.site_profile.column.port": "Port",
+    "pages.site_profile.column.visible": "OS Visible",
+    "pages.site_profile.column.connected": "Connected",
+    "pages.site_profile.column.powered": "Powered",
+    "pages.site_profile.column.ga": "GA Label",
+    "pages.site_profile.column.protocol": "Protocol ID",
+    "pages.site_profile.column.sn": "8-digit SN",
+    "pages.site_profile.column.algorithm": "Algorithm",
+    "pages.site_profile.column.state": "State",
+    "pages.site_profile.editor.title": "Selected Device Site Mapping",
+    "pages.site_profile.field.port": "Port",
+    "pages.site_profile.field.ga_label": "GA Label",
+    "pages.site_profile.field.protocol_device_id": "Protocol ID",
+    "pages.site_profile.field.sn_code": "8-digit SN",
+    "pages.site_profile.field.algorithm": "Algorithm",
+    "pages.site_profile.field.ftd_hz": "Upload Hz",
+    "pages.site_profile.field.average1": "AVERAGE1",
+    "pages.site_profile.field.average2": "AVERAGE2",
+    "pages.site_profile.field.algorithm_evidence_type": "Algorithm Evidence Type",
+    "pages.site_profile.field.algorithm_evidence_reference": "Evidence Record or Reference",
+    "pages.site_profile.algorithm_evidence.production_batch": "Production or Batch Record",
+    "pages.site_profile.algorithm_evidence.firmware_manifest": "Firmware Manifest",
+    "pages.site_profile.algorithm_evidence.manufacturer_record": "Manufacturer Device Record",
+    "pages.site_profile.algorithm_evidence.boundary": (
+        "The algorithm must come from a device record bound to the current port, "
+        "protocol ID, and SN. Do not infer it from a COM port, protocol ID, or "
+        "coefficient shape."
+    ),
+    "pages.site_profile.field.connected": "Connected",
+    "pages.site_profile.field.powered": "Powered",
+    "pages.site_profile.field.operator_confirmed": "Operator Confirmed",
+    "pages.site_profile.field.check_capable": "CHECK Capable",
+    "pages.site_profile.field.check_required": "CHECK Required",
+    "pages.site_profile.confirmation.title": "Current Site Confirmation (hash-bound to this mapping)",
+    "pages.site_profile.confirmation.operator_name": "Confirmed by",
+    "pages.site_profile.confirmation.observation_basis": "Observation basis",
+    "pages.site_profile.confirmation.action": "Confirm and Bind Current 4/2 Mapping",
+    "pages.site_profile.confirmation.status.pending": (
+        "Status: pending. Historical identity cannot prove current cabling and power."
+    ),
+    "pages.site_profile.confirmation.status.confirmed": (
+        "Status: confirmed. Any mapping edit invalidates this confirmation."
+    ),
+    "pages.site_profile.confirmation.status.stale": (
+        "Status: mapping changed. Recheck and confirm the current site state."
+    ),
+    "pages.site_profile.confirmation.status.failed": (
+        "Status: failed. Complete four connected, two powered, and row confirmations."
+    ),
+    "pages.site_profile.value.ready": "Ready",
+    "pages.site_profile.value.review": "Review Required",
+    "pages.site_profile.value.historical_prefill": "Historical Identity - Confirm",
+    "pages.site_profile.value.current_probe": "Current Powered Identity Read - Confirm",
+    "pages.site_profile.value.not_selected": "Not Used in This Run",
+    "pages.site_profile.value.not_loaded": "Not Loaded",
+    "pages.site_profile.value.yes": "Yes",
+    "pages.site_profile.value.no": "No",
+    "pages.site_profile.value.unknown": "Confirm",
+    "pages.site_profile.reasons.none": (
+        "The site mapping is complete. Separate explicit authorization is still required "
+        "before opening any real COM port."
+    ),
+    "pages.site_profile.status.select_row": "Select a port row first.",
+    "pages.site_profile.status.row_applied": "Applied edits for {port}; no device action was performed.",
+    "pages.site_profile.status.runtime_setup_attached": (
+        "Loaded {path}. FTD and AVERAGE values were derived from the controlled "
+        "runtime setup result; reconfirm the site mapping."
+    ),
+    "pages.site_profile.status.runtime_setup_attach_failed": (
+        "Runtime setup evidence was not loaded: {error}"
+    ),
+    "pages.site_profile.status.loaded": "Loaded and validated {path} offline.",
+    "pages.site_profile.status.loaded_historical": (
+        "Loaded {path}; {count} historical identities were prefilled. Confirm the current "
+        "four connected and two powered analyzers."
+    ),
+    "pages.site_profile.status.template_created": (
+        "Created the four-connected/two-powered template; confirm each device."
+    ),
+    "pages.site_profile.status.confirmation_saved": (
+        "Current site state confirmed and field-by-field hash-bound to this mapping."
+    ),
+    "pages.site_profile.status.confirmation_failed": (
+        "The mapping is not confirmable yet; verify four connected, two powered, "
+        "each row, and the confirmer information."
+    ),
+    "pages.site_profile.status.valid": "Site mapping passed; read-only execution still requires authorization.",
+    "pages.site_profile.status.invalid": "{count} site-mapping items still require review.",
+    "pages.site_profile.status.saved_ready": "Saved {path} and generated hash-bound read-only input lists.",
+    "pages.site_profile.status.saved_blocked": (
+        "Saved blocked profile {path}; derived lists were cleared and cannot execute."
+    ),
+    "pages.site_profile.dialog.validation": "Site Mapping Validation",
+    "pages.site_profile.dialog.json": "JSON files",
+    "pages.site_profile.dialog.runtime_setup_result": (
+        "Select Controlled Runtime Setup Result JSON"
+    ),
+    "pages.site_profile.dialog.load_failed": "Failed to Load Site Profile",
+    "pages.site_profile.dialog.save_failed": "Failed to Save Site Profile",
+    "pages.site_profile.dialog.confirmation_failed": "Current Site Confirmation Failed",
+    "pages.site_profile.reason.inventory_missing": "The port inventory is missing; select a valid inventory.",
+    "pages.site_profile.reason.inventory_changed": "The port inventory changed after drafting; rebuild the profile.",
+    "pages.site_profile.reason.bank_invalid": "The profile must contain all eight candidate ports from COM35 through COM42.",
+    "pages.site_profile.reason.reported_counts_invalid": "The reported connected or powered count is not a valid integer.",
+    "pages.site_profile.reason.confirmation_missing": (
+        "Current-site confirmation is missing. Historical six-unit identities do not "
+        "prove the current four-connected/two-powered state."
+    ),
+    "pages.site_profile.reason.confirmation_not_confirmed": (
+        "The current-site confirmation is stale or incomplete; recheck and confirm."
+    ),
+    "pages.site_profile.reason.confirmation_operator_missing": (
+        "The current-site confirmation has no confirmer."
+    ),
+    "pages.site_profile.reason.confirmation_time_missing": (
+        "The current-site confirmation has no timestamp."
+    ),
+    "pages.site_profile.reason.confirmation_basis_missing": (
+        "The current-site confirmation has no physical observation basis."
+    ),
+    "pages.site_profile.reason.confirmation_connected_ports_mismatch": (
+        "Connected ports differ from the confirmed record; confirm again."
+    ),
+    "pages.site_profile.reason.confirmation_powered_ports_mismatch": (
+        "Powered ports differ from the confirmed record; confirm again."
+    ),
+    "pages.site_profile.reason.confirmation_connected_count_mismatch": (
+        "The reported connected count differs from the confirmed record; confirm again."
+    ),
+    "pages.site_profile.reason.confirmation_powered_count_mismatch": (
+        "The reported powered count differs from the confirmed record; confirm again."
+    ),
+    "pages.site_profile.reason.confirmation_state_changed": (
+        "The mapping changed after confirmation, so the confirmation hash is invalid."
+    ),
+    "pages.site_profile.reason.probe_invalid": (
+        "Current probe evidence, source hashes, or per-port identity is inconsistent; "
+        "engineering review is required."
+    ),
+    "pages.site_profile.reason.connected_count": "Reported {expected} connected; {actual} are currently confirmed.",
+    "pages.site_profile.reason.powered_count": "Reported {expected} powered; {actual} are currently confirmed.",
+    "pages.site_profile.reason.active_count": "{actual} analyzers are powered; read-only initialization requires 1 to 6.",
+    "pages.site_profile.reason.schema": "The site-profile schema is invalid (current: {value}).",
+    "pages.site_profile.reason.duplicate_ga": "Duplicate GA label: {value}.",
+    "pages.site_profile.reason.duplicate_sn": "Duplicate 8-digit SN: {value}.",
+    "pages.site_profile.reason.powered_without_connected": "{port} is powered but not marked connected.",
+    "pages.site_profile.reason.not_confirmed": "{port} is connected but not operator-confirmed.",
+    "pages.site_profile.reason.not_visible": "{port} is connected but not visible in the port inventory.",
+    "pages.site_profile.reason.ga_missing": "{port} is connected but has no GA label.",
+    "pages.site_profile.reason.protocol_missing": "{port} is powered but has no protocol ID.",
+    "pages.site_profile.reason.sn_invalid": "{port} must have an 8-digit numeric SN.",
+    "pages.site_profile.reason.algorithm_invalid": "{port} has no valid algorithm selection.",
+    "pages.site_profile.reason.algorithm_evidence_missing": (
+        "{port} has an algorithm selection but no current-SN production, firmware, "
+        "or manufacturer record."
+    ),
+    "pages.site_profile.reason.algorithm_evidence_invalid": (
+        "{port} has incomplete algorithm evidence type, reference, or classification."
+    ),
+    "pages.site_profile.reason.algorithm_evidence_identity": (
+        "{port} algorithm evidence does not match the current port, protocol ID, or SN."
+    ),
+    "pages.site_profile.reason.algorithm_evidence_file": (
+        "{port} algorithm evidence has an incomplete path/SHA-256 binding or the file changed."
+    ),
+    "pages.site_profile.reason.legacy_check": "{port} uses the legacy algorithm, so both CHECK flags must be clear.",
+    "pages.site_profile.reason.new_check": "{port} uses the new algorithm, so both CHECK flags must be selected.",
+    "pages.site_profile.reason.runtime_1hz": "{port} has no confirmed 1 Hz upload evidence.",
+    "pages.site_profile.reason.average": (
+        "{port} lacks AVERAGE1/AVERAGE2 evidence from a controlled runtime setup result."
+    ),
+    "pages.site_profile.reason.runtime_setup": (
+        "{port} has invalid runtime setup result, identity binding, command order, or ACK evidence."
+    ),
+    "pages.site_profile.reason.unknown": "An unrecognized mapping issue exists; ask an engineer to review the validation JSON.",
 }
 
 

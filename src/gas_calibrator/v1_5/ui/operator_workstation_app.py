@@ -26,6 +26,7 @@ from ..workstation_snapshot import build_workstation_snapshot
 from .pages import (
     CertificateMetricsPage,
     ReadOnlySummaryPage,
+    SiteProfilePage,
     VisitorShowcasePage,
 )
 
@@ -41,6 +42,7 @@ _TEXT = {
         "nav.qc": "质控",
         "nav.results": "结果",
         "nav.devices": "设备",
+        "nav.site": "现场配置",
         "nav.algorithm": "算法",
         "nav.report": "报告",
         "nav.review": "审核摘要",
@@ -127,6 +129,7 @@ _TEXT = {
         "coverage": "Mature route: 45 CO₂ + 13 H₂O points",
         "mode": "Mode: simulation rehearsal",
         "offline": "No real devices connected",
+        "nav.site": "Site Mapping",
     },
 }
 
@@ -294,6 +297,55 @@ class OperatorWorkstationApp:
             background=_COLORS["card_alt"],
             foreground=_COLORS["text"],
         )
+        style.configure(
+            "Site.TLabelframe",
+            background=_COLORS["surface"],
+            bordercolor=_COLORS["border"],
+        )
+        style.configure(
+            "Site.TLabelframe.Label",
+            background=_COLORS["surface"],
+            foreground=_COLORS["text"],
+            font=("Microsoft YaHei UI", 10, "bold"),
+        )
+        style.configure(
+            "Site.TEntry",
+            fieldbackground=_COLORS["card"],
+            foreground=_COLORS["text"],
+            insertcolor=_COLORS["text"],
+            bordercolor=_COLORS["border"],
+            padding=(7, 6),
+        )
+        style.configure(
+            "Site.TCombobox",
+            fieldbackground=_COLORS["card"],
+            background=_COLORS["card"],
+            foreground=_COLORS["text"],
+            arrowcolor=_COLORS["muted"],
+            bordercolor=_COLORS["border"],
+            padding=(7, 5),
+        )
+        style.map(
+            "Site.TCombobox",
+            fieldbackground=[("readonly", _COLORS["card"])],
+            foreground=[("readonly", _COLORS["text"])],
+        )
+        style.configure(
+            "Site.TCheckbutton",
+            background=_COLORS["surface"],
+            foreground=_COLORS["text"],
+            indicatorcolor=_COLORS["card"],
+            font=("Microsoft YaHei UI", 9),
+        )
+        style.map(
+            "Site.TCheckbutton",
+            background=[("active", _COLORS["surface"])],
+            foreground=[("active", _COLORS["text"])],
+            indicatorcolor=[
+                ("selected", _COLORS["blue"]),
+                ("!selected", _COLORS["card"]),
+            ],
+        )
 
     def _label(
         self,
@@ -382,6 +434,7 @@ class OperatorWorkstationApp:
                 "qc",
                 "results",
                 "devices",
+                "site",
                 "algorithm",
                 "report",
                 "review",
@@ -402,6 +455,7 @@ class OperatorWorkstationApp:
                         "qc",
                         "results",
                         "devices",
+                        "site",
                         "algorithm",
                         "report",
                         "review",
@@ -494,6 +548,16 @@ class OperatorWorkstationApp:
         )
         devices_page.grid(row=0, column=0, sticky="nsew")
 
+        site_profile_page = SiteProfilePage(
+            host,
+            profile_path=(
+                Path(self.settings["output"].get())
+                / "v1_5_real_acceptance_site_profile.json"
+            ),
+            locale=self.locale,
+        )
+        site_profile_page.grid(row=0, column=0, sticky="nsew")
+
         algorithm_page = ReadOnlySummaryPage(
             host,
             page_kind="algorithm",
@@ -514,6 +578,7 @@ class OperatorWorkstationApp:
             "qc": qc_page,
             "results": results_page,
             "devices": devices_page,
+            "site": site_profile_page,
             "algorithm": algorithm_page,
             "report": reports_page,
             "review": review_page,
@@ -527,6 +592,7 @@ class OperatorWorkstationApp:
         self.plan_page = plan_page
         self.qc_page = qc_page
         self.devices_page = devices_page
+        self.site_profile_page = site_profile_page
         self.algorithm_page = algorithm_page
         self.certificate_page = certificate_page
         self.visitor_page = visitor_page
@@ -543,6 +609,7 @@ class OperatorWorkstationApp:
             "qc",
             "results",
             "devices",
+            "site",
             "algorithm",
             "report",
             "review",
@@ -582,6 +649,7 @@ class OperatorWorkstationApp:
         self.plan_page.render(snapshot)
         self.qc_page.render(snapshot)
         self.devices_page.render(snapshot)
+        self.site_profile_page.render(snapshot)
         self.algorithm_page.render(snapshot)
         self.visitor_page.render(snapshot)
         return snapshot

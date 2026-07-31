@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 
@@ -25,6 +26,9 @@ def _packet_validator_json(
     reviewed_port_inventory_json: Path | None = None,
     active_analyzer_list_json: Path | None = None,
 ) -> Path:
+    def digest(path: Path | None) -> str:
+        return hashlib.sha256(path.read_bytes()).hexdigest() if path else ""
+
     return _write_json(
         tmp_path / "packet_validator" / "v1_5_formal_readonly_com_execution_packet_validator.json",
         {
@@ -58,9 +62,11 @@ def _packet_validator_json(
             "reviewed_port_inventory_json": str(reviewed_port_inventory_json.resolve())
             if reviewed_port_inventory_json
             else "",
+            "reviewed_port_inventory_sha256": digest(reviewed_port_inventory_json),
             "active_analyzer_list_json": str(active_analyzer_list_json.resolve())
             if active_analyzer_list_json
             else "",
+            "active_analyzer_list_sha256": digest(active_analyzer_list_json),
         },
     )
 
