@@ -7,14 +7,17 @@ and never changes ``run_app.py`` or the V1 fallback.
 
 from __future__ import annotations
 
+import argparse
+import json
 import os
 import queue
+import sys
 import threading
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from ..certificate_metrics_registry import CertificateMetricsRegistry
 from ..orchestration.operator_workstation import (
@@ -232,6 +235,7 @@ class OperatorWorkstationApp:
         root: tk.Tk,
         *,
         locale: str = "zh_CN",
+        initial_settings: Mapping[str, str] | None = None,
         executor: Callable[[Mapping[str, Any]], dict[str, Any]] = (
             execute_v1_5_operator_workstation_dry_run
         ),
@@ -239,9 +243,13 @@ class OperatorWorkstationApp:
         self.root = root
         self.locale = locale
         self.executor = executor
+        paths = _default_paths()
+        for key, value in dict(initial_settings or {}).items():
+            if key in paths and str(value or "").strip():
+                paths[key] = str(value)
         self.settings = {
             key: tk.StringVar(master=root, value=value)
-            for key, value in _default_paths().items()
+            for key, value in paths.items()
         }
         self.last_result: dict[str, Any] | None = None
         self._result_queue: queue.Queue[dict[str, Any]] = queue.Queue()
@@ -1420,13 +1428,90 @@ def build_application(
     *,
     root: tk.Tk | None = None,
     locale: str = "zh_CN",
+    initial_settings: Mapping[str, str] | None = None,
 ) -> tuple[tk.Tk, OperatorWorkstationApp]:
     active_root = root or tk.Tk()
-    return active_root, OperatorWorkstationApp(active_root, locale=locale)
+    return active_root, OperatorWorkstationApp(
+        active_root,
+        locale=locale,
+        initial_settings=initial_settings,
+    )
 
 
-def main() -> int:
-    root, _ = build_application()
+def _parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Launch the V1.5 dry-run workstation with a fixed runtime configuration."
+    )
+    parser.add_argument("--config", default=None)
+    parser.add_argument("--co2-queue-csv", default=None)
+    parser.add_argument("--h2o-queue-csv", default=None)
+    parser.add_argument("--output-dir", default=None)
+    parser.add_argument("--runtime-dir", default=None)
+    parser.add_argument("--certificate", default=None)
+    parser.add_argument(
+        "--validate-startup-only",
+        action="store_true",
+        help="Validate config and 45/13 queues without constructing Tk or opening COM.",
+    )
+    return parser.parse_args(list(argv) if argv is not None else None)
+
+
+def _initial_settings_from_args(args: argparse.Namespace) -> dict[str, str]:
+    values = {
+        "config": args.config,
+        "co2": args.co2_queue_csv,
+        "h2o": args.h2o_queue_csv,
+        "output": args.output_dir,
+        "runtime": args.runtime_dir,
+        "certificate": args.certificate,
+    }
+    return {
+        key: str(value)
+        for key, value in values.items()
+        if str(value or "").strip()
+    }
+
+
+def _startup_preflight(settings: Mapping[str, str]) -> dict[str, Any]:
+    paths = _default_paths()
+    paths.update(dict(settings))
+    certificate = str(paths.get("certificate") or "").strip() or None
+    return build_v1_5_operator_workstation_plan(
+        config_path=paths["config"],
+        co2_queue_csv=paths["co2"],
+        h2o_queue_csv=paths["h2o"],
+        output_dir=paths["output"],
+        run_id="v1_5_workstation_startup_preflight",
+        certificate_registry_json=certificate,
+    )
+
+
+def main(argv: Iterable[str] | None = None) -> int:
+    args = _parse_args(argv)
+    initial_settings = _initial_settings_from_args(args)
+    fixed_start_requested = bool(initial_settings or args.validate_startup_only)
+    if fixed_start_requested:
+        plan = _startup_preflight(initial_settings)
+        summary = {
+            "status": plan.get("overall_status"),
+            "blockers": list(plan.get("blockers") or []),
+            "warnings": list(plan.get("warnings") or []),
+            "runtime_config": plan.get("runtime_config"),
+            "runtime_config_inspection": plan.get("runtime_config_inspection"),
+            "point_counts": plan.get("point_counts"),
+            "controlled_execution_handoff": plan.get(
+                "controlled_execution_handoff"
+            ),
+            "opens_com_ports": False,
+        }
+        if plan.get("blockers"):
+            print(json.dumps(summary, ensure_ascii=False, indent=2), file=sys.stderr)
+            return 2
+        if args.validate_startup_only:
+            print(json.dumps(summary, ensure_ascii=False, indent=2))
+            return 0
+
+    root, _ = build_application(initial_settings=initial_settings)
     root.mainloop()
     return 0
 
@@ -1435,4 +1520,8 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-__all__ = ["OperatorWorkstationApp", "build_application", "main"]
+__all__ = [
+    "OperatorWorkstationApp",
+    "build_application",
+    "main",
+]

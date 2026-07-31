@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import tkinter as tk
 import time
+import csv
+import json
+from pathlib import Path
 
 import pytest
 
@@ -9,6 +12,10 @@ from gas_calibrator.v1_5.ui import operator_workstation_app as workstation_ui
 from gas_calibrator.v1_5.ui.operator_workstation_app import (
     OperatorWorkstationApp,
     _t,
+    main as workstation_main,
+)
+from gas_calibrator.validation.v1_5_algorithm_route_profiles import (
+    build_v1_5_profile_queue_rows,
 )
 from gas_calibrator.v1_5.ui.pages.visitor_showcase_page import VisitorShowcasePage
 from gas_calibrator.v1_5.ui.screenshot import export_widget_screenshot
@@ -35,6 +42,14 @@ def _texts(widget: tk.Misc) -> list[str]:
             values.append(text)
         values.extend(_texts(child))
     return values
+
+
+def _write_queue(path, rows) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def test_v1_5_visitor_showcase_is_read_only_and_1080p_ready() -> None:
@@ -166,6 +181,69 @@ def test_operator_workstation_settings_are_editable_and_certificate_optional() -
         app._settings_dialog.destroy()
     finally:
         root.destroy()
+
+
+def test_fixed_startup_preflight_accepts_config_and_45_13_queues(
+    tmp_path,
+    capsys,
+) -> None:
+    root = Path(__file__).resolve().parents[1]
+    queues = build_v1_5_profile_queue_rows(
+        root / "configs" / "v1_5_algorithm_route_profiles.json",
+        profile_id="legacy_ratio_production",
+    )
+    co2 = tmp_path / "co2.csv"
+    h2o = tmp_path / "h2o.csv"
+    _write_queue(co2, queues["co2_rows"])
+    _write_queue(h2o, queues["h2o_rows"])
+
+    rc = workstation_main(
+        [
+            "--config",
+            str(root / "configs" / "default_config.json"),
+            "--co2-queue-csv",
+            str(co2),
+            "--h2o-queue-csv",
+            str(h2o),
+            "--output-dir",
+            str(tmp_path / "output"),
+            "--validate-startup-only",
+        ]
+    )
+
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "ready_for_v1_5_dry_run"
+    assert payload["point_counts"] == {"co2": 45, "h2o": 13}
+    assert payload["opens_com_ports"] is False
+    assert (
+        payload["controlled_execution_handoff"]["status"]
+        == "blocked_pending_explicit_double_unlock"
+    )
+
+
+def test_fixed_startup_preflight_blocks_invalid_config_before_tk(
+    tmp_path,
+    capsys,
+) -> None:
+    invalid = tmp_path / "invalid.json"
+    invalid.write_text("{invalid", encoding="utf-8")
+
+    rc = workstation_main(
+        [
+            "--config",
+            str(invalid),
+            "--validate-startup-only",
+        ]
+    )
+
+    assert rc == 2
+    payload = json.loads(capsys.readouterr().err)
+    assert payload["status"] == "blocked"
+    assert any(
+        str(reason).startswith("runtime_config_invalid:")
+        for reason in payload["blockers"]
+    )
 
 
 def test_operator_workstation_navigation_opens_v1_5_certificate_and_visitor_pages(

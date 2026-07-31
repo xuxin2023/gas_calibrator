@@ -71,6 +71,14 @@ def test_operator_workstation_locks_mature_v1_5_and_keeps_certificate_non_blocki
     assert all("--dry-run" in row["argv"] for row in plan["routes"])
     assert all("--no-prompt" in row["argv"] for row in plan["routes"])
     assert all("--no-ftd-write" in row["argv"] for row in plan["routes"])
+    handoff = plan["controlled_execution_handoff"]
+    assert handoff["status"] == "blocked_pending_explicit_double_unlock"
+    assert handoff["execution_allowed"] is False
+    assert handoff["operator_confirmation_embedded"] is False
+    assert handoff["uses_existing_mature_runners"] is True
+    assert all("--dry-run" not in row["argv_template"] for row in handoff["commands"])
+    assert all("--no-ftd-write" in row["argv_template"] for row in handoff["commands"])
+    assert all("--engineering-probe-only" in row["argv_template"] for row in handoff["commands"])
 
 
 def test_operator_workstation_blocks_point_count_drift_before_runner_execution(

@@ -48,6 +48,7 @@ CO2_RUNNER = "gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue"
 H2O_RUNNER = "gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue"
 EXPECTED_POINT_COUNTS = {"co2": 45, "h2o": 13}
 _RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
+_OPERATOR_CONFIRMATION_PLACEHOLDER = "<OPERATOR_CONFIRMATION_REQUIRED_AT_EXECUTION>"
 
 
 def _now() -> str:
@@ -318,6 +319,75 @@ def _route_plan(
     }
 
 
+def _controlled_execution_handoff(
+    routes: Iterable[Mapping[str, Any]],
+    *,
+    runtime_config_inspection: Mapping[str, Any],
+    blockers: Iterable[str],
+) -> dict[str, Any]:
+    """Build a preview-only handoff to the existing no-write queue runners."""
+
+    commands: list[dict[str, Any]] = []
+    for route in routes:
+        argv = [
+            str(value)
+            for value in route.get("argv", [])
+            if str(value) != "--dry-run"
+        ]
+        argv.extend(
+            [
+                "--engineering-probe-only",
+                "--operator-confirmation",
+                _OPERATOR_CONFIRMATION_PLACEHOLDER,
+            ]
+        )
+        commands.append(
+            {
+                "route_kind": str(route.get("route_kind") or ""),
+                "runner_module": str(route.get("runner_module") or ""),
+                "argv_template": argv,
+                "command_preview": " ".join(
+                    [
+                        sys.executable,
+                        "-m",
+                        str(route.get("runner_module") or ""),
+                        *argv,
+                    ]
+                ),
+                "preview_only": True,
+                "execution_allowed": False,
+                "no_write": True,
+            }
+        )
+    blocked = list(blockers)
+    return {
+        "schema": "v1_5_controlled_execution_handoff_v1",
+        "status": (
+            "blocked_by_startup_gate"
+            if blocked
+            else "blocked_pending_explicit_double_unlock"
+        ),
+        "blockers": blocked,
+        "runtime_config_sha256": str(
+            runtime_config_inspection.get("sha256") or ""
+        ),
+        "commands": commands,
+        "preview_only": True,
+        "execution_allowed": False,
+        "engineering_probe_only": True,
+        "operator_confirmation_required": True,
+        "operator_confirmation_embedded": False,
+        "opens_com_ports_if_executed": True,
+        "controls_water_or_gas_routes_if_executed": True,
+        "writes_coefficients": False,
+        "writes_device_id": False,
+        "allows_ftd_write": False,
+        "promotion_state": "blocked",
+        "not_real_acceptance_evidence": True,
+        "uses_existing_mature_runners": True,
+    }
+
+
 def build_v1_5_operator_workstation_plan(
     *,
     config_path: str | Path,
@@ -363,6 +433,11 @@ def build_v1_5_operator_workstation_plan(
             queue_run_id=f"{run_id}_h2o",
         ),
     ]
+    controlled_execution_handoff = _controlled_execution_handoff(
+        routes,
+        runtime_config_inspection=runtime_config_inspection,
+        blockers=blockers,
+    )
     return {
         "schema": SCHEMA,
         "generated_at": _now(),
@@ -379,6 +454,7 @@ def build_v1_5_operator_workstation_plan(
         "expected_point_counts": dict(EXPECTED_POINT_COUNTS),
         "route_order": ["co2", "h2o"],
         "routes": routes,
+        "controlled_execution_handoff": controlled_execution_handoff,
         "certificate_registry": certificate,
         "certificate_start_gate": "non_blocking",
         "formal_release_assessment": "not_evaluated_by_workstation_start_gate",
