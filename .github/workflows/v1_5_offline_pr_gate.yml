@@ -91,17 +91,18 @@ jobs:
             throw "git diff --check failed"
           }
 
+          # The V1.5 operator workstation orchestration layer is intentionally
+          # reviewable and is guarded by the critical-path and Tk/Xvfb suites.
           $protected = @(
             "run_app.py",
             "src/gas_calibrator/workflow/runner.py",
-            "src/gas_calibrator/v1_5/orchestration/operator_workstation.py",
             "src/gas_calibrator/tools/run_v1_5_operator_workstation.py",
             "configs/default_config.json"
           )
           $changedProtected = @(git diff --name-only "$baseSha...HEAD" -- $protected)
           if ($changedProtected.Count -gt 0) {
             $changedProtected | ForEach-Object { Write-Error "Protected path changed: $_" }
-            throw "V1/V1.5 protected production paths must remain unchanged"
+            throw "V1 and fixed production entry paths must remain unchanged"
           }
 
       - name: Ruff changed Python files

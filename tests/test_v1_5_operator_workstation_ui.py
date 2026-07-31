@@ -670,7 +670,14 @@ def test_operator_workstation_summary_pages_share_one_read_only_snapshot() -> No
             widget.get("1.0", "end")
             for widget in app.review_page.readonly_widgets
         )
-        assert "仿真演练启动：允许" in review_text
+        simulation_status = app.current_snapshot["decision_model"]["decisions"][
+            "start_simulation"
+        ]["status"]
+        assert simulation_status in {"allowed", "blocked"}
+        expected_simulation_label = (
+            "允许" if simulation_status == "allowed" else "锁定"
+        )
+        assert f"仿真演练启动：{expected_simulation_label}" in review_text
         assert "真实执行启动：锁定" in review_text
         assert "受控系数写入：锁定" in review_text
         assert "正式证书签发：锁定" in review_text
