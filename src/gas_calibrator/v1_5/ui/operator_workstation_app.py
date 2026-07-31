@@ -25,6 +25,7 @@ from ..orchestration.operator_workstation import (
     execute_v1_5_operator_workstation_dry_run,
     inspect_v1_5_runtime_config,
     run_v1_5_operator_workstation_application,
+    write_v1_5_operator_workstation_startup_receipt,
 )
 from ..workstation_snapshot import build_workstation_snapshot
 from .pages import (
@@ -1599,6 +1600,14 @@ def _parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--runtime-dir", default=None)
     parser.add_argument("--certificate", default=None)
     parser.add_argument(
+        "--startup-receipt-json",
+        default=None,
+        help=(
+            "Write one immutable no-COM startup receipt. Existing files are never "
+            "overwritten."
+        ),
+    )
+    parser.add_argument(
         "--validate-startup-only",
         action="store_true",
         help="Validate config and 45/13 queues without constructing Tk or opening COM.",
@@ -1639,9 +1648,40 @@ def _startup_preflight(settings: Mapping[str, str]) -> dict[str, Any]:
 def main(argv: Iterable[str] | None = None) -> int:
     args = _parse_args(argv)
     initial_settings = _initial_settings_from_args(args)
-    fixed_start_requested = bool(initial_settings or args.validate_startup_only)
+    fixed_start_requested = bool(
+        initial_settings or args.validate_startup_only or args.startup_receipt_json
+    )
     if fixed_start_requested:
         plan = _startup_preflight(initial_settings)
+        receipt = None
+        if str(args.startup_receipt_json or "").strip():
+            try:
+                receipt = write_v1_5_operator_workstation_startup_receipt(
+                    plan,
+                    args.startup_receipt_json,
+                )
+            except OSError as exc:
+                print(
+                    json.dumps(
+                        {
+                            "status": "blocked",
+                            "blockers": [
+                                f"startup_receipt_write_failed:{type(exc).__name__}"
+                            ],
+                            "startup_receipt": {
+                                "path": str(
+                                    Path(args.startup_receipt_json).resolve()
+                                ),
+                                "written": False,
+                            },
+                            "opens_com_ports": False,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    file=sys.stderr,
+                )
+                return 2
         summary = {
             "status": plan.get("overall_status"),
             "blockers": list(plan.get("blockers") or []),
@@ -1653,6 +1693,7 @@ def main(argv: Iterable[str] | None = None) -> int:
                 "controlled_execution_handoff"
             ),
             "opens_com_ports": False,
+            "startup_receipt": receipt,
         }
         if plan.get("blockers"):
             print(json.dumps(summary, ensure_ascii=False, indent=2), file=sys.stderr)

@@ -278,6 +278,71 @@ def test_fixed_startup_preflight_accepts_config_and_45_13_queues(
     )
 
 
+def test_fixed_startup_preflight_writes_locked_receipt(
+    tmp_path,
+    capsys,
+) -> None:
+    root = Path(__file__).resolve().parents[1]
+    queues = build_v1_5_profile_queue_rows(
+        root / "configs" / "v1_5_algorithm_route_profiles.json",
+        profile_id="legacy_ratio_production",
+    )
+    co2 = tmp_path / "co2.csv"
+    h2o = tmp_path / "h2o.csv"
+    receipt_path = tmp_path / "startup_receipt.json"
+    _write_queue(co2, queues["co2_rows"])
+    _write_queue(h2o, queues["h2o_rows"])
+
+    rc = workstation_main(
+        [
+            "--config",
+            str(root / "configs" / "default_config.json"),
+            "--co2-queue-csv",
+            str(co2),
+            "--h2o-queue-csv",
+            str(h2o),
+            "--output-dir",
+            str(tmp_path / "output"),
+            "--startup-receipt-json",
+            str(receipt_path),
+            "--validate-startup-only",
+        ]
+    )
+
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["startup_receipt"]["path"] == str(receipt_path.resolve())
+    assert payload["startup_receipt"]["sha256"]
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["probe_execution_allowed"] is False
+    assert receipt["operator_acknowledgement_template"]["completed"] is False
+    assert receipt["opens_com_ports"] is False
+
+
+def test_fixed_startup_preflight_refuses_receipt_overwrite(
+    tmp_path,
+    capsys,
+) -> None:
+    receipt_path = tmp_path / "startup_receipt.json"
+    receipt_path.write_text("preserve-me", encoding="utf-8")
+
+    rc = workstation_main(
+        [
+            "--startup-receipt-json",
+            str(receipt_path),
+            "--validate-startup-only",
+        ]
+    )
+
+    assert rc == 2
+    payload = json.loads(capsys.readouterr().err)
+    assert payload["blockers"] == [
+        "startup_receipt_write_failed:FileExistsError"
+    ]
+    assert payload["opens_com_ports"] is False
+    assert receipt_path.read_text(encoding="utf-8") == "preserve-me"
+
+
 def test_fixed_startup_preflight_blocks_invalid_config_before_tk(
     tmp_path,
     capsys,

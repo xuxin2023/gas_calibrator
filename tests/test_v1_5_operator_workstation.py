@@ -6,10 +6,13 @@ import gas_calibrator.v1_5.orchestration.operator_workstation as workstation_mod
 import pytest
 from gas_calibrator.tools.run_v1_5_operator_workstation_dry_run import main as cli_main
 from gas_calibrator.v1_5.orchestration.operator_workstation import (
+    STARTUP_RECEIPT_SCHEMA,
     build_v1_5_operator_workstation_plan,
+    build_v1_5_operator_workstation_startup_receipt,
     execute_v1_5_operator_workstation_dry_run,
     inspect_v1_5_runtime_config,
     run_v1_5_operator_workstation_application,
+    write_v1_5_operator_workstation_startup_receipt,
 )
 from gas_calibrator.validation.v1_5_algorithm_route_profiles import (
     build_v1_5_profile_queue_rows,
@@ -79,6 +82,67 @@ def test_operator_workstation_locks_mature_v1_5_and_keeps_certificate_non_blocki
     assert all("--dry-run" not in row["argv_template"] for row in handoff["commands"])
     assert all("--no-ftd-write" in row["argv_template"] for row in handoff["commands"])
     assert all("--engineering-probe-only" in row["argv_template"] for row in handoff["commands"])
+    assert handoff["operator_confirmation_required_sha256"]
+    assert all(row["queue_csv_sha256"] for row in handoff["commands"])
+    assert all(
+        row["runner_confirmation_record_expectation"][
+            "written_by_mature_runner_before_device_construction"
+        ]
+        is True
+        for row in handoff["commands"]
+    )
+
+
+def test_startup_receipt_binds_inputs_but_keeps_operator_record_blank(
+    tmp_path: Path,
+) -> None:
+    co2_queue, h2o_queue = _legacy_queues(tmp_path)
+    plan = build_v1_5_operator_workstation_plan(
+        config_path=CONFIG_PATH,
+        co2_queue_csv=co2_queue,
+        h2o_queue_csv=h2o_queue,
+        output_dir=tmp_path / "workstation",
+        run_id="receipt_review",
+    )
+
+    receipt = build_v1_5_operator_workstation_startup_receipt(plan)
+
+    assert receipt["schema"] == STARTUP_RECEIPT_SCHEMA
+    assert receipt["status"] == "startup_preflight_recorded_execution_locked"
+    assert receipt["startup_gate_passed"] is True
+    assert receipt["runtime_config"]["sha256"]
+    assert receipt["queues"]["co2"]["sha256"]
+    assert receipt["queues"]["h2o"]["sha256"]
+    assert receipt["probe_scope_selected"] is False
+    assert receipt["probe_execution_allowed"] is False
+    assert receipt["operator_acknowledgement_template"]["completed"] is False
+    assert receipt["operator_acknowledgement_template"]["operator_name"] == ""
+    assert (
+        receipt["operator_acknowledgement_template"]["execution_authorization"]
+        is False
+    )
+    assert receipt["opens_com_ports"] is False
+    assert receipt["not_real_acceptance_evidence"] is True
+
+
+def test_startup_receipt_writer_is_immutable(tmp_path: Path) -> None:
+    co2_queue, h2o_queue = _legacy_queues(tmp_path)
+    plan = build_v1_5_operator_workstation_plan(
+        config_path=CONFIG_PATH,
+        co2_queue_csv=co2_queue,
+        h2o_queue_csv=h2o_queue,
+        output_dir=tmp_path / "workstation",
+        run_id="immutable_receipt",
+    )
+    path = tmp_path / "receipt.json"
+
+    written = write_v1_5_operator_workstation_startup_receipt(plan, path)
+
+    assert written["path"] == str(path.resolve())
+    assert written["sha256"]
+    assert written["probe_execution_allowed"] is False
+    with pytest.raises(FileExistsError):
+        write_v1_5_operator_workstation_startup_receipt(plan, path)
 
 
 def test_operator_workstation_blocks_point_count_drift_before_runner_execution(

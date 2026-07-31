@@ -33,6 +33,10 @@ from ...tools.run_v1_5_formal_h2o_open_flow_queue import (
     _select_queue_rows as _select_h2o_queue_rows,
 )
 from ...tools.run_v1_5_formal_h2o_open_flow_queue import main as _run_h2o_queue
+from ...tools.run_v1_5_formal_open_flow_sampling import (
+    V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT,
+    V1_5_OPERATOR_CONFIRMATION_RECORD_FILENAME,
+)
 from .serial_port_binding import (
     REFERENCE_DEVICE_KEYS,
     allowed_bank_shift_map,
@@ -41,6 +45,7 @@ from .serial_port_binding import (
 
 
 SCHEMA = "v1_5_operator_workstation_dry_run_v1"
+STARTUP_RECEIPT_SCHEMA = "v1_5_operator_workstation_startup_receipt_v1"
 PRODUCT_NAME = "V1.5 气体分析仪校准工作站"
 CALIBRATION_KERNEL = "v1_5_legacy_ratio_0613_0620_0621"
 PROFILE_ID = "legacy_ratio_production"
@@ -57,6 +62,10 @@ def _now() -> str:
 
 def _path_text(path: Path) -> str:
     return str(path.resolve())
+
+
+def _sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else ""
 
 
 def _inspect_certificate_registry(path: str | Path | None) -> tuple[dict[str, Any], list[str]]:
@@ -308,6 +317,7 @@ def _route_plan(
         "route_kind": route_kind,
         "runner_module": runner_module,
         "queue_csv": _path_text(queue_csv),
+        "queue_csv_sha256": _sha256_file(queue_csv),
         "output_dir": _path_text(output_dir),
         "queue_run_id": queue_run_id,
         "expected_point_count": EXPECTED_POINT_COUNTS[route_kind],
@@ -328,7 +338,11 @@ def _controlled_execution_handoff(
     """Build a preview-only handoff to the existing no-write queue runners."""
 
     commands: list[dict[str, Any]] = []
+    confirmation_sha256 = hashlib.sha256(
+        V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT.encode("utf-8")
+    ).hexdigest()
     for route in routes:
+        route_kind = str(route.get("route_kind") or "")
         argv = [
             str(value)
             for value in route.get("argv", [])
@@ -343,8 +357,11 @@ def _controlled_execution_handoff(
         )
         commands.append(
             {
-                "route_kind": str(route.get("route_kind") or ""),
+                "route_kind": route_kind,
                 "runner_module": str(route.get("runner_module") or ""),
+                "queue_run_id": str(route.get("queue_run_id") or ""),
+                "queue_csv": str(route.get("queue_csv") or ""),
+                "queue_csv_sha256": str(route.get("queue_csv_sha256") or ""),
                 "argv_template": argv,
                 "command_preview": " ".join(
                     [
@@ -357,6 +374,15 @@ def _controlled_execution_handoff(
                 "preview_only": True,
                 "execution_allowed": False,
                 "no_write": True,
+                "runner_confirmation_record_expectation": {
+                    "filename": V1_5_OPERATOR_CONFIRMATION_RECORD_FILENAME,
+                    "schema_version": "v1_5_operator_confirmation_record_v0",
+                    "scope": (
+                        f"v1_5_{route_kind}_open_flow_queue_"
+                        "no_write_engineering_probe"
+                    ),
+                    "written_by_mature_runner_before_device_construction": True,
+                },
             }
         )
     blocked = list(blockers)
@@ -377,6 +403,7 @@ def _controlled_execution_handoff(
         "engineering_probe_only": True,
         "operator_confirmation_required": True,
         "operator_confirmation_embedded": False,
+        "operator_confirmation_required_sha256": confirmation_sha256,
         "opens_com_ports_if_executed": True,
         "controls_water_or_gas_routes_if_executed": True,
         "writes_coefficients": False,
@@ -385,6 +412,147 @@ def _controlled_execution_handoff(
         "promotion_state": "blocked",
         "not_real_acceptance_evidence": True,
         "uses_existing_mature_runners": True,
+    }
+
+
+def build_v1_5_operator_workstation_startup_receipt(
+    plan: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Freeze one no-COM startup review without authorizing probe execution."""
+
+    blockers = list(plan.get("blockers") or [])
+    inspection = dict(plan.get("runtime_config_inspection") or {})
+    handoff = dict(plan.get("controlled_execution_handoff") or {})
+    routes = [dict(route) for route in plan.get("routes") or []]
+    observed_point_counts = dict(plan.get("point_counts") or {})
+    queues = {
+        str(route.get("route_kind") or ""): {
+            "path": str(route.get("queue_csv") or ""),
+            "sha256": str(route.get("queue_csv_sha256") or ""),
+            "point_count": int(
+                observed_point_counts.get(str(route.get("route_kind") or ""))
+                or 0
+            ),
+            "expected_point_count": int(
+                route.get("expected_point_count") or 0
+            ),
+        }
+        for route in routes
+    }
+    startup_gate_passed = not blockers and (
+        plan.get("overall_status") == "ready_for_v1_5_dry_run"
+    )
+    checklist = [
+        {
+            "id": "runtime_config_hash_bound",
+            "status": "pass" if inspection.get("sha256") else "blocked",
+        },
+        {
+            "id": "legacy_45_13_queue_hashes_bound",
+            "status": (
+                "pass"
+                if all(
+                    queues.get(kind, {}).get("sha256")
+                    and queues.get(kind, {}).get("point_count")
+                    == queues.get(kind, {}).get("expected_point_count")
+                    for kind in ("co2", "h2o")
+                )
+                else "blocked"
+            ),
+        },
+        {
+            "id": "startup_gate_passed",
+            "status": "pass" if startup_gate_passed else "blocked",
+        },
+        {
+            "id": "probe_scope_selected_by_operator",
+            "status": "pending_operator_action",
+        },
+        {
+            "id": "physical_port_inventory_rechecked_at_execution",
+            "status": "pending_operator_action",
+        },
+        {
+            "id": "operator_confirmation_reentered_at_execution",
+            "status": "pending_operator_action",
+        },
+    ]
+    return {
+        "schema": STARTUP_RECEIPT_SCHEMA,
+        "generated_at": _now(),
+        "status": (
+            "startup_preflight_recorded_execution_locked"
+            if startup_gate_passed
+            else "startup_preflight_blocked"
+        ),
+        "source_plan_schema": str(plan.get("schema") or ""),
+        "run_id": str(plan.get("run_id") or ""),
+        "calibration_kernel": str(plan.get("calibration_kernel") or ""),
+        "profile_id": str(plan.get("profile_id") or ""),
+        "startup_gate_passed": startup_gate_passed,
+        "blockers": blockers,
+        "warnings": list(plan.get("warnings") or []),
+        "runtime_config": {
+            "path": str(plan.get("runtime_config") or ""),
+            "sha256": str(inspection.get("sha256") or ""),
+            "status": str(inspection.get("status") or ""),
+            "binding_mode": str(inspection.get("binding_mode") or ""),
+            "pressure_devices": dict(inspection.get("pressure_devices") or {}),
+            "reference_devices": dict(inspection.get("reference_devices") or {}),
+        },
+        "queues": queues,
+        "controlled_execution_handoff": handoff,
+        "pre_execution_checklist": checklist,
+        "operator_acknowledgement_template": {
+            "schema": "v1_5_operator_probe_acknowledgement_template_v1",
+            "template_only": True,
+            "completed": False,
+            "operator_name": "",
+            "timestamp": "",
+            "selected_route": "",
+            "selected_scope": "",
+            "observed_connected_ports": [],
+            "explicit_acknowledgement": {
+                "engineering_probe_only": False,
+                "no_write": False,
+                "not_real_acceptance": False,
+                "v1_fallback_preserved": False,
+                "do_not_refresh_real_primary_latest": False,
+            },
+            "execution_authorization": False,
+        },
+        "runner_confirmation_record_written_only_at_execution": True,
+        "probe_scope_selected": False,
+        "probe_execution_allowed": False,
+        "preflight_only": True,
+        "opens_com_ports": False,
+        "controls_water_or_gas_routes": False,
+        "writes_coefficients": False,
+        "writes_device_id": False,
+        "promotion_state": "blocked",
+        "not_real_acceptance_evidence": True,
+        "v1_fallback_preserved": True,
+    }
+
+
+def write_v1_5_operator_workstation_startup_receipt(
+    plan: Mapping[str, Any],
+    output_path: str | Path,
+) -> dict[str, Any]:
+    """Write one immutable startup receipt and return its content hash."""
+
+    path = Path(output_path).resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    receipt = build_v1_5_operator_workstation_startup_receipt(plan)
+    text = json.dumps(receipt, ensure_ascii=False, indent=2) + "\n"
+    with path.open("x", encoding="utf-8") as handle:
+        handle.write(text)
+    return {
+        "path": _path_text(path),
+        "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        "status": receipt["status"],
+        "probe_execution_allowed": False,
+        "opens_com_ports": False,
     }
 
 
@@ -623,9 +791,12 @@ __all__ = [
     "EXPECTED_POINT_COUNTS",
     "PRODUCT_NAME",
     "PROFILE_ID",
+    "STARTUP_RECEIPT_SCHEMA",
     "build_v1_5_operator_workstation_plan",
+    "build_v1_5_operator_workstation_startup_receipt",
     "execute_v1_5_operator_workstation_dry_run",
     "inspect_v1_5_runtime_config",
     "run_v1_5_operator_workstation_application",
     "write_v1_5_operator_workstation_outputs",
+    "write_v1_5_operator_workstation_startup_receipt",
 ]
