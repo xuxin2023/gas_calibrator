@@ -1629,6 +1629,112 @@ def build_v1_5_real_acceptance_control_pack(
     }
 
 
+def _site_mapping_completion_rows(
+    *,
+    site_profile: Mapping[str, Any],
+    site_validation: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Render the validator's per-port completion state without promoting it."""
+
+    action_labels = {
+        "connection_state": "确认是否接入",
+        "power_state": "确认是否通电",
+        "row_operator_confirmation": "勾选本行人工确认",
+        "ga_label": "填写GA标签",
+        "protocol_device_id": "绑定当前协议ID",
+        "sn_code": "绑定当前8位SN",
+        "algorithm": "选择算法类型",
+        "algorithm_evidence": "绑定当前身份的算法记录",
+        "runtime_setup_evidence": "导入身份绑定的AVERAGE1/2运行设置结果",
+    }
+    candidates = {
+        _text(row, "port").upper(): row
+        for row in _rows(site_profile, "candidate_analyzers")
+    }
+    active = site_validation.get("active_analyzer_list")
+    active = active if isinstance(active, Mapping) else {}
+    eligible_ports = {
+        _text(row, "port").upper()
+        for row in _rows(active, "active_analyzers")
+    }
+    validation_reasons = [
+        str(reason) for reason in site_validation.get("reasons") or []
+    ]
+    completion_rows: list[dict[str, Any]] = []
+    for port in ANALYZER_BANK:
+        row = candidates.get(port, {})
+        connected = row.get("connected")
+        powered = row.get("powered")
+        runtime = _runtime_evidence(row)
+        algorithm = _text(row, "algorithm", "algorithm_profile").lower()
+        port_reasons = [
+            reason for reason in validation_reasons if reason.startswith(f"{port}_")
+        ]
+        missing: list[str] = []
+        if connected not in (True, False):
+            missing.append("connection_state")
+        if powered not in (True, False):
+            missing.append("power_state")
+        if connected is True:
+            if row.get("operator_confirmed") is not True:
+                missing.append("row_operator_confirmation")
+            if not _text(row, "ga_label", "label"):
+                missing.append("ga_label")
+        if powered is True:
+            if not _text(row, "protocol_device_id", "device_id"):
+                missing.append("protocol_device_id")
+            if not SN_PATTERN.match(_text(row, "sn_code", "device_code")):
+                missing.append("sn_code")
+            if algorithm not in LEGACY_ALGORITHMS | NEW_ALGORITHMS:
+                missing.append("algorithm")
+            elif any("_algorithm_" in reason for reason in port_reasons):
+                missing.append("algorithm_evidence")
+            if any(
+                token in reason
+                for reason in port_reasons
+                for token in ("_runtime_", "_average1_average2_")
+            ):
+                missing.append("runtime_setup_evidence")
+        missing = list(dict.fromkeys(missing))
+        completion_rows.append(
+            {
+                "port": port,
+                "os_visible": row.get("os_visible") is True,
+                "connected_state": (
+                    "yes"
+                    if connected is True
+                    else "no"
+                    if connected is False
+                    else "unknown"
+                ),
+                "powered_state": (
+                    "yes"
+                    if powered is True
+                    else "no"
+                    if powered is False
+                    else "unknown"
+                ),
+                "operator_confirmed": row.get("operator_confirmed") is True,
+                "ga_label": _text(row, "ga_label", "label"),
+                "protocol_device_id": _text(row, "protocol_device_id", "device_id"),
+                "sn_code": _text(row, "sn_code", "device_code"),
+                "algorithm": algorithm,
+                "ftd_hz": runtime.get("ftd_hz", ""),
+                "average1": runtime.get("average1", ""),
+                "average2": runtime.get("average2", ""),
+                "missing_items": "|".join(missing),
+                "validator_reasons": "|".join(port_reasons),
+                "operator_action_zh": "；".join(
+                    action_labels[item] for item in missing
+                )
+                or "无需补充",
+                "readonly_packet_eligible": port in eligible_ports,
+                "not_real_acceptance_evidence": True,
+            }
+        )
+    return completion_rows
+
+
 def write_v1_5_real_acceptance_control_pack_outputs(
     *,
     model: Mapping[str, Any],
@@ -1643,6 +1749,7 @@ def write_v1_5_real_acceptance_control_pack_outputs(
         "site_profile": out / "v1_5_real_acceptance_site_profile.json",
         "reviewed_ports": out / "v1_5_readonly_com_reviewed_port_inventory.json",
         "active_analyzers": out / "v1_5_readonly_com_active_analyzer_list.json",
+        "site_completion": out / "v1_5_site_mapping_completion_worksheet.csv",
         "checks": out / "v1_5_real_acceptance_control_pack_checks.csv",
         "markdown": out / "V1_5_REAL_ACCEPTANCE_CONTROL_PACK.md",
         "sha256": out / "SHA256SUMS.txt",
@@ -1651,6 +1758,11 @@ def write_v1_5_real_acceptance_control_pack_outputs(
     _write_json(paths["site_profile"], site_profile)
     _write_json(paths["reviewed_ports"], site.get("reviewed_port_inventory") or {})
     _write_json(paths["active_analyzers"], site.get("active_analyzer_list") or {})
+    completion_rows = _site_mapping_completion_rows(
+        site_profile=site_profile,
+        site_validation=site,
+    )
+    _write_csv(paths["site_completion"], completion_rows)
     _write_csv(paths["checks"], model.get("gates") or [])
     lines = [
         "# V1.5 真实验收控制包",
@@ -1673,12 +1785,34 @@ def write_v1_5_real_acceptance_control_pack_outputs(
     for gate in model.get("gates") or []:
         reasons = ", ".join(str(reason) for reason in gate.get("reasons") or []) or "none"
         lines.append(f"- `{gate.get('gate')}`：`{gate.get('status')}`；{reasons}")
+    eligible_count = sum(
+        row.get("readonly_packet_eligible") is True
+        for row in completion_rows
+    )
+    lines.extend(
+        [
+            "",
+            "## 现场完成度",
+            "",
+            f"- 可进入只读包的设备：`{eligible_count}`",
+            "- 逐端口待补事项见 `v1_5_site_mapping_completion_worksheet.csv`。",
+            "- 整体现场门禁未通过时，所有端口均保持不可执行。",
+        ]
+    )
     lines.extend(["", "## 下一步", "", str(model.get("next_action") or "")])
     paths["markdown"].parent.mkdir(parents=True, exist_ok=True)
     paths["markdown"].write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8-sig")
 
     hash_lines = []
-    for key in ("control_pack", "site_profile", "reviewed_ports", "active_analyzers", "checks", "markdown"):
+    for key in (
+        "control_pack",
+        "site_profile",
+        "reviewed_ports",
+        "active_analyzers",
+        "site_completion",
+        "checks",
+        "markdown",
+    ):
         path = paths[key]
         hash_lines.append(f"{_sha256(path)}  {path.name}")
     paths["sha256"].write_text("\n".join(hash_lines) + "\n", encoding="utf-8")

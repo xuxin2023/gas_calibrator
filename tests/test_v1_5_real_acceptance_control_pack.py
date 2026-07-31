@@ -1,3 +1,4 @@
+import csv
 import hashlib
 import json
 from pathlib import Path
@@ -490,6 +491,16 @@ def test_current_four_connected_two_powered_template_stays_blocked_and_no_com(tm
         model["next_action"]
         == "Complete the operator-reviewed active analyzer mapping before read-only authorization."
     )
+    outputs = write_v1_5_real_acceptance_control_pack_outputs(
+        model=model,
+        site_profile=profile,
+        output_dir=tmp_path / "blocked-out",
+    )
+    with outputs["site_completion"].open(encoding="utf-8-sig", newline="") as handle:
+        completion = list(csv.DictReader(handle))
+    assert len(completion) == 8
+    assert not any(row["readonly_packet_eligible"] == "True" for row in completion)
+    assert all("connection_state" in row["missing_items"] for row in completion)
 
 
 def test_historical_identity_prefill_fills_six_identities_but_not_current_state(
@@ -1159,6 +1170,14 @@ def test_mapped_site_can_reach_explicit_readonly_authorization_but_not_execute(t
         site_profile=profile,
         output_dir=tmp_path / "out",
     )
+    with outputs["site_completion"].open(encoding="utf-8-sig", newline="") as handle:
+        completion = list(csv.DictReader(handle))
+    assert len(completion) == 8
+    assert [
+        row["port"]
+        for row in completion
+        if row["readonly_packet_eligible"] == "True"
+    ] == ["COM35", "COM36"]
     for line in outputs["sha256"].read_text(encoding="utf-8").splitlines():
         expected, relative = line.split("  ", 1)
         assert hashlib.sha256((outputs["sha256"].parent / relative).read_bytes()).hexdigest() == expected
