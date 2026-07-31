@@ -396,8 +396,8 @@ def _historical_runtime(tmp_path: Path) -> Path:
                         "port": port,
                         "device_id": device_id,
                         "ftd_hz": 1,
-                        "average_co2": 49,
-                        "average_h2o": 49,
+                        "average_co2": 7,
+                        "average_h2o": 13,
                         "average_filter": 49,
                     }
                     for name, port, device_id in rows
@@ -520,8 +520,8 @@ def test_historical_identity_prefill_fills_six_identities_but_not_current_state(
     assert by_port["COM35"]["algorithm"] == "legacy_ratio"
     assert by_port["COM35"]["identity_evidence"]["historical_runtime_reference"] == {
         "ftd_hz": 1,
-        "average1": 49,
-        "average2": 49,
+        "average1": 13,
+        "average2": 7,
         "filter": 49,
     }
     assert all(row["connected"] is None for row in by_port.values())

@@ -281,8 +281,8 @@ def prefill_v1_5_site_profile_from_historical_identity(
             "historical_runtime_config_sha256": runtime_sha256,
             "historical_runtime_reference": {
                 "ftd_hz": runtime.get("ftd_hz"),
-                "average1": runtime.get("average_co2"),
-                "average2": runtime.get("average_h2o"),
+                "average1": runtime.get("average_h2o"),
+                "average2": runtime.get("average_co2"),
                 "filter": runtime.get("average_filter"),
             },
             "current_connection_state_inferred": False,
