@@ -1,12 +1,23 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from gas_calibrator.tools import run_v1_5_protocol_identity_controlled_write as tool
+from gas_calibrator.v1_5.identity_authority_signature import (
+    SIGNATURE_ALGORITHM,
+    SIGNATURE_SCHEMA,
+    TRUST_STORE_SCHEMA,
+    canonical_evidence_bytes,
+    signature_message_bytes,
+)
 
 
 UNIQUENESS_FIXTURE = (
@@ -14,13 +25,66 @@ UNIQUENESS_FIXTURE = (
     / "fixtures"
     / "v1_5_protocol_identity_global_uniqueness_evidence.json"
 )
+_TEST_KEY_ID = "test-identity-authority-01"
+_TEST_PRIVATE_KEY = Ed25519PrivateKey.from_private_bytes(bytes(range(1, 33)))
+
+
+def _sign_payload(payload: dict[str, object]) -> dict[str, object]:
+    signed_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    signature = {
+        "schema_version": SIGNATURE_SCHEMA,
+        "algorithm": SIGNATURE_ALGORITHM,
+        "key_id": _TEST_KEY_ID,
+        "signed_at": signed_at,
+        "payload_sha256": hashlib.sha256(canonical_evidence_bytes(payload)).hexdigest(),
+    }
+    signature_bytes = _TEST_PRIVATE_KEY.sign(signature_message_bytes(signature))
+    signature["signature_base64"] = base64.b64encode(signature_bytes).decode("ascii")
+    payload["authority_signature"] = signature
+    return payload
 
 
 def _authoritative_payload() -> dict[str, object]:
     payload = json.loads(UNIQUENESS_FIXTURE.read_text(encoding="utf-8"))
     payload["test_fixture_only"] = False
     payload.pop("not_real_acceptance_evidence", None)
-    return payload
+    return _sign_payload(payload)
+
+
+@pytest.fixture(autouse=True)
+def _deployment_trust_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    now = datetime.now(timezone.utc)
+    public_key = _TEST_PRIVATE_KEY.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    trust_store = {
+        "schema_version": TRUST_STORE_SCHEMA,
+        "deployment_managed": True,
+        "test_fixture_only": False,
+        "keys": [
+            {
+                "key_id": _TEST_KEY_ID,
+                "algorithm": SIGNATURE_ALGORITHM,
+                "public_key_base64": base64.b64encode(public_key).decode("ascii"),
+                "status": "active",
+                "allowed_source_types": ["controlled_asset_registry_readonly_export"],
+                "allowed_source_systems": ["test_fleet_asset_registry"],
+                "valid_from": (now - timedelta(days=1)).isoformat(),
+                "valid_until": (now + timedelta(days=1)).isoformat(),
+                "max_signature_age_seconds": 3600,
+            }
+        ],
+    }
+    trust_path = tmp_path / "deployment_trust" / "identity_authorities.json"
+    trust_path.parent.mkdir()
+    trust_path.write_text(json.dumps(trust_store), encoding="utf-8")
+    monkeypatch.setattr(
+        tool,
+        "default_identity_authority_trust_store_path",
+        lambda: trust_path,
+    )
+    return trust_path
 
 
 def _authoritative_evidence(tmp_path: Path) -> Path:
@@ -167,7 +231,9 @@ class _FakeAnalyzer:
         self.closed = True
 
     def read_current_mode_snapshot(self, **_kwargs):
-        value = self.identity_sequence.pop(0) if self.identity_sequence else self.current_id
+        value = (
+            self.identity_sequence.pop(0) if self.identity_sequence else self.current_id
+        )
         return {"id": value, "mode": 1, "raw": f"YGAS,{value},..."}
 
     def set_device_id_with_ack(self, device_id, *, require_ack=True):
@@ -327,7 +393,101 @@ def test_ready_preflight_records_uniqueness_semantic_validation(tmp_path: Path):
     assert validation["authority_protocol_ids_unique"] is True
     assert validation["derived_candidate_sn_absent"] is True
     assert validation["derived_candidate_protocol_id_absent"] is True
+    signature = validation["trusted_authority_signature"]
+    assert signature["required"] is True
+    assert signature["valid"] is True
+    assert signature["status"] == "verified"
+    assert signature["trust_store_deployment_managed"] is True
+    assert signature["signature_valid"] is True
     assert validation["valid"] is True
+
+
+def test_preflight_rejects_evidence_tampered_after_signature(tmp_path: Path):
+    payload = _authoritative_payload()
+    payload["records"][0]["lifecycle_status"] = "retired"
+    path = tmp_path / "tampered_evidence.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    plan = _plan(tmp_path)
+    plan["global_uniqueness_evidence"].update(
+        {
+            "source": str(path),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+    )
+
+    preflight = tool.build_preflight(plan, _inventory(), _backup())
+
+    assert preflight["status"] == "blocked"
+    assert (
+        "global_uniqueness_evidence_signature_payload_digest_mismatch"
+        in preflight["blockers"]
+    )
+
+
+def test_preflight_rejects_unknown_authority_key(tmp_path: Path):
+    payload = _authoritative_payload()
+    payload["authority_signature"]["key_id"] = "unknown-authority-key"
+    path = tmp_path / "unknown_key_evidence.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    plan = _plan(tmp_path)
+    plan["global_uniqueness_evidence"].update(
+        {
+            "source": str(path),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+    )
+
+    preflight = tool.build_preflight(plan, _inventory(), _backup())
+
+    assert preflight["status"] == "blocked"
+    assert "global_uniqueness_evidence_signature_key_unknown" in preflight["blockers"]
+
+
+def test_missing_trust_store_blocks_before_analyzer_factory(tmp_path: Path):
+    preflight = tool.build_preflight(
+        _plan(tmp_path),
+        _inventory(),
+        _backup(),
+        trust_store_path=tmp_path / "missing_trust_store.json",
+    )
+    factory_called = []
+
+    result = tool.execute_controlled_write(
+        preflight,
+        execute=True,
+        authorization_phrase=tool.AUTHORIZATION_PHRASE,
+        isolation_phrase=tool.ISOLATION_PHRASE,
+        analyzer_factory=lambda candidate: factory_called.append(candidate),
+    )
+
+    assert preflight["status"] == "blocked"
+    assert "global_uniqueness_evidence_trust_store_missing" in preflight["blockers"]
+    assert result["status"] == "blocked_preflight"
+    assert factory_called == []
+
+
+def test_execute_rejects_semantic_only_preflight_before_analyzer_factory(
+    tmp_path: Path,
+):
+    preflight = tool.build_preflight(
+        _plan(tmp_path),
+        _inventory(),
+        _backup(),
+        require_trusted_signature=False,
+    )
+    factory_called = []
+
+    result = tool.execute_controlled_write(
+        preflight,
+        execute=True,
+        authorization_phrase=tool.AUTHORIZATION_PHRASE,
+        isolation_phrase=tool.ISOLATION_PHRASE,
+        analyzer_factory=lambda candidate: factory_called.append(candidate),
+    )
+
+    assert preflight["status"] == "ready"
+    assert result["status"] == "blocked_trusted_authority_signature"
+    assert factory_called == []
 
 
 def test_preflight_derives_absence_from_authoritative_asset_records(tmp_path):
@@ -338,15 +498,11 @@ def test_preflight_derives_absence_from_authoritative_asset_records(tmp_path):
             "global_uniqueness_evidence_authority_missing",
         ),
         (
-            lambda payload: payload["authority"].update(
-                {"source_type": "manual_note"}
-            ),
+            lambda payload: payload["authority"].update({"source_type": "manual_note"}),
             "global_uniqueness_evidence_authority_source_type_invalid",
         ),
         (
-            lambda payload: payload["authority"].update(
-                {"read_only_export": False}
-            ),
+            lambda payload: payload["authority"].update({"read_only_export": False}),
             "global_uniqueness_evidence_authority_not_read_only",
         ),
         (
@@ -360,15 +516,11 @@ def test_preflight_derives_absence_from_authoritative_asset_records(tmp_path):
             "global_uniqueness_evidence_scope_record_count_mismatch",
         ),
         (
-            lambda payload: payload["records"][0].update(
-                {"sn_code": "01260716"}
-            ),
+            lambda payload: payload["records"][0].update({"sn_code": "01260716"}),
             "global_uniqueness_evidence_candidate_sn_present_in_authority_records",
         ),
         (
-            lambda payload: payload["records"][0].update(
-                {"protocol_device_id": "016"}
-            ),
+            lambda payload: payload["records"][0].update({"protocol_device_id": "016"}),
             "global_uniqueness_evidence_candidate_protocol_id_present_in_authority_records",
         ),
         (
@@ -379,11 +531,7 @@ def test_preflight_derives_absence_from_authoritative_asset_records(tmp_path):
         ),
         (
             lambda payload: payload["records"][1].update(
-                {
-                    "protocol_device_id": payload["records"][0][
-                        "protocol_device_id"
-                    ]
-                }
+                {"protocol_device_id": payload["records"][0]["protocol_device_id"]}
             ),
             "global_uniqueness_evidence_records_duplicate_protocol_device_id",
         ),
@@ -444,7 +592,9 @@ def test_preflight_rejects_repository_fixture_path(
         "global_uniqueness_evidence_test_fixture_path_forbidden"
         in preflight["blockers"]
     )
-    assert "global_uniqueness_evidence_test_fixture_forbidden" not in preflight["blockers"]
+    assert (
+        "global_uniqueness_evidence_test_fixture_forbidden" not in preflight["blockers"]
+    )
 
 
 @pytest.mark.parametrize("port", ["COM34", "COM43"])
@@ -509,7 +659,9 @@ def test_replay_success_writes_one_id_and_verifies_two_readbacks(tmp_path: Path)
     assert result["device_id_write_acknowledged"] is True
     assert result["postwrite_readback"]["protocol_device_ids"] == ["016", "016"]
     assert result["postwrite_readback"]["sn_code"] == "01260716"
-    assert result["operator_confirmation_record"]["authorization_phrase_matched"] is True
+    assert (
+        result["operator_confirmation_record"]["authorization_phrase_matched"] is True
+    )
     assert instances[0].id_calls == ["016"]
     assert instances[0].closed is True
     assert all(
@@ -600,7 +752,9 @@ def test_cli_dry_run_writes_blocked_result_for_g198_shape(tmp_path):
     inventory_path = tmp_path / "inventory.json"
     output_path = tmp_path / "result.json"
     plan_path.write_text(json.dumps(_plan(approved=False)), encoding="utf-8")
-    inventory_path.write_text(json.dumps(_inventory(sn_code="00000000")), encoding="utf-8")
+    inventory_path.write_text(
+        json.dumps(_inventory(sn_code="00000000")), encoding="utf-8"
+    )
 
     rc = tool.main(
         [

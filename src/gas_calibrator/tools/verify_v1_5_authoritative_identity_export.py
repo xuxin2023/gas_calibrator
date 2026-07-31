@@ -83,16 +83,19 @@ def build_validation(
             }
         ],
     }
-    preflight = build_preflight(adapter_plan, {}, None)
+    preflight = build_preflight(
+        adapter_plan,
+        {},
+        None,
+        require_trusted_signature=False,
+    )
     evidence_blockers = [
         str(blocker)
         for blocker in preflight.get("blockers") or []
         if str(blocker).startswith("global_uniqueness_evidence")
     ]
     blockers = [*format_blockers, *evidence_blockers]
-    validation = dict(
-        preflight.get("global_uniqueness_evidence_validation") or {}
-    )
+    validation = dict(preflight.get("global_uniqueness_evidence_validation") or {})
     valid = not blockers and validation.get("valid") is True
     return {
         "schema_version": RESULT_SCHEMA,
@@ -110,6 +113,7 @@ def build_validation(
         "blockers": blockers,
         "global_uniqueness_evidence_validation": validation,
         "not_write_authorization": True,
+        "trusted_signature_required_for_controlled_write": True,
         "engineering_review_only": True,
         "promotion_state": "blocked",
         "not_real_acceptance_evidence": True,
@@ -134,8 +138,13 @@ def _write_result(path: str | Path, result: Mapping[str, Any]) -> Path:
     temporary_path = ""
     try:
         with tempfile.NamedTemporaryFile(
-            "w", encoding="utf-8", newline="", dir=destination.parent,
-            prefix=f".{destination.name}.", suffix=".tmp", delete=False,
+            "w",
+            encoding="utf-8",
+            newline="",
+            dir=destination.parent,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            delete=False,
         ) as handle:
             temporary_path = handle.name
             handle.write(serialized)
