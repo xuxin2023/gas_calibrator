@@ -545,11 +545,11 @@ def write_v1_5_operator_workstation_startup_receipt(
     path.parent.mkdir(parents=True, exist_ok=True)
     receipt = build_v1_5_operator_workstation_startup_receipt(plan)
     text = json.dumps(receipt, ensure_ascii=False, indent=2) + "\n"
-    with path.open("x", encoding="utf-8") as handle:
+    with path.open("x", encoding="utf-8", newline="\n") as handle:
         handle.write(text)
     return {
         "path": _path_text(path),
-        "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        "sha256": _sha256_file(path),
         "status": receipt["status"],
         "probe_execution_allowed": False,
         "opens_com_ports": False,

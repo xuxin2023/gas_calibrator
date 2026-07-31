@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import json
 from pathlib import Path
 
@@ -140,6 +141,8 @@ def test_startup_receipt_writer_is_immutable(tmp_path: Path) -> None:
 
     assert written["path"] == str(path.resolve())
     assert written["sha256"]
+    assert written["sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert b"\r\n" not in path.read_bytes()
     assert written["probe_execution_allowed"] is False
     with pytest.raises(FileExistsError):
         write_v1_5_operator_workstation_startup_receipt(plan, path)
