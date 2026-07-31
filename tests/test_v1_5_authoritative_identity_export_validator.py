@@ -42,7 +42,12 @@ def test_valid_authoritative_export_is_ready_without_write_authority(tmp_path):
 
     assert result["status"] == "ready"
     assert result["blockers"] == []
-    assert result["global_uniqueness_evidence_validation"]["valid"] is True
+    validation = result["global_uniqueness_evidence_validation"]
+    assert validation["valid"] is True
+    signature = validation["trusted_authority_signature"]
+    assert signature["required"] is False
+    assert signature["status"] == "not_required_semantic_validation_only"
+    assert result["trusted_signature_required_for_controlled_write"] is True
     assert result["not_write_authorization"] is True
     assert all(value is False for value in result["boundary"].values())
 
@@ -105,8 +110,7 @@ def test_static_test_fixture_is_blocked_as_authoritative_evidence():
     assert result["status"] == "blocked"
     assert "global_uniqueness_evidence_test_fixture_forbidden" in result["blockers"]
     assert (
-        "global_uniqueness_evidence_test_fixture_path_forbidden"
-        in result["blockers"]
+        "global_uniqueness_evidence_test_fixture_path_forbidden" in result["blockers"]
     )
 
 

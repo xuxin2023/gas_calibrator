@@ -19,6 +19,10 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Optional
 
 from ..devices import GasAnalyzer
+from ..v1_5.identity_authority_signature import (
+    default_identity_authority_trust_store_path,
+    verify_identity_authority_signature,
+)
 from ._analyzer_serial_pacing import (
     MIN_ANALYZER_SERIAL_COMMAND_GAP_S,
     _enforce_serial_command_gap,
@@ -31,9 +35,7 @@ ISOLATION_PHRASE = "I_CONFIRM_SINGLE_COM_ISOLATED_AND_NO_GAS_FLOW"
 PLAN_SCHEMA = "v1_5_protocol_identity_normalization_plan_v1"
 BACKUP_SCHEMA = "v1_5_protocol_id_prewrite_backup_v1"
 RESULT_SCHEMA = "v1_5_protocol_identity_controlled_write_result_v1"
-UNIQUENESS_EVIDENCE_SCHEMA = (
-    "v1_5_protocol_identity_global_uniqueness_evidence_v1"
-)
+UNIQUENESS_EVIDENCE_SCHEMA = "v1_5_protocol_identity_global_uniqueness_evidence_v1"
 AUTHORITY_SOURCE_TYPES = frozenset(
     {
         "formal_identity_database_readonly_export",
@@ -91,7 +93,9 @@ def _candidate_rows(plan: Mapping[str, Any]) -> list[dict[str, Any]]:
         dict(row)
         for row in plan.get("rows") or []
         if isinstance(row, Mapping)
-        and str(row.get("action") or "").startswith("initialize_sn_then_change_protocol_id")
+        and str(row.get("action") or "").startswith(
+            "initialize_sn_then_change_protocol_id"
+        )
     ]
 
 
@@ -103,8 +107,7 @@ def _inventory_row(
         for row in inventory.get("analyzers") or []
         if isinstance(row, Mapping)
         and str(row.get("port") or "").upper() == port.upper()
-        and str(row.get("usb_serial_number") or "").upper()
-        == usb_serial_number.upper()
+        and str(row.get("usb_serial_number") or "").upper() == usb_serial_number.upper()
     ]
     return matches[0] if len(matches) == 1 else None
 
@@ -144,6 +147,9 @@ def build_preflight(
     plan: Mapping[str, Any],
     inventory: Mapping[str, Any],
     backup: Mapping[str, Any] | None = None,
+    *,
+    require_trusted_signature: bool = True,
+    trust_store_path: str | Path | None = None,
 ) -> dict[str, Any]:
     blockers: list[str] = []
     if plan.get("schema_version") != PLAN_SCHEMA:
@@ -200,6 +206,12 @@ def build_preflight(
         "authority_protocol_ids_unique": False,
         "derived_candidate_sn_absent": None,
         "derived_candidate_protocol_id_absent": None,
+        "trusted_authority_signature": {
+            "required": bool(require_trusted_signature),
+            "valid": False,
+            "status": "pending",
+            "blockers": [],
+        },
     }
     if not uniqueness_source:
         blockers.append("global_uniqueness_evidence_source_missing")
@@ -270,7 +282,9 @@ def build_preflight(
                     ):
                         blockers.append("global_uniqueness_evidence_status_not_ready")
                     if uniqueness_payload.get("test_fixture_only") is not False:
-                        blockers.append("global_uniqueness_evidence_test_fixture_forbidden")
+                        blockers.append(
+                            "global_uniqueness_evidence_test_fixture_forbidden"
+                        )
                     if uniqueness_payload.get("scope_complete") is not True:
                         blockers.append("global_uniqueness_evidence_scope_incomplete")
                     if uniqueness_payload.get("candidate_sn_absent") is not True:
@@ -286,9 +300,7 @@ def build_preflight(
                         )
                     authority = uniqueness_payload.get("authority")
                     if not isinstance(authority, Mapping):
-                        blockers.append(
-                            "global_uniqueness_evidence_authority_missing"
-                        )
+                        blockers.append("global_uniqueness_evidence_authority_missing")
                     else:
                         source_type = str(authority.get("source_type") or "").strip()
                         source_system = str(
@@ -333,7 +345,9 @@ def build_preflight(
 
                     scope = uniqueness_payload.get("scope")
                     if not isinstance(scope, Mapping):
-                        blockers.append("global_uniqueness_evidence_scope_contract_missing")
+                        blockers.append(
+                            "global_uniqueness_evidence_scope_contract_missing"
+                        )
                         scope_record_count = 0
                     else:
                         scope_record_count = scope.get("record_count")
@@ -404,9 +418,7 @@ def build_preflight(
                         for row in authority_records:
                             asset_key = str(row.get("asset_key") or "").strip()
                             sn_code = str(row.get("sn_code") or "").strip()
-                            protocol_id = _normalize_id(
-                                row.get("protocol_device_id")
-                            )
+                            protocol_id = _normalize_id(row.get("protocol_device_id"))
                             lifecycle_status = str(
                                 row.get("lifecycle_status") or ""
                             ).strip()
@@ -453,6 +465,23 @@ def build_preflight(
                             and protocol_ids_unique
                         )
 
+    if require_trusted_signature:
+        signature_validation = verify_identity_authority_signature(
+            uniqueness_payload,
+            trust_store_path=(
+                trust_store_path or default_identity_authority_trust_store_path()
+            ),
+        )
+        blockers.extend(signature_validation["blockers"])
+    else:
+        signature_validation = {
+            "required": False,
+            "valid": False,
+            "status": "not_required_semantic_validation_only",
+            "blockers": [],
+        }
+    uniqueness_validation["trusted_authority_signature"] = signature_validation
+
     candidates = _candidate_rows(plan)
     if len(candidates) != 1:
         blockers.append(f"single_write_candidate_required:{len(candidates)}")
@@ -485,8 +514,7 @@ def build_preflight(
         blockers.append("candidate_pre_initialization_sn_invalid")
     if uniqueness_payload:
         uniqueness_validation["candidate_sn_matches_plan"] = (
-            str(uniqueness_payload.get("candidate_sn") or "").strip()
-            == required_sn
+            str(uniqueness_payload.get("candidate_sn") or "").strip() == required_sn
         )
         uniqueness_validation["candidate_protocol_id_matches_plan"] = (
             _normalize_id(uniqueness_payload.get("candidate_protocol_device_id"))
@@ -500,9 +528,9 @@ def build_preflight(
             "candidate_sn_absent"
         ):
             blockers.append("global_uniqueness_evidence_plan_source_sn_disagreement")
-        if uniqueness_payload.get(
+        if uniqueness_payload.get("candidate_protocol_id_absent") is not uniqueness.get(
             "candidate_protocol_id_absent"
-        ) is not uniqueness.get("candidate_protocol_id_absent"):
+        ):
             blockers.append(
                 "global_uniqueness_evidence_plan_source_protocol_id_disagreement"
             )
@@ -515,9 +543,7 @@ def build_preflight(
                 _normalize_id(row.get("protocol_device_id")) != new_id
                 for row in authority_records
             )
-            uniqueness_validation["derived_candidate_sn_absent"] = (
-                derived_sn_absent
-            )
+            uniqueness_validation["derived_candidate_sn_absent"] = derived_sn_absent
             uniqueness_validation["derived_candidate_protocol_id_absent"] = (
                 derived_protocol_id_absent
             )
@@ -549,7 +575,8 @@ def build_preflight(
         if not isinstance(row, Mapping) or dict(row) == candidate:
             continue
         value = _normalize_id(
-            row.get("target_protocol_device_id") or row.get("observed_protocol_device_id")
+            row.get("target_protocol_device_id")
+            or row.get("observed_protocol_device_id")
         )
         if value:
             other_ids.add(value)
@@ -637,6 +664,8 @@ def build_preflight(
         "boundary": {
             "single_port_only": True,
             "default_no_write": True,
+            "requires_repository_external_trust_store": True,
+            "requires_trusted_authority_signature": True,
             "writes_sn": False,
             "writes_senco": False,
             "controls_water_or_gas_routes": False,
@@ -683,7 +712,9 @@ def execute_controlled_write(
         "schema_version": RESULT_SCHEMA,
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "execute": bool(execute),
-        "status": "dry_run_ready" if preflight.get("status") == "ready" else "dry_run_blocked",
+        "status": "dry_run_ready"
+        if preflight.get("status") == "ready"
+        else "dry_run_blocked",
         "preflight": dict(preflight),
         "candidate": candidate,
         "events": [],
@@ -703,6 +734,19 @@ def execute_controlled_write(
         return result
     if preflight.get("status") != "ready":
         result["status"] = "blocked_preflight"
+        return result
+    uniqueness_validation = dict(
+        preflight.get("global_uniqueness_evidence_validation") or {}
+    )
+    signature_validation = dict(
+        uniqueness_validation.get("trusted_authority_signature") or {}
+    )
+    if not (
+        signature_validation.get("required") is True
+        and signature_validation.get("valid") is True
+        and signature_validation.get("status") == "verified"
+    ):
+        result["status"] = "blocked_trusted_authority_signature"
         return result
     if authorization_phrase != AUTHORIZATION_PHRASE:
         result["status"] = "blocked_authorization_phrase"
@@ -861,7 +905,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     try:
         plan = _load_json(args.plan_json)
         inventory = _load_json(args.sn_inventory_json)
-        backup = _load_json(args.prewrite_backup_json) if args.prewrite_backup_json else None
+        backup = (
+            _load_json(args.prewrite_backup_json) if args.prewrite_backup_json else None
+        )
         preflight = build_preflight(plan, inventory, backup)
         result = execute_controlled_write(
             preflight,
