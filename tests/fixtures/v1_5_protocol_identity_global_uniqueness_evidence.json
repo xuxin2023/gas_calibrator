@@ -6,6 +6,8 @@
   "candidate_sn_absent": true,
   "candidate_protocol_id_absent": true,
   "scope_complete": true,
+  "test_fixture_only": true,
+  "not_real_acceptance_evidence": true,
   "authority": {
     "source_type": "controlled_asset_registry_readonly_export",
     "source_system": "test_fleet_asset_registry",

@@ -16,9 +16,26 @@ FIXTURE = (
 )
 
 
+def _authoritative_payload() -> dict[str, object]:
+    payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    payload["test_fixture_only"] = False
+    payload.pop("not_real_acceptance_evidence", None)
+    return payload
+
+
+def _authoritative_export(tmp_path: Path) -> Path:
+    path = tmp_path / "authoritative_identity_export.json"
+    path.write_text(
+        json.dumps(_authoritative_payload(), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return path
+
+
 def test_valid_authoritative_export_is_ready_without_write_authority(tmp_path):
+    evidence = _authoritative_export(tmp_path)
     result = tool.build_validation(
-        evidence_path=FIXTURE,
+        evidence_path=evidence,
         candidate_sn="01260716",
         candidate_protocol_id="016",
     )
@@ -31,7 +48,7 @@ def test_valid_authoritative_export_is_ready_without_write_authority(tmp_path):
 
 
 def test_candidate_present_and_incomplete_scope_are_blocked(tmp_path):
-    payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    payload = _authoritative_payload()
     payload["scope_complete"] = False
     payload["scope"]["scope_complete"] = False
     payload["records"][0]["sn_code"] = "01260716"
@@ -55,12 +72,13 @@ def test_candidate_present_and_incomplete_scope_are_blocked(tmp_path):
 
 
 def test_cli_writes_offline_review_artifact(tmp_path):
+    evidence = _authoritative_export(tmp_path)
     output = tmp_path / "validation.json"
 
     rc = tool.main(
         [
             "--evidence-json",
-            str(FIXTURE),
+            str(evidence),
             "--candidate-sn",
             "01260716",
             "--candidate-protocol-id",
@@ -75,6 +93,21 @@ def test_cli_writes_offline_review_artifact(tmp_path):
     assert payload["status"] == "ready"
     assert payload["not_write_authorization"] is True
     assert payload["promotion_state"] == "blocked"
+
+
+def test_static_test_fixture_is_blocked_as_authoritative_evidence():
+    result = tool.build_validation(
+        evidence_path=FIXTURE,
+        candidate_sn="01260716",
+        candidate_protocol_id="016",
+    )
+
+    assert result["status"] == "blocked"
+    assert "global_uniqueness_evidence_test_fixture_forbidden" in result["blockers"]
+    assert (
+        "global_uniqueness_evidence_test_fixture_path_forbidden"
+        in result["blockers"]
+    )
 
 
 def test_validator_entrypoint_is_classified_offline_read_only() -> None:

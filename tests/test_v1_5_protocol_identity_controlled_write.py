@@ -4,6 +4,8 @@ import hashlib
 import json
 from pathlib import Path
 
+import pytest
+
 from gas_calibrator.tools import run_v1_5_protocol_identity_controlled_write as tool
 
 
@@ -14,8 +16,34 @@ UNIQUENESS_FIXTURE = (
 )
 
 
-def _plan(*, approved: bool = True, rollback_authorized: bool = True):
-    fixture_sha256 = hashlib.sha256(UNIQUENESS_FIXTURE.read_bytes()).hexdigest()
+def _authoritative_payload() -> dict[str, object]:
+    payload = json.loads(UNIQUENESS_FIXTURE.read_text(encoding="utf-8"))
+    payload["test_fixture_only"] = False
+    payload.pop("not_real_acceptance_evidence", None)
+    return payload
+
+
+def _authoritative_evidence(tmp_path: Path) -> Path:
+    path = tmp_path / "authoritative_identity_export.json"
+    path.write_text(
+        json.dumps(_authoritative_payload(), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _plan(
+    tmp_path: Path | None = None,
+    *,
+    approved: bool = True,
+    rollback_authorized: bool = True,
+):
+    evidence_path = _authoritative_evidence(tmp_path) if approved and tmp_path else None
+    if approved and evidence_path is None:
+        raise ValueError("approved plan requires temporary authoritative evidence")
+    evidence_sha256 = (
+        hashlib.sha256(evidence_path.read_bytes()).hexdigest() if evidence_path else ""
+    )
     return {
         "schema_version": tool.PLAN_SCHEMA,
         "status": "approved_single_device_write" if approved else "review_required",
@@ -30,8 +58,8 @@ def _plan(*, approved: bool = True, rollback_authorized: bool = True):
         "global_uniqueness_evidence": {
             "candidate_sn_absent": approved,
             "candidate_protocol_id_absent": approved,
-            "source": str(UNIQUENESS_FIXTURE.resolve()) if approved else "",
-            "sha256": fixture_sha256 if approved else "",
+            "source": str(evidence_path.resolve()) if evidence_path else "",
+            "sha256": evidence_sha256,
         },
         "rows": [
             {
@@ -172,35 +200,39 @@ def test_unapproved_plan_is_dry_run_blocked_without_opening_com():
     assert result["device_id_write_attempted"] is False
 
 
-def test_preflight_requires_initialized_target_sn_and_complete_getco_backup():
+def test_preflight_requires_initialized_target_sn_and_complete_getco_backup(
+    tmp_path: Path,
+):
     backup = _backup()
     backup["getco_groups"].pop("9")
-    preflight = tool.build_preflight(_plan(), _inventory(sn_code="00000000"), backup)
+    preflight = tool.build_preflight(
+        _plan(tmp_path), _inventory(sn_code="00000000"), backup
+    )
 
     assert preflight["status"] == "blocked"
     assert "candidate_target_sn_not_initialized_or_mismatch" in preflight["blockers"]
     assert "prewrite_backup_getco1_9_incomplete" in preflight["blockers"]
 
 
-def test_preflight_rejects_placeholder_runtime_settings():
+def test_preflight_rejects_placeholder_runtime_settings(tmp_path: Path):
     backup = _backup()
     backup["runtime_settings"]["ftd_hz"] = None
     backup["runtime_settings"]["average1"] = ""
-    preflight = tool.build_preflight(_plan(), _inventory(), backup)
+    preflight = tool.build_preflight(_plan(tmp_path), _inventory(), backup)
 
     assert preflight["status"] == "blocked"
     assert "prewrite_backup_runtime_settings_unverified" in preflight["blockers"]
 
 
 def test_preflight_verifies_uniqueness_source_exists_and_hash_matches(tmp_path):
-    missing_plan = _plan()
+    missing_plan = _plan(tmp_path)
     missing_plan["global_uniqueness_evidence"]["source"] = str(
         tmp_path / "missing.json"
     )
     missing = tool.build_preflight(missing_plan, _inventory(), _backup())
     assert "global_uniqueness_evidence_source_unavailable" in missing["blockers"]
 
-    mismatch_plan = _plan()
+    mismatch_plan = _plan(tmp_path)
     mismatch_plan["global_uniqueness_evidence"]["sha256"] = "b" * 64
     mismatch = tool.build_preflight(mismatch_plan, _inventory(), _backup())
     assert "global_uniqueness_evidence_sha256_mismatch" in mismatch["blockers"]
@@ -241,12 +273,12 @@ def test_preflight_validates_uniqueness_source_semantics(tmp_path):
             "global_uniqueness_evidence_candidate_protocol_id_mismatch",
         ),
     ]
-    fixture = json.loads(UNIQUENESS_FIXTURE.read_text(encoding="utf-8"))
+    fixture = _authoritative_payload()
     for index, (updates, expected_blocker) in enumerate(cases):
         payload = {**fixture, **updates}
         path = tmp_path / f"uniqueness_{index}.json"
         path.write_text(json.dumps(payload), encoding="utf-8")
-        plan = _plan()
+        plan = _plan(tmp_path)
         plan["global_uniqueness_evidence"].update(
             {
                 "source": str(path),
@@ -262,7 +294,7 @@ def test_preflight_validates_uniqueness_source_semantics(tmp_path):
 def test_preflight_rejects_non_object_uniqueness_source(tmp_path):
     path = tmp_path / "uniqueness_list.json"
     path.write_text("[]", encoding="utf-8")
-    plan = _plan()
+    plan = _plan(tmp_path)
     plan["global_uniqueness_evidence"].update(
         {
             "source": str(path),
@@ -275,8 +307,8 @@ def test_preflight_rejects_non_object_uniqueness_source(tmp_path):
     assert "global_uniqueness_evidence_source_json_invalid" in preflight["blockers"]
 
 
-def test_ready_preflight_records_uniqueness_semantic_validation():
-    preflight = tool.build_preflight(_plan(), _inventory(), _backup())
+def test_ready_preflight_records_uniqueness_semantic_validation(tmp_path: Path):
+    preflight = tool.build_preflight(_plan(tmp_path), _inventory(), _backup())
 
     assert preflight["status"] == "ready"
     validation = preflight["global_uniqueness_evidence_validation"]
@@ -287,6 +319,8 @@ def test_ready_preflight_records_uniqueness_semantic_validation():
     assert validation["scope_complete"] is True
     assert validation["candidate_sn_matches_plan"] is True
     assert validation["candidate_protocol_id_matches_plan"] is True
+    assert validation["test_fixture_marker_explicit_false"] is True
+    assert validation["test_fixture_path_forbidden"] is False
     assert validation["authority_valid"] is True
     assert validation["authority_records_valid"] is True
     assert validation["authority_sn_codes_unique"] is True
@@ -297,7 +331,7 @@ def test_ready_preflight_records_uniqueness_semantic_validation():
 
 
 def test_preflight_derives_absence_from_authoritative_asset_records(tmp_path):
-    fixture = json.loads(UNIQUENESS_FIXTURE.read_text(encoding="utf-8"))
+    fixture = _authoritative_payload()
     cases = [
         (
             lambda payload: payload.pop("authority"),
@@ -359,7 +393,7 @@ def test_preflight_derives_absence_from_authoritative_asset_records(tmp_path):
         mutate(payload)
         path = tmp_path / f"authority_{index}.json"
         path.write_text(json.dumps(payload), encoding="utf-8")
-        plan = _plan()
+        plan = _plan(tmp_path)
         plan["global_uniqueness_evidence"].update(
             {
                 "source": str(path),
@@ -372,8 +406,69 @@ def test_preflight_derives_absence_from_authoritative_asset_records(tmp_path):
         assert expected_blocker in preflight["blockers"]
 
 
-def test_hardware_identity_mismatch_blocks_before_analyzer_factory():
-    preflight = tool.build_preflight(_plan(), _inventory(), _backup())
+def test_preflight_rejects_missing_fixture_marker(tmp_path: Path):
+    payload = _authoritative_payload()
+    payload.pop("test_fixture_only")
+    path = tmp_path / "missing_fixture_marker.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    plan = _plan(tmp_path)
+    plan["global_uniqueness_evidence"].update(
+        {
+            "source": str(path),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+    )
+
+    preflight = tool.build_preflight(plan, _inventory(), _backup())
+
+    assert preflight["status"] == "blocked"
+    assert "global_uniqueness_evidence_test_fixture_forbidden" in preflight["blockers"]
+
+
+def test_preflight_rejects_repository_fixture_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    plan = _plan(tmp_path)
+    plan["global_uniqueness_evidence"].update(
+        {
+            "source": str(UNIQUENESS_FIXTURE.resolve()),
+            "sha256": hashlib.sha256(UNIQUENESS_FIXTURE.read_bytes()).hexdigest(),
+        }
+    )
+    monkeypatch.setattr(tool, "_load_json", lambda _path: _authoritative_payload())
+
+    preflight = tool.build_preflight(plan, _inventory(), _backup())
+
+    assert preflight["status"] == "blocked"
+    assert (
+        "global_uniqueness_evidence_test_fixture_path_forbidden"
+        in preflight["blockers"]
+    )
+    assert "global_uniqueness_evidence_test_fixture_forbidden" not in preflight["blockers"]
+
+
+@pytest.mark.parametrize("port", ["COM34", "COM43"])
+def test_preflight_rejects_port_outside_analyzer_bank(tmp_path: Path, port: str):
+    plan = _plan(tmp_path)
+    candidate = next(
+        row
+        for row in plan["rows"]
+        if str(row["action"]).startswith("initialize_sn_then_change_protocol_id")
+    )
+    candidate["port"] = port
+    inventory = _inventory()
+    inventory["analyzers"][0]["port"] = port
+    backup = _backup()
+    backup["port"] = port
+
+    preflight = tool.build_preflight(plan, inventory, backup)
+
+    assert preflight["status"] == "blocked"
+    assert "candidate_port_outside_analyzer_bank" in preflight["blockers"]
+
+
+def test_hardware_identity_mismatch_blocks_before_analyzer_factory(tmp_path: Path):
+    preflight = tool.build_preflight(_plan(tmp_path), _inventory(), _backup())
     factory_called = []
 
     result = tool.execute_controlled_write(
@@ -389,8 +484,8 @@ def test_hardware_identity_mismatch_blocks_before_analyzer_factory():
     assert factory_called == []
 
 
-def test_replay_success_writes_one_id_and_verifies_two_readbacks():
-    preflight = tool.build_preflight(_plan(), _inventory(), _backup())
+def test_replay_success_writes_one_id_and_verifies_two_readbacks(tmp_path: Path):
+    preflight = tool.build_preflight(_plan(tmp_path), _inventory(), _backup())
     instances = []
 
     def factory(candidate):
@@ -425,8 +520,10 @@ def test_replay_success_writes_one_id_and_verifies_two_readbacks():
     assert sleeps
 
 
-def test_partial_new_id_observation_rolls_back_only_when_authorized():
-    preflight = tool.build_preflight(_plan(rollback_authorized=True), _inventory(), _backup())
+def test_partial_new_id_observation_rolls_back_only_when_authorized(tmp_path: Path):
+    preflight = tool.build_preflight(
+        _plan(tmp_path, rollback_authorized=True), _inventory(), _backup()
+    )
     instances = []
 
     def factory(candidate):
@@ -453,8 +550,10 @@ def test_partial_new_id_observation_rolls_back_only_when_authorized():
     assert instances[0].id_calls == ["016", "001"]
 
 
-def test_missing_write_ack_is_identity_unknown_and_never_blindly_rolled_back():
-    preflight = tool.build_preflight(_plan(), _inventory(), _backup())
+def test_missing_write_ack_is_identity_unknown_and_never_blindly_rolled_back(
+    tmp_path: Path,
+):
+    preflight = tool.build_preflight(_plan(tmp_path), _inventory(), _backup())
     instances = []
 
     def factory(candidate):
@@ -477,8 +576,8 @@ def test_missing_write_ack_is_identity_unknown_and_never_blindly_rolled_back():
     assert instances[0].id_calls == ["016"]
 
 
-def test_factory_failure_returns_evidence_instead_of_raising():
-    preflight = tool.build_preflight(_plan(), _inventory(), _backup())
+def test_factory_failure_returns_evidence_instead_of_raising(tmp_path: Path):
+    preflight = tool.build_preflight(_plan(tmp_path), _inventory(), _backup())
 
     def failing_factory(_candidate):
         raise RuntimeError("factory failed")

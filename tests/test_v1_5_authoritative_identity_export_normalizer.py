@@ -49,6 +49,7 @@ def test_csv_normalization_preserves_every_row_and_trace(tmp_path: Path) -> None
     assert summary["input_record_count"] == 4
     assert summary["output_record_count"] == 4
     assert summary["row_mapping_complete"] is True
+    assert payload["test_fixture_only"] is False
     assert payload["scope"]["record_count"] == 4
     assert [row["protocol_device_id"] for row in payload["records"]] == [
         "001",

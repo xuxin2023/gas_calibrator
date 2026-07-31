@@ -40,6 +40,7 @@ AUTHORITY_SOURCE_TYPES = frozenset(
         "controlled_asset_registry_readonly_export",
     }
 )
+ANALYZER_PORTS = frozenset(f"COM{number}" for number in range(35, 43))
 _ID_RE = re.compile(r"\d{3}")
 _SN_RE = re.compile(r"\d{8}")
 
@@ -73,6 +74,16 @@ def _timezone_aware_iso(value: Any) -> bool:
     except ValueError:
         return False
     return parsed.tzinfo is not None and parsed.utcoffset() is not None
+
+
+def _test_fixture_source(path: Path) -> bool:
+    """Return true only for a resolved path inside a tests/fixtures tree."""
+
+    parts = [part.casefold() for part in path.parts]
+    return any(
+        parts[index : index + 2] == ["tests", "fixtures"]
+        for index in range(len(parts) - 1)
+    )
 
 
 def _candidate_rows(plan: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -173,6 +184,8 @@ def build_preflight(
         "candidate_sn_absent": False,
         "candidate_protocol_id_absent": False,
         "test_fixture_forbidden": False,
+        "test_fixture_marker_explicit_false": False,
+        "test_fixture_path_forbidden": False,
         "authority_valid": False,
         "authority_source_type": "",
         "authority_source_system": "",
@@ -201,6 +214,12 @@ def build_preflight(
             blockers.append("global_uniqueness_evidence_source_unavailable")
         else:
             uniqueness_validation["source_available"] = True
+            fixture_source = _test_fixture_source(source_path)
+            uniqueness_validation["test_fixture_path_forbidden"] = fixture_source
+            if fixture_source:
+                blockers.append(
+                    "global_uniqueness_evidence_test_fixture_path_forbidden"
+                )
             actual_sha256 = _sha256_file(source_path).lower()
             uniqueness_validation["actual_sha256"] = actual_sha256
             uniqueness_validation["sha256_matches"] = (
@@ -234,7 +253,10 @@ def build_preflight(
                             "test_fixture_forbidden": uniqueness_payload.get(
                                 "test_fixture_only"
                             )
-                            is True,
+                            is not False,
+                            "test_fixture_marker_explicit_false": (
+                                uniqueness_payload.get("test_fixture_only") is False
+                            ),
                         }
                     )
                     if (
@@ -247,7 +269,7 @@ def build_preflight(
                         != "ready_global_scope_complete"
                     ):
                         blockers.append("global_uniqueness_evidence_status_not_ready")
-                    if uniqueness_payload.get("test_fixture_only") is True:
+                    if uniqueness_payload.get("test_fixture_only") is not False:
                         blockers.append("global_uniqueness_evidence_test_fixture_forbidden")
                     if uniqueness_payload.get("scope_complete") is not True:
                         blockers.append("global_uniqueness_evidence_scope_incomplete")
@@ -437,7 +459,7 @@ def build_preflight(
         candidate: dict[str, Any] = {}
     else:
         candidate = candidates[0]
-    port = str(candidate.get("port") or "").strip()
+    port = str(candidate.get("port") or "").strip().upper()
     usb_serial = str(candidate.get("usb_serial_number") or "").strip()
     old_id = _normalize_id(candidate.get("observed_protocol_device_id"))
     new_id = _normalize_id(candidate.get("candidate_target_protocol_device_id"))
@@ -447,6 +469,8 @@ def build_preflight(
     pre_initialization_sn = str(candidate.get("sn_code") or "").strip()
     if not port:
         blockers.append("candidate_port_missing")
+    elif port not in ANALYZER_PORTS:
+        blockers.append("candidate_port_outside_analyzer_bank")
     if not usb_serial:
         blockers.append("candidate_usb_serial_missing")
     if not _ID_RE.fullmatch(old_id):

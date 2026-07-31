@@ -13,8 +13,8 @@ V1.5 改动的即时门禁。
 
 | 层级 | 当前范围 | 使用时机 | 结论边界 |
 |---|---:|---|---|
-| `quick` | 8 个 V1.5 关键测试文件，当前 90 项，并追加 parity | 每次 V1.5 小批改动 | 只证明当前关键路径与口径未回归 |
-| `release` | 复用现有 28 文件、当前 565 项 final offline acceptance runner，并追加 parity | 候选发布、合并前冻结 | 只允许形成离线 program-level acceptance |
+| `quick` | 8 个 V1.5 关键测试文件，当前 117 项，并追加 parity | 每次 V1.5 小批改动 | 只证明当前关键路径与口径未回归 |
+| `release` | 复用现有 28 文件、当前 566 项 final offline acceptance runner，并追加 parity | 候选发布、合并前冻结 | 只允许形成离线 program-level acceptance |
 | `nightly` | 复用现有 V2 nightly simulation suite | 重型仿真、协议比较和导出韧性 | `simulated`，不得解释为 V1.5 真机验收 |
 
 测试数量是当前树的收集结果，后续可随测试增加而变化；实际执行始终由精确入口
