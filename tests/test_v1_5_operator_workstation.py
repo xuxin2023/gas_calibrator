@@ -10,10 +10,13 @@ from gas_calibrator.v1_5.orchestration.operator_workstation import (
     ARCHIVE_AUTHORITY_CONFIRMATION_RECEIPT_SCHEMA,
     STARTUP_RECEIPT_SCHEMA,
     V1_5_ARCHIVE_AUTHORITY_CONFIRMATION_TEXT,
+    V1_5_CONTROLLED_MATURE_ROUTE_AUTHORIZATION_TEXT,
+    V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT,
     build_v1_5_archive_authority_confirmation_receipt,
     build_v1_5_operator_workstation_plan,
     build_v1_5_operator_workstation_startup_receipt,
     build_v1_5_workstation_decision_model,
+    execute_v1_5_controlled_mature_route,
     execute_v1_5_operator_workstation_dry_run,
     execute_v1_5_response_only_simulation,
     inspect_v1_5_runtime_config,
@@ -31,6 +34,46 @@ from v1_5_workstation_test_support import (
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / "configs" / "default_config.json"
+
+
+def _controlled_route_plan(tmp_path: Path) -> dict:
+    co2_queue, h2o_queue = _legacy_queues(tmp_path)
+    return build_v1_5_operator_workstation_plan(
+        config_path=CONFIG_PATH,
+        co2_queue_csv=co2_queue,
+        h2o_queue_csv=h2o_queue,
+        output_dir=tmp_path / "controlled_workstation",
+        run_id="controlled_route",
+    )
+
+
+def _route_hashes(plan: dict, route_kind: str) -> tuple[str, str]:
+    route = next(
+        row for row in plan["routes"] if row["route_kind"] == route_kind
+    )
+    return plan["runtime_config_inspection"]["sha256"], route["queue_csv_sha256"]
+
+
+def _execute_controlled_route(
+    plan: dict,
+    route_kind: str,
+    runner,
+    *,
+    execute: bool = True,
+    authorization_text: str = V1_5_CONTROLLED_MATURE_ROUTE_AUTHORIZATION_TEXT,
+    operator_confirmation_text: str = V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT,
+) -> dict:
+    runtime_sha, queue_sha = _route_hashes(plan, route_kind)
+    return execute_v1_5_controlled_mature_route(
+        plan,
+        route_kind=route_kind,
+        execute=execute,
+        authorization_text=authorization_text,
+        operator_confirmation_text=operator_confirmation_text,
+        expected_runtime_config_sha256=runtime_sha,
+        expected_queue_csv_sha256=queue_sha,
+        runner_overrides={route_kind: runner},
+    )
 
 
 def test_operator_workstation_locks_mature_v1_5_and_keeps_certificate_non_blocking(
@@ -794,6 +837,167 @@ def test_operator_workstation_blocks_point_count_drift_before_runner_execution(
     assert "co2_legacy_point_count_mismatch:expected=45,observed=44" in plan["blockers"]
     assert result["execution_started"] is False
     assert result["route_results"] == []
+
+
+def test_controlled_mature_route_preflight_remains_execution_locked(
+    tmp_path: Path,
+) -> None:
+    plan = _controlled_route_plan(tmp_path)
+    calls: list[list[str]] = []
+
+    result = _execute_controlled_route(
+        plan,
+        "co2",
+        lambda argv: calls.append(list(argv)) or 0,
+        execute=False,
+    )
+
+    assert result["overall_status"] == "ready"
+    assert result["status"] == "preflight_ready_execution_locked"
+    assert result["preflight_passed"] is True
+    assert result["execution_started"] is False
+    assert result["execution_allowed"] is False
+    assert result["runner_invocation_count"] == 0
+    assert result["blockers"] == []
+    assert calls == []
+
+
+@pytest.mark.parametrize("route_kind", ["co2", "h2o"])
+def test_controlled_mature_route_invokes_one_existing_runner_once(
+    tmp_path: Path,
+    route_kind: str,
+) -> None:
+    plan = _controlled_route_plan(tmp_path)
+    calls: list[list[str]] = []
+
+    result = _execute_controlled_route(
+        plan,
+        route_kind,
+        lambda argv: calls.append(list(argv)) or 0,
+    )
+
+    assert result["overall_status"] == "pass"
+    assert result["status"] == "completed"
+    assert result["execution_started"] is True
+    assert result["runner_invocation_count"] == 1
+    assert result["automatic_retry_count"] == 0
+    assert result["engineering_probe_only"] is True
+    assert result["promotion_state"] == "blocked"
+    assert result["not_real_acceptance_evidence"] is True
+    assert result["no_write"] is True
+    assert result["writes_coefficients"] is False
+    assert result["writes_senco"] is False
+    assert result["writes_device_id"] is False
+    assert len(calls) == 1
+    argv = calls[0]
+    assert "--dry-run" not in argv
+    assert "--no-prompt" in argv
+    assert "--no-ftd-write" in argv
+    assert "--engineering-probe-only" in argv
+    assert "--operator-confirmation" in argv
+    assert V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT in argv
+    assert "<OPERATOR_CONFIRMATION_REQUIRED_AT_EXECUTION>" not in argv
+
+
+@pytest.mark.parametrize(
+    ("authorization_text", "operator_confirmation_text", "blocker"),
+    [
+        (
+            "wrong application authorization",
+            V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT,
+            "application_authorization_text_mismatch",
+        ),
+        (
+            V1_5_CONTROLLED_MATURE_ROUTE_AUTHORIZATION_TEXT,
+            "wrong runner confirmation",
+            "runner_operator_confirmation_text_mismatch",
+        ),
+    ],
+)
+def test_controlled_mature_route_blocks_either_missing_unlock_before_runner(
+    tmp_path: Path,
+    authorization_text: str,
+    operator_confirmation_text: str,
+    blocker: str,
+) -> None:
+    plan = _controlled_route_plan(tmp_path)
+    calls: list[list[str]] = []
+
+    result = _execute_controlled_route(
+        plan,
+        "co2",
+        lambda argv: calls.append(list(argv)) or 0,
+        authorization_text=authorization_text,
+        operator_confirmation_text=operator_confirmation_text,
+    )
+
+    assert result["overall_status"] == "blocked"
+    assert blocker in result["blockers"]
+    assert result["execution_started"] is False
+    assert result["runner_invocation_count"] == 0
+    assert calls == []
+
+
+def test_controlled_mature_route_blocks_queue_drift_and_argv_mutation(
+    tmp_path: Path,
+) -> None:
+    plan = _controlled_route_plan(tmp_path)
+    route = next(row for row in plan["routes"] if row["route_kind"] == "h2o")
+    Path(route["queue_csv"]).write_text("tampered\n", encoding="utf-8")
+    calls: list[list[str]] = []
+
+    drift = _execute_controlled_route(
+        plan,
+        "h2o",
+        lambda argv: calls.append(list(argv)) or 0,
+    )
+
+    assert "queue_csv_sha256_binding_mismatch" in drift["blockers"]
+    assert drift["execution_started"] is False
+    assert calls == []
+
+    fresh_plan = _controlled_route_plan(tmp_path / "fresh")
+    command = next(
+        row
+        for row in fresh_plan["controlled_execution_handoff"]["commands"]
+        if row["route_kind"] == "h2o"
+    )
+    command["argv_template"].append("--allow-ftd-write")
+    mutated = _execute_controlled_route(
+        fresh_plan,
+        "h2o",
+        lambda argv: calls.append(list(argv)) or 0,
+    )
+
+    assert "selected_route_argv_not_canonical" in mutated["blockers"]
+    assert mutated["execution_started"] is False
+    assert calls == []
+
+
+@pytest.mark.parametrize("runner_outcome", [9, RuntimeError("synthetic failure")])
+def test_controlled_mature_route_never_retries_runner_failure(
+    tmp_path: Path,
+    runner_outcome: int | Exception,
+) -> None:
+    plan = _controlled_route_plan(tmp_path)
+    calls: list[list[str]] = []
+
+    def fake_runner(argv):
+        calls.append(list(argv))
+        if isinstance(runner_outcome, Exception):
+            raise runner_outcome
+        return runner_outcome
+
+    result = _execute_controlled_route(
+        plan,
+        "co2",
+        fake_runner,
+    )
+
+    assert result["overall_status"] == "failed"
+    assert result["runner_invocation_count"] == 1
+    assert result["automatic_retry_count"] == 0
+    assert len(calls) == 1
 
 
 def test_runtime_config_gate_accepts_unique_protocol_bound_pressure_ports(
