@@ -29,6 +29,7 @@ from ..orchestration.operator_workstation import (
     inspect_v1_5_runtime_config,
     run_v1_5_operator_workstation_application,
     write_v1_5_archive_authority_confirmation_receipt,
+    write_v1_5_controlled_route_preflight_receipt,
     write_v1_5_operator_workstation_startup_receipt,
 )
 from ..workstation_snapshot import (
@@ -231,8 +232,26 @@ _TEXT = {
         "handoff.preflight.note": (
             "仅校验绑定和参数，不打开 COM、不控制气路、不调用成熟运行器。"
         ),
+        "handoff.preflight.save": "保存预检回执",
+        "handoff.preflight.receipt_title": "V1.5 离线预检回执",
+        "handoff.preflight.receipt_missing": "请先完成一次 CO₂ 或 H₂O 离线预检。",
+        "handoff.preflight.receipt_saved": (
+            "不可覆盖的预检回执已保存：\n{path}\nSHA-256: {sha}\n状态：{status}"
+        ),
+        "handoff.preflight.receipt_failed": "预检回执保存失败：\n{reason}",
     },
     "en_US": {
+        "handoff.preflight.save": "Save preflight receipt",
+        "handoff.preflight.receipt_title": "V1.5 offline preflight receipt",
+        "handoff.preflight.receipt_missing": (
+            "Run one CO₂ or H₂O offline preflight first."
+        ),
+        "handoff.preflight.receipt_saved": (
+            "Immutable preflight receipt saved:\n{path}\nSHA-256: {sha}\nStatus: {status}"
+        ),
+        "handoff.preflight.receipt_failed": (
+            "Preflight receipt could not be saved:\n{reason}"
+        ),
         "handoff.preflight.title": "Mature route offline preflight",
         "handoff.preflight.route": "Route",
         "handoff.preflight.run": "Offline preflight (no execution)",
@@ -437,7 +456,9 @@ class OperatorWorkstationApp:
             value=_t("handoff.preflight.locked", locale=locale),
         )
         self.last_controlled_preflight: dict[str, Any] | None = None
+        self._last_controlled_preflight_plan: dict[str, Any] | None = None
         self.controlled_preflight_button: ttk.Button | None = None
+        self.controlled_preflight_receipt_button: ttk.Button | None = None
         self.pages: dict[str, tk.Widget] = {}
         self.nav_buttons: dict[str, ttk.Button] = {}
         self._presentation_active = False
@@ -1722,6 +1743,7 @@ class OperatorWorkstationApp:
         """Validate one mature route while keeping execution unconditionally off."""
 
         route_kind = "h2o" if self.controlled_route_var.get() == "H₂O" else "co2"
+        plan: dict[str, Any] | None = None
         route_label = _t(
             "route.h2o" if route_kind == "h2o" else "route.co2",
             locale=self.locale,
@@ -1754,6 +1776,7 @@ class OperatorWorkstationApp:
                 "runner_invocation_count": 0,
             }
         self.last_controlled_preflight = result
+        self._last_controlled_preflight_plan = plan
         ready = (
             result.get("status") == "preflight_ready_execution_locked"
             and result.get("execution_started") is False
@@ -1777,7 +1800,71 @@ class OperatorWorkstationApp:
                 reasons="；".join(str(reason) for reason in reasons),
             )
         self.controlled_preflight_var.set(text)
+        if self.controlled_preflight_receipt_button is not None:
+            self.controlled_preflight_receipt_button.state(
+                ["!disabled"] if plan is not None else ["disabled"]
+            )
         return result
+
+    def save_controlled_route_preflight_receipt(self) -> dict[str, Any] | None:
+        """Save the last offline preflight as an immutable local audit record."""
+
+        plan = self._last_controlled_preflight_plan
+        preflight = self.last_controlled_preflight
+        if plan is None or preflight is None:
+            messagebox.showerror(
+                _t("handoff.preflight.receipt_title", locale=self.locale),
+                _t("handoff.preflight.receipt_missing", locale=self.locale),
+                parent=self._handoff_dialog or self.root,
+            )
+            return None
+        route_kind = str(preflight.get("route_kind") or "route")
+        run_id = re.sub(
+            r"[^A-Za-z0-9_.-]+",
+            "_",
+            str(plan.get("run_id") or "preflight"),
+        ).strip("_")
+        output_path = filedialog.asksaveasfilename(
+            parent=self._handoff_dialog or self.root,
+            title=_t("handoff.preflight.receipt_title", locale=self.locale),
+            defaultextension=".json",
+            filetypes=(("JSON", "*.json"), ("All files", "*.*")),
+            initialdir=self.settings["output"].get(),
+            initialfile=(
+                f"v1_5_{route_kind}_preflight_{run_id or 'preflight'}.json"
+            ),
+        )
+        if not output_path:
+            return None
+        try:
+            written = write_v1_5_controlled_route_preflight_receipt(
+                plan,
+                preflight,
+                output_path,
+            )
+        except OSError as exc:
+            messagebox.showerror(
+                _t("handoff.preflight.receipt_title", locale=self.locale),
+                _t(
+                    "handoff.preflight.receipt_failed",
+                    locale=self.locale,
+                    reason=f"{type(exc).__name__}: {exc}",
+                ),
+                parent=self._handoff_dialog or self.root,
+            )
+            return None
+        messagebox.showinfo(
+            _t("handoff.preflight.receipt_title", locale=self.locale),
+            _t(
+                "handoff.preflight.receipt_saved",
+                locale=self.locale,
+                path=written["path"],
+                sha=written["sha256"],
+                status=written["status"],
+            ),
+            parent=self._handoff_dialog or self.root,
+        )
+        return written
 
     def open_controlled_handoff_preview(self) -> None:
         if self._handoff_dialog is not None and self._handoff_dialog.winfo_exists():
@@ -1849,7 +1936,7 @@ class OperatorWorkstationApp:
             _t("handoff.preflight.title", locale=self.locale),
             size=11,
             weight="bold",
-        ).grid(row=0, column=0, columnspan=3, sticky="w", padx=14, pady=(12, 4))
+        ).grid(row=0, column=0, columnspan=4, sticky="w", padx=14, pady=(12, 4))
         self._label(
             preflight,
             _t("handoff.preflight.route", locale=self.locale),
@@ -1877,6 +1964,20 @@ class OperatorWorkstationApp:
             padx=14,
             pady=6,
         )
+        self.controlled_preflight_receipt_button = ttk.Button(
+            preflight,
+            text=_t("handoff.preflight.save", locale=self.locale),
+            style="Secondary.TButton",
+            command=self.save_controlled_route_preflight_receipt,
+        )
+        self.controlled_preflight_receipt_button.state(["disabled"])
+        self.controlled_preflight_receipt_button.grid(
+            row=1,
+            column=3,
+            sticky="e",
+            padx=(0, 14),
+            pady=6,
+        )
         preflight.grid_columnconfigure(2, weight=1)
         self._label(
             preflight,
@@ -1885,7 +1986,7 @@ class OperatorWorkstationApp:
             color="amber",
             wraplength=900,
             justify="left",
-        ).grid(row=2, column=0, columnspan=3, sticky="w", padx=14, pady=(4, 2))
+        ).grid(row=2, column=0, columnspan=4, sticky="w", padx=14, pady=(4, 2))
         self._label(
             preflight,
             _t("handoff.preflight.note", locale=self.locale),
@@ -1893,7 +1994,7 @@ class OperatorWorkstationApp:
             color="muted",
             wraplength=900,
             justify="left",
-        ).grid(row=3, column=0, columnspan=3, sticky="w", padx=14, pady=(2, 12))
+        ).grid(row=3, column=0, columnspan=4, sticky="w", padx=14, pady=(2, 12))
 
         actions = tk.Frame(dialog, bg=_COLORS["surface"])
         actions.pack(fill="x", padx=20, pady=(0, 18))

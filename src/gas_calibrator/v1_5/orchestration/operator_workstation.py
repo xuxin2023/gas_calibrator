@@ -48,6 +48,9 @@ SCHEMA = "v1_5_operator_workstation_dry_run_v1"
 CONTROLLED_MATURE_ROUTE_EXECUTION_SCHEMA = (
     "v1_5_controlled_mature_route_execution_v1"
 )
+CONTROLLED_MATURE_ROUTE_PREFLIGHT_RECEIPT_SCHEMA = (
+    "v1_5_controlled_mature_route_preflight_receipt_v1"
+)
 STARTUP_RECEIPT_SCHEMA = "v1_5_operator_workstation_startup_receipt_v1"
 ARCHIVE_AUTHORITY_CONFIRMATION_RECEIPT_SCHEMA = (
     "v1_5_archive_authority_confirmation_receipt_v1"
@@ -1987,6 +1990,155 @@ def execute_v1_5_controlled_mature_route(
     return result
 
 
+def build_v1_5_controlled_route_preflight_receipt(
+    plan: Mapping[str, Any],
+    preflight: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Freeze one offline route preflight without granting execution authority."""
+
+    route_kind = str(preflight.get("route_kind") or "").strip().lower()
+    routes = [
+        dict(row)
+        for row in plan.get("routes") or []
+        if isinstance(row, Mapping) and row.get("route_kind") == route_kind
+    ]
+    route = routes[0] if len(routes) == 1 else {}
+    inspection_value = plan.get("runtime_config_inspection")
+    inspection = inspection_value if isinstance(inspection_value, Mapping) else {}
+    point_counts_value = plan.get("point_counts")
+    point_counts = point_counts_value if isinstance(point_counts_value, Mapping) else {}
+    handoff_value = plan.get("controlled_execution_handoff")
+    handoff = handoff_value if isinstance(handoff_value, Mapping) else {}
+    config_path = Path(str(plan.get("runtime_config") or "")).resolve()
+    queue_path = Path(str(route.get("queue_csv") or "")).resolve()
+    current_config_sha = _sha256_file(config_path)
+    current_queue_sha = _sha256_file(queue_path)
+    result_config_sha = str(preflight.get("runtime_config_sha256") or "").lower()
+    result_queue_sha = str(preflight.get("queue_csv_sha256") or "").lower()
+    blockers = list(preflight.get("blockers") or [])
+    checks = {
+        "preflight_schema_valid": (
+            preflight.get("schema") == CONTROLLED_MATURE_ROUTE_EXECUTION_SCHEMA
+        ),
+        "route_binding_unique": len(routes) == 1 and route_kind in EXPECTED_POINT_COUNTS,
+        "preflight_ready_and_locked": (
+            preflight.get("status") == "preflight_ready_execution_locked"
+            and preflight.get("execution_started") is False
+            and preflight.get("execution_allowed") is False
+            and int(preflight.get("runner_invocation_count") or 0) == 0
+        ),
+        "runtime_config_hash_still_bound": (
+            bool(current_config_sha)
+            and current_config_sha == result_config_sha
+            and current_config_sha == str(inspection.get("sha256") or "").lower()
+        ),
+        "queue_hash_still_bound": (
+            bool(current_queue_sha)
+            and current_queue_sha == result_queue_sha
+            and current_queue_sha
+            == str(route.get("queue_csv_sha256") or "").lower()
+        ),
+        "point_count_contract_preserved": (
+            route_kind in EXPECTED_POINT_COUNTS
+            and int(point_counts.get(route_kind) or 0)
+            == EXPECTED_POINT_COUNTS.get(route_kind)
+            and int(route.get("expected_point_count") or 0)
+            == EXPECTED_POINT_COUNTS.get(route_kind)
+        ),
+    }
+    blockers.extend(
+        f"preflight_receipt_check_failed:{key}"
+        for key, passed in checks.items()
+        if not passed
+    )
+    blockers = list(dict.fromkeys(blockers))
+    ready = not blockers and all(checks.values())
+    return {
+        "schema": CONTROLLED_MATURE_ROUTE_PREFLIGHT_RECEIPT_SCHEMA,
+        "generated_at": _now(),
+        "status": (
+            "preflight_recorded_execution_locked"
+            if ready
+            else "blocked_preflight_recorded_execution_locked"
+        ),
+        "preflight_passed": ready,
+        "blockers": blockers,
+        "checks": checks,
+        "source_plan": {
+            "schema": str(plan.get("schema") or ""),
+            "run_id": str(plan.get("run_id") or ""),
+            "calibration_kernel": str(plan.get("calibration_kernel") or ""),
+            "profile_id": str(plan.get("profile_id") or ""),
+        },
+        "route_binding": {
+            "route_kind": route_kind,
+            "runner_module": str(route.get("runner_module") or ""),
+            "runtime_config": {
+                "path": _path_text(config_path),
+                "sha256": current_config_sha,
+            },
+            "queue_csv": {
+                "path": _path_text(queue_path),
+                "sha256": current_queue_sha,
+                "point_count": int(
+                    point_counts.get(route_kind) or 0
+                ),
+                "expected_point_count": int(
+                    route.get("expected_point_count") or 0
+                ),
+            },
+            "argv_template": list(
+                next(
+                    (
+                        command.get("argv_template") or []
+                        for command in handoff.get("commands") or []
+                        if isinstance(command, Mapping)
+                        and command.get("route_kind") == route_kind
+                    ),
+                    [],
+                )
+            ),
+        },
+        "preflight_result": {
+            "schema": str(preflight.get("schema") or ""),
+            "status": str(preflight.get("status") or ""),
+            "overall_status": str(preflight.get("overall_status") or ""),
+            "execution_started": preflight.get("execution_started") is True,
+            "execution_allowed": preflight.get("execution_allowed") is True,
+            "runner_invocation_count": int(
+                preflight.get("runner_invocation_count") or 0
+            ),
+        },
+        "meaning": "records_offline_preflight_only_does_not_authorize_execution",
+        "preflight_only": True,
+        "real_execution_authorized": False,
+        "opens_com_ports": False,
+        "controls_water_or_gas_routes": False,
+        "writes_coefficients": False,
+        "writes_device_id": False,
+        "promotion_state": "blocked",
+        "not_real_acceptance_evidence": True,
+        "v1_fallback_preserved": True,
+    }
+
+
+def write_v1_5_controlled_route_preflight_receipt(
+    plan: Mapping[str, Any],
+    preflight: Mapping[str, Any],
+    output_path: str | Path,
+) -> dict[str, Any]:
+    """Write one immutable offline preflight receipt and return its hash."""
+
+    receipt = build_v1_5_controlled_route_preflight_receipt(plan, preflight)
+    path, sha256 = _write_immutable_json(receipt, output_path)
+    return {
+        "path": _path_text(path),
+        "sha256": sha256,
+        "status": receipt["status"],
+        "preflight_passed": receipt["preflight_passed"],
+        "real_execution_authorized": False,
+        "opens_com_ports": False,
+    }
 
 
 def write_v1_5_operator_workstation_outputs(
@@ -2058,6 +2210,7 @@ __all__ = [
     "ARCHIVE_AUTHORITY_CONFIRMATION_RECEIPT_SCHEMA",
     "CALIBRATION_KERNEL",
     "CONTROLLED_MATURE_ROUTE_EXECUTION_SCHEMA",
+    "CONTROLLED_MATURE_ROUTE_PREFLIGHT_RECEIPT_SCHEMA",
     "EXPECTED_POINT_COUNTS",
     "PRODUCT_NAME",
     "PROFILE_ID",
@@ -2068,6 +2221,7 @@ __all__ = [
     "V1_5_CONTROLLED_MATURE_ROUTE_AUTHORIZATION_TEXT",
     "V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT",
     "build_v1_5_archive_authority_confirmation_receipt",
+    "build_v1_5_controlled_route_preflight_receipt",
     "build_v1_5_operator_workstation_plan",
     "build_v1_5_operator_workstation_startup_receipt",
     "build_v1_5_workstation_decision_model",
@@ -2078,6 +2232,7 @@ __all__ = [
     "load_v1_5_decision_authorities",
     "run_v1_5_operator_workstation_application",
     "write_v1_5_archive_authority_confirmation_receipt",
+    "write_v1_5_controlled_route_preflight_receipt",
     "write_v1_5_operator_workstation_outputs",
     "write_v1_5_operator_workstation_startup_receipt",
 ]

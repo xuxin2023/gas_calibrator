@@ -13,6 +13,7 @@ from gas_calibrator.v1_5.orchestration.operator_workstation import (
     V1_5_CONTROLLED_MATURE_ROUTE_AUTHORIZATION_TEXT,
     V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT,
     build_v1_5_archive_authority_confirmation_receipt,
+    build_v1_5_controlled_route_preflight_receipt,
     build_v1_5_operator_workstation_plan,
     build_v1_5_operator_workstation_startup_receipt,
     build_v1_5_workstation_decision_model,
@@ -23,6 +24,7 @@ from gas_calibrator.v1_5.orchestration.operator_workstation import (
     load_v1_5_decision_authorities,
     run_v1_5_operator_workstation_application,
     write_v1_5_archive_authority_confirmation_receipt,
+    write_v1_5_controlled_route_preflight_receipt,
     write_v1_5_operator_workstation_startup_receipt,
 )
 from v1_5_workstation_test_support import (
@@ -998,6 +1000,75 @@ def test_controlled_mature_route_never_retries_runner_failure(
     assert result["runner_invocation_count"] == 1
     assert result["automatic_retry_count"] == 0
     assert len(calls) == 1
+
+
+def test_controlled_route_preflight_receipt_is_locked_and_immutable(
+    tmp_path: Path,
+) -> None:
+    plan = _controlled_route_plan(tmp_path)
+    preflight = _execute_controlled_route(
+        plan,
+        "co2",
+        lambda _argv: 0,
+        execute=False,
+    )
+    receipt = build_v1_5_controlled_route_preflight_receipt(plan, preflight)
+
+    assert receipt["status"] == "preflight_recorded_execution_locked"
+    assert receipt["preflight_passed"] is True
+    assert all(receipt["checks"].values())
+    assert receipt["route_binding"]["route_kind"] == "co2"
+    assert receipt["route_binding"]["queue_csv"]["point_count"] == 45
+    assert receipt["preflight_result"]["runner_invocation_count"] == 0
+    assert receipt["real_execution_authorized"] is False
+    assert receipt["opens_com_ports"] is False
+    assert receipt["writes_coefficients"] is False
+    assert receipt["not_real_acceptance_evidence"] is True
+
+    output_path = tmp_path / "receipts" / "co2_preflight.json"
+    written = write_v1_5_controlled_route_preflight_receipt(
+        plan,
+        preflight,
+        output_path,
+    )
+    original = output_path.read_bytes()
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert written["sha256"] == hashlib.sha256(original).hexdigest()
+    assert written["real_execution_authorized"] is False
+    assert payload["status"] == "preflight_recorded_execution_locked"
+
+    with pytest.raises(FileExistsError):
+        write_v1_5_controlled_route_preflight_receipt(
+            plan,
+            preflight,
+            output_path,
+        )
+    assert output_path.read_bytes() == original
+
+
+def test_controlled_route_preflight_receipt_detects_post_preflight_queue_drift(
+    tmp_path: Path,
+) -> None:
+    plan = _controlled_route_plan(tmp_path)
+    preflight = _execute_controlled_route(
+        plan,
+        "h2o",
+        lambda _argv: 0,
+        execute=False,
+    )
+    route = next(row for row in plan["routes"] if row["route_kind"] == "h2o")
+    Path(route["queue_csv"]).write_text("drifted\n", encoding="utf-8")
+
+    receipt = build_v1_5_controlled_route_preflight_receipt(plan, preflight)
+
+    assert receipt["status"] == "blocked_preflight_recorded_execution_locked"
+    assert receipt["preflight_passed"] is False
+    assert receipt["checks"]["queue_hash_still_bound"] is False
+    assert "preflight_receipt_check_failed:queue_hash_still_bound" in receipt[
+        "blockers"
+    ]
+    assert receipt["real_execution_authorized"] is False
+    assert receipt["promotion_state"] == "blocked"
 
 
 def test_runtime_config_gate_accepts_unique_protocol_bound_pressure_ports(

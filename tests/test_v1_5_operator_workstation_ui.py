@@ -170,6 +170,9 @@ def test_controlled_handoff_preview_is_read_only_and_keeps_double_unlock(
     repository_root = Path(__file__).resolve().parents[1]
     co2, h2o = write_legacy_profile_queues(tmp_path)
     preflight_calls: list[dict] = []
+    info_messages: list[str] = []
+    error_messages: list[str] = []
+    receipt_path = tmp_path / "h2o_preflight_receipt.json"
     real_preflight = workstation_ui.execute_v1_5_controlled_mature_route
 
     def recording_preflight(plan, **kwargs):
@@ -188,6 +191,21 @@ def test_controlled_handoff_preview_is_read_only_and_keeps_double_unlock(
         workstation_ui,
         "execute_v1_5_controlled_mature_route",
         recording_preflight,
+    )
+    monkeypatch.setattr(
+        workstation_ui.filedialog,
+        "asksaveasfilename",
+        lambda **_kwargs: str(receipt_path),
+    )
+    monkeypatch.setattr(
+        workstation_ui.messagebox,
+        "showinfo",
+        lambda _title, message, **_kwargs: info_messages.append(str(message)),
+    )
+    monkeypatch.setattr(
+        workstation_ui.messagebox,
+        "showerror",
+        lambda _title, message, **_kwargs: error_messages.append(str(message)),
     )
     try:
         app = OperatorWorkstationApp(
@@ -223,6 +241,8 @@ def test_controlled_handoff_preview_is_read_only_and_keeps_double_unlock(
         dialog_text = "\n".join(_texts(app._handoff_dialog))
         assert app.controlled_route_var.get() == "CO₂"
         assert app.controlled_preflight_button is not None
+        assert app.controlled_preflight_receipt_button is not None
+        assert app.controlled_preflight_receipt_button.instate(["disabled"])
         assert str(app.controlled_preflight_button.cget("text")) == _t(
             "handoff.preflight.run"
         )
@@ -235,6 +255,7 @@ def test_controlled_handoff_preview_is_read_only_and_keeps_double_unlock(
         assert co2_preflight["execution_allowed"] is False
         assert co2_preflight["runner_invocation_count"] == 0
         assert "预检通过" in app.controlled_preflight_var.get()
+        assert app.controlled_preflight_receipt_button.instate(["!disabled"])
 
         app.controlled_route_var.set("H₂O")
         h2o_preflight = app.run_controlled_route_preflight()
@@ -244,6 +265,20 @@ def test_controlled_handoff_preview_is_read_only_and_keeps_double_unlock(
         assert [call["execute"] for call in preflight_calls] == [False, False]
         assert all("authorization_text" not in call for call in preflight_calls)
         assert app._handoff_dialog.winfo_height() <= 1080
+
+        written = app.save_controlled_route_preflight_receipt()
+        assert written is not None
+        assert written["preflight_passed"] is True
+        payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+        assert payload["route_binding"]["route_kind"] == "h2o"
+        assert payload["route_binding"]["queue_csv"]["point_count"] == 13
+        assert payload["real_execution_authorized"] is False
+        original = receipt_path.read_bytes()
+        assert info_messages and "SHA-256" in info_messages[-1]
+
+        assert app.save_controlled_route_preflight_receipt() is None
+        assert receipt_path.read_bytes() == original
+        assert error_messages and "FileExistsError" in error_messages[-1]
 
         dialog_text = "\n".join(_texts(app._handoff_dialog))
         assert "此窗口不执行任何命令" in dialog_text
@@ -775,6 +810,10 @@ def test_operator_workstation_i18n_defaults_to_chinese_with_english_fallback() -
     assert _t("handoff.preflight.run") == "离线预检（不执行）"
     assert _t("handoff.preflight.run", locale="en_US") == (
         "Offline preflight (no execution)"
+    )
+    assert _t("handoff.preflight.save") == "保存预检回执"
+    assert _t("handoff.preflight.save", locale="en_US") == (
+        "Save preflight receipt"
     )
     assert _t("route.zero", locale="en_US") == "CO₂ 零气锚点"
     assert _t("evidence.pressure_gauge_short") == "表"
