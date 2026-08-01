@@ -45,6 +45,15 @@ from .serial_port_binding import (
 
 
 SCHEMA = "v1_5_operator_workstation_dry_run_v1"
+CONTROLLED_MATURE_ROUTE_EXECUTION_SCHEMA = (
+    "v1_5_controlled_mature_route_execution_v1"
+)
+CONTROLLED_MATURE_ROUTE_PREFLIGHT_RECEIPT_SCHEMA = (
+    "v1_5_controlled_mature_route_preflight_receipt_v1"
+)
+CONTROLLED_MATURE_ROUTE_PREFLIGHT_RECEIPT_VERIFICATION_SCHEMA = (
+    "v1_5_controlled_mature_route_preflight_receipt_verification_v1"
+)
 STARTUP_RECEIPT_SCHEMA = "v1_5_operator_workstation_startup_receipt_v1"
 ARCHIVE_AUTHORITY_CONFIRMATION_RECEIPT_SCHEMA = (
     "v1_5_archive_authority_confirmation_receipt_v1"
@@ -53,6 +62,9 @@ V1_5_ARCHIVE_AUTHORITY_CONFIRMATION_TEXT = (
     "I CONFIRM THE SELECTED V1.5 FORMAL ARCHIVE MATCHES THE CURRENT BATCH "
     "AND DEVICE SET; THIS RECEIPT DOES NOT AUTHORIZE COM ACCESS, DEVICE "
     "WRITES, COEFFICIENT WRITES, OR FORMAL CERTIFICATE ISSUE."
+)
+V1_5_CONTROLLED_MATURE_ROUTE_AUTHORIZATION_TEXT = (
+    "I AUTHORIZE ONE V1.5 MATURE ROUTE NO-WRITE ENGINEERING PROBE"
 )
 PRODUCT_NAME = "V1.5 气体分析仪校准工作站"
 CALIBRATION_KERNEL = "v1_5_legacy_ratio_0613_0620_0621"
@@ -135,6 +147,15 @@ def _path_text(path: Path) -> str:
 
 def _sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else ""
+
+
+def _safe_sha256_file(path: Path | None) -> str:
+    if path is None:
+        return ""
+    try:
+        return _sha256_file(path)
+    except OSError:
+        return ""
 
 
 def _normalize_device_ids(value: str | Iterable[Any] | None) -> list[str]:
@@ -392,6 +413,7 @@ def load_v1_5_decision_authorities(
         "opens_com_ports": False,
         "controls_water_or_gas_routes": False,
         "writes_coefficients": False,
+        "writes_senco": False,
         "writes_device_id": False,
         "reads_existing_files_only": True,
     }
@@ -1750,6 +1772,785 @@ def execute_v1_5_operator_workstation_dry_run(
     }
 
 
+def execute_v1_5_controlled_mature_route(
+    plan: Mapping[str, Any],
+    *,
+    route_kind: str,
+    execute: bool = False,
+    authorization_text: str = "",
+    operator_confirmation_text: str = "",
+    expected_runtime_config_sha256: str = "",
+    expected_queue_csv_sha256: str = "",
+) -> dict[str, Any]:
+    """Invoke one mature route after hash binding and two exact confirmations."""
+
+    selected = str(route_kind or "").strip().lower()
+    blockers: list[str] = []
+    result: dict[str, Any] = {
+        "schema": CONTROLLED_MATURE_ROUTE_EXECUTION_SCHEMA,
+        "requested_at": _now(),
+        "route_kind": selected,
+        "overall_status": "blocked",
+        "status": "blocked",
+        "preflight_passed": False,
+        "execution_started": False,
+        "execution_allowed": False,
+        "runner_invocation_count": 0,
+        "automatic_retry_count": 0,
+        "blockers": blockers,
+        "engineering_probe_only": True,
+        "promotion_state": "blocked",
+        "not_real_acceptance_evidence": True,
+        "no_write": True,
+        "allows_ftd_write": False,
+        "writes_coefficients": False,
+        "writes_senco": False,
+        "writes_device_id": False,
+    }
+    modules = {"co2": CO2_RUNNER, "h2o": H2O_RUNNER}
+    if selected not in modules:
+        blockers.append("route_kind_not_supported")
+        return result
+
+    handoff_value = plan.get("controlled_execution_handoff")
+    handoff = handoff_value if isinstance(handoff_value, Mapping) else {}
+    required_confirmation_sha = hashlib.sha256(
+        V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT.encode("utf-8")
+    ).hexdigest()
+    if (
+        plan.get("overall_status") != "ready_for_v1_5_dry_run"
+        or list(plan.get("blockers") or [])
+        or plan.get("no_write") is not True
+    ):
+        blockers.append("workstation_plan_not_ready")
+    if (
+        handoff.get("schema") != "v1_5_controlled_execution_handoff_v1"
+        or handoff.get("status") != "blocked_pending_explicit_double_unlock"
+        or handoff.get("execution_allowed") is not False
+        or handoff.get("allows_ftd_write") is not False
+        or list(handoff.get("blockers") or [])
+        or handoff.get("operator_confirmation_required_sha256")
+        != required_confirmation_sha
+    ):
+        blockers.append("controlled_handoff_invalid")
+
+    route_rows = [
+        row for row in list(plan.get("routes") or []) if isinstance(row, Mapping)
+    ]
+    routes_by_kind = {
+        str(row.get("route_kind") or ""): row
+        for row in route_rows
+    }
+    commands = [
+        row
+        for row in list(handoff.get("commands") or [])
+        if isinstance(row, Mapping) and row.get("route_kind") == selected
+    ]
+    if len(route_rows) != 2 or set(routes_by_kind) != {"co2", "h2o"}:
+        blockers.append("workstation_route_contract_mismatch")
+    if selected not in routes_by_kind or len(commands) != 1:
+        blockers.append("selected_route_or_command_count_mismatch")
+        return result
+
+    route = routes_by_kind[selected]
+    command = commands[0]
+    module = modules[selected]
+    config_text = str(plan.get("runtime_config") or "").strip()
+    queue_text = str(route.get("queue_csv") or "").strip()
+    output_text = str(route.get("output_dir") or "").strip()
+    queue_run_id = str(route.get("queue_run_id") or "").strip()
+    if (
+        route.get("runner_module") != module
+        or command.get("runner_module") != module
+        or route.get("expected_point_count") != EXPECTED_POINT_COUNTS[selected]
+        or not isinstance(plan.get("point_counts"), Mapping)
+        or plan["point_counts"].get(selected)
+        != EXPECTED_POINT_COUNTS[selected]
+    ):
+        blockers.append("selected_route_contract_mismatch")
+    if not all((config_text, queue_text, output_text, queue_run_id)):
+        blockers.append("selected_route_path_or_run_id_missing")
+
+    inspection_value = plan.get("runtime_config_inspection")
+    inspection = inspection_value if isinstance(inspection_value, Mapping) else {}
+    declared_config_sha = str(inspection.get("sha256") or "").lower()
+    supplied_config_sha = str(expected_runtime_config_sha256 or "").lower()
+    declared_queue_sha = str(route.get("queue_csv_sha256") or "").lower()
+    supplied_queue_sha = str(expected_queue_csv_sha256 or "").lower()
+    current_config_sha = _sha256_file(Path(config_text).resolve()) if config_text else ""
+    current_queue_sha = _sha256_file(Path(queue_text).resolve()) if queue_text else ""
+    if (
+        not re.fullmatch(r"[0-9a-f]{64}", supplied_config_sha)
+        or len({declared_config_sha, supplied_config_sha, current_config_sha}) != 1
+        or str(handoff.get("runtime_config_sha256") or "").lower()
+        != current_config_sha
+    ):
+        blockers.append("runtime_config_sha256_binding_mismatch")
+    if (
+        not re.fullmatch(r"[0-9a-f]{64}", supplied_queue_sha)
+        or len({declared_queue_sha, supplied_queue_sha, current_queue_sha}) != 1
+        or str(command.get("queue_csv_sha256") or "").lower() != current_queue_sha
+    ):
+        blockers.append("queue_csv_sha256_binding_mismatch")
+
+    route_paths = {
+        kind: Path(str(row.get("queue_csv") or ""))
+        for kind, row in routes_by_kind.items()
+    }
+    if set(route_paths) == {"co2", "h2o"}:
+        current_counts, queue_blockers = _queue_point_counts(
+            route_paths["co2"],
+            route_paths["h2o"],
+        )
+        if queue_blockers or current_counts != EXPECTED_POINT_COUNTS:
+            blockers.append("current_45_13_queue_contract_mismatch")
+
+    canonical_template: list[str] = []
+    if current_config_sha and current_queue_sha and output_text and queue_run_id:
+        canonical_route = _route_plan(
+            route_kind=selected,
+            runner_module=module,
+            config_path=Path(config_text),
+            queue_csv=Path(queue_text),
+            output_dir=Path(output_text),
+            queue_run_id=queue_run_id,
+        )
+        canonical_template = [
+            str(value)
+            for value in canonical_route["argv"]
+            if str(value) != "--dry-run"
+        ]
+        canonical_template.extend(
+            [
+                "--engineering-probe-only",
+                "--operator-confirmation",
+                _OPERATOR_CONFIRMATION_PLACEHOLDER,
+            ]
+        )
+        if (
+            list(route.get("argv") or []) != canonical_route["argv"]
+            or list(command.get("argv_template") or []) != canonical_template
+        ):
+            blockers.append("selected_route_argv_not_canonical")
+
+    result["blockers"] = list(dict.fromkeys(blockers))
+    if result["blockers"]:
+        return result
+    result.update(
+        {
+            "preflight_passed": True,
+            "runner_module": module,
+            "queue_csv_sha256": current_queue_sha,
+            "runtime_config_sha256": current_config_sha,
+        }
+    )
+    if not execute:
+        result.update(
+            {"overall_status": "ready", "status": "preflight_ready_execution_locked"}
+        )
+        return result
+
+    if authorization_text != V1_5_CONTROLLED_MATURE_ROUTE_AUTHORIZATION_TEXT:
+        result["blockers"].append("application_authorization_text_mismatch")
+    if operator_confirmation_text != V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT:
+        result["blockers"].append("runner_operator_confirmation_text_mismatch")
+    if result["blockers"]:
+        return result
+
+    argv = [
+        operator_confirmation_text
+        if value == _OPERATOR_CONFIRMATION_PLACEHOLDER
+        else value
+        for value in canonical_template
+    ]
+    runners: dict[str, Callable[[Iterable[str]], int]] = {
+        "co2": _run_co2_queue,
+        "h2o": _run_h2o_queue,
+    }
+    result.update(
+        {
+            "execution_allowed": True,
+            "execution_started": True,
+            "runner_invocation_count": 1,
+        }
+    )
+    try:
+        returncode = int(runners[selected](argv))
+    except Exception as exc:
+        result.update(
+            {
+                "completed_at": _now(),
+                "overall_status": "failed",
+                "status": "runner_exception",
+                "runner_error": f"{type(exc).__name__}: {exc}",
+            }
+        )
+        result["blockers"].append(f"runner_exception:{type(exc).__name__}")
+        return result
+
+    summary_path, summary = _find_queue_summary(route)
+    confirmation_path_text = str(
+        summary.get("operator_confirmation_record") or ""
+    ).strip()
+    confirmation_path = (
+        Path(confirmation_path_text).resolve() if confirmation_path_text else None
+    )
+    expected_confirmation_path = (
+        summary_path.parent / V1_5_OPERATOR_CONFIRMATION_RECORD_FILENAME
+        if summary_path
+        else None
+    )
+    confirmation_record: Mapping[str, Any] = {}
+    if confirmation_path is not None and confirmation_path.is_file():
+        try:
+            loaded_confirmation = json.loads(
+                confirmation_path.read_text(encoding="utf-8-sig")
+            )
+            if isinstance(loaded_confirmation, Mapping):
+                confirmation_record = loaded_confirmation
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            pass
+    expected_confirmation_sha = hashlib.sha256(
+        V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT.encode("utf-8")
+    ).hexdigest()
+    expected_confirmation_scope = (
+        f"v1_5_{selected}_open_flow_queue_no_write_engineering_probe"
+    )
+    expected_no_write_scope = (
+        "no_analyzer_persistent_configuration_no_senco_no_device_id_"
+        "no_calibration_coefficient_write"
+    )
+    completion_checks = {
+        "queue_summary_present": summary_path is not None,
+        "queue_summary_paths_bound": (
+            bool(summary)
+            and Path(str(summary.get("config_path") or "")).resolve()
+            == Path(config_text).resolve()
+            and Path(str(summary.get("queue_csv") or "")).resolve()
+            == Path(queue_text).resolve()
+        ),
+        "queue_summary_point_contract_preserved": (
+            type(summary.get("selected_points")) is int
+            and summary.get("selected_points") == EXPECTED_POINT_COUNTS[selected]
+            and type(summary.get("ok_points")) is int
+            and summary.get("ok_points") == EXPECTED_POINT_COUNTS[selected]
+            and summary.get("failed_points") == 0
+            and summary.get("dry_run_points") == 0
+            and summary.get("hard_failure") is False
+        ),
+        "queue_summary_no_write_probe_preserved": (
+            summary.get("dry_run") is False
+            and summary.get("no_write") is True
+            and summary.get("engineering_probe_only") is True
+            and summary.get("promotion_state") == "blocked"
+            and summary.get("not_real_acceptance_evidence") is True
+            and summary.get("writes_senco") is False
+            and summary.get("writes_device_id") is False
+            and summary.get("no_write_scope") == expected_no_write_scope
+        ),
+        "operator_confirmation_record_present": (
+            confirmation_path is not None
+            and expected_confirmation_path is not None
+            and confirmation_path == expected_confirmation_path.resolve()
+            and confirmation_path.is_file()
+        ),
+        "operator_confirmation_record_valid": (
+            confirmation_record.get("schema_version")
+            == "v1_5_operator_confirmation_record_v0"
+            and confirmation_record.get("run_id") == queue_run_id
+            and confirmation_record.get("scope") == expected_confirmation_scope
+            and confirmation_record.get("engineering_probe_only") is True
+            and confirmation_record.get("operator_confirmation_text")
+            == V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT
+            and confirmation_record.get("operator_confirmation_sha256")
+            == expected_confirmation_sha
+            and confirmation_record.get("operator_confirmation_matches_required")
+            is True
+            and confirmation_record.get("no_write") is True
+            and confirmation_record.get("no_write_scope") == expected_no_write_scope
+            and confirmation_record.get("ftd_write_enabled") is False
+            and confirmation_record.get("promotion_state") == "blocked"
+            and confirmation_record.get("not_real_acceptance_evidence") is True
+        ),
+        "runtime_config_unchanged_after_runner": (
+            _safe_sha256_file(Path(config_text).resolve()) == current_config_sha
+        ),
+        "queue_csv_unchanged_after_runner": (
+            _safe_sha256_file(Path(queue_text).resolve()) == current_queue_sha
+        ),
+    }
+    result["completion_evidence_checks"] = completion_checks
+    result["queue_summary"] = _path_text(summary_path) if summary_path else ""
+    result["operator_confirmation_record"] = (
+        _path_text(confirmation_path) if confirmation_path else ""
+    )
+    if returncode == 0:
+        result["blockers"].extend(
+            f"completion_evidence_check_failed:{key}"
+            for key, passed in completion_checks.items()
+            if not passed
+        )
+    result.update(
+        {
+            "completed_at": _now(),
+            "runner_returncode": returncode,
+            "overall_status": (
+                "pass" if returncode == 0 and not result["blockers"] else "failed"
+            ),
+            "status": (
+                "completed"
+                if returncode == 0 and not result["blockers"]
+                else "completion_evidence_failed"
+                if returncode == 0
+                else "runner_failed"
+            ),
+        }
+    )
+    if returncode != 0:
+        result["blockers"].append(f"runner_returncode={returncode}")
+    return result
+
+
+def preflight_v1_5_controlled_mature_route(
+    plan: Mapping[str, Any],
+    *,
+    route_kind: str,
+) -> dict[str, Any]:
+    """Run the shared hash-bound mature-route preflight with execution locked."""
+
+    selected = str(route_kind or "").strip().lower()
+    inspection_value = plan.get("runtime_config_inspection")
+    inspection = inspection_value if isinstance(inspection_value, Mapping) else {}
+    route = next(
+        (
+            row
+            for row in plan.get("routes") or []
+            if isinstance(row, Mapping) and row.get("route_kind") == selected
+        ),
+        {},
+    )
+    return execute_v1_5_controlled_mature_route(
+        plan,
+        route_kind=selected,
+        execute=False,
+        expected_runtime_config_sha256=str(inspection.get("sha256") or ""),
+        expected_queue_csv_sha256=str(route.get("queue_csv_sha256") or ""),
+    )
+
+
+def build_v1_5_controlled_route_preflight_receipt(
+    plan: Mapping[str, Any],
+    preflight: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Freeze one offline route preflight without granting execution authority."""
+
+    route_kind = str(preflight.get("route_kind") or "").strip().lower()
+    routes = [
+        dict(row)
+        for row in plan.get("routes") or []
+        if isinstance(row, Mapping) and row.get("route_kind") == route_kind
+    ]
+    route = routes[0] if len(routes) == 1 else {}
+    inspection_value = plan.get("runtime_config_inspection")
+    inspection = inspection_value if isinstance(inspection_value, Mapping) else {}
+    point_counts_value = plan.get("point_counts")
+    point_counts = point_counts_value if isinstance(point_counts_value, Mapping) else {}
+    handoff_value = plan.get("controlled_execution_handoff")
+    handoff = handoff_value if isinstance(handoff_value, Mapping) else {}
+    config_path = Path(str(plan.get("runtime_config") or "")).resolve()
+    queue_path = Path(str(route.get("queue_csv") or "")).resolve()
+    current_config_sha = _sha256_file(config_path)
+    current_queue_sha = _sha256_file(queue_path)
+    result_config_sha = str(preflight.get("runtime_config_sha256") or "").lower()
+    result_queue_sha = str(preflight.get("queue_csv_sha256") or "").lower()
+    preflight_blockers = preflight.get("blockers")
+    blockers = (
+        list(preflight_blockers)
+        if isinstance(preflight_blockers, list)
+        else ["preflight_blockers_invalid_type"]
+    )
+    checks = {
+        "preflight_schema_valid": (
+            preflight.get("schema") == CONTROLLED_MATURE_ROUTE_EXECUTION_SCHEMA
+        ),
+        "route_binding_unique": len(routes) == 1 and route_kind in EXPECTED_POINT_COUNTS,
+        "preflight_ready_and_locked": (
+            preflight.get("status") == "preflight_ready_execution_locked"
+            and preflight.get("overall_status") == "ready"
+            and preflight.get("preflight_passed") is True
+            and preflight.get("execution_started") is False
+            and preflight.get("execution_allowed") is False
+            and type(preflight.get("runner_invocation_count")) is int
+            and preflight.get("runner_invocation_count") == 0
+        ),
+        "preflight_safety_contract_preserved": (
+            preflight.get("engineering_probe_only") is True
+            and preflight.get("promotion_state") == "blocked"
+            and preflight.get("not_real_acceptance_evidence") is True
+            and preflight.get("no_write") is True
+            and preflight.get("allows_ftd_write") is False
+            and preflight.get("writes_coefficients") is False
+            and preflight.get("writes_senco") is False
+            and preflight.get("writes_device_id") is False
+        ),
+        "runtime_config_hash_still_bound": (
+            bool(current_config_sha)
+            and current_config_sha == result_config_sha
+            and current_config_sha == str(inspection.get("sha256") or "").lower()
+        ),
+        "queue_hash_still_bound": (
+            bool(current_queue_sha)
+            and current_queue_sha == result_queue_sha
+            and current_queue_sha
+            == str(route.get("queue_csv_sha256") or "").lower()
+        ),
+        "point_count_contract_preserved": (
+            route_kind in EXPECTED_POINT_COUNTS
+            and int(point_counts.get(route_kind) or 0)
+            == EXPECTED_POINT_COUNTS.get(route_kind)
+            and int(route.get("expected_point_count") or 0)
+            == EXPECTED_POINT_COUNTS.get(route_kind)
+        ),
+    }
+    blockers.extend(
+        f"preflight_receipt_check_failed:{key}"
+        for key, passed in checks.items()
+        if not passed
+    )
+    blockers = list(dict.fromkeys(blockers))
+    ready = not blockers and all(checks.values())
+    return {
+        "schema": CONTROLLED_MATURE_ROUTE_PREFLIGHT_RECEIPT_SCHEMA,
+        "generated_at": _now(),
+        "status": (
+            "preflight_recorded_execution_locked"
+            if ready
+            else "blocked_preflight_recorded_execution_locked"
+        ),
+        "preflight_passed": ready,
+        "blockers": blockers,
+        "checks": checks,
+        "source_plan": {
+            "schema": str(plan.get("schema") or ""),
+            "run_id": str(plan.get("run_id") or ""),
+            "calibration_kernel": str(plan.get("calibration_kernel") or ""),
+            "profile_id": str(plan.get("profile_id") or ""),
+        },
+        "route_binding": {
+            "route_kind": route_kind,
+            "runner_module": str(route.get("runner_module") or ""),
+            "runtime_config": {
+                "path": _path_text(config_path),
+                "sha256": current_config_sha,
+            },
+            "queue_csv": {
+                "path": _path_text(queue_path),
+                "sha256": current_queue_sha,
+                "point_count": int(
+                    point_counts.get(route_kind) or 0
+                ),
+                "expected_point_count": int(
+                    route.get("expected_point_count") or 0
+                ),
+            },
+            "argv_template": list(
+                next(
+                    (
+                        command.get("argv_template") or []
+                        for command in handoff.get("commands") or []
+                        if isinstance(command, Mapping)
+                        and command.get("route_kind") == route_kind
+                    ),
+                    [],
+                )
+            ),
+        },
+        "preflight_result": {
+            "schema": str(preflight.get("schema") or ""),
+            "status": str(preflight.get("status") or ""),
+            "overall_status": str(preflight.get("overall_status") or ""),
+            "preflight_passed": preflight.get("preflight_passed") is True,
+            "execution_started": preflight.get("execution_started") is True,
+            "execution_allowed": preflight.get("execution_allowed") is True,
+            "runner_invocation_count": int(
+                preflight.get("runner_invocation_count") or 0
+            ),
+            "engineering_probe_only": preflight.get("engineering_probe_only") is True,
+            "promotion_state": str(preflight.get("promotion_state") or ""),
+            "not_real_acceptance_evidence": (
+                preflight.get("not_real_acceptance_evidence") is True
+            ),
+            "no_write": preflight.get("no_write") is True,
+            "allows_ftd_write": preflight.get("allows_ftd_write") is True,
+            "writes_coefficients": preflight.get("writes_coefficients") is True,
+            "writes_senco": preflight.get("writes_senco") is True,
+            "writes_device_id": preflight.get("writes_device_id") is True,
+        },
+        "meaning": "records_offline_preflight_only_does_not_authorize_execution",
+        "preflight_only": True,
+        "real_execution_authorized": False,
+        "opens_com_ports": False,
+        "controls_water_or_gas_routes": False,
+        "writes_coefficients": False,
+        "writes_senco": False,
+        "writes_device_id": False,
+        "promotion_state": "blocked",
+        "not_real_acceptance_evidence": True,
+        "v1_fallback_preserved": True,
+    }
+
+
+def write_v1_5_controlled_route_preflight_receipt(
+    plan: Mapping[str, Any],
+    preflight: Mapping[str, Any],
+    output_path: str | Path,
+) -> dict[str, Any]:
+    """Write one immutable offline preflight receipt and return its hash."""
+
+    receipt = build_v1_5_controlled_route_preflight_receipt(plan, preflight)
+    path, sha256 = _write_immutable_json(receipt, output_path)
+    return {
+        "path": _path_text(path),
+        "sha256": sha256,
+        "status": receipt["status"],
+        "preflight_passed": receipt["preflight_passed"],
+        "real_execution_authorized": False,
+        "opens_com_ports": False,
+    }
+
+
+def verify_v1_5_controlled_route_preflight_receipt(
+    receipt_path: str | Path,
+    *,
+    expected_receipt_sha256: str,
+) -> dict[str, Any]:
+    """Verify one saved preflight receipt and its current bound inputs read-only."""
+
+    path_text = str(receipt_path or "").strip()
+    path = Path(path_text).resolve() if path_text else None
+    observed_receipt_sha = ""
+    expected_receipt_sha = str(expected_receipt_sha256 or "").strip().lower()
+    receipt: Mapping[str, Any] = {}
+    load_error = ""
+    if path and path.is_file():
+        try:
+            receipt_bytes = path.read_bytes()
+            observed_receipt_sha = hashlib.sha256(receipt_bytes).hexdigest()
+            loaded = json.loads(receipt_bytes.decode("utf-8-sig"))
+            if isinstance(loaded, Mapping):
+                receipt = loaded
+            else:
+                load_error = "receipt_json_root_not_object"
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            load_error = f"{type(exc).__name__}: {exc}"
+    else:
+        load_error = "receipt_file_missing"
+
+    route_value = receipt.get("route_binding")
+    route = route_value if isinstance(route_value, Mapping) else {}
+    runtime_value = route.get("runtime_config")
+    runtime = runtime_value if isinstance(runtime_value, Mapping) else {}
+    queue_value = route.get("queue_csv")
+    queue_binding = queue_value if isinstance(queue_value, Mapping) else {}
+    preflight_value = receipt.get("preflight_result")
+    preflight = preflight_value if isinstance(preflight_value, Mapping) else {}
+    embedded_value = receipt.get("checks")
+    embedded_checks = embedded_value if isinstance(embedded_value, Mapping) else {}
+    route_kind = str(route.get("route_kind") or "").strip().lower()
+    expected_points = EXPECTED_POINT_COUNTS.get(route_kind)
+    expected_runner = {"co2": CO2_RUNNER, "h2o": H2O_RUNNER}.get(route_kind)
+    runtime_path_text = str(runtime.get("path") or "").strip()
+    queue_path_text = str(queue_binding.get("path") or "").strip()
+    runtime_path = Path(runtime_path_text).resolve() if runtime_path_text else None
+    queue_path = Path(queue_path_text).resolve() if queue_path_text else None
+    current_runtime_sha = _safe_sha256_file(runtime_path)
+    current_queue_sha = _safe_sha256_file(queue_path)
+    declared_runtime_sha = str(runtime.get("sha256") or "").strip().lower()
+    declared_queue_sha = str(queue_binding.get("sha256") or "").strip().lower()
+    receipt_blockers = receipt.get("blockers")
+    receipt_has_valid_empty_blockers = (
+        isinstance(receipt_blockers, list) and not receipt_blockers
+    )
+
+    def _integer(value: Any) -> int | None:
+        if isinstance(value, bool):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _argv_value(flag: str) -> str:
+        if argv.count(flag) != 1:
+            return ""
+        index = argv.index(flag) + 1
+        return argv[index] if index < len(argv) else ""
+
+    required_embedded_checks = {
+        "preflight_schema_valid",
+        "route_binding_unique",
+        "preflight_ready_and_locked",
+        "preflight_safety_contract_preserved",
+        "runtime_config_hash_still_bound",
+        "queue_hash_still_bound",
+        "point_count_contract_preserved",
+    }
+    argv_value = route.get("argv_template")
+    argv = [str(value) for value in argv_value] if isinstance(argv_value, list) else []
+    output_dir_text = _argv_value("--output-dir")
+    run_id_text = _argv_value("--run-id")
+    expected_argv = [
+        "--config",
+        runtime_path_text,
+        "--queue-csv",
+        queue_path_text,
+        "--output-dir",
+        output_dir_text,
+        "--run-id",
+        run_id_text,
+        "--no-prompt",
+        "--no-ftd-write",
+    ]
+    if route_kind == "co2":
+        expected_argv.extend(
+            ["--temperature-order", "desc", "--roles", "fit,verification"]
+        )
+    elif route_kind == "h2o":
+        expected_argv.extend(
+            [
+                "--temperature-order",
+                "asc",
+                "--h2o-pressure-presample-policy",
+                "skip",
+            ]
+        )
+    expected_argv.extend(
+        [
+            "--engineering-probe-only",
+            "--operator-confirmation",
+            _OPERATOR_CONFIRMATION_PLACEHOLDER,
+        ]
+    )
+    safety_fields = {
+        "preflight_only": True,
+        "real_execution_authorized": False,
+        "opens_com_ports": False,
+        "controls_water_or_gas_routes": False,
+        "writes_coefficients": False,
+        "writes_senco": False,
+        "writes_device_id": False,
+        "promotion_state": "blocked",
+        "not_real_acceptance_evidence": True,
+        "v1_fallback_preserved": True,
+    }
+    checks = {
+        "receipt_json_loaded": not load_error and bool(receipt),
+        "external_receipt_sha256_matches": (
+            bool(re.fullmatch(r"[0-9a-f]{64}", expected_receipt_sha))
+            and observed_receipt_sha == expected_receipt_sha
+        ),
+        "receipt_schema_and_status_valid": (
+            receipt.get("schema")
+            == CONTROLLED_MATURE_ROUTE_PREFLIGHT_RECEIPT_SCHEMA
+            and receipt.get("status") == "preflight_recorded_execution_locked"
+            and receipt.get("preflight_passed") is True
+            and receipt_has_valid_empty_blockers
+        ),
+        "embedded_preflight_checks_passed": (
+            required_embedded_checks.issubset(embedded_checks)
+            and all(embedded_checks.get(key) is True for key in required_embedded_checks)
+        ),
+        "route_contract_preserved": (
+            expected_points is not None
+            and route.get("runner_module") == expected_runner
+            and _integer(queue_binding.get("point_count")) == expected_points
+            and _integer(queue_binding.get("expected_point_count")) == expected_points
+        ),
+        "runtime_config_source_unchanged": (
+            runtime_path is not None
+            and bool(re.fullmatch(r"[0-9a-f]{64}", declared_runtime_sha))
+            and current_runtime_sha == declared_runtime_sha
+        ),
+        "queue_source_unchanged": (
+            queue_path is not None
+            and bool(re.fullmatch(r"[0-9a-f]{64}", declared_queue_sha))
+            and current_queue_sha == declared_queue_sha
+        ),
+        "execution_lock_preserved": (
+            all(
+                receipt.get(key) is value
+                if isinstance(value, bool)
+                else receipt.get(key) == value
+                for key, value in safety_fields.items()
+            )
+            and preflight.get("status") == "preflight_ready_execution_locked"
+            and preflight.get("overall_status") == "ready"
+            and preflight.get("preflight_passed") is True
+            and preflight.get("execution_started") is False
+            and preflight.get("execution_allowed") is False
+            and _integer(preflight.get("runner_invocation_count")) == 0
+            and preflight.get("engineering_probe_only") is True
+            and preflight.get("promotion_state") == "blocked"
+            and preflight.get("not_real_acceptance_evidence") is True
+            and preflight.get("no_write") is True
+            and preflight.get("allows_ftd_write") is False
+            and preflight.get("writes_coefficients") is False
+            and preflight.get("writes_senco") is False
+            and preflight.get("writes_device_id") is False
+        ),
+        "argv_template_safety_preserved": (
+            bool(output_dir_text)
+            and bool(run_id_text)
+            and argv == expected_argv
+            and V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT not in argv
+        ),
+    }
+    blockers = []
+    if load_error:
+        blockers.append(f"preflight_receipt_load_failed:{load_error}")
+    blockers.extend(
+        f"preflight_receipt_verification_check_failed:{key}"
+        for key, passed in checks.items()
+        if not passed
+    )
+    verified = not blockers and all(checks.values())
+    return {
+        "schema": CONTROLLED_MATURE_ROUTE_PREFLIGHT_RECEIPT_VERIFICATION_SCHEMA,
+        "verified_at": _now(),
+        "status": (
+            "verified_preflight_receipt_execution_locked"
+            if verified
+            else "blocked_preflight_receipt_verification"
+        ),
+        "receipt_verified": verified,
+        "blockers": blockers,
+        "checks": checks,
+        "receipt_file": {
+            "path": _path_text(path) if path else "",
+            "expected_sha256": expected_receipt_sha,
+            "observed_sha256": observed_receipt_sha,
+        },
+        "route_binding": {
+            "route_kind": route_kind,
+            "expected_point_count": expected_points,
+            "runtime_config_path": _path_text(runtime_path) if runtime_path else "",
+            "runtime_config_sha256": current_runtime_sha,
+            "queue_csv_path": _path_text(queue_path) if queue_path else "",
+            "queue_csv_sha256": current_queue_sha,
+        },
+        "verification_only": True,
+        "execution_allowed": False,
+        "opens_com_ports": False,
+        "controls_water_or_gas_routes": False,
+        "writes_coefficients": False,
+        "writes_senco": False,
+        "writes_device_id": False,
+        "promotion_state": "blocked",
+        "not_real_acceptance_evidence": True,
+        "v1_fallback_preserved": True,
+    }
+
+
 def write_v1_5_operator_workstation_outputs(
     result: Mapping[str, Any],
     output_dir: str | Path,
@@ -1818,6 +2619,9 @@ def run_v1_5_operator_workstation_application(
 __all__ = [
     "ARCHIVE_AUTHORITY_CONFIRMATION_RECEIPT_SCHEMA",
     "CALIBRATION_KERNEL",
+    "CONTROLLED_MATURE_ROUTE_EXECUTION_SCHEMA",
+    "CONTROLLED_MATURE_ROUTE_PREFLIGHT_RECEIPT_SCHEMA",
+    "CONTROLLED_MATURE_ROUTE_PREFLIGHT_RECEIPT_VERIFICATION_SCHEMA",
     "EXPECTED_POINT_COUNTS",
     "PRODUCT_NAME",
     "PROFILE_ID",
@@ -1825,16 +2629,23 @@ __all__ = [
     "RESPONSE_ONLY_SCOPE",
     "STARTUP_RECEIPT_SCHEMA",
     "V1_5_ARCHIVE_AUTHORITY_CONFIRMATION_TEXT",
+    "V1_5_CONTROLLED_MATURE_ROUTE_AUTHORIZATION_TEXT",
+    "V1_5_ENGINEERING_PROBE_CONFIRMATION_TEXT",
     "build_v1_5_archive_authority_confirmation_receipt",
+    "build_v1_5_controlled_route_preflight_receipt",
     "build_v1_5_operator_workstation_plan",
     "build_v1_5_operator_workstation_startup_receipt",
     "build_v1_5_workstation_decision_model",
+    "execute_v1_5_controlled_mature_route",
     "execute_v1_5_operator_workstation_dry_run",
     "execute_v1_5_response_only_simulation",
     "inspect_v1_5_runtime_config",
     "load_v1_5_decision_authorities",
+    "preflight_v1_5_controlled_mature_route",
     "run_v1_5_operator_workstation_application",
+    "verify_v1_5_controlled_route_preflight_receipt",
     "write_v1_5_archive_authority_confirmation_receipt",
+    "write_v1_5_controlled_route_preflight_receipt",
     "write_v1_5_operator_workstation_outputs",
     "write_v1_5_operator_workstation_startup_receipt",
 ]

@@ -26,8 +26,11 @@ from ..orchestration.operator_workstation import (
     build_v1_5_operator_workstation_plan,
     execute_v1_5_operator_workstation_dry_run,
     inspect_v1_5_runtime_config,
+    preflight_v1_5_controlled_mature_route,
     run_v1_5_operator_workstation_application,
+    verify_v1_5_controlled_route_preflight_receipt,
     write_v1_5_archive_authority_confirmation_receipt,
+    write_v1_5_controlled_route_preflight_receipt,
     write_v1_5_operator_workstation_startup_receipt,
 )
 from ..workstation_snapshot import (
@@ -219,8 +222,49 @@ _TEXT = {
         "error.blocked": "V1.5 演练入口被阻断：\n{reasons}",
         "error.failed": "V1.5 dry-run 未通过：\n{reasons}",
         "info.pass": "成熟 V1.5 路径演练通过：CO₂ 45 点，H₂O 13 点。",
+        "handoff.preflight.title": "成熟路线离线预检",
+        "handoff.preflight.route": "预检路线",
+        "handoff.preflight.run": "离线预检（不执行）",
+        "handoff.preflight.locked": "尚未预检｜真实执行保持锁定",
+        "handoff.preflight.ready": (
+            "预检通过｜{route} 配置、队列与 45/13 点合同一致｜真实执行仍锁定"
+        ),
+        "handoff.preflight.blocked": "预检阻断｜{route}｜{reasons}",
+        "handoff.preflight.note": (
+            "仅校验绑定和参数，不打开 COM、不控制气路、不调用成熟运行器。"
+        ),
+        "handoff.preflight.save": "保存预检回执",
+        "handoff.preflight.receipt_title": "V1.5 离线预检回执",
+        "handoff.preflight.receipt_missing": "请先完成一次 CO₂ 或 H₂O 离线预检。",
+        "handoff.preflight.receipt_saved": (
+            "不可覆盖的预检回执已保存：\n{path}\nSHA-256: {sha}\n状态：{status}"
+        ),
+        "handoff.preflight.receipt_failed": "预检回执保存失败：\n{reason}",
     },
     "en_US": {
+        "handoff.preflight.save": "Save preflight receipt",
+        "handoff.preflight.receipt_title": "V1.5 offline preflight receipt",
+        "handoff.preflight.receipt_missing": (
+            "Run one CO₂ or H₂O offline preflight first."
+        ),
+        "handoff.preflight.receipt_saved": (
+            "Immutable preflight receipt saved:\n{path}\nSHA-256: {sha}\nStatus: {status}"
+        ),
+        "handoff.preflight.receipt_failed": (
+            "Preflight receipt could not be saved:\n{reason}"
+        ),
+        "handoff.preflight.title": "Mature route offline preflight",
+        "handoff.preflight.route": "Route",
+        "handoff.preflight.run": "Offline preflight (no execution)",
+        "handoff.preflight.locked": "Not checked | real execution remains locked",
+        "handoff.preflight.ready": (
+            "Preflight passed | {route} config, queue, and 45/13 contract match | "
+            "real execution remains locked"
+        ),
+        "handoff.preflight.blocked": "Preflight blocked | {route} | {reasons}",
+        "handoff.preflight.note": (
+            "Validates bindings and arguments only; no COM, route control, or mature runner call."
+        ),
         "dialog.authority_archive": "Formal archive index (optional, read-only)",
         "dialog.authority_run_id": "Expected formal batch ID (required with archive)",
         "dialog.authority_device_ids": "Expected device IDs (comma-separated, required)",
@@ -407,6 +451,15 @@ class OperatorWorkstationApp:
         self._settings_dialog: tk.Toplevel | None = None
         self._handoff_dialog: tk.Toplevel | None = None
         self._handoff_preview_widget: tk.Text | None = None
+        self.controlled_route_var = tk.StringVar(master=root, value="CO₂")
+        self.controlled_preflight_var = tk.StringVar(
+            master=root,
+            value=_t("handoff.preflight.locked", locale=locale),
+        )
+        self.last_controlled_preflight: dict[str, Any] | None = None
+        self._last_controlled_preflight_plan: dict[str, Any] | None = None
+        self.controlled_preflight_button: ttk.Button | None = None
+        self.controlled_preflight_receipt_button: ttk.Button | None = None
         self.pages: dict[str, tk.Widget] = {}
         self.nav_buttons: dict[str, ttk.Button] = {}
         self._presentation_active = False
@@ -1687,6 +1740,121 @@ class OperatorWorkstationApp:
             )
         return "\n".join(lines)
 
+    def run_controlled_route_preflight(self) -> dict[str, Any]:
+        """Validate one mature route while keeping execution unconditionally off."""
+
+        route_kind = "h2o" if self.controlled_route_var.get() == "H₂O" else "co2"
+        plan: dict[str, Any] | None = None
+        route_label = _t(
+            "route.h2o" if route_kind == "h2o" else "route.co2",
+            locale=self.locale,
+        )
+        try:
+            plan = self._plan()
+            result = preflight_v1_5_controlled_mature_route(
+                plan,
+                route_kind=route_kind,
+            )
+        except Exception as exc:  # pragma: no cover - defensive UI boundary
+            result = {
+                "overall_status": "blocked",
+                "status": "preflight_exception",
+                "blockers": [f"{type(exc).__name__}: {exc}"],
+                "execution_started": False,
+                "execution_allowed": False,
+                "runner_invocation_count": 0,
+            }
+        self.last_controlled_preflight = result
+        self._last_controlled_preflight_plan = plan
+        ready = (
+            result.get("status") == "preflight_ready_execution_locked"
+            and result.get("execution_started") is False
+            and result.get("execution_allowed") is False
+            and int(result.get("runner_invocation_count") or 0) == 0
+        )
+        if ready:
+            text = _t(
+                "handoff.preflight.ready",
+                locale=self.locale,
+                route=route_label,
+            )
+        else:
+            reasons = list(result.get("blockers") or []) or [
+                "preflight_result_not_execution_locked"
+            ]
+            text = _t(
+                "handoff.preflight.blocked",
+                locale=self.locale,
+                route=route_label,
+                reasons="；".join(str(reason) for reason in reasons),
+            )
+        self.controlled_preflight_var.set(text)
+        if self.controlled_preflight_receipt_button is not None:
+            self.controlled_preflight_receipt_button.state(
+                ["!disabled"] if plan is not None else ["disabled"]
+            )
+        return result
+
+    def save_controlled_route_preflight_receipt(self) -> dict[str, Any] | None:
+        """Save the last offline preflight as an immutable local audit record."""
+
+        plan = self._last_controlled_preflight_plan
+        preflight = self.last_controlled_preflight
+        if plan is None or preflight is None:
+            messagebox.showerror(
+                _t("handoff.preflight.receipt_title", locale=self.locale),
+                _t("handoff.preflight.receipt_missing", locale=self.locale),
+                parent=self._handoff_dialog or self.root,
+            )
+            return None
+        route_kind = str(preflight.get("route_kind") or "route")
+        run_id = re.sub(
+            r"[^A-Za-z0-9_.-]+",
+            "_",
+            str(plan.get("run_id") or "preflight"),
+        ).strip("_")
+        output_path = filedialog.asksaveasfilename(
+            parent=self._handoff_dialog or self.root,
+            title=_t("handoff.preflight.receipt_title", locale=self.locale),
+            defaultextension=".json",
+            filetypes=(("JSON", "*.json"), ("All files", "*.*")),
+            initialdir=self.settings["output"].get(),
+            initialfile=(
+                f"v1_5_{route_kind}_preflight_{run_id or 'preflight'}.json"
+            ),
+        )
+        if not output_path:
+            return None
+        try:
+            written = write_v1_5_controlled_route_preflight_receipt(
+                plan,
+                preflight,
+                output_path,
+            )
+        except OSError as exc:
+            messagebox.showerror(
+                _t("handoff.preflight.receipt_title", locale=self.locale),
+                _t(
+                    "handoff.preflight.receipt_failed",
+                    locale=self.locale,
+                    reason=f"{type(exc).__name__}: {exc}",
+                ),
+                parent=self._handoff_dialog or self.root,
+            )
+            return None
+        messagebox.showinfo(
+            _t("handoff.preflight.receipt_title", locale=self.locale),
+            _t(
+                "handoff.preflight.receipt_saved",
+                locale=self.locale,
+                path=written["path"],
+                sha=written["sha256"],
+                status=written["status"],
+            ),
+            parent=self._handoff_dialog or self.root,
+        )
+        return written
+
     def open_controlled_handoff_preview(self) -> None:
         if self._handoff_dialog is not None and self._handoff_dialog.winfo_exists():
             self._handoff_dialog.lift()
@@ -1696,8 +1864,8 @@ class OperatorWorkstationApp:
         dialog = tk.Toplevel(self.root)
         self._handoff_dialog = dialog
         dialog.title(_t("handoff.title", locale=self.locale))
-        dialog.geometry("980x640")
-        dialog.minsize(760, 520)
+        dialog.geometry("980x720")
+        dialog.minsize(760, 600)
         dialog.configure(bg=_COLORS["surface"])
         dialog.transient(self.root)
 
@@ -1749,6 +1917,73 @@ class OperatorWorkstationApp:
         preview.pack(side="left", fill="both", expand=True)
         preview_scrollbar.pack(side="right", fill="y")
         self._handoff_preview_widget = preview
+
+        preflight = self._panel(dialog)
+        preflight.pack(fill="x", padx=20, pady=(0, 12))
+        self._label(
+            preflight,
+            _t("handoff.preflight.title", locale=self.locale),
+            size=11,
+            weight="bold",
+        ).grid(row=0, column=0, columnspan=4, sticky="w", padx=14, pady=(12, 4))
+        self._label(
+            preflight,
+            _t("handoff.preflight.route", locale=self.locale),
+            size=9,
+        ).grid(row=1, column=0, sticky="w", padx=(14, 8), pady=6)
+        self.controlled_route_selector = ttk.Combobox(
+            preflight,
+            textvariable=self.controlled_route_var,
+            values=("CO₂", "H₂O"),
+            state="readonly",
+            width=10,
+            style="Site.TCombobox",
+        )
+        self.controlled_route_selector.grid(row=1, column=1, sticky="w", pady=6)
+        self.controlled_preflight_button = ttk.Button(
+            preflight,
+            text=_t("handoff.preflight.run", locale=self.locale),
+            style="Accent.TButton",
+            command=self.run_controlled_route_preflight,
+        )
+        self.controlled_preflight_button.grid(
+            row=1,
+            column=2,
+            sticky="e",
+            padx=14,
+            pady=6,
+        )
+        self.controlled_preflight_receipt_button = ttk.Button(
+            preflight,
+            text=_t("handoff.preflight.save", locale=self.locale),
+            style="Secondary.TButton",
+            command=self.save_controlled_route_preflight_receipt,
+        )
+        self.controlled_preflight_receipt_button.state(["disabled"])
+        self.controlled_preflight_receipt_button.grid(
+            row=1,
+            column=3,
+            sticky="e",
+            padx=(0, 14),
+            pady=6,
+        )
+        preflight.grid_columnconfigure(2, weight=1)
+        self._label(
+            preflight,
+            textvariable=self.controlled_preflight_var,
+            size=9,
+            color="amber",
+            wraplength=900,
+            justify="left",
+        ).grid(row=2, column=0, columnspan=4, sticky="w", padx=14, pady=(4, 2))
+        self._label(
+            preflight,
+            _t("handoff.preflight.note", locale=self.locale),
+            size=8,
+            color="muted",
+            wraplength=900,
+            justify="left",
+        ).grid(row=3, column=0, columnspan=4, sticky="w", padx=14, pady=(2, 12))
 
         actions = tk.Frame(dialog, bg=_COLORS["surface"])
         actions.pack(fill="x", padx=20, pady=(0, 18))
@@ -2012,6 +2247,39 @@ def _parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         help="Exact acknowledgement required for a confirmed archive receipt.",
     )
     parser.add_argument(
+        "--controlled-route-preflight-route",
+        choices=("co2", "h2o"),
+        default=None,
+        help=(
+            "Run one hash-bound CO2/H2O offline preflight and exit without "
+            "constructing Tk or invoking a mature runner."
+        ),
+    )
+    parser.add_argument(
+        "--controlled-route-preflight-receipt-json",
+        default=None,
+        help=(
+            "Write the selected route preflight as an immutable JSON receipt. "
+            "Requires --controlled-route-preflight-route."
+        ),
+    )
+    parser.add_argument(
+        "--verify-controlled-route-preflight-receipt-json",
+        default=None,
+        help=(
+            "Verify one saved controlled-route preflight receipt and its current "
+            "bound inputs read-only, then exit without constructing Tk."
+        ),
+    )
+    parser.add_argument(
+        "--expected-controlled-route-preflight-receipt-sha256",
+        default=None,
+        help=(
+            "Required external SHA-256 anchor for "
+            "--verify-controlled-route-preflight-receipt-json."
+        ),
+    )
+    parser.add_argument(
         "--validate-startup-only",
         action="store_true",
         help="Validate config and 45/13 queues without constructing Tk or opening COM.",
@@ -2089,17 +2357,66 @@ def _print_receipt_write_error(
 
 def main(argv: Iterable[str] | None = None) -> int:
     args = _parse_args(argv)
+    verification_receipt = str(
+        args.verify_controlled_route_preflight_receipt_json or ""
+    ).strip()
+    verification_sha256 = str(
+        args.expected_controlled_route_preflight_receipt_sha256 or ""
+    ).strip()
+    if verification_receipt or verification_sha256:
+        mixed_mode = any(
+            (
+                args.config,
+                args.co2_queue_csv,
+                args.h2o_queue_csv,
+                args.output_dir,
+                args.runtime_dir,
+                args.certificate,
+                args.decision_authority_archive_json,
+                args.expected_authority_run_id,
+                args.expected_authority_device_ids,
+                args.startup_receipt_json,
+                args.authority_confirmation_receipt_json,
+                args.authority_confirmation_operator,
+                args.authority_confirmation_text,
+                args.controlled_route_preflight_route,
+                args.controlled_route_preflight_receipt_json,
+                args.validate_startup_only,
+            )
+        )
+        verification = verify_v1_5_controlled_route_preflight_receipt(
+            verification_receipt,
+            expected_receipt_sha256=verification_sha256,
+        )
+        verification["exclusive_cli_verification_mode"] = not mixed_mode
+        verification["checks"]["exclusive_cli_verification_mode"] = not mixed_mode
+        if mixed_mode:
+            verification["receipt_verified"] = False
+            verification["status"] = "blocked_preflight_receipt_verification"
+            verification["blockers"].append(
+                "preflight_receipt_verification_mixed_mode_arguments_not_allowed"
+            )
+        print(
+            json.dumps(verification, ensure_ascii=False, indent=2),
+            file=sys.stdout if verification["receipt_verified"] else sys.stderr,
+        )
+        return 0 if verification["receipt_verified"] else 2
     initial_settings = _initial_settings_from_args(args)
     fixed_start_requested = bool(
         initial_settings
         or args.validate_startup_only
         or args.startup_receipt_json
         or args.authority_confirmation_receipt_json
+        or args.controlled_route_preflight_route
+        or args.controlled_route_preflight_receipt_json
     )
     if fixed_start_requested:
         plan = _startup_preflight(initial_settings)
         receipt = None
         authority_confirmation_receipt = None
+        controlled_route_preflight = None
+        controlled_route_preflight_receipt = None
+        argument_blockers: list[str] = []
         if str(args.startup_receipt_json or "").strip():
             try:
                 receipt = write_v1_5_operator_workstation_startup_receipt(
@@ -2132,9 +2449,58 @@ def main(argv: Iterable[str] | None = None) -> int:
                     exc=exc,
                 )
                 return 2
+        controlled_route = str(
+            args.controlled_route_preflight_route or ""
+        ).strip()
+        controlled_receipt_path = str(
+            args.controlled_route_preflight_receipt_json or ""
+        ).strip()
+        if controlled_receipt_path and not controlled_route:
+            argument_blockers.append(
+                "controlled_route_preflight_receipt_requires_route"
+            )
+        if controlled_route:
+            controlled_route_preflight = preflight_v1_5_controlled_mature_route(
+                plan,
+                route_kind=controlled_route,
+            )
+            if controlled_receipt_path:
+                try:
+                    controlled_route_preflight_receipt = (
+                        write_v1_5_controlled_route_preflight_receipt(
+                            plan,
+                            controlled_route_preflight,
+                            controlled_receipt_path,
+                        )
+                    )
+                except OSError as exc:
+                    _print_receipt_write_error(
+                        receipt_key="controlled_route_preflight_receipt",
+                        output_path=controlled_receipt_path,
+                        exc=exc,
+                    )
+                    return 2
+            if (
+                controlled_route_preflight.get("status")
+                != "preflight_ready_execution_locked"
+            ):
+                argument_blockers.extend(
+                    f"controlled_route_preflight:{reason}"
+                    for reason in controlled_route_preflight.get("blockers") or []
+                )
+                if not controlled_route_preflight.get("blockers"):
+                    argument_blockers.append(
+                        "controlled_route_preflight:not_execution_locked"
+                    )
+        summary_blockers = [
+            *list(plan.get("blockers") or []),
+            *argument_blockers,
+        ]
         summary = {
-            "status": plan.get("overall_status"),
-            "blockers": list(plan.get("blockers") or []),
+            "status": (
+                "blocked" if summary_blockers else plan.get("overall_status")
+            ),
+            "blockers": summary_blockers,
             "warnings": list(plan.get("warnings") or []),
             "runtime_config": plan.get("runtime_config"),
             "runtime_config_inspection": plan.get("runtime_config_inspection"),
@@ -2149,14 +2515,18 @@ def main(argv: Iterable[str] | None = None) -> int:
             "opens_com_ports": False,
             "startup_receipt": receipt,
             "authority_confirmation_receipt": authority_confirmation_receipt,
+            "controlled_route_preflight": controlled_route_preflight,
+            "controlled_route_preflight_receipt": (
+                controlled_route_preflight_receipt
+            ),
         }
-        if plan.get("blockers") or (
+        if summary_blockers or (
             authority_confirmation_receipt is not None
             and authority_confirmation_receipt.get("status") != "confirmed"
         ):
             print(json.dumps(summary, ensure_ascii=False, indent=2), file=sys.stderr)
             return 2
-        if args.validate_startup_only:
+        if args.validate_startup_only or controlled_route:
             print(json.dumps(summary, ensure_ascii=False, indent=2))
             return 0
 

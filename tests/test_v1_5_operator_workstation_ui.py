@@ -164,10 +164,41 @@ def test_operator_workstation_is_v1_5_first_chinese_and_1080p_ready() -> None:
 
 def test_controlled_handoff_preview_is_read_only_and_keeps_double_unlock(
     tmp_path,
+    monkeypatch,
 ) -> None:
     root = _root()
     repository_root = Path(__file__).resolve().parents[1]
     co2, h2o = write_legacy_profile_queues(tmp_path)
+    preflight_calls: list[dict] = []
+    info_messages: list[str] = []
+    error_messages: list[str] = []
+    receipt_path = tmp_path / "h2o_preflight_receipt.json"
+    real_preflight = workstation_ui.preflight_v1_5_controlled_mature_route
+
+    def recording_preflight(plan, **kwargs):
+        preflight_calls.append(dict(kwargs))
+        return real_preflight(plan, **kwargs)
+
+    monkeypatch.setattr(
+        workstation_ui,
+        "preflight_v1_5_controlled_mature_route",
+        recording_preflight,
+    )
+    monkeypatch.setattr(
+        workstation_ui.filedialog,
+        "asksaveasfilename",
+        lambda **_kwargs: str(receipt_path),
+    )
+    monkeypatch.setattr(
+        workstation_ui.messagebox,
+        "showinfo",
+        lambda _title, message, **_kwargs: info_messages.append(str(message)),
+    )
+    monkeypatch.setattr(
+        workstation_ui.messagebox,
+        "showerror",
+        lambda _title, message, **_kwargs: error_messages.append(str(message)),
+    )
     try:
         app = OperatorWorkstationApp(
             root,
@@ -199,6 +230,46 @@ def test_controlled_handoff_preview_is_read_only_and_keeps_double_unlock(
         assert "--engineering-probe-only" in preview
         assert "--no-ftd-write" in preview
         assert "<OPERATOR_CONFIRMATION_REQUIRED_AT_EXECUTION>" in preview
+        dialog_text = "\n".join(_texts(app._handoff_dialog))
+        assert app.controlled_route_var.get() == "CO₂"
+        assert app.controlled_preflight_button is not None
+        assert app.controlled_preflight_receipt_button is not None
+        assert app.controlled_preflight_receipt_button.instate(["disabled"])
+        assert str(app.controlled_preflight_button.cget("text")) == _t(
+            "handoff.preflight.run"
+        )
+        assert _t("handoff.preflight.locked") in dialog_text
+
+        co2_preflight = app.run_controlled_route_preflight()
+        assert co2_preflight["route_kind"] == "co2"
+        assert co2_preflight["status"] == "preflight_ready_execution_locked"
+        assert co2_preflight["execution_started"] is False
+        assert co2_preflight["execution_allowed"] is False
+        assert co2_preflight["runner_invocation_count"] == 0
+        assert "预检通过" in app.controlled_preflight_var.get()
+        assert app.controlled_preflight_receipt_button.instate(["!disabled"])
+
+        app.controlled_route_var.set("H₂O")
+        h2o_preflight = app.run_controlled_route_preflight()
+        assert h2o_preflight["route_kind"] == "h2o"
+        assert h2o_preflight["status"] == "preflight_ready_execution_locked"
+        assert h2o_preflight["runner_invocation_count"] == 0
+        assert [call["route_kind"] for call in preflight_calls] == ["co2", "h2o"]
+        assert app._handoff_dialog.winfo_height() <= 1080
+
+        written = app.save_controlled_route_preflight_receipt()
+        assert written is not None
+        assert written["preflight_passed"] is True
+        payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+        assert payload["route_binding"]["route_kind"] == "h2o"
+        assert payload["route_binding"]["queue_csv"]["point_count"] == 13
+        assert payload["real_execution_authorized"] is False
+        original = receipt_path.read_bytes()
+        assert info_messages and "SHA-256" in info_messages[-1]
+
+        assert app.save_controlled_route_preflight_receipt() is None
+        assert receipt_path.read_bytes() == original
+        assert error_messages and "FileExistsError" in error_messages[-1]
 
         dialog_text = "\n".join(_texts(app._handoff_dialog))
         assert "此窗口不执行任何命令" in dialog_text
@@ -359,6 +430,206 @@ def test_fixed_startup_preflight_writes_locked_receipt(
     assert receipt["probe_execution_allowed"] is False
     assert receipt["operator_acknowledgement_template"]["completed"] is False
     assert receipt["opens_com_ports"] is False
+
+
+@pytest.mark.parametrize(
+    ("route_kind", "expected_point_count"),
+    [("co2", 45), ("h2o", 13)],
+)
+def test_fixed_startup_preflight_writes_controlled_route_receipt_without_tk(
+    tmp_path,
+    capsys,
+    monkeypatch,
+    route_kind,
+    expected_point_count,
+) -> None:
+    root = Path(__file__).resolve().parents[1]
+    co2, h2o = write_legacy_profile_queues(tmp_path)
+    receipt_path = tmp_path / f"{route_kind}_preflight_receipt.json"
+    monkeypatch.setattr(
+        workstation_ui,
+        "build_application",
+        lambda **_kwargs: pytest.fail("controlled preflight must not construct Tk"),
+    )
+
+    rc = workstation_main(
+        [
+            "--config",
+            str(root / "configs" / "default_config.json"),
+            "--co2-queue-csv",
+            str(co2),
+            "--h2o-queue-csv",
+            str(h2o),
+            "--output-dir",
+            str(tmp_path / "output"),
+            "--controlled-route-preflight-route",
+            route_kind,
+            "--controlled-route-preflight-receipt-json",
+            str(receipt_path),
+        ]
+    )
+
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    preflight = payload["controlled_route_preflight"]
+    assert preflight["route_kind"] == route_kind
+    assert preflight["status"] == "preflight_ready_execution_locked"
+    assert preflight["execution_started"] is False
+    assert preflight["execution_allowed"] is False
+    assert preflight["runner_invocation_count"] == 0
+    written = payload["controlled_route_preflight_receipt"]
+    assert written["path"] == str(receipt_path.resolve())
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["route_binding"]["route_kind"] == route_kind
+    assert receipt["route_binding"]["queue_csv"]["point_count"] == (
+        expected_point_count
+    )
+    assert receipt["real_execution_authorized"] is False
+    assert receipt["opens_com_ports"] is False
+
+    monkeypatch.setattr(
+        workstation_ui,
+        "_startup_preflight",
+        lambda *_args, **_kwargs: pytest.fail(
+            "independent receipt verification must not build a startup plan"
+        ),
+    )
+    verify_rc = workstation_main(
+        [
+            "--verify-controlled-route-preflight-receipt-json",
+            str(receipt_path),
+            "--expected-controlled-route-preflight-receipt-sha256",
+            written["sha256"],
+        ]
+    )
+
+    assert verify_rc == 0
+    verification = json.loads(capsys.readouterr().out)
+    assert verification["receipt_verified"] is True
+    assert verification["route_binding"]["route_kind"] == route_kind
+    assert verification["execution_allowed"] is False
+    assert verification["opens_com_ports"] is False
+
+    mixed_rc = workstation_main(
+        [
+            "--verify-controlled-route-preflight-receipt-json",
+            str(receipt_path),
+            "--expected-controlled-route-preflight-receipt-sha256",
+            written["sha256"],
+            "--controlled-route-preflight-route",
+            route_kind,
+        ]
+    )
+    assert mixed_rc == 2
+    mixed = json.loads(capsys.readouterr().err)
+    assert mixed["receipt_verified"] is False
+    assert mixed["exclusive_cli_verification_mode"] is False
+    assert (
+        "preflight_receipt_verification_mixed_mode_arguments_not_allowed"
+        in mixed["blockers"]
+    )
+
+
+def test_controlled_route_receipt_cli_verification_requires_external_sha(
+    tmp_path,
+    capsys,
+    monkeypatch,
+) -> None:
+    receipt_path = tmp_path / "unanchored_receipt.json"
+    receipt_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        workstation_ui,
+        "_startup_preflight",
+        lambda *_args, **_kwargs: pytest.fail(
+            "receipt verification must not build a startup plan"
+        ),
+    )
+    monkeypatch.setattr(
+        workstation_ui,
+        "build_application",
+        lambda **_kwargs: pytest.fail("receipt verification must not construct Tk"),
+    )
+
+    rc = workstation_main(
+        [
+            "--verify-controlled-route-preflight-receipt-json",
+            str(receipt_path),
+        ]
+    )
+
+    assert rc == 2
+    verification = json.loads(capsys.readouterr().err)
+    assert verification["receipt_verified"] is False
+    assert verification["checks"]["external_receipt_sha256_matches"] is False
+    assert verification["execution_allowed"] is False
+    assert verification["opens_com_ports"] is False
+
+
+def test_fixed_startup_preflight_requires_route_for_controlled_receipt(
+    tmp_path,
+    capsys,
+    monkeypatch,
+) -> None:
+    receipt_path = tmp_path / "missing_route_receipt.json"
+    monkeypatch.setattr(
+        workstation_ui,
+        "build_application",
+        lambda **_kwargs: pytest.fail("invalid preflight must not construct Tk"),
+    )
+
+    rc = workstation_main(
+        [
+            "--controlled-route-preflight-receipt-json",
+            str(receipt_path),
+        ]
+    )
+
+    assert rc == 2
+    payload = json.loads(capsys.readouterr().err)
+    assert "controlled_route_preflight_receipt_requires_route" in payload[
+        "blockers"
+    ]
+    assert payload["opens_com_ports"] is False
+    assert not receipt_path.exists()
+
+
+def test_fixed_startup_preflight_refuses_controlled_receipt_overwrite(
+    tmp_path,
+    capsys,
+    monkeypatch,
+) -> None:
+    root = Path(__file__).resolve().parents[1]
+    co2, h2o = write_legacy_profile_queues(tmp_path)
+    receipt_path = tmp_path / "co2_preflight_receipt.json"
+    receipt_path.write_text("preserve-me", encoding="utf-8")
+    monkeypatch.setattr(
+        workstation_ui,
+        "build_application",
+        lambda **_kwargs: pytest.fail("controlled preflight must not construct Tk"),
+    )
+
+    rc = workstation_main(
+        [
+            "--config",
+            str(root / "configs" / "default_config.json"),
+            "--co2-queue-csv",
+            str(co2),
+            "--h2o-queue-csv",
+            str(h2o),
+            "--controlled-route-preflight-route",
+            "co2",
+            "--controlled-route-preflight-receipt-json",
+            str(receipt_path),
+        ]
+    )
+
+    assert rc == 2
+    payload = json.loads(capsys.readouterr().err)
+    assert payload["blockers"] == [
+        "controlled_route_preflight_receipt_write_failed:FileExistsError"
+    ]
+    assert payload["opens_com_ports"] is False
+    assert receipt_path.read_text(encoding="utf-8") == "preserve-me"
 
 
 def test_fixed_startup_preflight_refuses_receipt_overwrite(
@@ -727,6 +998,14 @@ def test_operator_workstation_summary_pages_share_one_read_only_snapshot() -> No
 def test_operator_workstation_i18n_defaults_to_chinese_with_english_fallback() -> None:
     assert _t("title") == "V1.5 气体分析仪校准工作站"
     assert _t("title", locale="en_US") == "V1.5 Gas Analyzer Calibration Workstation"
+    assert _t("handoff.preflight.run") == "离线预检（不执行）"
+    assert _t("handoff.preflight.run", locale="en_US") == (
+        "Offline preflight (no execution)"
+    )
+    assert _t("handoff.preflight.save") == "保存预检回执"
+    assert _t("handoff.preflight.save", locale="en_US") == (
+        "Save preflight receipt"
+    )
     assert _t("route.zero", locale="en_US") == "CO₂ 零气锚点"
     assert _t("evidence.pressure_gauge_short") == "表"
     assert OperatorWorkstationApp._format_pressure_delta(
