@@ -487,6 +487,64 @@ def test_fixed_startup_preflight_writes_controlled_route_receipt_without_tk(
     assert receipt["real_execution_authorized"] is False
     assert receipt["opens_com_ports"] is False
 
+    monkeypatch.setattr(
+        workstation_ui,
+        "_startup_preflight",
+        lambda *_args, **_kwargs: pytest.fail(
+            "independent receipt verification must not build a startup plan"
+        ),
+    )
+    verify_rc = workstation_main(
+        [
+            "--verify-controlled-route-preflight-receipt-json",
+            str(receipt_path),
+            "--expected-controlled-route-preflight-receipt-sha256",
+            written["sha256"],
+        ]
+    )
+
+    assert verify_rc == 0
+    verification = json.loads(capsys.readouterr().out)
+    assert verification["receipt_verified"] is True
+    assert verification["route_binding"]["route_kind"] == route_kind
+    assert verification["execution_allowed"] is False
+    assert verification["opens_com_ports"] is False
+
+
+def test_controlled_route_receipt_cli_verification_requires_external_sha(
+    tmp_path,
+    capsys,
+    monkeypatch,
+) -> None:
+    receipt_path = tmp_path / "unanchored_receipt.json"
+    receipt_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        workstation_ui,
+        "_startup_preflight",
+        lambda *_args, **_kwargs: pytest.fail(
+            "receipt verification must not build a startup plan"
+        ),
+    )
+    monkeypatch.setattr(
+        workstation_ui,
+        "build_application",
+        lambda **_kwargs: pytest.fail("receipt verification must not construct Tk"),
+    )
+
+    rc = workstation_main(
+        [
+            "--verify-controlled-route-preflight-receipt-json",
+            str(receipt_path),
+        ]
+    )
+
+    assert rc == 2
+    verification = json.loads(capsys.readouterr().err)
+    assert verification["receipt_verified"] is False
+    assert verification["checks"]["external_receipt_sha256_matches"] is False
+    assert verification["execution_allowed"] is False
+    assert verification["opens_com_ports"] is False
+
 
 def test_fixed_startup_preflight_requires_route_for_controlled_receipt(
     tmp_path,

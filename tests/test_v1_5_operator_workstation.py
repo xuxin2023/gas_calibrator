@@ -24,6 +24,7 @@ from gas_calibrator.v1_5.orchestration.operator_workstation import (
     load_v1_5_decision_authorities,
     preflight_v1_5_controlled_mature_route,
     run_v1_5_operator_workstation_application,
+    verify_v1_5_controlled_route_preflight_receipt,
     write_v1_5_archive_authority_confirmation_receipt,
     write_v1_5_controlled_route_preflight_receipt,
     write_v1_5_operator_workstation_startup_receipt,
@@ -1075,6 +1076,27 @@ def test_controlled_route_preflight_receipt_is_locked_and_immutable(
     assert written["real_execution_authorized"] is False
     assert payload["status"] == "preflight_recorded_execution_locked"
 
+    verification = verify_v1_5_controlled_route_preflight_receipt(
+        output_path,
+        expected_receipt_sha256=written["sha256"],
+    )
+    assert verification["status"] == (
+        "verified_preflight_receipt_execution_locked"
+    )
+    assert verification["receipt_verified"] is True
+    assert all(verification["checks"].values())
+    assert verification["route_binding"]["route_kind"] == "co2"
+    assert verification["execution_allowed"] is False
+    assert verification["opens_com_ports"] is False
+
+    missing_anchor = verify_v1_5_controlled_route_preflight_receipt(
+        output_path,
+        expected_receipt_sha256="",
+    )
+    assert missing_anchor["receipt_verified"] is False
+    assert missing_anchor["checks"]["external_receipt_sha256_matches"] is False
+    assert missing_anchor["execution_allowed"] is False
+
     with pytest.raises(FileExistsError):
         write_v1_5_controlled_route_preflight_receipt(
             plan,
@@ -1107,6 +1129,69 @@ def test_controlled_route_preflight_receipt_detects_post_preflight_queue_drift(
     ]
     assert receipt["real_execution_authorized"] is False
     assert receipt["promotion_state"] == "blocked"
+
+
+def test_controlled_route_preflight_receipt_verification_detects_queue_drift(
+    tmp_path: Path,
+) -> None:
+    plan = _controlled_route_plan(tmp_path)
+    preflight = _execute_controlled_route(
+        plan,
+        "h2o",
+        lambda _argv: 0,
+        execute=False,
+    )
+    output_path = tmp_path / "h2o_preflight_receipt.json"
+    written = write_v1_5_controlled_route_preflight_receipt(
+        plan,
+        preflight,
+        output_path,
+    )
+    route = next(row for row in plan["routes"] if row["route_kind"] == "h2o")
+    Path(route["queue_csv"]).write_text("drifted\n", encoding="utf-8")
+
+    verification = verify_v1_5_controlled_route_preflight_receipt(
+        output_path,
+        expected_receipt_sha256=written["sha256"],
+    )
+
+    assert verification["receipt_verified"] is False
+    assert verification["checks"]["external_receipt_sha256_matches"] is True
+    assert verification["checks"]["queue_source_unchanged"] is False
+    assert verification["status"] == "blocked_preflight_receipt_verification"
+    assert verification["execution_allowed"] is False
+
+
+def test_controlled_route_preflight_receipt_verification_rejects_unsafe_rewrite(
+    tmp_path: Path,
+) -> None:
+    plan = _controlled_route_plan(tmp_path)
+    preflight = _execute_controlled_route(
+        plan,
+        "co2",
+        lambda _argv: 0,
+        execute=False,
+    )
+    output_path = tmp_path / "unsafe_preflight_receipt.json"
+    write_v1_5_controlled_route_preflight_receipt(plan, preflight, output_path)
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    payload["real_execution_authorized"] = True
+    output_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    rewritten_sha = hashlib.sha256(output_path.read_bytes()).hexdigest()
+
+    verification = verify_v1_5_controlled_route_preflight_receipt(
+        output_path,
+        expected_receipt_sha256=rewritten_sha,
+    )
+
+    assert verification["checks"]["external_receipt_sha256_matches"] is True
+    assert verification["checks"]["execution_lock_preserved"] is False
+    assert verification["receipt_verified"] is False
+    assert verification["execution_allowed"] is False
 
 
 def test_runtime_config_gate_accepts_unique_protocol_bound_pressure_ports(

@@ -28,6 +28,7 @@ from ..orchestration.operator_workstation import (
     inspect_v1_5_runtime_config,
     preflight_v1_5_controlled_mature_route,
     run_v1_5_operator_workstation_application,
+    verify_v1_5_controlled_route_preflight_receipt,
     write_v1_5_archive_authority_confirmation_receipt,
     write_v1_5_controlled_route_preflight_receipt,
     write_v1_5_operator_workstation_startup_receipt,
@@ -2263,6 +2264,22 @@ def _parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--verify-controlled-route-preflight-receipt-json",
+        default=None,
+        help=(
+            "Verify one saved controlled-route preflight receipt and its current "
+            "bound inputs read-only, then exit without constructing Tk."
+        ),
+    )
+    parser.add_argument(
+        "--expected-controlled-route-preflight-receipt-sha256",
+        default=None,
+        help=(
+            "Required external SHA-256 anchor for "
+            "--verify-controlled-route-preflight-receipt-json."
+        ),
+    )
+    parser.add_argument(
         "--validate-startup-only",
         action="store_true",
         help="Validate config and 45/13 queues without constructing Tk or opening COM.",
@@ -2340,6 +2357,22 @@ def _print_receipt_write_error(
 
 def main(argv: Iterable[str] | None = None) -> int:
     args = _parse_args(argv)
+    verification_receipt = str(
+        args.verify_controlled_route_preflight_receipt_json or ""
+    ).strip()
+    verification_sha256 = str(
+        args.expected_controlled_route_preflight_receipt_sha256 or ""
+    ).strip()
+    if verification_receipt or verification_sha256:
+        verification = verify_v1_5_controlled_route_preflight_receipt(
+            verification_receipt,
+            expected_receipt_sha256=verification_sha256,
+        )
+        print(
+            json.dumps(verification, ensure_ascii=False, indent=2),
+            file=sys.stdout if verification["receipt_verified"] else sys.stderr,
+        )
+        return 0 if verification["receipt_verified"] else 2
     initial_settings = _initial_settings_from_args(args)
     fixed_start_requested = bool(
         initial_settings
