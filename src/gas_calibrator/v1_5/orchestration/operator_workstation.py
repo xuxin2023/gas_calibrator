@@ -1990,6 +1990,33 @@ def execute_v1_5_controlled_mature_route(
     return result
 
 
+def preflight_v1_5_controlled_mature_route(
+    plan: Mapping[str, Any],
+    *,
+    route_kind: str,
+) -> dict[str, Any]:
+    """Run the shared hash-bound mature-route preflight with execution locked."""
+
+    selected = str(route_kind or "").strip().lower()
+    inspection_value = plan.get("runtime_config_inspection")
+    inspection = inspection_value if isinstance(inspection_value, Mapping) else {}
+    route = next(
+        (
+            row
+            for row in plan.get("routes") or []
+            if isinstance(row, Mapping) and row.get("route_kind") == selected
+        ),
+        {},
+    )
+    return execute_v1_5_controlled_mature_route(
+        plan,
+        route_kind=selected,
+        execute=False,
+        expected_runtime_config_sha256=str(inspection.get("sha256") or ""),
+        expected_queue_csv_sha256=str(route.get("queue_csv_sha256") or ""),
+    )
+
+
 def build_v1_5_controlled_route_preflight_receipt(
     plan: Mapping[str, Any],
     preflight: Mapping[str, Any],
@@ -2230,6 +2257,7 @@ __all__ = [
     "execute_v1_5_response_only_simulation",
     "inspect_v1_5_runtime_config",
     "load_v1_5_decision_authorities",
+    "preflight_v1_5_controlled_mature_route",
     "run_v1_5_operator_workstation_application",
     "write_v1_5_archive_authority_confirmation_receipt",
     "write_v1_5_controlled_route_preflight_receipt",

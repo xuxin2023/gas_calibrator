@@ -22,6 +22,7 @@ from gas_calibrator.v1_5.orchestration.operator_workstation import (
     execute_v1_5_response_only_simulation,
     inspect_v1_5_runtime_config,
     load_v1_5_decision_authorities,
+    preflight_v1_5_controlled_mature_route,
     run_v1_5_operator_workstation_application,
     write_v1_5_archive_authority_confirmation_receipt,
     write_v1_5_controlled_route_preflight_receipt,
@@ -1000,6 +1001,43 @@ def test_controlled_mature_route_never_retries_runner_failure(
     assert result["runner_invocation_count"] == 1
     assert result["automatic_retry_count"] == 0
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize("route_kind", ["co2", "h2o"])
+def test_shared_controlled_route_preflight_always_locks_execution(
+    tmp_path: Path,
+    monkeypatch,
+    route_kind: str,
+) -> None:
+    plan = _controlled_route_plan(tmp_path)
+    calls: list[dict] = []
+
+    def recording_execute(received_plan, **kwargs):
+        assert received_plan is plan
+        calls.append(dict(kwargs))
+        return {"status": "preflight_ready_execution_locked"}
+
+    monkeypatch.setattr(
+        workstation_module,
+        "execute_v1_5_controlled_mature_route",
+        recording_execute,
+    )
+
+    result = preflight_v1_5_controlled_mature_route(
+        plan,
+        route_kind=route_kind,
+    )
+
+    expected_runtime_sha, expected_queue_sha = _route_hashes(plan, route_kind)
+    assert result["status"] == "preflight_ready_execution_locked"
+    assert calls == [
+        {
+            "route_kind": route_kind,
+            "execute": False,
+            "expected_runtime_config_sha256": expected_runtime_sha,
+            "expected_queue_csv_sha256": expected_queue_sha,
+        }
+    ]
 
 
 def test_controlled_route_preflight_receipt_is_locked_and_immutable(

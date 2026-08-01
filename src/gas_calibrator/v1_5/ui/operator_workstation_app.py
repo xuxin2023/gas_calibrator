@@ -24,9 +24,9 @@ from ..certificate_metrics_registry import CertificateMetricsRegistry
 from ..orchestration.operator_workstation import (
     V1_5_ARCHIVE_AUTHORITY_CONFIRMATION_TEXT,
     build_v1_5_operator_workstation_plan,
-    execute_v1_5_controlled_mature_route,
     execute_v1_5_operator_workstation_dry_run,
     inspect_v1_5_runtime_config,
+    preflight_v1_5_controlled_mature_route,
     run_v1_5_operator_workstation_application,
     write_v1_5_archive_authority_confirmation_receipt,
     write_v1_5_controlled_route_preflight_receipt,
@@ -1750,21 +1750,9 @@ class OperatorWorkstationApp:
         )
         try:
             plan = self._plan()
-            route = next(
-                (
-                    row
-                    for row in plan.get("routes") or []
-                    if row.get("route_kind") == route_kind
-                ),
-                {},
-            )
-            inspection = dict(plan.get("runtime_config_inspection") or {})
-            result = execute_v1_5_controlled_mature_route(
+            result = preflight_v1_5_controlled_mature_route(
                 plan,
                 route_kind=route_kind,
-                execute=False,
-                expected_runtime_config_sha256=str(inspection.get("sha256") or ""),
-                expected_queue_csv_sha256=str(route.get("queue_csv_sha256") or ""),
             )
         except Exception as exc:  # pragma: no cover - defensive UI boundary
             result = {
@@ -2258,6 +2246,23 @@ def _parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         help="Exact acknowledgement required for a confirmed archive receipt.",
     )
     parser.add_argument(
+        "--controlled-route-preflight-route",
+        choices=("co2", "h2o"),
+        default=None,
+        help=(
+            "Run one hash-bound CO2/H2O offline preflight and exit without "
+            "constructing Tk or invoking a mature runner."
+        ),
+    )
+    parser.add_argument(
+        "--controlled-route-preflight-receipt-json",
+        default=None,
+        help=(
+            "Write the selected route preflight as an immutable JSON receipt. "
+            "Requires --controlled-route-preflight-route."
+        ),
+    )
+    parser.add_argument(
         "--validate-startup-only",
         action="store_true",
         help="Validate config and 45/13 queues without constructing Tk or opening COM.",
@@ -2341,11 +2346,16 @@ def main(argv: Iterable[str] | None = None) -> int:
         or args.validate_startup_only
         or args.startup_receipt_json
         or args.authority_confirmation_receipt_json
+        or args.controlled_route_preflight_route
+        or args.controlled_route_preflight_receipt_json
     )
     if fixed_start_requested:
         plan = _startup_preflight(initial_settings)
         receipt = None
         authority_confirmation_receipt = None
+        controlled_route_preflight = None
+        controlled_route_preflight_receipt = None
+        argument_blockers: list[str] = []
         if str(args.startup_receipt_json or "").strip():
             try:
                 receipt = write_v1_5_operator_workstation_startup_receipt(
@@ -2378,9 +2388,58 @@ def main(argv: Iterable[str] | None = None) -> int:
                     exc=exc,
                 )
                 return 2
+        controlled_route = str(
+            args.controlled_route_preflight_route or ""
+        ).strip()
+        controlled_receipt_path = str(
+            args.controlled_route_preflight_receipt_json or ""
+        ).strip()
+        if controlled_receipt_path and not controlled_route:
+            argument_blockers.append(
+                "controlled_route_preflight_receipt_requires_route"
+            )
+        if controlled_route:
+            controlled_route_preflight = preflight_v1_5_controlled_mature_route(
+                plan,
+                route_kind=controlled_route,
+            )
+            if controlled_receipt_path:
+                try:
+                    controlled_route_preflight_receipt = (
+                        write_v1_5_controlled_route_preflight_receipt(
+                            plan,
+                            controlled_route_preflight,
+                            controlled_receipt_path,
+                        )
+                    )
+                except OSError as exc:
+                    _print_receipt_write_error(
+                        receipt_key="controlled_route_preflight_receipt",
+                        output_path=controlled_receipt_path,
+                        exc=exc,
+                    )
+                    return 2
+            if (
+                controlled_route_preflight.get("status")
+                != "preflight_ready_execution_locked"
+            ):
+                argument_blockers.extend(
+                    f"controlled_route_preflight:{reason}"
+                    for reason in controlled_route_preflight.get("blockers") or []
+                )
+                if not controlled_route_preflight.get("blockers"):
+                    argument_blockers.append(
+                        "controlled_route_preflight:not_execution_locked"
+                    )
+        summary_blockers = [
+            *list(plan.get("blockers") or []),
+            *argument_blockers,
+        ]
         summary = {
-            "status": plan.get("overall_status"),
-            "blockers": list(plan.get("blockers") or []),
+            "status": (
+                "blocked" if summary_blockers else plan.get("overall_status")
+            ),
+            "blockers": summary_blockers,
             "warnings": list(plan.get("warnings") or []),
             "runtime_config": plan.get("runtime_config"),
             "runtime_config_inspection": plan.get("runtime_config_inspection"),
@@ -2395,14 +2454,18 @@ def main(argv: Iterable[str] | None = None) -> int:
             "opens_com_ports": False,
             "startup_receipt": receipt,
             "authority_confirmation_receipt": authority_confirmation_receipt,
+            "controlled_route_preflight": controlled_route_preflight,
+            "controlled_route_preflight_receipt": (
+                controlled_route_preflight_receipt
+            ),
         }
-        if plan.get("blockers") or (
+        if summary_blockers or (
             authority_confirmation_receipt is not None
             and authority_confirmation_receipt.get("status") != "confirmed"
         ):
             print(json.dumps(summary, ensure_ascii=False, indent=2), file=sys.stderr)
             return 2
-        if args.validate_startup_only:
+        if args.validate_startup_only or controlled_route:
             print(json.dumps(summary, ensure_ascii=False, indent=2))
             return 0
 
