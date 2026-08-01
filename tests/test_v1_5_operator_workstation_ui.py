@@ -164,10 +164,31 @@ def test_operator_workstation_is_v1_5_first_chinese_and_1080p_ready() -> None:
 
 def test_controlled_handoff_preview_is_read_only_and_keeps_double_unlock(
     tmp_path,
+    monkeypatch,
 ) -> None:
     root = _root()
     repository_root = Path(__file__).resolve().parents[1]
     co2, h2o = write_legacy_profile_queues(tmp_path)
+    preflight_calls: list[dict] = []
+    real_preflight = workstation_ui.execute_v1_5_controlled_mature_route
+
+    def recording_preflight(plan, **kwargs):
+        preflight_calls.append(dict(kwargs))
+
+        def forbidden_runner(_argv):
+            raise AssertionError("offline UI preflight must not call a mature runner")
+
+        return real_preflight(
+            plan,
+            **kwargs,
+            runner_overrides={"co2": forbidden_runner, "h2o": forbidden_runner},
+        )
+
+    monkeypatch.setattr(
+        workstation_ui,
+        "execute_v1_5_controlled_mature_route",
+        recording_preflight,
+    )
     try:
         app = OperatorWorkstationApp(
             root,
@@ -199,6 +220,30 @@ def test_controlled_handoff_preview_is_read_only_and_keeps_double_unlock(
         assert "--engineering-probe-only" in preview
         assert "--no-ftd-write" in preview
         assert "<OPERATOR_CONFIRMATION_REQUIRED_AT_EXECUTION>" in preview
+        dialog_text = "\n".join(_texts(app._handoff_dialog))
+        assert app.controlled_route_var.get() == "CO₂"
+        assert app.controlled_preflight_button is not None
+        assert str(app.controlled_preflight_button.cget("text")) == _t(
+            "handoff.preflight.run"
+        )
+        assert _t("handoff.preflight.locked") in dialog_text
+
+        co2_preflight = app.run_controlled_route_preflight()
+        assert co2_preflight["route_kind"] == "co2"
+        assert co2_preflight["status"] == "preflight_ready_execution_locked"
+        assert co2_preflight["execution_started"] is False
+        assert co2_preflight["execution_allowed"] is False
+        assert co2_preflight["runner_invocation_count"] == 0
+        assert "预检通过" in app.controlled_preflight_var.get()
+
+        app.controlled_route_var.set("H₂O")
+        h2o_preflight = app.run_controlled_route_preflight()
+        assert h2o_preflight["route_kind"] == "h2o"
+        assert h2o_preflight["status"] == "preflight_ready_execution_locked"
+        assert h2o_preflight["runner_invocation_count"] == 0
+        assert [call["execute"] for call in preflight_calls] == [False, False]
+        assert all("authorization_text" not in call for call in preflight_calls)
+        assert app._handoff_dialog.winfo_height() <= 1080
 
         dialog_text = "\n".join(_texts(app._handoff_dialog))
         assert "此窗口不执行任何命令" in dialog_text
@@ -727,6 +772,10 @@ def test_operator_workstation_summary_pages_share_one_read_only_snapshot() -> No
 def test_operator_workstation_i18n_defaults_to_chinese_with_english_fallback() -> None:
     assert _t("title") == "V1.5 气体分析仪校准工作站"
     assert _t("title", locale="en_US") == "V1.5 Gas Analyzer Calibration Workstation"
+    assert _t("handoff.preflight.run") == "离线预检（不执行）"
+    assert _t("handoff.preflight.run", locale="en_US") == (
+        "Offline preflight (no execution)"
+    )
     assert _t("route.zero", locale="en_US") == "CO₂ 零气锚点"
     assert _t("evidence.pressure_gauge_short") == "表"
     assert OperatorWorkstationApp._format_pressure_delta(

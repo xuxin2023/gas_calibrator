@@ -24,6 +24,7 @@ from ..certificate_metrics_registry import CertificateMetricsRegistry
 from ..orchestration.operator_workstation import (
     V1_5_ARCHIVE_AUTHORITY_CONFIRMATION_TEXT,
     build_v1_5_operator_workstation_plan,
+    execute_v1_5_controlled_mature_route,
     execute_v1_5_operator_workstation_dry_run,
     inspect_v1_5_runtime_config,
     run_v1_5_operator_workstation_application,
@@ -219,8 +220,31 @@ _TEXT = {
         "error.blocked": "V1.5 演练入口被阻断：\n{reasons}",
         "error.failed": "V1.5 dry-run 未通过：\n{reasons}",
         "info.pass": "成熟 V1.5 路径演练通过：CO₂ 45 点，H₂O 13 点。",
+        "handoff.preflight.title": "成熟路线离线预检",
+        "handoff.preflight.route": "预检路线",
+        "handoff.preflight.run": "离线预检（不执行）",
+        "handoff.preflight.locked": "尚未预检｜真实执行保持锁定",
+        "handoff.preflight.ready": (
+            "预检通过｜{route} 配置、队列与 45/13 点合同一致｜真实执行仍锁定"
+        ),
+        "handoff.preflight.blocked": "预检阻断｜{route}｜{reasons}",
+        "handoff.preflight.note": (
+            "仅校验绑定和参数，不打开 COM、不控制气路、不调用成熟运行器。"
+        ),
     },
     "en_US": {
+        "handoff.preflight.title": "Mature route offline preflight",
+        "handoff.preflight.route": "Route",
+        "handoff.preflight.run": "Offline preflight (no execution)",
+        "handoff.preflight.locked": "Not checked | real execution remains locked",
+        "handoff.preflight.ready": (
+            "Preflight passed | {route} config, queue, and 45/13 contract match | "
+            "real execution remains locked"
+        ),
+        "handoff.preflight.blocked": "Preflight blocked | {route} | {reasons}",
+        "handoff.preflight.note": (
+            "Validates bindings and arguments only; no COM, route control, or mature runner call."
+        ),
         "dialog.authority_archive": "Formal archive index (optional, read-only)",
         "dialog.authority_run_id": "Expected formal batch ID (required with archive)",
         "dialog.authority_device_ids": "Expected device IDs (comma-separated, required)",
@@ -407,6 +431,13 @@ class OperatorWorkstationApp:
         self._settings_dialog: tk.Toplevel | None = None
         self._handoff_dialog: tk.Toplevel | None = None
         self._handoff_preview_widget: tk.Text | None = None
+        self.controlled_route_var = tk.StringVar(master=root, value="CO₂")
+        self.controlled_preflight_var = tk.StringVar(
+            master=root,
+            value=_t("handoff.preflight.locked", locale=locale),
+        )
+        self.last_controlled_preflight: dict[str, Any] | None = None
+        self.controlled_preflight_button: ttk.Button | None = None
         self.pages: dict[str, tk.Widget] = {}
         self.nav_buttons: dict[str, ttk.Button] = {}
         self._presentation_active = False
@@ -1687,6 +1718,67 @@ class OperatorWorkstationApp:
             )
         return "\n".join(lines)
 
+    def run_controlled_route_preflight(self) -> dict[str, Any]:
+        """Validate one mature route while keeping execution unconditionally off."""
+
+        route_kind = "h2o" if self.controlled_route_var.get() == "H₂O" else "co2"
+        route_label = _t(
+            "route.h2o" if route_kind == "h2o" else "route.co2",
+            locale=self.locale,
+        )
+        try:
+            plan = self._plan()
+            route = next(
+                (
+                    row
+                    for row in plan.get("routes") or []
+                    if row.get("route_kind") == route_kind
+                ),
+                {},
+            )
+            inspection = dict(plan.get("runtime_config_inspection") or {})
+            result = execute_v1_5_controlled_mature_route(
+                plan,
+                route_kind=route_kind,
+                execute=False,
+                expected_runtime_config_sha256=str(inspection.get("sha256") or ""),
+                expected_queue_csv_sha256=str(route.get("queue_csv_sha256") or ""),
+            )
+        except Exception as exc:  # pragma: no cover - defensive UI boundary
+            result = {
+                "overall_status": "blocked",
+                "status": "preflight_exception",
+                "blockers": [f"{type(exc).__name__}: {exc}"],
+                "execution_started": False,
+                "execution_allowed": False,
+                "runner_invocation_count": 0,
+            }
+        self.last_controlled_preflight = result
+        ready = (
+            result.get("status") == "preflight_ready_execution_locked"
+            and result.get("execution_started") is False
+            and result.get("execution_allowed") is False
+            and int(result.get("runner_invocation_count") or 0) == 0
+        )
+        if ready:
+            text = _t(
+                "handoff.preflight.ready",
+                locale=self.locale,
+                route=route_label,
+            )
+        else:
+            reasons = list(result.get("blockers") or []) or [
+                "preflight_result_not_execution_locked"
+            ]
+            text = _t(
+                "handoff.preflight.blocked",
+                locale=self.locale,
+                route=route_label,
+                reasons="；".join(str(reason) for reason in reasons),
+            )
+        self.controlled_preflight_var.set(text)
+        return result
+
     def open_controlled_handoff_preview(self) -> None:
         if self._handoff_dialog is not None and self._handoff_dialog.winfo_exists():
             self._handoff_dialog.lift()
@@ -1696,8 +1788,8 @@ class OperatorWorkstationApp:
         dialog = tk.Toplevel(self.root)
         self._handoff_dialog = dialog
         dialog.title(_t("handoff.title", locale=self.locale))
-        dialog.geometry("980x640")
-        dialog.minsize(760, 520)
+        dialog.geometry("980x720")
+        dialog.minsize(760, 600)
         dialog.configure(bg=_COLORS["surface"])
         dialog.transient(self.root)
 
@@ -1749,6 +1841,59 @@ class OperatorWorkstationApp:
         preview.pack(side="left", fill="both", expand=True)
         preview_scrollbar.pack(side="right", fill="y")
         self._handoff_preview_widget = preview
+
+        preflight = self._panel(dialog)
+        preflight.pack(fill="x", padx=20, pady=(0, 12))
+        self._label(
+            preflight,
+            _t("handoff.preflight.title", locale=self.locale),
+            size=11,
+            weight="bold",
+        ).grid(row=0, column=0, columnspan=3, sticky="w", padx=14, pady=(12, 4))
+        self._label(
+            preflight,
+            _t("handoff.preflight.route", locale=self.locale),
+            size=9,
+        ).grid(row=1, column=0, sticky="w", padx=(14, 8), pady=6)
+        self.controlled_route_selector = ttk.Combobox(
+            preflight,
+            textvariable=self.controlled_route_var,
+            values=("CO₂", "H₂O"),
+            state="readonly",
+            width=10,
+            style="Site.TCombobox",
+        )
+        self.controlled_route_selector.grid(row=1, column=1, sticky="w", pady=6)
+        self.controlled_preflight_button = ttk.Button(
+            preflight,
+            text=_t("handoff.preflight.run", locale=self.locale),
+            style="Accent.TButton",
+            command=self.run_controlled_route_preflight,
+        )
+        self.controlled_preflight_button.grid(
+            row=1,
+            column=2,
+            sticky="e",
+            padx=14,
+            pady=6,
+        )
+        preflight.grid_columnconfigure(2, weight=1)
+        self._label(
+            preflight,
+            textvariable=self.controlled_preflight_var,
+            size=9,
+            color="amber",
+            wraplength=900,
+            justify="left",
+        ).grid(row=2, column=0, columnspan=3, sticky="w", padx=14, pady=(4, 2))
+        self._label(
+            preflight,
+            _t("handoff.preflight.note", locale=self.locale),
+            size=8,
+            color="muted",
+            wraplength=900,
+            justify="left",
+        ).grid(row=3, column=0, columnspan=3, sticky="w", padx=14, pady=(2, 12))
 
         actions = tk.Frame(dialog, bg=_COLORS["surface"])
         actions.pack(fill="x", padx=20, pady=(0, 18))
