@@ -2364,10 +2364,38 @@ def main(argv: Iterable[str] | None = None) -> int:
         args.expected_controlled_route_preflight_receipt_sha256 or ""
     ).strip()
     if verification_receipt or verification_sha256:
+        mixed_mode = any(
+            (
+                args.config,
+                args.co2_queue_csv,
+                args.h2o_queue_csv,
+                args.output_dir,
+                args.runtime_dir,
+                args.certificate,
+                args.decision_authority_archive_json,
+                args.expected_authority_run_id,
+                args.expected_authority_device_ids,
+                args.startup_receipt_json,
+                args.authority_confirmation_receipt_json,
+                args.authority_confirmation_operator,
+                args.authority_confirmation_text,
+                args.controlled_route_preflight_route,
+                args.controlled_route_preflight_receipt_json,
+                args.validate_startup_only,
+            )
+        )
         verification = verify_v1_5_controlled_route_preflight_receipt(
             verification_receipt,
             expected_receipt_sha256=verification_sha256,
         )
+        verification["exclusive_cli_verification_mode"] = not mixed_mode
+        verification["checks"]["exclusive_cli_verification_mode"] = not mixed_mode
+        if mixed_mode:
+            verification["receipt_verified"] = False
+            verification["status"] = "blocked_preflight_receipt_verification"
+            verification["blockers"].append(
+                "preflight_receipt_verification_mixed_mode_arguments_not_allowed"
+            )
         print(
             json.dumps(verification, ensure_ascii=False, indent=2),
             file=sys.stdout if verification["receipt_verified"] else sys.stderr,

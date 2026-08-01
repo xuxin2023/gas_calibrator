@@ -510,6 +510,25 @@ def test_fixed_startup_preflight_writes_controlled_route_receipt_without_tk(
     assert verification["execution_allowed"] is False
     assert verification["opens_com_ports"] is False
 
+    mixed_rc = workstation_main(
+        [
+            "--verify-controlled-route-preflight-receipt-json",
+            str(receipt_path),
+            "--expected-controlled-route-preflight-receipt-sha256",
+            written["sha256"],
+            "--controlled-route-preflight-route",
+            route_kind,
+        ]
+    )
+    assert mixed_rc == 2
+    mixed = json.loads(capsys.readouterr().err)
+    assert mixed["receipt_verified"] is False
+    assert mixed["exclusive_cli_verification_mode"] is False
+    assert (
+        "preflight_receipt_verification_mixed_mode_arguments_not_allowed"
+        in mixed["blockers"]
+    )
+
 
 def test_controlled_route_receipt_cli_verification_requires_external_sha(
     tmp_path,
