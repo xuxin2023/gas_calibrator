@@ -116,16 +116,23 @@ def test_fit_ratio_poly_rt_p_recovers_coefficients() -> None:
     assert abs(result.original_coefficients["a0"] - 42.5) < 1e-5
     assert abs(result.original_coefficients["a8"] - 0.0045) < 1e-8
     assert result.stats["dataset_split"]["train_count"] >= 9
-    assert result.stats["dataset_split"]["fit_scope"] == "full_dataset"
+    assert result.stats["dataset_split"]["fit_scope"] == "train"
+    assert result.stats["selection_scope"] == "train"
+    assert result.stats["leakage_safe"] is True
     assert "validation_metrics" in result.stats
     assert "test_metrics" in result.stats
 
 
-def test_fit_ratio_poly_rt_p_uses_full_dataset_for_coefficients() -> None:
+def test_fit_ratio_poly_rt_p_uses_train_dataset_for_coefficients() -> None:
     rows = _synthetic_summary_rows()
     dataframe = records_to_dataframe(rows)
-    x_matrix, _terms = build_feature_matrix(
+    train_df, _val_df, _test_df, _metadata = split_dataset(
         dataframe,
+        random_seed=13,
+        return_metadata=True,
+    )
+    x_matrix, _terms = build_feature_matrix(
+        train_df,
         ratio_column="R_CO2",
         temperature_column="T1",
         pressure_column="BAR",
@@ -133,7 +140,7 @@ def test_fit_ratio_poly_rt_p_uses_full_dataset_for_coefficients() -> None:
         temperature_offset_c=273.15,
         add_intercept=True,
     )
-    y_vector = dataframe["ppm_CO2_Tank"].astype(float).to_numpy()
+    y_vector = train_df["ppm_CO2_Tank"].astype(float).to_numpy()
     expected, *_ = np.linalg.lstsq(x_matrix, y_vector, rcond=None)
 
     result = fit_ratio_poly_rt_p(
@@ -149,6 +156,31 @@ def test_fit_ratio_poly_rt_p_uses_full_dataset_for_coefficients() -> None:
 
     actual = np.array([result.original_coefficients[f"a{index}"] for index in range(len(expected))], dtype=float)
     assert np.allclose(actual, expected)
+    assert set(result.stats["dataset_split"]["fit_indices"]).issubset(set(result.stats["dataset_split"]["raw_train_indices"]))
+    assert set(result.stats["dataset_split"]["fit_indices"]).isdisjoint(set(result.stats["dataset_split"]["validation_indices"]))
+    assert set(result.stats["dataset_split"]["fit_indices"]).isdisjoint(set(result.stats["dataset_split"]["test_indices"]))
+
+
+def test_fit_ratio_poly_rt_p_simplification_selection_never_reads_test() -> None:
+    result = fit_ratio_poly_rt_p(
+        _synthetic_summary_rows(),
+        gas="co2",
+        target_key="ppm_CO2_Tank",
+        ratio_keys=("R_CO2",),
+        temp_keys=("T1",),
+        pressure_keys=("BAR",),
+        auto_target_digits=True,
+        digit_candidates=(8, 7, 6, 5),
+        simplify_rmse_tolerance=0.0,
+        simplification_selection_scope="train",
+        random_seed=17,
+    )
+
+    selection_indices = set(result.stats["dataset_split"]["selection_indices"])
+    test_indices = set(result.stats["dataset_split"]["test_indices"])
+    assert result.stats["selection_scope"] == "train"
+    assert selection_indices.isdisjoint(test_indices)
+    assert result.stats["simplification_summary"]["selection_scope"] == "train"
 
 
 def test_fit_ratio_poly_supports_ridge_like_and_outlier_filtering() -> None:
@@ -250,7 +282,7 @@ def test_fit_ratio_poly_rt_p_evolved_is_more_robust_with_outlier() -> None:
     assert evolved.stats["downweighted_samples"] >= 1
     assert "validation_metrics" in evolved.stats
     assert "test_metrics" in evolved.stats
-    assert basic.stats["dataset_split"]["fit_scope"] == "full_dataset"
+    assert basic.stats["dataset_split"]["fit_scope"] == "train"
 
 
 def test_build_feature_matrix_keeps_fixed_feature_order() -> None:

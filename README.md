@@ -51,6 +51,22 @@ without changing `run_app.py` or the frozen V1 UI. The obsolete
 `run_v1_postprocess.py` GUI was retired because it depended on a removed V2
 interface and exposed coefficient download as its default action.
 
+## Offline Modeling
+
+For offline ratio-poly modeling, `Validation` and `Test` are strict holdout
+sets. The current holdout-safe behavior is:
+
+- split the dataset before outlier filtering
+- run outlier detection on `train` only
+- fit original coefficients on `train` only
+- choose simplification digits on `train` by default, or on `train+validation`
+  only when explicitly configured
+- keep `validation` and `test` for evaluation only
+
+When point-level grouping metadata such as `PointTag` / `PointRow` /
+`PointPhase` is present, offline modeling prefers group-aware splitting and
+falls back to random splitting otherwise.
+
 ### GitHub sync
 
 ```powershell

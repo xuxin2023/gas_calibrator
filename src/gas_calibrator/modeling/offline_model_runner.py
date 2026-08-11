@@ -226,6 +226,7 @@ def run_offline_modeling_analysis(
         target_digits=int(simplification_cfg.get("target_digits", 6)),
         digit_candidates=tuple(simplification_cfg.get("digit_candidates", [8, 7, 6, 5, 4])),
         simplify_rmse_tolerance=float(simplification_cfg.get("rmse_tolerance", 0.0)),
+        simplification_selection_scope=str(simplification_cfg.get("selection_scope", "train")),
         train_ratio=float(modeling.get("dataset_split", {}).get("train_ratio", 0.7)),
         val_ratio=float(modeling.get("dataset_split", {}).get("val_ratio", 0.15)),
         random_seed=int(modeling.get("dataset_split", {}).get("random_seed", 42)),
